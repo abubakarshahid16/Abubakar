@@ -1,16 +1,19 @@
-"""Order 14 lane P: draft review playbooks for general contractor procedures (pressure test, welding, PMI),
+"""Order 14 lane P: draft review playbooks for general contractor procedures (pressure test, on-plot piping welding, PMI),
 built only from rule books the library holds.
 
 INVENTED documents and an invented library only (CLAUDE.md rule 3): the books are invented COMPANY_STANDARD rows
 carrying public designations, the page texts are invented sentences. The quotes in the shipped files are checked
-against the real stored pages by `scripts/playbook_quote_check.py` on a database copy; here the check itself is
-tested, with a forged quote that must fail.
+against the real stored pages by `scripts/playbook_quote_check.py` on a database copy, which records each verified
+source's fingerprint (a hash, never text) in `fixtures/playbook_verified_quotes.json`; here the check itself is tested
+with forged values, and every shipped verified source must still match its recorded fingerprint.
 """
 
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -27,10 +30,12 @@ from tests.test_1522_procedure_playbook_rows import (
 from tests.test_w5b_679_playbooks import hold
 
 REF = Path(playbooks.__file__).parent / "reference"
-NEW = ("pressure_test_procedure", "welding_procedure", "pmi_procedure")
+REPO = Path(playbooks.__file__).resolve().parents[2]
+FIXTURE = Path(__file__).parent / "fixtures" / "playbook_verified_quotes.json"
+NEW = ("pressure_test_procedure", "piping_welding_procedure", "pmi_procedure")
 QUOTED_BOOKS = {
     "pressure_test_procedure": {"SAES-A-004", "SAES-A-007"},
-    "welding_procedure": {"SAES-W-011"},
+    "piping_welding_procedure": {"SAES-W-011"},
     "pmi_procedure": {"SAES-A-206"},
 }
 
@@ -39,6 +44,13 @@ def _found():
     found, broken = playbooks.available()
     assert broken == [], broken
     return found
+
+
+def _gates():
+    sys.path.insert(0, str(REPO / "scripts"))
+    import crs_gates
+
+    return crs_gates
 
 
 # ------------------------------------------------------------------ the shipped files
@@ -78,28 +90,63 @@ def test_a_quoted_element_has_its_page_and_a_book_missing_element_has_no_quote()
         for e in quoted:
             assert e.page and e.page >= 1 and e.verified, (pid, e.id)
             assert e.standard in QUOTED_BOOKS[pid], (pid, e.id, e.standard)
-            assert len(e.quote.split()) <= 25, (
-                pid,
-                e.id,
-            )  # a short quote, never a passage of the book
+            assert playbooks.QUOTE_MIN_WORDS <= len(e.quote.split()) <= 25, (pid, e.id)
         for e in found[pid].elements:
             if e.standard not in QUOTED_BOOKS[pid]:
                 assert not e.quote and e.page is None and not e.verified, (pid, e.id)
 
 
-def test_every_title_has_a_cue_of_its_own():
+def test_every_shipped_verified_quote_is_the_one_the_check_verified():
+    """A one-word change to a shipped quote, its page or its clause changes its fingerprint: CI fails until the quote
+    check is run again on the stored pages (`scripts/playbook_quote_check.py --write-fixture`)."""
+    recorded = json.loads(FIXTURE.read_text(encoding="utf-8"))
     found = _found()
-    cues = {
-        pid: set(procedure_playbook_rows.title_cue(pb)) for pid, pb in found.items()
+    shipped = {
+        pb.id: {
+            e.id: playbooks.source_fingerprint(e) for e in pb.elements if e.verified
+        }
+        for pb in found.values()
     }
-    for pid, cue in cues.items():
-        assert cue, pid
-        for other, theirs in cues.items():
-            if other != pid:
-                assert not cue <= theirs, (
-                    pid,
-                    other,
-                )  # a cover naming the other never chooses this one
+    assert {k: v for k, v in shipped.items() if v} == recorded
+
+
+def test_the_fingerprint_moves_with_one_word_of_the_quote_and_with_the_clause():
+    e = next(e for e in _found()["pressure_test_procedure"].elements if e.verified)
+    words = e.quote.split()
+    forged = dataclasses.replace(e, quote=" ".join([*words[:-1], words[-1] + "x"]))
+    assert playbooks.source_fingerprint(forged) != playbooks.source_fingerprint(e)
+    assert playbooks.source_fingerprint(
+        dataclasses.replace(e, clause=e.clause + ".9")
+    ) != playbooks.source_fingerprint(e)
+    assert playbooks.source_fingerprint(
+        dataclasses.replace(e, quote="  ".join(words))
+    ) == playbooks.source_fingerprint(e)
+
+
+def test_conditional_elements_say_their_condition():
+    found = _found()
+    conditional = {
+        pid: sorted(e.id for e in found[pid].elements if e.condition) for pid in NEW
+    }
+    assert conditional == {
+        "pressure_test_procedure": ["PT03", "PT04", "PT05", "PT20"],
+        "piping_welding_procedure": ["W09", "W10", "W11", "W17"],
+        "pmi_procedure": [],
+    }
+    for pid, ids in conditional.items():
+        for e in found[pid].elements:
+            if e.id in ids:
+                assert e.expects.startswith("When "), (pid, e.id)
+
+
+# ---------------------------------------------------------------- which paper a playbook reaches
+
+
+def _chosen(cover):
+    text = procedure_playbook_rows.cover_text([(1, cover)])
+    return sorted(
+        pid for pid, pb in _found().items() if procedure_playbook_rows.matches(pb, text)
+    )
 
 
 @pytest.mark.parametrize(
@@ -109,46 +156,103 @@ def test_every_title_has_a_cue_of_its_own():
             "Hydrostatic Pressure Test Procedure\nDocument PT-1 revision 0",
             ["pressure_test_procedure"],
         ),
-        ("WELDING PROCEDURE\nDocument W-1", ["welding_procedure"]),
+        ("Hydrostatic Test Procedure\nDocument PT-2", ["pressure_test_procedure"]),
+        ("HYDROTEST PROCEDURE FOR PLANT PIPING", ["pressure_test_procedure"]),
+        ("Pneumatic Test Procedure", ["pressure_test_procedure"]),
+        ("WELDING PROCEDURE SPECIFICATION\nDocument W-1", ["piping_welding_procedure"]),
+        ("WPS for carbon steel piping", ["piping_welding_procedure"]),
         (
-            "Positive Material Identification (PMI) Procedure\nDocument M-1",
-            ["pmi_procedure"],
+            "Piping Fabrication, Welding and PMI Procedure",
+            ["piping_welding_procedure", "pmi_procedure"],
         ),
+        ("Positive Material Identification Procedure\nDocument M-1", ["pmi_procedure"]),
+        ("PMI Procedure", ["pmi_procedure"]),
         ("HAZOP Study Procedure\nDocument H-1", ["hazop_procedure"]),
     ],
 )
-def test_a_cover_chooses_only_its_own_playbook(cover, chosen):
-    found = _found()
-    text = procedure_playbook_rows.cover_text([(1, cover)])
-    assert (
-        sorted(
-            pid
-            for pid, pb in found.items()
-            if procedure_playbook_rows.matches(pb, text)
-        )
-        == chosen
-    )
+def test_a_cover_naming_the_type_chooses_its_playbook(cover, chosen):
+    assert _chosen(cover) == chosen
 
 
-def test_every_book_a_playbook_quotes_governs_a_procedure_in_the_kind_books_file():
-    """Gate G2 fails a cited book the file does not list for the paper's kind."""
-    from app.standard_ids import same_standard
+@pytest.mark.parametrize(
+    "cover",
+    [
+        "Pressure Safety Valve Bench Test Procedure",
+        "Pressure Transmitter Calibration and Loop Test Procedure",
+        "PRESSURE VESSEL V-101 FACTORY ACCEPTANCE TEST PROCEDURE",
+        "Fire Water Pump Performance Test Procedure\nDischarge Pressure 10 bar",
+        "Relief Valve Hydrostatic Test Procedure",
+        "Pipeline Welding Procedure",
+        "Structural Steel Welding Procedure",
+        "Storage Tank Welding Procedure Specification",
+        "Pressure Vessel Welding Procedure",
+        "Welding Consumables Control Procedure",
+        "Welding Machine Calibration Procedure",
+    ],
+)
+def test_a_cover_of_another_kind_of_work_chooses_no_new_playbook(cover):
+    """Words of a cue scattered over the cover are not the phrase; a cover naming work outside the book's scope is out."""
+    assert not set(_chosen(cover)) & set(NEW), cover
 
-    listed = [
-        e["book"]
-        for e in json.loads((REF / "kind_books.json").read_text(encoding="utf-8"))[
-            "kinds"
-        ]["procedure"]
-    ]
+
+def test_every_title_is_a_cover_for_its_own_playbook_only():
+    for pid, pb in _found().items():
+        assert _chosen(pb.title) == [pid], pid
+
+
+# ------------------------------------------------------------------ gate G2 per procedure type
+
+
+def test_a_quoted_book_governs_only_the_procedure_type_its_playbook_covers():
+    gates = _gates()
+    path = REF / "kind_books.json"
     for pid in NEW:
         for book in QUOTED_BOOKS[pid]:
-            assert any(same_standard(book, x) for x in listed), (pid, book)
+            assert (
+                gates.mapping_from_file(path, "procedure", None, [pid]).judge(
+                    book, "7.1"
+                )[0]
+                == "pass"
+            ), (pid, book)
+            for other in (
+                [],
+                ["hazop_procedure"],
+                ["sil_procedure"],
+                [p for p in NEW if p != pid],
+            ):
+                assert (
+                    gates.mapping_from_file(path, "procedure", None, other).judge(
+                        book, "7.1"
+                    )[0]
+                    == "fail"
+                ), (pid, book, other)
+    hazop = gates.mapping_from_file(path, "procedure", None, ["hazop_procedure"])
+    assert hazop.judge("IEC 61882", "6.1")[0] == "pass"
+    plain = json.loads(path.read_text(encoding="utf-8"))["kinds"]["procedure"]
+    assert not {e["book"] for e in plain} & set().union(*QUOTED_BOOKS.values())
+
+
+def test_the_type_of_a_procedure_paper_is_the_playbook_its_cover_chooses():
+    gates = _gates()
+    _doc(
+        "pt1",
+        [("Scope", "This procedure covers the hydrostatic test.")],
+        cover="Hydrostatic Pressure Test Procedure",
+    )
+    _doc(
+        "hz1",
+        [("Scope", "This procedure covers the HAZOP study.")],
+        cover="HAZOP Procedure",
+    )
+    assert gates.procedure_types("pt1", "procedure") == ["pressure_test_procedure"]
+    assert gates.procedure_types("hz1", "procedure") == ["hazop_procedure"]
+    assert gates.procedure_types("pt1", "datasheet") == []
 
 
 # ------------------------------------------------------------------ the quote check
 
 
-def _pb(elements):
+def _pb(elements, **top):
     return playbooks.parse(
         {
             "format": "review-playbook/1",
@@ -156,13 +260,17 @@ def _pb(elements):
             "title": "Invented check procedure",
             "version": "1",
             "elements": elements,
+            **top,
         },
         "invented",
     )
 
 
-def _el(eid, standard, quote="", page=None, verified=False):
-    source = {"standard": standard, "clause": "4.1"}
+QUOTE = "The test record shall be kept on site for the inspector"
+
+
+def _el(eid, standard, quote="", page=None, verified=False, clause="4.1"):
+    source = {"standard": standard, "clause": clause}
     if page is not None:
         source["page"] = page
     if quote:
@@ -184,7 +292,7 @@ LIBRARY = [
         "title": None,
     }
 ]
-PAGE = "4.1 The test record shall be kept on site for the inspector at all times."
+PAGE = "4.1 The test record shall be kept on site for the inspector at all times.\n14.1 Another clause."
 
 
 def _page_text(document_id, page):
@@ -201,47 +309,59 @@ def _states(elements):
 def test_a_quote_on_its_page_of_a_held_book_passes_and_a_forged_one_fails():
     out = _states(
         [
-            _el("E1", "STD-Q-210", "The test record shall be kept on site", 3, True),
+            _el("E1", "STD-Q-210", QUOTE, 3, True),
             _el(
-                "E2", "STD-Q-210", "The test record shall be kept off site", 3, True
+                "E2", "STD-Q-210", QUOTE.replace("on site", "off site"), 3, True
             ),  # forged: one word changed
+            _el("E3", "STD-Q-210", QUOTE, 4, True),  # the right words, the wrong page
             _el(
-                "E3", "STD-Q-210", "The test record shall be kept on site", 4, True
-            ),  # the right words, the wrong page
-            _el(
-                "E4", "STD-Q-210", "The test record shall be kept on site", 3, False
+                "E4", "STD-Q-210", QUOTE, 3, False
             ),  # found, but the file says unverified
             _el("E5", "STD-Q-210"),  # a held book's element with no quote
             _el("E6", "STD-Z-999"),  # a book not held: book missing
+            _el("E7", "STD-Z-999", QUOTE, 3, True),  # a quote of a book not held
+            _el("E8", "STD-Q-210", QUOTE.replace("on site", "off site"), 3, False),
             _el(
-                "E7", "STD-Z-999", "The test record shall be kept on site", 3, True
-            ),  # a quote of a book not held
-            _el("E8", "STD-Q-210", "The test record shall be kept off site", 3, False),
+                "E9", "STD-Q-210", "shall be kept on site", 3, True
+            ),  # a fragment under the floor
+            _el(
+                "E10", "STD-Q-210", QUOTE, 3, True, clause="4.2"
+            ),  # the clause is not on the page
+            _el(
+                "E11", "STD-Q-210", QUOTE, 3, True, clause="4"
+            ),  # "4" only inside "4.1": not on the page
+            _el(
+                "E12", "STD-Q-210", QUOTE, 3, True, clause="14"
+            ),  # "14" only inside "14.1"
         ]
     )
     assert out == {
         "E1": (playbooks.QUOTE_VERIFIED, True),
         "E2": (playbooks.FLAG_WRONG, False),
-        "E3": (playbooks.FLAG_WRONG, False),
+        "E3": (playbooks.CLAUSE_NOT_ON_PAGE, False),
         "E4": (playbooks.FLAG_NOT_SET, False),
         "E5": (playbooks.NO_QUOTE, False),
         "E6": (playbooks.BOOK_MISSING_NO_QUOTE, True),
         "E7": (playbooks.QUOTE_OF_A_BOOK_NOT_HELD, False),
         "E8": (playbooks.QUOTE_NOT_ON_PAGE, False),
+        "E9": (playbooks.QUOTE_TOO_SHORT, False),
+        "E10": (playbooks.CLAUSE_NOT_ON_PAGE, False),
+        "E11": (playbooks.CLAUSE_NOT_ON_PAGE, False),
+        "E12": (playbooks.CLAUSE_NOT_ON_PAGE, False),
     }
 
 
-def test_the_loader_refuses_a_quote_without_its_page_and_a_verified_flag_without_a_quote():
+def test_the_loader_refuses_bad_sources_conditions_and_cue_lists():
     with pytest.raises(
         playbooks.PlaybookError, match=r"E1: a source quote needs the page"
     ):
         _pb([_el("E1", "STD-Q-210", "some words of the book")])
+    bad = _el("E2", "STD-Q-210")
+    bad["source"]["verified"] = True
     with pytest.raises(
         playbooks.PlaybookError,
         match=r"E2: source\.verified may be true only for a quote",
     ):
-        bad = _el("E2", "STD-Q-210")
-        bad["source"]["verified"] = True
         _pb([bad])
     for page in (0, "3", True):
         bad = _el("E3", "STD-Q-210", page=3)
@@ -250,6 +370,18 @@ def test_the_loader_refuses_a_quote_without_its_page_and_a_verified_flag_without
             playbooks.PlaybookError, match=r"E3: source\.page must be a page number"
         ):
             _pb([bad])
+    for cond in (
+        {"label": "", "any": ["x"]},
+        {"label": "x", "any": []},
+        {"label": "x"},
+    ):
+        bad = _el("E4", "STD-Q-210")
+        bad["applies_when"] = cond
+        with pytest.raises(playbooks.PlaybookError, match=r"E4 applies_when"):
+            _pb([bad])
+    for cues in ("pressure test", [""], [3]):
+        with pytest.raises(playbooks.PlaybookError, match=r"title_cues must be a list"):
+            _pb([_el("E5", "STD-Q-210")], title_cues=cues)
 
 
 def test_a_broken_new_playbook_file_is_listed_not_dropped(tmp_path):
@@ -264,7 +396,7 @@ def test_a_broken_new_playbook_file_is_listed_not_dropped(tmp_path):
     assert set(found) == {"pressure_test_procedure"} and [
         b["file"] for b in broken
     ] == ["bad.json"]
-    assert "PT01: a source quote needs the page" in broken[0]["reason"]
+    assert "PT02: a source quote needs the page" in broken[0]["reason"]
 
 
 # ------------------------------------------------- a procedure's CRS: engineer rows only (P3)
@@ -307,16 +439,69 @@ def test_a_pressure_test_procedure_gets_engineer_rows_only_and_none_is_a_firm_ve
         assert r["priority"] == crs_mapping.PRIORITY_ENGINEER_TO_CHECK
         assert "compliant" not in r["comment"].lower()
         assert "not been signed off" in r["comment"]
-    states = {r["comment_key"]: r["playbook_state"] for r in mine}
-    key = crs_mapping.comment_key("playbook element", pb.id, "PT21")
+    states = {r["comment_key"]: (r["playbook_state"], r["comment"]) for r in mine}
+
+    def state(eid):
+        return states[crs_mapping.comment_key("playbook element", pb.id, eid)]
+
     assert (
-        states[key] == playbooks.STANDARD_NOT_HELD
+        state("PT21")[0] == playbooks.STANDARD_NOT_HELD
     )  # GI-0002.102 is not held: never met
+    for eid in (
+        "PT04",
+        "PT05",
+        "PT03",
+        "PT20",
+    ):  # a hydro-only paper is never told the pneumatic test is "missing"
+        got, comment = state(eid)
+        assert got == playbooks.CONDITION_NOT_STATED, eid
+        assert (
+            "applies only when the procedure covers" in comment
+            and "engineer to check" in comment
+        )
+        assert "not found" not in comment
     gauges = next(r for r in mine if "Calibrated gauges" in r["comment"])
     assert (
         "found at" in gauges["comment"] and "engineer to confirm" in gauges["comment"]
     )
-    assert "met" not in gauges["comment"].replace("meets", "")
+
+
+WELDING_SECTIONS = [
+    ("Welding procedures", "Each WPS is submitted with its PQR before welding starts."),
+    (
+        "Heat treatment",
+        "Post weld heat treatment uses electric resistance heating pads with thermocouples at each joint.",
+    ),
+]
+
+
+def test_a_condition_the_paper_names_is_checked_as_usual():
+    hold("SAES-W-011")
+    from app.search import every_document_id
+
+    pb = _found()["piping_welding_procedure"]
+    doc = _doc("w1", WELDING_SECTIONS, cover="Piping Welding Procedure")
+    by = {
+        e["id"]: e
+        for e in playbooks.review(doc, pb, allowed_document_ids=every_document_id())[
+            "elements"
+        ]
+    }
+    assert (
+        by["W09"]["state"] == playbooks.PRESENT
+    )  # PWHT is named, so its element is checked
+    assert by["W17"]["state"] == playbooks.CONDITION_NOT_STATED  # no alloy is named
+    doc2 = _doc("w2", WELDING_SECTIONS[:1], cover="Piping Welding Procedure")
+    by2 = {
+        e["id"]: e
+        for e in playbooks.review(doc2, pb, allowed_document_ids=every_document_id())[
+            "elements"
+        ]
+    }
+    assert by2["W09"]["state"] == playbooks.CONDITION_NOT_STATED
+    assert (
+        by2["W01"]["state"] != playbooks.CONDITION_NOT_STATED
+    )  # an element without a condition is never one
 
 
 def test_the_report_shows_the_book_page_and_that_its_quote_was_verified():

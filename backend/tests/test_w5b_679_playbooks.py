@@ -214,7 +214,7 @@ def test_a_complete_hazop_procedure_has_every_element_present_with_a_locator_and
     doc = ingest_docx(tmp_path, HAZOP_SECTIONS)
     report = run(doc)
     assert report["counts"] == {"present": 11, "unclear": 0, "missing": 0, "could_not_be_checked": 0,
-                                "standard_not_held": 0, "total": 11}
+                                "standard_not_held": 0, "condition_not_stated": 0, "total": 11}  # order 14 lane P: a state
     body = " ".join(c["text"] for c in playbooks._chunks(doc))
     for e in report["elements"]:
         assert e["state"] == "present", (e["id"], e["reason"])

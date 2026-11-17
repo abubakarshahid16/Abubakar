@@ -312,10 +312,15 @@ class KindBooks:
 
 
 def mapping_from_file(
-    path: str | Path, kind: str | None, equipment: str | None
+    path: str | Path,
+    kind: str | None,
+    equipment: str | None,
+    types: tuple[str, ...] | list[str] = (),
 ) -> KindBooks | None:
     """Lane C's file: {"format": MAPPING_FORMAT, "kinds": {"<kind>|<equipment type>" or "<kind>": [{"book", "clauses"?}]}}. The most
-    specific key wins; None when the file has no entry for this paper."""
+    specific key wins; None when the file has no entry for this paper. `types` (order 14 lane P): the procedure TYPES of the paper
+    (`procedure_playbook_rows.chosen`, playbook ids); a "<kind>|playbook:<id>" entry adds its books for that type only, so a
+    welding book governs a welding procedure and never a HAZOP procedure."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if data.get("format") != MAPPING_FORMAT or not isinstance(data.get("kinds"), dict):
         raise ValueError(f"{Path(path).name}: not a {MAPPING_FORMAT} file")
@@ -325,10 +330,29 @@ def mapping_from_file(
     ]:
         if key in kinds:
             entries = [e for e in kinds[key] if isinstance(e, dict) and e.get("book")]
+            extra = [f"{_fold(kind)}|playbook:{_fold(t)}" for t in types]
+            extra = [k for k in extra if k in kinds]
+            entries += [
+                e
+                for k in extra
+                for e in kinds[k]
+                if isinstance(e, dict) and e.get("book")
+            ]
             return KindBooks(
-                f"mapping file {Path(path).name} ({key})", entries, closed=True
+                f"mapping file {Path(path).name} ({', '.join([key, *extra])})",
+                entries,
+                closed=True,
             )
     return None
+
+
+def procedure_types(paper: str | None, kind: str | None) -> list[str]:
+    """The playbook ids that name a procedure paper's type (the same choice that adds its playbook rows); [] for any other kind."""
+    if not paper or _fold(kind) != "procedure":
+        return []
+    from app import procedure_playbook_rows
+
+    return [pb.id for pb in procedure_playbook_rows.chosen(paper)]
 
 
 def mapping_from_app(kind: str | None, equipment: str | None) -> KindBooks | None:
@@ -1066,7 +1090,9 @@ def check(
 
         kind = kind_standards.kind_of(facts["paper"])
     mapping = (
-        mapping_from_file(mapping_path, kind, equipment)
+        mapping_from_file(
+            mapping_path, kind, equipment, procedure_types(facts["paper"], kind)
+        )
         if mapping_path
         else mapping_from_app(kind, equipment)
     )

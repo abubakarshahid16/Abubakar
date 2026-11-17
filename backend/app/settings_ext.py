@@ -280,7 +280,7 @@ class SettingsExt(BaseModel):
     #: Env: PLAYBOOK_PRESENCE_WITHOUT_STANDARD_ENABLED.
     playbook_presence_without_standard_enabled: bool = True
     #: #1522 (b) a review run of a document whose stored kind is `procedure` looks up the playbooks of
-    #: that kind whose title cue is in the procedure's cover lines and adds one CRS row per element as an
+    #: that kind whose title phrase is in the procedure's cover lines (and no excluded phrase) and adds one CRS row per element as an
     #: ENGINEER row (`procedure_playbook_rows`): never compliant, "found, engineer to confirm" with the page
     #: quote, 'unclear'/'missing' say so, a standard not held is never met. None matched: no rows and one
     #: review note. No model. OFF: the CRS is byte-identical. Env: PROCEDURE_PLAYBOOK_ROWS_ENABLED.

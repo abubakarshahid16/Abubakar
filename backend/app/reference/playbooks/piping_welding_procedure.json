@@ -1,8 +1,8 @@
 {
  "format": "review-playbook/1",
- "id": "welding_procedure",
- "title": "Welding procedure",
- "version": "1",
+ "id": "piping_welding_procedure",
+ "title": "Piping welding procedure",
+ "version": "2",
  "document_kind": "procedure",
  "sign_off": {
   "status": "draft",
@@ -10,7 +10,21 @@
   "date": null
  },
  "clauses_verified": false,
- "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off.",
+ "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off. Scope (SAES-W-011 1.1): welding of on-plot piping to ASME B31.3; a cover naming a pipeline, a structure, a tank or a vessel does not choose this playbook (other books govern those).",
+ "title_cues": [
+  "welding procedure*",
+  "wps",
+  "piping welding",
+  "welding of piping",
+  "welding of on plot piping",
+  "piping fabrication"
+ ],
+ "title_excludes": [
+  "pipeline*",
+  "structur*",
+  "tank*",
+  "vessel*"
+ ],
  "elements": [
   {
    "id": "W01",
@@ -69,7 +83,7 @@
   {
    "id": "W03",
    "title": "Welding processes",
-   "expects": "The procedure names the welding process for each pass (root, fill, cap).",
+   "expects": "The procedure names each welding process it uses.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "5",
@@ -96,7 +110,7 @@
   {
    "id": "W04",
    "title": "Welding consumables and their classification",
-   "expects": "The procedure names the electrodes, filler wires and fluxes by their code classification.",
+   "expects": "The procedure names electrodes, filler wires and fluxes that conform to ASME Section II Part C.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "6.1",
@@ -130,7 +144,7 @@
   {
    "id": "W05",
    "title": "Storage and drying of consumables",
-   "expects": "The procedure says how consumables are stored, dried and handed out (ovens, quivers, exposure time).",
+   "expects": "The procedure stores and dries the consumables as SAES-W-011 Attachments 1 and 2 require.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "6.2",
@@ -165,7 +179,7 @@
   {
    "id": "W06",
    "title": "Welder qualification",
-   "expects": "The procedure says that every welder and welding operator is qualified, and how that is shown.",
+   "expects": "The procedure says that every welder and welding operator is qualified to ASME Section IX.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "8.1",
@@ -195,7 +209,7 @@
   {
    "id": "W07",
    "title": "Preheat",
-   "expects": "The procedure states the minimum preheat temperature for each material and thickness.",
+   "expects": "The procedure states the preheat, in accordance with ASME B31.3 and SAES-W-011.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "12.1",
@@ -249,7 +263,7 @@
   {
    "id": "W09",
    "title": "PWHT procedure",
-   "expects": "The procedure describes post weld heat treatment: the equipment, the method of heating, the heating elements and the thermocouple locations.",
+   "expects": "When post weld heat treatment is required, the procedure describes the equipment, the method of heating, the heating elements and the thermocouple locations.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "13.1",
@@ -280,12 +294,22 @@
       "heating pad*"
      ]
     }
-   ]
+   ],
+   "applies_when": {
+    "label": "post weld heat treatment",
+    "any": [
+     "pwht",
+     "post weld heat treat*",
+     "postweld heat treat*",
+     "stress reliev*",
+     "heat treat*"
+    ]
+   }
   },
   {
    "id": "W10",
    "title": "PWHT cycle per joint",
-   "expects": "The procedure gives, per joint or component, the heating rate, the soak temperature and time, and the cooling rate.",
+   "expects": "When post weld heat treatment is required, the procedure has a table of each joint or component to be heat treated with its heating rate, cooling rate, soak temperature and soak time.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "13.2",
@@ -315,12 +339,22 @@
       "rate of cooling"
      ]
     }
-   ]
+   ],
+   "applies_when": {
+    "label": "post weld heat treatment",
+    "any": [
+     "pwht",
+     "post weld heat treat*",
+     "postweld heat treat*",
+     "stress reliev*",
+     "heat treat*"
+    ]
+   }
   },
   {
    "id": "W11",
    "title": "PWHT chart records",
-   "expects": "The procedure keeps the PWHT time-temperature charts and submits them for review.",
+   "expects": "When post weld heat treatment is required, the procedure submits all PWHT chart records for review and approval.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "13.19",
@@ -347,12 +381,22 @@
       "recorder*"
      ]
     }
-   ]
+   ],
+   "applies_when": {
+    "label": "post weld heat treatment",
+    "any": [
+     "pwht",
+     "post weld heat treat*",
+     "postweld heat treat*",
+     "stress reliev*",
+     "heat treat*"
+    ]
+   }
   },
   {
    "id": "W12",
    "title": "Production hardness testing",
-   "expects": "The procedure says which production welds are hardness tested and the hardness limit.",
+   "expects": "The procedure performs production hardness testing of welds as ASME B31.3 requires.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "14.2",
@@ -473,7 +517,7 @@
   {
    "id": "W16",
    "title": "Weld repairs",
-   "expects": "The procedure says how a defective weld is repaired, how many times, and that the repair is examined again.",
+   "expects": "The procedure permits at most two repairs at one defect location unless the inspector allows more.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "18.1",
@@ -493,7 +537,7 @@
   {
    "id": "W17",
    "title": "PMI of alloy welds",
-   "expects": "The procedure includes positive material identification of alloy welds and materials.",
+   "expects": "When alloy materials are welded, the procedure includes PMI for the materials SAES-A-206 Table 1 lists.",
    "source": {
     "standard": "SAES-W-011",
     "clause": "17.7",
@@ -510,7 +554,26 @@
       "alloy verification"
      ]
     }
-   ]
+   ],
+   "applies_when": {
+    "label": "alloy materials",
+    "any": [
+     "alloy*",
+     "stainless",
+     "duplex",
+     "chrome",
+     "cr mo",
+     "nickel",
+     "inconel",
+     "incoloy",
+     "monel",
+     "p no 3",
+     "p no 4",
+     "p no 5*",
+     "pmi",
+     "positive material identification"
+    ]
+   }
   },
   {
    "id": "W18",

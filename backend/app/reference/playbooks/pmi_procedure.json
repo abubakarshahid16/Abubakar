@@ -2,7 +2,7 @@
  "format": "review-playbook/1",
  "id": "pmi_procedure",
  "title": "PMI procedure",
- "version": "1",
+ "version": "2",
  "document_kind": "procedure",
  "sign_off": {
   "status": "draft",
@@ -10,7 +10,14 @@
   "date": null
  },
  "clauses_verified": false,
- "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off.",
+ "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off. Scope (SAES-A-206 1): positive material identification of pressure-retaining alloys and their welds.",
+ "title_cues": [
+  "pmi",
+  "positive material identification",
+  "positive materials identification",
+  "alloy verification"
+ ],
+ "title_excludes": [],
  "elements": [
   {
    "id": "M01",

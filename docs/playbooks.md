@@ -11,8 +11,8 @@ value check.
 
 | what | where |
 |---|---|
-| playbooks | `backend/app/reference/playbooks/hazop_procedure.json`, `sil_procedure.json`, and the drafts of order 14 lane P: `pressure_test_procedure.json`, `welding_procedure.json`, `pmi_procedure.json` |
-| check the source quotes on the held books | `python scripts/playbook_quote_check.py --db <COPY of the database>` (read only; ids, pages and PASS / FAIL, never text) |
+| playbooks | `backend/app/reference/playbooks/hazop_procedure.json`, `sil_procedure.json`, and the drafts of order 14 lane P: `pressure_test_procedure.json`, `piping_welding_procedure.json`, `pmi_procedure.json` |
+| check the source quotes on the held books | `python scripts/playbook_quote_check.py --db <COPY of the database> [--write-fixture]` (read only on the copy; ids, pages and PASS / FAIL, never text; `--write-fixture` records the verified sources' fingerprints in `backend/tests/fixtures/playbook_verified_quotes.json`) |
 | the loader and the review | `backend/app/playbooks.py` |
 | list the playbooks | `GET /api/playbooks` |
 | review one document | `POST /api/documents/{id}/playbook-review` with `{"playbook_id": "hazop_procedure", "use_ai": false}` |
@@ -40,10 +40,21 @@ value check.
   is not a page number, and `verified: true` without a quote are **rejected when
   loaded**, by element id. `verified` is set only after `scripts/playbook_quote_check.py`
   found the quote on that stored page of a held book with THE quote check of gate G1
-  (`compiled_rule_proof.quote_verified`, through `playbooks.source_quote_checks`). An
+  (`compiled_rule_proof.quote_verified`, through `playbooks.source_quote_checks`). The check
+  also needs the clause number on that page as a number of its own ("5.8.3", never inside
+  "15.8.3" or "5.8.31") and a quote of at least 8 words (`QUOTE_MIN_WORDS`: a shorter
+  fragment stands on many pages of many books and proves nothing about the clause). Each
+  verified source's fingerprint (SHA-256 of book, clause, page and quote; no text) is kept in
+  the test fixture, so an edited quote, page or clause fails CI until the check is run again. An
   element whose book is not held carries no quote; it reads "standard not held" (on the
   CRS: book missing, with its clause). The report's `source` shows the page and
   `quote_verified` where the file has them.
+* `applies_when` (optional, per element): `{"label": "a pneumatic test", "any": [cues]}`.
+  In a document read in full where no passage holds one of those cues, the element is
+  `condition_not_stated`: "applies only when the procedure covers <label>, and no passage
+  of the pages read names it", an engineer question, never "missing" and never "met".
+* `title_cues` and `title_excludes` (optional, per playbook): see "Which paper a playbook
+  reaches" below.
 * `evidence` is a list of cue groups. A cue is a word or phrase (whole words; a
   trailing `*` means any ending, `revalidat*`; a space or hyphen in the text
   matches either). An element is **present** when one passage holds a cue of
@@ -62,6 +73,7 @@ value check.
 | `unclear` | part of what the element expects was found, never all together; the missing groups are named |
 | `missing` | nothing found, in a document read in full: said **"not found in the pages read"**, about the pages, never about the author |
 | `could_not_be_checked` | the document was not read in full (still processing, pages needing recognition) or has no text, so absence proves nothing |
+| `condition_not_stated` | the element applies only under its `applies_when` condition, and no passage of a document read in full names it: an engineer question whether it applies |
 | `standard_not_held` | the element's source standard is **not in the library**. This is **never "met"**: the clause could not be checked against its text. Where the topic appears is listed as a pointer for the engineer, not as a verdict |
 
 The counts state their total ("11 elements"). Footers, tracked changes, comments
@@ -89,23 +101,50 @@ document is re-reviewed with no other change.
 
 Built ONLY from rule books the library holds. Each book's own scope clause says it governs the work the procedure describes:
 
-| playbook (title cue) | elements | held books cited | quotes verified on the stored page | book missing |
-|---|---|---|---|---|
-| `pressure_test_procedure` ("pressure test") | 21 | SAES-A-004 (pressure testing, scope 1.1), SAES-A-007 (test water and lay-up, scope 1.1) | 20 of 20 | GI-0002.102 5.1.2.5 (named by SAES-A-004 5.8.2) |
-| `welding_procedure` ("welding") | 18 | SAES-W-011 (welding of on-plot piping to ASME B31.3, scope 1.1) | 17 of 17 | ASME Section IX QW-482 and QW-483 (the suggested WPS and PQR forms SAES-W-011 7.1.2 names; the form numbers are the author's reading) |
-| `pmi_procedure` ("pmi") | 13 | SAES-A-206 (positive material identification, scope 1) | 13 of 13 | none |
+| playbook | elements | held books cited | quotes verified on the stored page | book missing | elements with a condition |
+|---|---|---|---|---|---|
+| `pressure_test_procedure` | 21 | SAES-A-004 (scope 1.1, exclusions 1.5), SAES-A-007 (scope 1.1) | 20 of 20 | GI-0002.102 5.1.2.5 (named by SAES-A-004 5.8.2) | PT03 chemical treatment, PT04 and PT05 a pneumatic test, PT20 lay-up |
+| `piping_welding_procedure` | 18 | SAES-W-011 (scope 1.1: on-plot piping to ASME B31.3) | 17 of 17 | ASME Section IX QW-482 and QW-483 (the suggested WPS and PQR forms SAES-W-011 7.1.2 names; the form numbers are the author's reading) | W09 to W11 post weld heat treatment, W17 alloy materials |
+| `pmi_procedure` | 13 | SAES-A-206 (scope 1) | 13 of 13 | none | none |
 
-Each element says in one sentence what any procedure of that type must contain (never one paper's wording, CLAUDE.md rule 13).
-The four held books are listed for the kind `procedure` in `reference/kind_books.json` (gate G2). A playbook reaches a paper's CRS
-only when its title cue is in the paper's cover lines (`procedure_playbook_rows`): a cover "Hydrostatic Test Procedure" without the
-word "pressure", or "Welding Procedure Specification" spelt "WPS" only, does not choose it. Every row stays an engineer row: never
-compliant, never a firm Pass or Fail.
+Each element says in one sentence what its cited clause requires of any procedure of that type (never one paper's wording,
+CLAUDE.md rule 13); an element with a condition starts "When ...". Every row stays an engineer row: never compliant, never a firm
+Pass or Fail.
+
+### Which paper a playbook reaches
+
+`procedure_playbook_rows.chosen` (the one home of the choice) takes the procedure's cover lines (the heading-shaped lines among the
+first 12 of page 1). A playbook is chosen when one of its `title_cues` stands there as a PHRASE: its words adjacent, any case, a space
+or a hyphen between them, a trailing `*` any ending (`playbooks._hits`). A playbook without `title_cues` uses its title less the
+generic words ("procedure", "study", ...) as one phrase. A cover holding any of its `title_excludes` never chooses it.
+
+| playbook | title cues | excluded when the cover names (from the book's scope) |
+|---|---|---|
+| `pressure_test_procedure` | pressure test*, hydrostatic test*, hydrotest*, hydro test*, pneumatic test* | relief valve*, safety valve*, rupture dis*, pump*, compressor*, turbine*, factory acceptance (SAES-A-004 1.5) |
+| `piping_welding_procedure` | welding procedure*, wps, piping welding, welding of piping, welding of on plot piping, piping fabrication | pipeline*, structur*, tank*, vessel* (SAES-W-011 1.1) |
+| `pmi_procedure` | pmi, positive material identification, positive materials identification, alloy verification | none |
+| `hazop_procedure`, `sil_procedure` | their title phrase: "hazop", "sil" | none |
+
+So "Pressure Safety Valve Bench Test Procedure", "Pressure Transmitter Calibration and Loop Test Procedure" or a pump performance
+test whose cover also says "Discharge Pressure" choose no pressure test playbook; a pipeline, structural, tank or vessel welding
+procedure and a "Welding Consumables Control Procedure" choose no welding playbook; "Piping Fabrication, Welding and PMI Procedure"
+chooses both the welding and the PMI playbooks.
+
+### Gate G2: a book governs only its procedure type
+
+The four books are NOT in `reference/kind_books.json` under the plain kind `procedure`. Each sits under
+`procedure|playbook:<playbook id>`, and `scripts/crs_gates.py` adds those books to the `procedure` entry only for a paper whose cover
+chooses that playbook (`crs_gates.procedure_types`, the same `chosen`). A SAES-W-011 clause cited on a welding procedure passes G2; on a
+HAZOP procedure it fails ("book not listed for this kind").
+
+### Not covered
 
 Common contractor procedures with NO held book found (a look-up of each name with `find_standard`, and a search of the held
 books' first pages): NDT procedures (ASME Section V, SAEP-1140 and SAEP-1142 not held), lifting and rigging, commissioning and
 pre-commissioning, bolt tightening, method statements in general. Held but not drafted in this round: painting and coating
 application (SAES-H-001 and the other SAES-H books), chemical cleaning (SAES-A-008), piping construction and flushing
-(SAES-L-350), pipeline pressure testing (SAES-L-150). Not scored against an engineer's answer key: none exists for a procedure of these types.
+(SAES-L-350), pipeline pressure testing (SAES-L-150), pipeline welding (SAES-W-012) and pressure vessel welding (SAES-W-010).
+Not scored against an engineer's answer key: none exists for a procedure of these types.
 
 ## What the shipped playbooks are
 
