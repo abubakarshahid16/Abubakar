@@ -46,7 +46,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         _N,
         # re-anchored by LPH (order 14): the AI kinds' line now also reads the stored state
         "    if row_kind in _AI_ROW_KINDS:\n        return STATUS_AI if settled(",
-        "    if row_kind in _AI_ROW_KINDS:\n        return STATUS_FAIL if settled(",
+        "    if row_kind in _AI_ROW_KINDS:\n        return STATUS_FAIL if True or settled(",
         _T,
         "every_row_kind or stated_rule",
     ),

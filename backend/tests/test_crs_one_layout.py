@@ -48,7 +48,7 @@ def _rows():
             "comment": "An AI draft.",
             "row_kind": "ai_engineering_check",
             "priority": 3,
-            # LPH (17 Nov 2026): an AI row is an AI opinion only when its stored finding records a verdict; this row stands for one
+            # LPH (17 Nov 2026): an AI-written row is a Query whatever its stored state, even a stored verdict
             "stored_state": "NON_COMPLIANT",
         },
         {
@@ -132,7 +132,7 @@ def test_its_comment_texts_order_and_numbers_are_what_they_were_only_moved():
 def test_status_and_priority_by_the_stated_rule():
     rows = _table(_book()["CRS"])
     assert [(r["Status"], r["Priority"]) for r in rows] == [
-        ("Fail", "High"), ("Query", "Low"), ("AI opinion", "Medium"), ("Pass", None),
+        ("Fail", "High"), ("Query", "Low"), ("Query", "Low"), ("Pass", None),  # LPH: the AI row is a Query
     ]  # fmt: skip
 
 
@@ -141,7 +141,7 @@ def test_the_working_columns_are_on_the_evidence_sheet_and_the_notes_counts_equa
     assert wb.sheetnames[:3] == ["CRS", "Evidence", "Notes"]
     ev = list(wb["Evidence"].iter_rows(min_row=2, values_only=True))
     assert [(e[0], e[1], e[2]) for e in ev] == [
-        (1, "Fail", "non_compliant"), (2, "Query", "missing_information"), (3, "AI opinion", "ai_engineering_check"),
+        (1, "Fail", "non_compliant"), (2, "Query", "missing_information"), (3, "Query", "ai_engineering_check"),  # LPH
         (4, "Pass", "safety_tick"),
     ]  # fmt: skip
     assert (
@@ -157,7 +157,7 @@ def test_the_working_columns_are_on_the_evidence_sheet_and_the_notes_counts_equa
     )
     assert [
         notes[f"Count: {s}"] for s in words.STATUSES if s != words.STATUS_AI_VERDICT
-    ] == [1, 1, 1, 1]
+    ] == [1, 0, 2, 1]  # LPH: the AI row is a Query (Fail, AI opinion, Query, Pass)
     assert (
         "Count: AI verdict" not in notes
     )  # the normal reviewer never writes the two-reader class
@@ -229,12 +229,18 @@ def test_every_row_kind_and_rank_maps_to_one_of_the_four_words_and_a_pass_or_fai
                 "clause_review",
                 "spec_kit",
             ):
-                # an AI draft is never a Pass or a Fail; LPH (17 Nov 2026): it is an AI opinion only when its stored finding records a
-                # verdict, and a Query when the AI did not settle it (no stored verdict)
-                assert status == "Query", (kind, rank)
-                assert (
-                    crs_normal.crs_status(kind, rank, "NON_COMPLIANT") == "AI opinion"
-                ), (kind, rank)
+                # an AI draft is never a Pass or a Fail; LPH (17 Nov 2026): it is a Query whatever its stored state
+                for state in (
+                    None,
+                    "NEEDS_ENGINEER_REVIEW",
+                    "COMPLIANT",
+                    "NON_COMPLIANT",
+                ):
+                    assert crs_normal.crs_status(kind, rank, state) == "Query", (
+                        kind,
+                        rank,
+                        state,
+                    )
             elif kind == "safety_tick":
                 assert status == "Pass"
             else:

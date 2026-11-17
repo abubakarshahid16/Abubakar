@@ -13,8 +13,7 @@ from app import agent_review_wording as W
 from app import review_points as rp
 
 CTX = {"run_id": "r", "paper_document_id": "p", "readable": frozenset({"p", "doc-book"}), "_library": []}  # fmt: skip
-# LPH (17 Nov 2026): an AI row is a "not met" only when its stored finding records that verdict (`crs_normal.settled`); these rows stand
-# for one, so they carry it (a row with no recorded verdict is a question: `test_o14_lph_unsettled_not_firm`)
+# LPH (17 Nov 2026, lead's review of PR #1882): the rule check's AI rows are a question whatever they store, a stored "not met" included
 ROW = {"row_kind": "ai_engineering_check", "finding_id": "f1", "page_section": "p.3 - Back pressure", "comment": "Value looks low.",
        "standard_reference": "BOOK-9.pdf", "priority": "3", "stored_state": "NON_COMPLIANT"}  # fmt: skip
 VERIFIED = {"submittal": {"verified": True}, "standard": {"verified": True}}
@@ -40,10 +39,11 @@ def test_an_ai_check_not_met_with_no_clause_is_a_question_with_no_book_words():
         assert p["rule_text"] is None and p["clause_quote"] is None
 
 
-def test_an_ai_check_not_met_with_a_clause_keeps_its_rank_for_every_viewer():
+def test_an_ai_check_not_met_with_a_clause_is_a_question_for_every_viewer():
     for sides in (VERIFIED, UNSEEN):
         p = rp.rule_point(dict(ROW), CTX, _finding("5.3.4"), sides, proof=(True, True))
-        assert p["rank"] == 3 and p["firm"] == "one reader"
+        # LPH: was rank 3 "one reader"; a stored "not met" of the AI step is no verdict
+        assert p["rank"] == 4 and p["firm"] is None and p["_rule_stored"] is not None
 
 
 def test_a_clause_named_inside_the_reference_still_counts_as_a_clause():
@@ -52,7 +52,8 @@ def test_a_clause_named_inside_the_reference_still_counts_as_a_clause():
         "standard_reference": "API 520 cl. 5 (p.7)",
     }  # review R-1851: the display field drops a clause it repeats
     p = rp.rule_point(row, CTX, _finding("5"), VERIFIED, proof=(True, True))
-    assert p["rank"] == 3
+    # LPH: a question; its clause still counts (rule words kept)
+    assert p["rank"] == 4 and p["_rule_stored"] is not None
 
 
 def test_a_clause_review_not_met_is_unchanged():
@@ -68,7 +69,8 @@ def test_a_clause_review_not_met_is_unchanged():
             return pass_guards.Book({1: "Intro. The limit shall be 10 %. More."})
 
     p = rp.rule_point(row, {**CTX, "_book_pages": _Book()}, _finding(""), VERIFIED, proof=(True, True))
-    assert p["rank"] == 3 and p["rule_text"] == "The limit shall be 10 %."
+    # LPH: a question, the book's words kept
+    assert p["rank"] == 4 and p["rule_text"] == "The limit shall be 10 %."
 
 
 # --- 2 and 3. the AI reviewer

@@ -1,10 +1,9 @@
 """Order 14 LPH (owner, 17 Nov 2026): a line the AI could not settle never shows "Not met", "Met", "Pass" or "Fail" anywhere.
 
-An AI-written rule-check row (clause review, AI engineering check, web standard check, specification kit) is the AI's opinion only when
-its OWN stored finding records a verdict (`review_findings.compliance_status` NON_COMPLIANT or COMPLIANT); a row whose stored state records
-none (NEEDS_ENGINEER_REVIEW, which the clause review always stores, or no state, which the AI engineering check keeps) is a question: on the
-page's points and tiles, in the paper's team and contractor files and in the run file. Decided from the stored state alone (`crs_normal.
-settled`), never from a document or its wording. Invented data only."""
+An AI-written rule-check row (clause review, AI engineering check, web standard check, specification kit) is a question whatever its
+stored state: NEEDS_ENGINEER_REVIEW (which the clause review always stores), none (the AI engineering check), and even a stored COMPLIANT
+or NON_COMPLIANT, which has no code-verified quote behind it (lead's review of PR #1882). On the page's points and tiles, in the paper's
+team and contractor files and in the run file. Never from a document or its wording. Invented data only."""
 
 from __future__ import annotations
 
@@ -49,16 +48,11 @@ def on(monkeypatch):
     monkeypatch.setattr(settings, "review_code_resubmit_at_kept_mandatory_not_met", 0)
 
 
-def test_an_ai_row_is_an_ai_opinion_only_when_its_stored_finding_records_a_verdict():
+def test_an_ai_row_is_a_query_whatever_its_stored_state():
     for kind in AI_KINDS:
-        for state in UNSETTLED:
+        for state in (*UNSETTLED, "COMPLIANT", "NON_COMPLIANT"):
             assert crs_normal.crs_status(kind, 3, state) == "Query", (kind, state)
-        for state in sorted(crs_normal.VERDICT_STATES):
-            assert crs_normal.crs_status(kind, 3, state) == "AI opinion", (kind, state)
-    assert crs_normal.settled({crs_ai_drafts.STORED_STATE: "NON_COMPLIANT"})
-    assert not crs_normal.settled(
-        {}
-    )  # a row that does not carry the state is not settled
+            assert not crs_normal.settled({crs_ai_drafts.STORED_STATE: state})
 
 
 def test_the_draft_row_carries_its_findings_stored_state():
@@ -86,7 +80,7 @@ def test_the_run_files_view_keeps_the_stored_state_so_its_status_is_the_pages():
         "NEEDS_ENGINEER_REVIEW",
         "NON_COMPLIANT",
     ]
-    assert [r["status"] for r in view["rows"]] == ["Query", "AI opinion"]
+    assert [r["status"] for r in view["rows"]] == ["Query", "Query"]
 
 
 def _rule_point(state):
@@ -104,17 +98,17 @@ def _rule_point(state):
     return review_points.rule_point(row, ctx, None, {})
 
 
-def test_an_unsettled_rule_check_line_is_a_question_on_the_page_and_a_settled_one_keeps_its_class():
-    p = _rule_point("NEEDS_ENGINEER_REVIEW")
-    review_points.with_groups([p])
-    assert (p["rank"], p["tile"], p["firm"]) == (4, "questions", None)
-    assert not FIRM.search(p["pill"]) and not FIRM.search(
-        review_points.TILE_WORDS[p["tile"]]
-    )
-    settled = _rule_point(
-        "NON_COMPLIANT"
-    )  # the stored state is what is read: a recorded verdict keeps the AI-opinion class
-    assert (settled["rank"], settled["tile"]) == (3, "not_met")
+def test_a_rule_check_ai_line_is_a_question_on_the_page_whatever_its_stored_state():
+    for state in ("NEEDS_ENGINEER_REVIEW", None, "COMPLIANT", "NON_COMPLIANT"):
+        p = _rule_point(state)
+        review_points.with_groups([p])
+        assert (p["rank"], p["tile"], p["firm"]) == (4, "questions", None), state
+        assert not FIRM.search(p["pill"]) and not FIRM.search(
+            review_points.TILE_WORDS[p["tile"]]
+        )
+    assert "AI opinion" not in {
+        s for s, r in review_points._RANK_OF_RC_STATUS.items() if r in (2, 3, 5, 6)
+    }  # no AI rank by Status
 
 
 def _paper_with_unsettled_ai_rows():
