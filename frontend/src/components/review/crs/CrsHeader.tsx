@@ -85,6 +85,9 @@ export function CrsHeader({
           {orNothing(run.recommended_reason) ? `. ${orNothing(run.recommended_reason)}` : ""}
         </p>
       )}
+      {!code && orNothing(run.recommended_code_note) && (
+        <p className="text-sm text-slateish-300" data-testid="crs-code">{run.recommended_code_note}</p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {acceptAll.confirming ? (

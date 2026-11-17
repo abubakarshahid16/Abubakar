@@ -487,12 +487,10 @@ def _older_expected(conn, run_id: str, copy: str) -> int:
     sheet's rows); contractor = what its selection issues (nothing for a general review, whose contractor copies are empty by design)."""
     if copy == "contractor" and conn.execute("SELECT 1 FROM agent_review_general WHERE run_id = ?", (run_id,)).fetchone():
         return 0
-    from . import agent_review_wording, crs_ai_workbook
+    from . import crs_ai_workbook
+    from .review_points_service import stored_lines
 
-    lines = [
-        agent_review_wording.read_time({**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]})
-        for r in conn.execute("SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid", (run_id,))
-    ]
+    lines = stored_lines(conn, run_id)  # the one reading every CRS uses (order 14)
     items = crs_ai_workbook.ordered_item_lines(lines)
     if copy != "contractor":
         return len(items) + len(crs_ai_workbook.other_lines(lines))

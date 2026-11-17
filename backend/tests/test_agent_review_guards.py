@@ -71,9 +71,11 @@ def test_1_an_absent_answer_is_a_query_never_a_fail_and_buys_no_second_opinion(w
     }
     lines = lines_of(run_review())
     assert (
-        lines["R-mark"]["word"] == "AI thinks: not met"
-    )  # the AI's opinion, shown as one, with the reason
-    assert lines["R-mark"]["verdict_class"] == "AI opinion, engineer to confirm"
+        lines["R-mark"]["word"] == "Query"
+    )  # order 14 (G5): one reader's word that the paper is silent names no value: a Query, never 'AI thinks: not met'
+    assert (
+        lines["R-mark"]["verdict_class"] == "Query for the engineer"
+    )  # the same order 14 rule
     assert "code cannot prove an absence" in lines["R-mark"]["reason"]
     assert (
         w["fake"].kinds.count("second") == 1
@@ -273,8 +275,8 @@ def test_the_silent_paper_rule_is_the_cores_at_the_exit_for_any_kind_but_a_datas
         W.final_cap_all([line], {"R-1": item}, look, None, "datasheet")[0][
             "verdict_label"
         ]
-        == "AI thinks: not met"
-    )
+        == "Query for the engineer"
+    )  # order 14 (G5): one reader's word that the paper is silent names no value: a Query, never 'AI thinks: not met' (a datasheet: not the silence rule)
     assert not hasattr(run_mod, "silence_guard") and not hasattr(
         request_mod, "silence_guard"
     )  # no local copy

@@ -682,8 +682,8 @@ SILENCE_WHY = "the paper is silent on this; a missing statement is not a failure
 
 def silence_is_query(paper_kind: Any) -> bool:
     """THE one switch point: for which paper kinds does a silent paper give a Query (never "not met")? Every kind except a
-    datasheet (a datasheet has a fixed set of entries, so an absent required entry stays the AI's opinion "not met"). An
-    unknown kind is silent too: the safe side. Change this function, and only this one, to change the rule."""
+    datasheet (an absent entry: a Fail when code proves it, two readers' "not stated", else a Query, `wording.silence_unproven`, G5).
+    An unknown kind is silent too: the safe side. Change this function, and only this one, to change the rule."""
     return str(paper_kind or "").strip().lower() != "datasheet"
 
 

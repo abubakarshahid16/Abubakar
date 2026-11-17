@@ -29,7 +29,6 @@ import json
 import re
 from collections import Counter, defaultdict
 
-from . import agent_review_wording as wording
 from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 from . import review_points_content as content
@@ -838,6 +837,24 @@ def with_groups(points: list[dict]) -> list[dict]:
     return points
 
 
+def books_not_held(run_books: list[str], points: list[dict], library: list[dict]) -> list[str]:
+    """THE rule books not held of a paper's list, each once: the AI run's own record first, each name tested again against today's
+    `library` (a book uploaded after the run leaves the list), then every book a point marks "Book missing" (`_book_missing`, the name
+    its row prints, decided at read time by `book_missing`), in list order. The page's "not held" count and the CRS sheet "Rule books
+    not held" both read it, so the sheet never says 0 while rows say "Book missing" (order 14, first-time-user test 15). Same book:
+    `standard_ids.same_standard`, the notion `applicability.find_standard` uses ("API RP 520 Pt-1" is "API 520 Part I")."""
+    from .applicability import find_standard
+    from .standard_ids import same_standard
+
+    out: list[str] = []
+    names = [n for n in (run_books or []) if not find_standard(library, str(n or ""))]
+    for name in [*names, *(p.get("_book_missing") for p in points)]:
+        name = " ".join(str(name or "").split())
+        if name and not any(same_standard(name, seen) for seen in out):
+            out.append(name)
+    return out
+
+
 def counts(
     points: list[dict],
     *,
@@ -962,11 +979,9 @@ def ai_points_of_run(
 ) -> tuple[list[dict], list[str]]:
     """(the points of one AI review run, the names of the rule books it did not hold). A run that is there but whose lines cannot be
     read (a missing table, a locked database) RAISES: no caller may read "could not look" as "no points" (the sign gate refuses)."""
-    lines = [
-        wording.read_time(
-            stored_class_wins(
-                {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
-            )
+    stored = [
+        stored_class_wins(
+            {**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]}, r
         )
         for r in conn.execute(
             "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
@@ -980,6 +995,9 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
+    lines = words.read_now(
+        stored, [{"rule_book": n} for n in held]
+    )  # the one reading of every CRS (order 14)
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,

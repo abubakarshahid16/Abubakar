@@ -34,6 +34,7 @@ PAGES = {
     3: "Notes. Delivery as agreed. Painting standard invented." + FILL,
 }
 NOT_STATED = "AI verdict: not stated"
+UNPROVEN_SILENCE = "Query"  # order 14 (G5): one reader's word that the paper is silent names no value: a Query, never 'AI thinks: not met'
 
 
 class AbsLane(TwoLane):
@@ -230,7 +231,7 @@ def test_an_answer_code_cannot_stand_behind_leaves_the_line_as_it_was(w, both, a
     paper()
     setup(w, absence=absence)
     run_id = run_review()
-    assert lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+    assert lines_of(run_id)["R-coat"]["word"] == UNPROVEN_SILENCE
     assert (
         absence_step(run_id)["agreed"] == 0 and absence_step(run_id)["unconfirmed"] == 1
     )
@@ -242,7 +243,7 @@ def test_one_unread_page_means_no_candidate_and_no_call(w, both):
     run_id = run_review()
     assert (
         fake.absence_bodies == []
-        and lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+        and lines_of(run_id)["R-coat"]["word"] == UNPROVEN_SILENCE
     )
     assert absence_step(run_id)["candidates"] == 0
 
@@ -260,7 +261,7 @@ def test_code_finding_the_field_words_with_a_value_means_no_candidate(w, both):
     run_id = run_review()
     assert (
         fake.absence_bodies == []
-        and lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+        and lines_of(run_id)["R-coat"]["word"] == UNPROVEN_SILENCE
     )
 
 
@@ -283,7 +284,7 @@ def test_the_absence_switch_off_changes_nothing_and_makes_no_call(w, monkeypatch
     assert fake.absence_bodies == [] and absence_step(run_id) is None
     assert (
         "two_reader_absence" not in stored(run_id, "R-coat")
-        and lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+        and lines_of(run_id)["R-coat"]["word"] == UNPROVEN_SILENCE
     )
 
 
@@ -316,7 +317,7 @@ def test_a_paper_over_the_size_limit_has_no_candidate_and_nothing_is_sent(
         fake.absence_bodies == []
         and absence_step(run_id)["off"] == two.OFF_PAPER_TOO_LONG
     )
-    assert lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+    assert lines_of(run_id)["R-coat"]["word"] == UNPROVEN_SILENCE
 
 
 def test_a_cap_refusal_inside_the_absence_step_switches_it_off_and_the_run_completes(
@@ -346,14 +347,14 @@ def test_a_cap_refusal_inside_the_absence_step_switches_it_off_and_the_run_compl
         and absence_step(run_id)["off"] == two.OFF_CAP
         and fake.absence_bodies == []
     )
-    assert lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+    assert lines_of(run_id)["R-coat"]["word"] == UNPROVEN_SILENCE
 
 
 def test_the_same_family_as_the_first_reader_gives_no_word(w, both):
     paper()
     fake = setup(w, second_reply_model="claude-sonnet-5-5-20260101")
     fake.LEAD = "claude-sonnet-5-5"
-    assert lines_of(run_review())["R-coat"]["word"] == "AI thinks: not met"
+    assert lines_of(run_review())["R-coat"]["word"] == UNPROVEN_SILENCE
 
 
 def test_a_line_proven_by_code_is_never_asked(w, both):
@@ -546,7 +547,7 @@ def test_the_class_is_not_awarded_when_the_first_reader_was_not_given_every_page
     }  # the first reader searched two of three pages
     run_id = run_review()
     assert (
-        lines_of(run_id)["R-coat"]["word"] == "AI thinks: not met"
+        lines_of(run_id)["R-coat"]["word"] == UNPROVEN_SILENCE
         and fake.absence_bodies == []
     )
     assert (
@@ -608,7 +609,10 @@ def test_the_record_keeps_the_line_before_the_step(w, both):
     setup(w)
     run_id = run_review()
     rec = stored(run_id, "R-coat")["two_reader_absence"]
-    assert rec["base"] == {
-        "verdict_class": "AI opinion, engineer to confirm",
-        "verdict_label": "AI thinks: not met",
-    }
+    assert (
+        rec["base"]
+        == {
+            "verdict_class": "Query for the engineer",
+            "verdict_label": "Query for the engineer",
+        }
+    )  # order 14 (G5): one reader's word that the paper is silent names no value: a Query, never 'AI thinks: not met'
