@@ -147,7 +147,7 @@ def test_another_package_special_terms_and_a_paper_the_caller_may_not_read_are_n
     got = _book(
         scope=without
     )  # rule 5: a filter only narrows; the foreign one is still another package
-    assert got == {"id": None, "why": contract_rule_book.NONE_HELD}
+    assert got == {"id": None, "why": contract_rule_book.NONE_FOUND}
 
 
 def test_two_general_terms_papers_in_one_package_choose_none_and_say_why(pkg):
@@ -168,16 +168,29 @@ def test_the_title_decides_before_the_heading_and_a_heading_decides_when_no_titl
 ):
     with (
         db.connect() as conn
-    ):  # a schedule whose page-1 heading names the general conditions, its title does not
+    ):  # a paper whose title says nothing of terms; its page-1 heading IS the general conditions
         _contract(
             conn,
             "doc_heads",
             "Schedule B.pdf",
             NO_A,
-            "SCHEDULE B - read with the General Conditions",
+            "SCHEDULE B - General Conditions of Contract",
         )
+        # a paper whose heading only REFERS to the general conditions is not them
+        _contract(
+            conn,
+            "doc_refers",
+            "Schedule D.pdf",
+            NO_A,
+            "SCHEDULE D - read with the General Conditions",
+        )
+        conn.commit()
     assert _book(scope=ALL | {"doc_heads"})["id"] == GT
-    assert _book(scope=(ALL - {GT}) | {"doc_heads"})["id"] == "doc_heads"
+    assert _book(scope=(ALL - {GT}) | {"doc_heads", "doc_refers"})["id"] == "doc_heads"
+    assert (
+        _book(scope=(ALL - {GT}) | {"doc_refers"})["why"]
+        == contract_rule_book.NONE_FOUND
+    )
 
 
 def test_a_paper_that_is_not_a_contract_by_role_is_never_in_the_package(pkg):
@@ -609,6 +622,71 @@ def test_the_heading_fallback_never_picks_a_special_terms_paper(pkg):
         conn.commit()
     assert _book(scope=(ALL - {GT}) | {"doc_sp2"}) == {
         "id": None,
-        "why": contract_rule_book.NONE_HELD,
+        "why": contract_rule_book.NONE_FOUND,
     }
     assert _book(scope=ALL | {"doc_sp2"})["id"] == GT
+
+
+# ---------------------------------------------------------------- round 2 of #1880: the title IS the general terms (structural)
+
+QUALIFIED = (
+    "Supplementary General Conditions",
+    "Amendments to the General Conditions",
+    "Addendum to General Terms",
+    "Special Provisions to the General Conditions",
+    "Exceptions to General Terms",
+)
+
+
+@pytest.mark.parametrize("title", QUALIFIED)
+def test_a_title_that_qualifies_the_general_terms_is_never_them(pkg, title):
+    with db.connect() as conn:
+        _contract(
+            conn,
+            "doc_q",
+            f"09 - Schedule J - {title} - Rev 02.pdf",
+            NO_A,
+            f"SCHEDULE J - {title}",
+        )
+        conn.commit()
+    assert contract_rule_book.title_state(title) == contract_rule_book.NO
+    assert _book(scope=(ALL - {GT}) | {"doc_q"}) == {
+        "id": None,
+        "why": contract_rule_book.NONE_FOUND,
+    }
+    assert _book(scope=ALL | {"doc_q"})["id"] == GT
+
+
+@pytest.mark.parametrize(
+    "title",
+    (
+        "General Terms and Conditions",
+        "08 - Schedule A - General Terms _ Conditions - Rev 07",
+        "General Conditions of Contract",
+    ),
+)
+def test_a_title_that_is_the_general_terms_is_them(title):
+    assert contract_rule_book.title_state(title) == contract_rule_book.YES
+
+
+def test_a_general_terms_paper_whose_heading_names_the_special_conditions_is_still_chosen(
+    pkg,
+):
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE pages SET text = ? WHERE document_id = ? AND page_no = 1",
+            (
+                _head(
+                    NO_A,
+                    "SCHEDULE A - General Terms and Conditions\nto be read with the Special Conditions",
+                )
+                + "Body.",
+                GT,
+            ),
+        )
+        conn.commit()
+    assert _book() == {"id": GT, "why": contract_rule_book.WHY_LISTED}
+    assert (
+        contract_rule_book.NONE_FOUND
+        == "no general terms paper recognised in this package"
+    )
