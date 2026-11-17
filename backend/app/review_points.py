@@ -647,7 +647,7 @@ def rule_point(
     unconfirmed = "" if missing or ref_hidden else clause_unconfirmed(book_doc, ref["clause"], finding, ctx)
     if unconfirmed:  # the clause does not hold the rule's words in the book: no clause is cited (the grouping keeps it)
         ref = {**ref, "clause": ""}
-    unproven_ai = False
+    unproven_ai = no_quote = False
     missing_words = book_missing_words(missing, ref["clause"]) if missing else ""  # order 14 lane C (C1): the clause, or "not named"
     if missing:  # order 14 lane B (lane D, G7): a rule whose book is not held is a question, never a verdict; none of its words shown
         rank, other_kind = 4, None
@@ -661,6 +661,8 @@ def rule_point(
         # Order 14, 16 Nov 2026: the same check named a book NOT held in one run (a question) and the held book's file in the next
         # (a "not met" with no clause), so the sheet changed from run to run on wording alone.
         rank, unproven_ai = 4, True
+    elif rank == 3 and not paper_q:  # LP0 (lead, 17 Nov 2026): an AI "not met" with no paper passage code verified is a question
+        rank, no_quote = 4, True
     # FTU-1: a point whose own record says no value, with a found passage: ALL its wording cells from the one silent-row decision
     f = finding or {}  # FTU-16: a field that asks for a value reads "By Contractor" as a value left to be given
     value_field = bool((f.get("_fact") or {}).get("unit")) or actions.asks_a_value(content.rule_text(finding), f.get("requirement_source_text"))
@@ -734,8 +736,8 @@ def rule_point(
         "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
         "_finding": finding,
     }
-    if not missing and (rank == 3 or unproven_ai):  # LP0: the rule check's AI step said "not met": its own answer, labelled
-        point["ai_label"] = ai_answer.rule_check_label((finding or {}).get("requirement_id"), ctx.setdefault("_rule_tiers", {}))
+    if not missing and (rank == 3 or unproven_ai or no_quote):  # LP0: the rule check's AI step said "not met": its own answer, labelled
+        point["ai_label"] = ai_answer.rule_check_label((finding or {}).get("requirement_id"), ctx.setdefault("_rule_tiers", {}), bool(paper_q))
         point["ai_answer"] = ai_answer.sentence(
             point["ai_label"], book=book_name, clause=f"clause {point['clause']}" if point["clause"] else ai_answer.NO_CLAUSE,
             page=str(page) if page is not None else None, evidence=paper_q or None, looked=looked or None, hidden=hidden, linked=bool(book_doc),

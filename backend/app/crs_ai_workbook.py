@@ -64,8 +64,8 @@ def status_of(line: Mapping) -> tuple[str, int] | None:
         return None
     if bucket == PASSED_SHEET:
         return words.STATUS_PASS, words.ORDER_PASS
-    # LP0: the AI readers disagree: a question, never a met / not met row
-    if wording.is_opinion(line) and ai_answer.disagreement(line):
+    # LP0: the AI readers disagree, or no paper quote code verified: a question, never met / not met
+    if ai_answer.is_question(line):
         return words.STATUS_QUERY, words.ORDER_QUERY
     if bucket == HELD_PASS_SHEET:
         return words.STATUS_AI, words.ORDER_AI_MET

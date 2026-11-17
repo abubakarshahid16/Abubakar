@@ -33,6 +33,7 @@ PASS_NOT_APPROVED = "Pass (AI, rule not approved, engineer to confirm)"
 FAIL_AI_ONLY = "Fail (AI, rule approved by AI only, engineer to confirm)"  # the shared fixture's rules are stored "AI approved"
 DISAGREE = "AI readers disagree (first: Pass, second: Fail), engineer to decide"
 HINT = "7 (found by word match, not verified)"
+NO_QUOTE = "AI view without a verified quote from the paper: engineer to check"
 
 
 @pytest.fixture(autouse=True)
@@ -73,16 +74,19 @@ def _world():
 
 def test_the_label_is_the_owners_words_and_only_for_a_line_code_did_not_prove():
     got = {ln["item_id"]: A.label(ln) for ln in _lines()}
-    assert got == {
-        "R-1": None,  # proven by code: plain Fail stays
-        "R-2": FAIL_AI_ONLY,  # the STORED tier "AI approved", said as it is
-        "R-3": FAIL_AI_ONLY,
-        "R-4": PASS_NOT_APPROVED,  # the stored tier "not AI approved"
-        "R-5": None,
-        "R-6": A.NOT_APPLICABLE_LABEL,
-        "R-8": DISAGREE,
-        "R-9": FAIL_AI_ONLY,
-    }
+    assert (
+        got
+        == {
+            "R-1": None,  # proven by code: plain Fail stays
+            "R-2": FAIL_AI_ONLY,  # the STORED tier "AI approved", said as it is
+            "R-3": NO_QUOTE,  # no paper quote code verified: a question, no Pass / Fail (lead, with #1882)
+            "R-4": PASS_NOT_APPROVED,  # the stored tier "not AI approved"
+            "R-5": None,
+            "R-6": A.NOT_APPLICABLE_LABEL,
+            "R-8": DISAGREE,
+            "R-9": FAIL_AI_ONLY,
+        }
+    )
     assert A.NOT_APPLICABLE_LABEL == "Does not apply (AI, engineer to confirm)"
 
 
@@ -209,7 +213,7 @@ def test_the_page_shows_the_ai_answer_in_the_pill_and_keeps_plain_pass_fail_for_
     )
     assert p["R-2"]["pill"] == FAIL_AI_ONLY and p["R-2"]["tile"] == "not_met"
     assert (
-        p["R-3"]["pill"] == FAIL_AI_ONLY and p["R-3"]["tile"] == "questions"
+        p["R-3"]["pill"] == NO_QUOTE and p["R-3"]["tile"] == "questions"
     )  # no longer a bare "Question"
     assert p["R-8"]["pill"] == DISAGREE and p["R-8"]["ai_answer"].startswith(
         f"{DISAGREE}: STD-1"
@@ -279,9 +283,7 @@ def test_the_team_file_prints_the_label_and_the_contractor_file_is_unchanged():
     head, rows = rows_after(team[crs_one.EVIDENCE_SHEET], "No")
     pills = {r[head.index("Field or item")]: r[head.index("Pill")] for r in rows}
     cls = {r[head.index("Field or item")]: r[head.index("Class")] for r in rows}
-    assert (
-        pills["Field Silent"] == FAIL_AI_ONLY and pills["Field Opinion"] == FAIL_AI_ONLY
-    )
+    assert pills["Field Silent"] == NO_QUOTE and pills["Field Opinion"] == FAIL_AI_ONLY
     assert pills["Field Disagree"] == DISAGREE
     # the Class cell of an AI row is marked as the AI's; plain words only for a code-proven row
     assert (
@@ -341,10 +343,10 @@ def test_the_run_file_shows_the_ai_answer_on_its_question_and_opinion_rows():
         f"\n{FAIL_AI_ONLY}. The paper states" in comment["Field Opinion"]
     )  # was "The AI reviewer's view, not proven: ..."
     assert (
-        f"\n{FAIL_AI_ONLY}. The words the reader quoted were not found"
+        f"\n{NO_QUOTE}. The words the reader quoted were not found"
         in comment["Field Silent"]
     )  # was a bare question
-    assert f"\n{FAIL_AI_ONLY}. Quote not found by code." in comment["Field Unquoted"]
+    assert f"\n{NO_QUOTE}. Quote not found by code." in comment["Field Unquoted"]
     assert f"\n{DISAGREE}. " in comment["Field Disagree"]
     assert (
         "(AI," not in comment["Field Proven"] and "(AI," not in comment["Field Asked"]
@@ -422,7 +424,7 @@ def test_a_merged_line_says_its_ai_answer_in_the_run_file_too():
 
     by = {ln["item_id"]: ln for ln in _lines()}
     assert (
-        crs_comments._status_words(by["R-3"]) == FAIL_AI_ONLY
+        crs_comments._status_words(by["R-3"]) == NO_QUOTE
     )  # was "a question for the engineer"
     assert (
         crs_comments._status_words(by["R-2"]) == FAIL_AI_ONLY
@@ -688,3 +690,50 @@ def test_the_team_files_reason_and_second_reader_cells_mark_an_ai_answer():
         one.readers_of(indep)[1]
         == "independent reader: not met (AI, engineer to confirm)"
     )
+
+
+def test_an_ai_answer_is_shown_only_beside_a_paper_quote_code_verified():
+    """Lead's decision with PR #1882: no Pass / Fail of the AI without a verified paper quote, on the page, the files and the rule check."""
+    from app import review_points as rp
+    from tests.test_o14_firm_needs_clause import CTX, ROW, _finding
+
+    assert A.NO_QUOTE_LABEL == NO_QUOTE
+    by = {ln["item_id"]: ln for ln in _lines()}
+    assert A.label(by["R-3"]) == NO_QUOTE and A.label(by["R-2"]) == FAIL_AI_ONLY
+    said = A.line_sentence(by["R-3"])
+    assert said.startswith(f"{NO_QUOTE}. STD-1, clause 4.1, page 2;") and said.endswith(
+        "quote not found by code."
+    )
+    opinion = {
+        **by["R-2"],
+        "quotes_checked": {"paper": False, "clause": True},
+    }  # a stored "AI thinks" with no verified quote
+    assert WB.status_of(opinion) == (
+        words.STATUS_QUERY,
+        words.ORDER_QUERY,
+    )  # never a Met / Not met row
+    p = rp.ai_point(
+        opinion,
+        {
+            "run_id": "r",
+            "paper_document_id": "d",
+            "book_of": {},
+            "readable": frozenset(),
+        },
+    )
+    rp.with_groups([p])
+    assert (p["rank"], p["tile"], p["pill"]) == (4, "questions", NO_QUOTE)
+    unseen = {"submittal": {"verified": False}, "standard": {"verified": True}}
+    rc = rp.rule_point(
+        dict(ROW), dict(CTX), _finding("5.3.4"), unseen, proof=(True, True)
+    )
+    rp.with_groups([rc])
+    assert (rc["rank"], rc["tile"], rc["pill"]) == (
+        4,
+        "questions",
+        NO_QUOTE,
+    )  # was "Not met" with nothing from the paper
+    assert (
+        A.class_words("Not met", {"ai_label": NO_QUOTE, "tile": "not_met"})
+        == "Questions for you"
+    )  # never a plain Not met beside it

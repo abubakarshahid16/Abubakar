@@ -59,6 +59,9 @@ DISAGREE_LABEL = (
 )
 LABEL = "{answer} (AI, {why}, engineer to confirm)"
 NOT_APPLICABLE_LABEL = "Does not apply (AI, engineer to confirm)"
+#: Lead's decision (17 Nov 2026, with PR #1882): an AI answer is shown only beside a paper quote code verified; without one the line is a
+#: question in these words (the AI reader's own reasoning stays in its labelled column).
+NO_QUOTE_LABEL = "AI view without a verified quote from the paper: engineer to check"
 QUOTE_FOUND = "found on the page by code"
 QUOTE_LOOKED = (
     "where the AI reader looked; found on the page by code, it does not show the value"
@@ -125,9 +128,23 @@ def rule_check_why(requirement_id: object, cache: dict | None = None) -> str:
     return why
 
 
-def rule_check_label(requirement_id: object, cache: dict | None = None) -> str:
-    """THE label of a rule-check AI "not met" (`rule_check_why`)."""
+def rule_check_label(
+    requirement_id: object, cache: dict | None = None, verified: bool = True
+) -> str:
+    """THE label of a rule-check AI "not met" (`rule_check_why`); `NO_QUOTE_LABEL` when its paper passage was not verified by code."""
+    if not verified:
+        return NO_QUOTE_LABEL
     return LABEL.format(answer=FAIL, why=rule_check_why(requirement_id, cache))
+
+
+def is_question(line: Mapping) -> bool:
+    """An AI opinion line (stored "AI thinks") that is a question on every page and file (`crs_ai_workbook.status_of`): its two readers
+    disagree, or it holds no paper quote code verified (an AI answer is shown only beside one)."""
+    from . import agent_review_wording as wording
+
+    return wording.is_opinion(line) and (
+        bool(disagreement(line)) or not line_quotes(line)[0]
+    )
 
 
 def is_ai_row(line: Mapping) -> bool:
@@ -195,6 +212,9 @@ def label(line: Mapping) -> str | None:
         or wording.is_not_reviewed(line)
     ):
         return None
+    evidence, _looked = line_quotes(line)
+    if not evidence:  # no paper quote code verified: no answer is shown as Pass / Fail
+        return NO_QUOTE_LABEL
     if got := disagreement(line):  # one reader's answer is never shown as THE answer
         return DISAGREE_LABEL.format(first=got[0], second=got[1])
     return LABEL.format(answer=answer, why=_why(line))
@@ -253,7 +273,8 @@ def sentence(
             f"page {page}" if page else NO_PAGE,
         )
     )
-    return f"{answer_label}: {where}; {quote_words(evidence, looked)}."
+    sep = ". " if answer_label == NO_QUOTE_LABEL else ": "
+    return f"{answer_label}{sep}{where}; {quote_words(evidence, looked)}."
 
 
 def line_quotes(line: Mapping) -> tuple[str | None, str | None]:
@@ -326,6 +347,8 @@ def class_words(tile_words: str, point: Mapping) -> str:
         return tile_words
     if str(point["ai_label"]).startswith("AI readers disagree (first: "):
         return DISAGREE_CLASS
+    if point["ai_label"] == NO_QUOTE_LABEL and point.get("tile") in ("not_met", "met"):
+        return "Questions for you"  # never reached by a stored line (`is_question`): said as a question if it ever is
     if point.get("tile") in ("not_met", "met"):
         return AI_CLASS.format(tile=tile_words)
     if point.get("rank") == 8 and point.get("other_kind"):
@@ -352,7 +375,7 @@ def is_label(text: object) -> bool:
     """Is `text` (a pill or a cell) one of this module's labels? The scorer reads an AI row back with it, never as a decision."""
     t = " ".join(str(text or "").split())
     return (
-        t == NOT_APPLICABLE_LABEL
+        t in (NOT_APPLICABLE_LABEL, NO_QUOTE_LABEL)
         or t.startswith("AI readers disagree (first: ")
         or any(
             t.startswith(LABEL.format(answer=a, why=w)) for a in ANSWERS for w in WHYS

@@ -93,7 +93,9 @@ def test_a_not_met_on_silence_says_the_paper_does_not_state_it_and_never_shows_t
     code, opinion
 ):
     point = review_points.ai_point(silent_line(code, opinion=opinion), CTX)
-    assert point["rank"] == (3 if opinion else 4)
+    # LP0 (lead, 17 Nov 2026, with #1882): its quote is only where the reader looked, not evidence, so even a stored "AI thinks: not met"
+    # is a question: an AI answer is shown only beside a paper quote code verified
+    assert point["rank"] == 4
     reason = crs_one.reason_of(point)
     assert "a value is stated" not in reason and "does not state" in reason
     shows = crs_one.paper_shows(point)
