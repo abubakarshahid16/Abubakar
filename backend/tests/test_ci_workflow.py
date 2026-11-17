@@ -37,11 +37,13 @@ def test_the_required_check_is_an_aggregate_that_needs_every_shard(jobs):
     carriers = [j for j in jobs.values() if j["name"] == "backend (pytest)"]
     assert len(carriers) == 1, "exactly one job carries the required name"
     agg = carriers[0]
-    assert set(agg["needs"]) == {"backend-shard", "backend-checks", "app-starts"}
+    assert set(agg["needs"]) == {"mode", "backend-shard", "backend-checks", "app-starts",
+                                 "fast-backend", "fast-frontend"}
     # Without always() a failed shard SKIPS the aggregate, and a skipped
     # required check does not report failure.
     assert agg.get("if") == "always()"
     script = "\n".join(_runs(agg))
+    assert 'test "${{ needs.mode.result }}" = "success"' in script
     assert 'test "${{ needs.backend-shard.result }}" = "success"' in script
     assert 'test "${{ needs.backend-checks.result }}" = "success"' in script
     assert 'test "${{ needs.app-starts.result }}" = "success"' in script
@@ -116,30 +118,126 @@ def test_the_required_check_proves_every_test_ran_exactly_once(jobs):
         assert f in audit["run"]
 
 
-@pytest.mark.parametrize("bad", ["failure", "cancelled", "skipped"])
-def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(jobs, bad):
+def _bash():
     import shutil
-    import subprocess
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("bash not available")
+    return bash
+
+
+def _aggregate(jobs, *, mode="success", full="true", shard="success", checks="success",
+               starts="success", fast="skipped", fast_fe="skipped"):
+    """Run the aggregate's real check script with the given job results."""
+    import subprocess
     step = next(s for s in jobs["backend"]["steps"] if s.get("name") == "Every shard and the checks job passed")
+    script = (
+        step["run"]
+        .replace("${{ needs.mode.result }}", mode)
+        .replace("${{ needs.backend-shard.result }}", shard)
+        .replace("${{ needs.backend-checks.result }}", checks)
+        .replace("${{ needs.app-starts.result }}", starts)
+        .replace("${{ needs.fast-backend.result }}", fast)
+        .replace("${{ needs.fast-frontend.result }}", fast_fe)
+    )
+    return subprocess.run([_bash(), "-e", "-c", script], capture_output=True, env={"FULL": full}).returncode
 
-    def run(shard, checks, starts="success"):
-        script = (
-            step["run"]
-            .replace("${{ needs.backend-shard.result }}", shard)
-            .replace("${{ needs.backend-checks.result }}", checks)
-            .replace("${{ needs.app-starts.result }}", starts)
-        )
-        return subprocess.run(
-            [bash, "-e", "-c", script], capture_output=True
-        ).returncode
 
-    assert run("success", "success") == 0
-    assert run(bad, "success") != 0
-    assert run("success", bad) != 0
-    assert run("success", "success", bad) != 0
+@pytest.mark.parametrize("bad", ["failure", "cancelled", "skipped"])
+def test_the_aggregate_fails_on_a_failed_cancelled_or_skipped_shard(jobs, bad):
+    assert _aggregate(jobs) == 0
+    assert _aggregate(jobs, shard=bad) != 0
+    assert _aggregate(jobs, checks=bad) != 0
+    assert _aggregate(jobs, starts=bad) != 0
+
+
+@pytest.mark.parametrize("bad", ["failure", "cancelled", "skipped"])
+def test_the_aggregate_in_fast_mode_needs_both_fast_jobs_and_the_checks(jobs, bad):
+    ok = dict(full="false", shard="skipped", starts="skipped", fast="success", fast_fe="success")
+    assert _aggregate(jobs, **ok) == 0
+    assert _aggregate(jobs, **{**ok, "fast": bad}) != 0
+    assert _aggregate(jobs, **{**ok, "fast_fe": bad}) != 0
+    assert _aggregate(jobs, **{**ok, "checks": bad}) != 0
+
+
+@pytest.mark.parametrize("bad", ["failure", "cancelled", "skipped"])
+def test_the_aggregate_fails_when_mode_failed_whatever_else_says(jobs, bad):
+    """A failed `mode` leaves every other job skipped; the aggregate must not be green."""
+    assert _aggregate(jobs, mode=bad, full="") != 0
+    assert _aggregate(jobs, mode=bad, full="true") != 0
+    assert _aggregate(jobs, mode=bad, full="false", shard="skipped", starts="skipped",
+                      fast="success", fast_fe="success") != 0
+    # an empty or unknown mode output is neither fast nor full
+    assert _aggregate(jobs, full="") != 0
+
+
+def test_full_mode_does_not_accept_a_skipped_shard_as_fast_mode_would(jobs):
+    # shards skipped is right in fast mode, wrong in full mode
+    assert _aggregate(jobs, full="true", shard="skipped") != 0
+    assert _aggregate(jobs, full="false", shard="skipped", starts="skipped",
+                      fast="success", fast_fe="success") == 0
+
+
+# ---- the `mode` job: which checks run when ---------------------------------
+
+def _decide(jobs, event, labels):
+    """Run the `mode` job's real step; return the `full` output it writes."""
+    import json
+    import subprocess
+    import tempfile
+    step = next(s for s in jobs["mode"]["steps"] if s.get("id") == "decide")
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "out"
+        out.touch()
+        subprocess.run([_bash(), "-e", "-c", step["run"]], check=True, capture_output=True,
+                       env={"EVENT": event, "LABELS": json.dumps(labels), "GITHUB_OUTPUT": str(out)})
+        return out.read_text().strip()
+
+
+@pytest.mark.parametrize("event, labels, full", [
+    ("push", [], "true"),                                  # push to main
+    ("schedule", [], "true"),                              # nightly
+    ("workflow_dispatch", [], "true"),                     # by hand
+    ("pull_request", [], "false"),                         # routine PR
+    ("pull_request", ["backend"], "false"),                # only a topic label
+    ("pull_request", ["full-checks"], "true"),
+    ("pull_request", ["live-update"], "true"),
+    ("pull_request", ["backend", "live-update"], "true"),
+    ("pull_request", ["not-live-update-yet"], "false"),    # a look-alike label is not the label
+])
+def test_mode_decides_fast_or_full(jobs, event, labels, full):
+    assert _decide(jobs, event, labels) == f"full={full}"
+
+
+def test_the_pull_request_trigger_sees_a_label_being_added():
+    on = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))[True]
+    assert {"labeled", "unlabeled", "synchronize", "opened"} <= set(on["pull_request"]["types"])
+
+
+def test_every_full_job_waits_for_mode_and_every_fast_job_runs_only_in_fast_mode(jobs):
+    for name in ("backend-shard", "app-starts", "frontend", "accessibility"):
+        assert jobs[name]["needs"] == "mode"
+        assert jobs[name]["if"] == "needs.mode.outputs.full == 'true'", name
+    for name in ("fast-backend", "fast-frontend"):
+        assert jobs[name]["needs"] == "mode"
+        assert jobs[name]["if"] == "needs.mode.outputs.full == 'false'", name
+    # the lint job runs in both modes; only its models and benchmarks are full-only
+    checks = jobs["backend-checks"]
+    assert "if" not in checks
+    full_only = {s["name"] for s in checks["steps"] if s.get("if") == "needs.mode.outputs.full == 'true'"}
+    assert {"Cache models", "Stage models", "Run the benchmarks"} <= full_only
+
+
+def test_the_fast_backend_job_runs_the_changed_tests_and_the_whole_suite_when_told(jobs):
+    run = next(s["run"] for s in jobs["fast-backend"]["steps"] if s.get("name") == "Run the tests the change can break")
+    assert "scripts/test_changed.py --base" in run
+    assert "run the whole suite" in run and "-m pytest -q -n auto" in run
+
+
+def test_the_audit_runs_only_in_full_mode(jobs):
+    for s in jobs["backend"]["steps"][1:]:
+        assert s.get("if") == "needs.mode.outputs.full == 'true'" or "durations" in s.get("name", "").lower() \
+            or s.get("if", "").startswith("github.event_name"), s
 
 
 def test_the_nightly_job_proves_every_slow_test_ran(jobs):
