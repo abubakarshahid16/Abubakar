@@ -376,27 +376,74 @@ def test_a_stated_value_is_not_taken_for_a_deferred_one():
     assert d["label"] == "Met" and d["deferred"] is False
 
 
-# ---- who supplies vs pending (the lead's decision of 18 Nov 2026; invented values) ------------------------------------------
+# ---- a provisional figure: a stated figure beside a who-supplies note (the lead's decision of 18 Nov 2026; invented values) ----
+# The standing order: a value left to the vendor is a Question, nothing unproven is Pass or Fail. So such a figure is CHECKED by
+# code from the verified quotes, but its label is always Question; only a failed check is sent, with both numbers.
 
 OPEN_PAGES = {
     1: "Set pressure 380 psig (By Contractor, as per Code)\nInlet size psig (By Contractor)\n",
     2: "Back pressure 380 psig TBC\nWall thickness 12 mm *\nSeat material By Vendor\n",
 }
 OPEN_PAPER = Paper(paper_id="doc_open", pages=OPEN_PAGES)
+STATED = "Set pressure 380 psig (By Contractor, as per Code)"
 
 
-def test_a_who_supplies_note_beside_a_stated_figure_is_judged_and_compared_by_code():
-    quote = "Set pressure 380 psig (By Contractor, as per Code)"
-    d = S._decide(
-        _item(), {"label": "Met", "quote": quote, "page": 1}, OPEN_PAPER, BOOKS, ""
+def _stated(label="Met", limit="340"):
+    j = {"label": label, "quote": STATED, "page": 1, "comment": "the model's words",
+         "numbers": {"paper_value": "380", "paper_unit": "psig", "operator": "<=", "rule_value": limit, "rule_unit": "psig"}}  # fmt: skip
+    item = _item(
+        kind="limit", rule_quote=f"The set pressure shall not exceed {limit} psig."
     )
-    assert d["label"] == "Met" and d["deferred"] is False and d["quote"] == quote
-    j = {"label": "Met", "quote": quote, "page": 1,
-         "numbers": {"paper_value": "380", "paper_unit": "psig", "operator": "<=", "rule_value": "400", "rule_unit": "psig"}}  # fmt: skip
-    item = _item(kind="limit", rule_quote="The set pressure shall not exceed 400 psig.")
-    d = S._decide(item, j, OPEN_PAPER, BOOKS, "")
-    assert d["deferred"] is False and d["code_compare"]["result"] == "pass"
-    assert d["code_compare"]["read_from"] == "verified quotes" and d["label"] == "Met"
+    return S._decide(item, j, OPEN_PAPER, BOOKS, "")
+
+
+def _sent(d) -> bool:
+    from app import aim_review
+    from app.aim_review.engine import to_line
+
+    return aim_review.sendable(to_line(1, d))
+
+
+def test_a_provisional_figure_over_the_limit_is_a_sent_question_with_both_numbers():
+    d = _stated(limit="340")
+    assert d["label"] == "Question" and d["code"] == "provisional_fails"
+    assert (
+        d["code_compare"]["result"] == "fail"
+        and d["code_compare"]["read_from"] == "verified quotes"
+    )
+    assert d["quote"] == STATED and _sent(d)
+    assert d["comment"] == (
+        "The stated 380 psig (by contractor) is above the 340 psig limit of QX-STD-101 clause 4.1; contractor to confirm the value."
+    )
+
+
+def test_a_provisional_figure_under_the_limit_stays_in_all_points_and_is_not_sent():
+    d = _stated(limit="400")
+    assert d["label"] == "Question" and d["code"] == "provisional"
+    assert d["code_compare"]["result"] == "pass" and not _sent(d)
+
+
+def test_a_provisional_figure_code_cannot_check_is_not_sent():
+    j = {"label": "Met", "quote": STATED, "page": 1}  # no numbers: code cannot check it
+    d = S._decide(_item(), j, OPEN_PAPER, BOOKS, "")
+    assert d["label"] == "Question" and d["code"] == "provisional" and not _sent(d)
+
+
+@pytest.mark.parametrize("label", ["Met", "Not met", "AI opinion", "Question"])
+@pytest.mark.parametrize("limit", ["340", "400"])
+def test_a_who_supplies_line_is_never_met_or_not_met_nor_shown_pass_or_fail(
+    label, limit
+):
+    from app import aim_review_store
+    from app.aim_review.engine import to_line
+
+    d = _stated(label=label, limit=limit)
+    assert d["label"] == "Question", (label, limit)
+    line = to_line(1, d)
+    shown = aim_review_store.shown_label(
+        line["label"], line["code_compare_json"], line["deferred"]
+    )
+    assert shown not in (aim_review_store.PASS_BY_CODE, aim_review_store.FAIL_BY_CODE)
 
 
 @pytest.mark.parametrize(
@@ -409,42 +456,45 @@ def test_a_who_supplies_note_beside_a_stated_figure_is_judged_and_compared_by_co
     ],
 )
 @pytest.mark.parametrize("label", ["Met", "Not met"])
-def test_a_value_left_open_is_a_question(quote, page, label):
+def test_a_value_left_open_is_a_plain_sent_question(quote, page, label):
     d = S._decide(
         _item(), {"label": label, "quote": quote, "page": page}, OPEN_PAPER, BOOKS, ""
     )
     assert d["label"] == "Question" and d["deferred"] is True, (quote, label)
-    assert (
-        d["quote"] == quote
-    )  # the quote is verified: it is the deferral, not the quote, that makes the Question
+    assert d["code"] not in ("provisional", "provisional_fails") and _sent(d)
 
 
 @pytest.mark.parametrize(
-    "quote,left_open",
+    "quote,left_open,provisional",
     [
-        ("Set pressure 380 psig (By Contractor, as per Code)", False),
-        ("Set pressure: 380 psig by vendor", False),
-        ("Set pressure psig (By Contractor)", True),
-        ("380 psig TBC", True),
-        ("12 mm *", True),
-        ("380 (*) psig", True),
-        ("By Vendor", True),
-        ("Noise level: 85 dBA, vendor to confirm", True),
-        ("Noise level: to be confirmed", True),
-        ("Rated speed 1480 rpm later", True),
+        ("Set pressure 380 psig (By Contractor, as per Code)", False, True),
+        ("Set pressure: 380 psig by vendor", False, True),
+        ("Set pressure psig (By Contractor)", True, False),
+        ("380 psig TBC", True, False),
+        ("12 mm *", True, False),
+        ("380 (*) psig", True, False),
+        ("By Vendor", True, False),
+        ("Noise level: 85 dBA, vendor to confirm", True, False),
+        ("Noise level: to be confirmed", True, False),
+        ("Rated speed 1480 rpm later", True, False),
         (
             "Rated flow 24 m3/h * see note 3",
+            False,
             False,
         ),  # a star that points at a note is no value mark
         (
             "Item 2 set pressure: psig by vendor",
             True,
+            False,
         ),  # "Item 2" is a pointer, no figure for the value
-        ("Body material: carbon steel", False),
-        ("Seal flush plan: N/A", False),
+        ("Body material: carbon steel", False, False),
+        ("Seal flush plan: N/A", False, False),
     ],
 )
-def test_value_left_open_separates_pending_from_who_supplies(quote, left_open):
+def test_pending_who_supplies_and_provisional_are_told_apart(
+    quote, left_open, provisional
+):
     from app import blank_markers
 
     assert blank_markers.value_left_open(quote) is left_open, quote
+    assert blank_markers.is_provisional_figure(quote) is provisional, quote
