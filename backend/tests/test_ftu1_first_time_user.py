@@ -19,6 +19,7 @@ import io
 import pytest
 from openpyxl import load_workbook
 
+from app import agent_review_ai_answer
 from app import agent_review_wording as W
 from app import (
     crs_ai_actions,
@@ -717,7 +718,9 @@ def test_every_part_of_the_older_sheet_cell_of_a_silent_row_comes_from_the_one_f
     want = crs_ai_actions.silent_row(line, where=", page 2")
     assert "Contractor" not in part1
     # FTU-16: the one cell of the older sheet is the function's own `cell` (the reason said once, with the quote)
-    assert part2.startswith(want.cell) and "did not find" not in part2
+    # LP0: the AI's own answer (`agent_review_ai_answer.label`, its one home) leads; then the function's own cell
+    label = agent_review_ai_answer.label(line)
+    assert label and part2.startswith(f"{label}. {want.cell}") and "did not find" not in part2
     assert part2.lower().count("the reader says") == 1
     assert part3 == crs_ai_actions.silent_row(line).action
 

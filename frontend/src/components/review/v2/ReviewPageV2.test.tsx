@@ -796,7 +796,7 @@ describe("11 the list of documents that leave, before the start (owner, 12 Nov 2
 describe("the section of lines the AI thinks do not apply", () => {
   const na = (i: number, book: string, state: "keep" | null = null) => point({
     id: `ai:r:na${i}`, rank: 9, tile: "na_to_confirm", firm: "to confirm", name: `Unproven field ${i}`, rule_book: book, clause: `${i}.1`,
-    pill: "AI thinks it does not apply · to confirm", decision: state ? { state, words: "Does not apply (confirmed by the engineer)", by: "Sana" } : { state: null, words: "Not decided" },
+    pill: "Does not apply (AI, engineer to confirm)", ai_label: "Does not apply (AI, engineer to confirm)", decision: state ? { state, words: "Does not apply (confirmed by the engineer)", by: "Sana" } : { state: null, words: "Not decided" },
   });
   const withSection = () => {
     const base = listing();
@@ -836,5 +836,47 @@ describe("the section of lines the AI thinks do not apply", () => {
     mount();
     await screen.findByTestId("v2-points");
     expect(screen.queryByTestId("v2-na-section")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- owner's item LP0 (17 Nov 2026): the AI's own answer, never a bare Query
+
+describe("the AI's own answer on a line code did not prove", () => {
+  const FAIL_AI = "Fail (AI, rule not approved, engineer to confirm)";
+  const answered = point({
+    id: "ai:r:R-3", rank: 4, tile: "questions", firm: null, name: "Invented field", pill: FAIL_AI, ai_label: FAIL_AI,
+    ai_answer: `${FAIL_AI}: STD-A-001, clause 4.1, page 2; quote not found by code.`, paper_quote: null, clause_quote: null,
+  });
+
+  it("shows the label in the pill and, opened, the answer with standard, clause, page and quote", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [answered] })));
+    mount(); await loaded();
+    const row = screen.getByTestId("v2-point");
+    expect(within(row).getByTestId("v2-pill")).toHaveTextContent(FAIL_AI);
+    expect(within(row).queryByText(/^Question$/)).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: /Invented field/ }));
+    expect(screen.getByTestId("v2-ai-answer")).toHaveTextContent(`${FAIL_AI}: STD-A-001, clause 4.1, page 2; quote not found by code.`);
+  });
+
+  it("a point with no AI answer shows no answer line", async () => {
+    api.list.mockResolvedValue(ok(listing({ points: [point({ id: "q1", rank: 4, tile: "questions", firm: null, name: "Asked field", pill: "Question" })] })));
+    mount(); await loaded();
+    fireEvent.click(within(screen.getByTestId("v2-point")).getByRole("button", { name: /Asked field/ }));
+    expect(screen.queryByTestId("v2-ai-answer")).toBeNull();
+  });
+
+  it("an open line of the does-not-apply section says the owner's label until it is ticked", async () => {
+    const na = point({
+      id: "ai:r:na9", rank: 9, tile: "na_to_confirm", firm: null, name: "Unproven field 9", rule_book: "Book X",
+      pill: "Does not apply (AI, engineer to confirm)", ai_label: "Does not apply (AI, engineer to confirm)",
+    });
+    const base = listing();
+    api.list.mockResolvedValue(ok(listing({
+      points: [...base.points, na],
+      counts: { ...base.counts, not_applicable_to_confirm: { label: "AI thinks these do not apply, tick to confirm", total: 1, confirmed: 0, open: 1, sentence: null } },
+    })));
+    mount();
+    const section = await screen.findByTestId("v2-na-section");
+    expect(within(section).getByTestId("v2-na-line")).toHaveTextContent("Does not apply (AI, engineer to confirm) · not confirmed yet");
   });
 });

@@ -18,6 +18,7 @@ import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from . import agent_review_ai_answer as ai_answer
 from . import agent_review_local as local_words
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
@@ -53,9 +54,6 @@ from .agent_review_verdict import (
 )
 from .agent_run_crs import _cell, _page_cell
 from .crs_ai_actions import provisional, query_action, reason_for, reasoning_part
-
-OPINION_MET = "met"
-OPINION_NOT_MET = "not met"
 
 
 def status_of(line: Mapping) -> tuple[str, int] | None:
@@ -278,9 +276,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out = "The AI reviewer holds no verified quote from the paper for this point."
     if status == words.STATUS_AI_VERDICT:
         out = f"{words.verdict_prefix(two.is_independent(line), order == words.ORDER_AI_VERDICT_MET)} {out}"
-    if status == words.STATUS_AI:
-        view = OPINION_MET if order == words.ORDER_AI_MET else OPINION_NOT_MET
-        out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
+    out = ai_answer.lead(line, out, status, order == words.ORDER_AI_MET)
     why = reason_for(line, words.why_phrase(guard or line.get("not_proven_reason")))
     if (
         not one_cell

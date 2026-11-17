@@ -29,6 +29,7 @@ import json
 import re
 from collections import Counter, defaultdict
 
+from . import agent_review_ai_answer as ai_answer
 from . import agent_review_not_applicable as not_applicable
 from . import agent_review_wording as wording_mod
 from . import crs_ai_actions as actions
@@ -46,7 +47,7 @@ RANKS: dict[int, tuple[str, str]] = {
     6: ("Met", "two readers agree"),
     7: ("Met", "proven by code"),
     8: ("Does not apply", ""),
-    9: ("AI thinks it does not apply, to confirm", ""),  # owner on PR #1872: its own section (`agent_review_not_applicable`)
+    9: (ai_answer.NOT_APPLICABLE_LABEL, ""),  # owner on PR #1872: its own section; LP0 (17 Nov 2026): the owner's words for it
 }
 TILES = ("not_met", "questions", "met", "does_not_apply")
 TILE_OF_RANK = {
@@ -285,9 +286,13 @@ def split_tags(name: str, known: frozenset[str] = frozenset()) -> tuple[str, lis
     return _clean(" ".join(x for x in keep if x)), list(dict.fromkeys(tags))
 
 
-def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None) -> str:
+def _pill(rank: int, other_kind: str | None, n_alike: int, added_by: str | None, ai_label: str | None = None) -> str:
+    """The pill: what the point is and how firm. LP0 (owner, 17 Nov 2026): a line code did not prove whose AI reader answered shows that
+    answer, labelled as the AI's (`agent_review_ai_answer.label`), never a plain Pass / Fail and never a bare "Question"."""
     if added_by:
         return "Added by " + added_by
+    if ai_label:
+        return f"{ai_label} · {n_alike} alike" if rank == 4 and n_alike > 1 else ai_label
     what, firm = RANKS[rank]
     if rank == 8 and other_kind:
         what = other_kind
@@ -398,6 +403,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         from .agent_review_crs import sheet_of
 
         other_kind = wb.OTHER_KIND_OF_SHEET.get(sheet_of(line))
+    # LP0 (owner, 17 Nov 2026): the AI's own answer, labelled, on a question, a one-reader met / not met, a rule not yet approved and an
+    # unproven "does not apply"; words only: the rank, tile and counts stay (`agent_review_ai_answer`)
+    answer_label = ai_answer.label(line) if rank in (3, 4, 5, 8, 9) else None
+    if rank == 8 and (other_kind != words.KIND_UNAPPROVED or answer_label == ai_answer.NOT_APPLICABLE_LABEL):
+        answer_label = None  # "Does not apply (AI, engineer to confirm)" is said only in its own section (rank 9)
     two_readers = rank in (2, 6)
     page = arc.line_page(line)
     field, tags = split_tags(wb.field_words(line), ctx.get("known_tags") or frozenset())
@@ -409,6 +419,8 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     # The reason is part of the group key: points asked for different reasons (value blank, values conflict, held for a condition)
     # are never one group, so "Keep all" never decides them unseen.
     reason = line.get("reason_code") or line.get("not_proven_reason") or ""
+    if answer_label:  # LP0: points with different AI answers are never one group ("Keep all" never decides them unseen)
+        reason = f"{reason}|{answer_label}"
     shown = (
         line
         if book_readable
@@ -486,6 +498,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         ),
         "tags": tags,
         "added_by": None,
+        # LP0 (owner, 17 Nov 2026): the AI's own answer and its line (standard, clause, page, quote); words only, never a decision
+        "ai_label": answer_label,
+        "ai_answer": ai_answer.sentence(answer_label, book=book_name, clause=ai_answer.clause_words(line) if book_name else ai_answer.NO_CLAUSE, page=page, evidence=paper_q,
+                                        looked=looked, hidden=bool(book_doc) and not book_name) if answer_label else None,
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
@@ -716,6 +732,12 @@ def rule_point(
         "_row": row,  # the CRS row and its finding: the one-CRS export reads them (private: never in the listing)
         "_finding": finding,
     }
+    if not missing and (rank == 3 or unproven_ai):  # LP0: the rule check's AI step said "not met": its own answer, labelled
+        point["ai_label"] = ai_answer.RULE_CHECK_LABEL
+        point["ai_answer"] = ai_answer.sentence(
+            ai_answer.RULE_CHECK_LABEL, book=book_name, clause=f"clause {point['clause']}" if point["clause"] else ai_answer.NO_CLAUSE,
+            page=page, evidence=paper_q or None, looked=looked or None, hidden=bool(book_doc) and not book_name,
+        )  # fmt: skip
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
                      clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)  # fmt: skip
@@ -877,7 +899,7 @@ def with_groups(points: list[dict]) -> list[dict]:
     for p in points:
         n = size.get(p.get("group_key"), 1) if p.get("group_key") else 1
         p["n_alike"] = n
-        p["pill"] = _pill(p["rank"], p.get("other_kind"), n, p.get("added_by"))
+        p["pill"] = _pill(p["rank"], p.get("other_kind"), n, p.get("added_by"), p.get("ai_label"))
     return points
 
 

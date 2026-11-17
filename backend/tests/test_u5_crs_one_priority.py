@@ -3,7 +3,7 @@ Invented data only."""
 
 from __future__ import annotations
 
-from app import crs_one, review_points
+from app import agent_review_ai_answer, crs_one, review_points
 from tests.test_b1_review_points import decide, points_of, world_with_both
 from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
 from tests.test_k4_one_crs import on, rows_after, scope_all, sheet  # noqa: F401 - fixtures and helpers
@@ -53,7 +53,11 @@ def test_comments_are_worst_first_then_by_priority():
     doc, rc, ai, client = world_with_both()
     head, rows, _h, _r = team(doc)
     pill = head.index("Pill")
-    ranks = [next((i for i, (what, _f) in review_points.RANKS.items() if str(r[pill]).startswith(what)), 9) for r in rows]
+    cls = head.index("Class")
+    # LP0: a pill holding the AI's own answer (`agent_review_ai_answer`) is a one-reader row: its rank is read from its Class
+    ai_rank = {"Not met": 3, "Questions for you": 4, "Met": 5}
+    ranks = [ai_rank[r[cls]] if agent_review_ai_answer.is_label(str(r[pill]).split(" · ")[0])
+             else next((i for i, (what, _f) in review_points.RANKS.items() if str(r[pill]).startswith(what)), 9) for r in rows]  # fmt: skip
     assert ranks == sorted(ranks) or all(a <= b for a, b in zip(ranks, ranks[1:], strict=False))
     pts = [{"rank": 4, "priority": "Low", "id": "a"}, {"rank": 4, "priority": "High", "id": "b"}, {"rank": 1, "priority": "", "id": "c"}, {"rank": 4, "priority": "", "id": "d"}]
     assert [p["id"] for p in review_points.order_points(pts)] == ["c", "b", "a", "d"]

@@ -528,9 +528,15 @@ def _is_team_header(row) -> bool:
 def _team_kind(cls, pill, comment) -> tuple[str, str, str] | None:
     """(kind, status, ai_kind) of one team-file point from its Class and Pill (`review_points.RANKS`: "<what> · <how firm>"); None:
     no comment and no pass (the AI's own met, does not apply). kind "unknown": a class this scorer does not know."""
+    from app import agent_review_ai_answer as ai_answer
+
     cls = fold(cls)
     pill = str(pill or "")
     firm = fold(pill.split("\u00b7", 1)[1]) if "\u00b7" in pill else None
+    if ai_answer.answer_of(pill.split("\u00b7", 1)[0]):  # LP0: the AI's own answer, labelled: one reader, never a decision
+        firm = "one reader"
+    if " ".join(pill.split()) == ai_answer.NOT_APPLICABLE_LABEL:
+        return None  # LP0: the AI thinks it does not apply (its own section): no comment and no pass
     if fold(pill).startswith("added by "):
         return "comment", "added", ""  # an engineer's own point (`review_points._pill`)
     if cls in ("not met", "met") and firm not in FIRMNESS:
@@ -639,6 +645,7 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
     """(the lines, which layout was read). NEW layout: the sheet "CRS" has a "Status" column: Pass is a pass line; Fail, Query and
     AI opinion (not met) are comment lines; an AI opinion that says the requirement is met is no comment and no pass (the old
     layout kept those on an unread sheet). OLD layout: the "Verdict" column, the sheet names, the tick marker."""
+    from app import agent_review_ai_answer as ai_answer
     from app.crs_ai_words import AI_VIEW_MET
 
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -682,7 +689,7 @@ def read_crs_layout(path) -> tuple[list[Line], str]:
             verdict = fold(row[vi]).split(",", 1)[0].strip() if vi is not None else ""
             if sti is not None:
                 status = fold(row[sti])
-                if status == "ai opinion" and fold(AI_VIEW_MET) in fold(comment):
+                if status == "ai opinion" and (fold(AI_VIEW_MET) in fold(comment) or ai_answer.says_met(comment)):
                     continue  # the AI reviewer's own "met": not a comment, not a pass
                 kind = {
                     "pass": "pass",

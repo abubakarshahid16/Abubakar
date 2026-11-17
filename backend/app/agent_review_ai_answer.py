@@ -1,0 +1,244 @@
+"""The AI reviewer's OWN answer on a line that code did not prove (owner, 17 Nov 2026, order 14 item LP0). Pure functions, no I/O.
+
+The owner's words: "Show the AI's own answer instead of a Query: 'Pass / Fail (AI, rule not approved, engineer to confirm)' with
+standard, clause, page and quote. 'Does not apply (AI, engineer to confirm)' goes in a separate tick-to-confirm section. Plain Pass and
+Fail only for code-proven rows. Do not count AI rows as decisions in the score."
+
+THE ONE HOME of those words. Every writer takes them from here: the page's points (`review_points.ai_point`: the pill and the answer
+line), the paper's one CRS file (`crs_one`, which prints the points' pill), and the AI run's own file (`crs_ai_workbook._paper_shows`,
+`crs_comments._status_words`). The answer scorer reads them back through `says_met` / `is_label` (`tools.answer_key_score`).
+
+WHAT IT CHANGES: WORDS ONLY. The line's class, rank, tile, priority, action and comment grouping stay exactly as they were, so a line
+the gate made a question is still counted open, still a question for the engineer, never a decision (`agent_review_wording.decisions_of`
+counts code Pass/Fail and two-reader verdicts only; the proposed review code counts the engineer's decisions only). What changes is
+that such a line no longer hides the AI reader's own answer behind a bare "Query": it shows that answer, labelled as the AI's.
+
+WHICH LINES (`label`): a line of the AI reviewer (a rule or a checklist item) whose reader answered met (Pass) or not met (Fail) and that
+is NOT proven by code (the class "Proven by code" keeps its plain Pass / Fail), NOT a two-reader verdict (its own words, "Met (AI, two
+readers agree, quotes verified)"), NOT "needs a drawing or a calculation", NOT a line with no answer (an error, a reader's own Query),
+and NOT a line on a rule book the run does not hold (a book not held is never guessed: it stays a question, gate G7). A "does not apply"
+without its proof (`agent_review_wording.not_applicable_question`) is "Does not apply (AI, engineer to confirm)", in its own section.
+The rule check's own AI step (AI clause review, AI engineering check: a one-reader "not met" on the page, or a question when it names no
+clause) is `RULE_CHECK_LABEL`, "Fail (AI, not proven by code, engineer to confirm)": its rule's tier is not on its row.
+
+HONESTY (CLAUDE.md rule 4). The middle words say truly why the answer is not a plain Pass or Fail: "rule not approved" (the owner's
+words) when the rule is not approved by a person (not AI approved, AI approved only, or its tier not established); "not proven by code"
+when the rule is approved by the owner or an engineer, or the item is on the app's own approved checklist, where "rule not approved"
+would be false. The quote is shown only when code found it on the page; otherwise the line says "quote not found by code".
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from .agent_review_verdict import (
+    ENGINEER_TIER,
+    FAIL,
+    OWNER_TIER,
+    PASS,
+    RULE_NOT_APPROVED,
+)
+
+#: The owner's words, one constant each (a test reads them).
+WHY_NOT_APPROVED = "rule not approved"
+WHY_NOT_PROVEN = "not proven by code"
+LABEL = "{answer} (AI, {why}, engineer to confirm)"
+NOT_APPLICABLE_LABEL = "Does not apply (AI, engineer to confirm)"
+QUOTE_FOUND = "found on the page by code"
+QUOTE_LOOKED = (
+    "where the AI reader looked; found on the page by code, it does not show the value"
+)
+QUOTE_NOT_FOUND = "quote not found by code"
+NO_BOOK = "no held rule book linked"
+BOOK_HIDDEN = "rule book not shown (not one you may read)"
+NO_CLAUSE = "clause not named"
+NO_PAGE = "page not recorded"
+#: The rule check's own AI step (`crs_normal`: AI clause review, AI engineering check, ...) wrote a "not met" (rank 3), or one that names
+#: no clause (a question): its tier is not on the row, so the true middle words are "not proven by code".
+RULE_CHECK_LABEL = LABEL.format(answer=FAIL, why=WHY_NOT_PROVEN)
+#: The answers this module can give, as they open a label (the scorer reads them back: `is_label`).
+ANSWERS = (PASS, FAIL)
+
+
+def _why(line: Mapping) -> str:
+    """Why the answer is the AI's and not a plain Pass / Fail, said truly (see the module words)."""
+    tier = line.get("tier")
+    if line.get("rule_tier") == RULE_NOT_APPROVED:
+        return WHY_NOT_APPROVED
+    if tier in (OWNER_TIER, ENGINEER_TIER):
+        return WHY_NOT_PROVEN
+    if line.get("checklist") is True or (
+        line.get("source") == "skill" and line.get("checklist") is not False
+    ):
+        return WHY_NOT_PROVEN  # the app's own approved checklist: "rule not approved" would be false
+    return WHY_NOT_APPROVED
+
+
+def label(line: Mapping) -> str | None:
+    """THE label of the AI's own answer on one stored line as every reader sees it (after `crs_ai_words.read_now`), or None when the line
+    has none to show (see the module words: WHICH LINES)."""
+    from . import agent_review_wording as wording
+    from . import crs_ai_words as words
+
+    if line.get("source") not in ("rule", "skill"):
+        return None
+    if words.book_not_held(
+        line
+    ):  # a rule book not held is never guessed (G7): it stays a question
+        return None
+    if wording.not_applicable_question(line):
+        return NOT_APPLICABLE_LABEL
+    answer = line.get("ai_verdict")
+    if answer not in ANSWERS or line.get("error"):
+        return None
+    cls = line.get("verdict_class")
+    if cls not in (
+        wording.CLASS_OPINION,
+        wording.CLASS_UNAPPROVED,
+        wording.CLASS_QUERY,
+    ):
+        return None  # proven by code (plain Pass / Fail), two readers, not applicable, not reviewed, not checked here
+    if (
+        wording.is_two_reader(line)
+        or wording.is_not_checked_here(line)
+        or wording.is_not_reviewed(line)
+    ):
+        return None
+    return LABEL.format(answer=answer, why=_why(line))
+
+
+def quote_words(evidence: str | None, looked: str | None = None) -> str:
+    """The quote part of the answer line: a quote only when code found it on the page, else "quote not found by code"."""
+    if evidence:
+        return f'quote: "{evidence}" ({QUOTE_FOUND})'
+    if looked:
+        return f'quote: "{looked}" ({QUOTE_LOOKED})'
+    return QUOTE_NOT_FOUND
+
+
+def clause_words(line: Mapping) -> str:
+    """The clause part of the answer line: the clause the line shows; a clause code moved off the line (`crs_ai_words.
+    mark_clause_unconfirmed`, read as a question by `firm_clause` when the line was a firm "not met") says it was not checked or not
+    confirmed, with why; else "clause not named"."""
+    from . import crs_ai_words as words
+
+    shown = " ".join(str(line.get("clause") or "").split())
+    if shown:
+        return f"clause {shown}"
+    moved = " ".join(str(line.get(words.CLAUSE_UNCONFIRMED_KEY) or "").split())
+    if moved:
+        return (
+            words.not_checked_words(line)
+            or f"clause {moved} not confirmed by code: the rule's words are not in it"
+        )
+    return NO_CLAUSE
+
+
+def sentence(
+    answer_label: str,
+    *,
+    book: str | None,
+    clause: str,
+    page: object,
+    evidence: str | None,
+    looked: str | None = None,
+    hidden: bool = False,
+) -> str:
+    """THE answer line: the label, then the standard, the clause (`clause_words`), the page and the quote (each said, never left out). A
+    rule book the viewer may not read is neither named nor its clause shown (CLAUDE.md rule 5): `hidden`."""
+    book_words = (
+        BOOK_HIDDEN if hidden else (" ".join(str(book or "").split()) or NO_BOOK)
+    )
+    where = ", ".join(
+        (
+            book_words,
+            NO_CLAUSE if hidden else clause,
+            f"page {page}" if page not in (None, "") else NO_PAGE,
+        )
+    )
+    return f"{answer_label}: {where}; {quote_words(evidence, looked)}."
+
+
+def line_quotes(line: Mapping) -> tuple[str | None, str | None]:
+    """(evidence, looked) of a stored line, the same split the page makes (`review_points.ai_point`): a paper quote code verified is
+    evidence, unless the line says the paper does not state the value (`crs_ai_actions.silent_row`), when it is where the reader looked."""
+    from . import crs_ai_actions as actions
+
+    q = line.get("quotes_checked") or {}
+    quote = (
+        " ".join(str(line.get("paper_quote") or "").split())
+        if isinstance(q, Mapping) and q.get("paper")
+        else ""
+    )
+    if not quote:
+        return None, None
+    if actions.silent_row(line) or actions.absence_proof(line):
+        return None, quote
+    return quote, None
+
+
+def line_sentence(line: Mapping) -> str | None:
+    """The answer line of a stored line (the AI run's own file), or None when the line has no AI answer to show."""
+    from .agent_review_crs import line_page
+
+    got = label(line)
+    if got is None:
+        return None
+    evidence, looked = line_quotes(line)
+    return sentence(
+        got,
+        book=line.get("standard"),
+        clause=clause_words(line),
+        page=line_page(line),
+        evidence=evidence,
+        looked=looked,
+    )
+
+
+#: The AI run file's words for a row whose paper quote code did not verify (`crs_ai_workbook._paper_shows`).
+NO_VERIFIED_QUOTE = (
+    "The AI reviewer holds no verified quote from the paper for this point."
+)
+
+
+def lead(line: Mapping, out: str, status: str, met: bool) -> str:
+    """The paper part of an AI run-file row, opened by the AI's own answer (`crs_ai_workbook._paper_shows`): a row of an AI opinion or a
+    question with an answer leads with its label (and says "Quote not found by code." in place of the no-verified-quote sentence); an AI
+    opinion with no label (a rule book not held) keeps the older words "The AI reviewer's view, not proven: the requirement is ..."."""
+    from . import crs_ai_words as words
+
+    answer = label(line) if status in (words.STATUS_AI, words.STATUS_QUERY) else None
+    if answer:
+        quote = f"{QUOTE_NOT_FOUND[:1].upper()}{QUOTE_NOT_FOUND[1:]}."
+        return f"{answer}. {quote if out == NO_VERIFIED_QUOTE else out}"
+    if status == words.STATUS_AI:
+        return f"{words.AI_VIEW_PREFIX}{'met' if met else 'not met'}. {out}"
+    return out
+
+
+def is_label(text: object) -> bool:
+    """Is `text` (a pill or a cell) one of this module's labels? The scorer reads an AI row back with it, never as a decision."""
+    t = " ".join(str(text or "").split())
+    return t == NOT_APPLICABLE_LABEL or any(
+        t.startswith(LABEL.format(answer=a, why=w))
+        for a in ANSWERS
+        for w in (WHY_NOT_APPROVED, WHY_NOT_PROVEN)
+    )
+
+
+def answer_of(text: object) -> str | None:
+    """PASS, FAIL or None: the answer a label carries (the scorer's one reading of it)."""
+    t = " ".join(str(text or "").split())
+    for a in ANSWERS:
+        if is_label(t) and t.startswith(f"{a} (AI, "):
+            return a
+    return None
+
+
+def says_met(text: object) -> bool:
+    """Does a run-file comment cell carry the AI's own "met" label (the scorer's test of an AI met row: no comment, no pass)?"""
+    t = " ".join(str(text or "").split())
+    return any(
+        LABEL.format(answer=PASS, why=w) in t
+        for w in (WHY_NOT_APPROVED, WHY_NOT_PROVEN)
+    )
