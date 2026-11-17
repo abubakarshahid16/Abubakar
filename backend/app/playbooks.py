@@ -24,7 +24,9 @@ Word file through the #668 reader, or a PDF) and reports, per element:
                        or "section found at page N", always engineer to confirm.
 
 RULES THE LOADER ENFORCES (W5b-10, #547): a check without a clause citation is
-rejected by name; a playbook is a DRAFT until a named engineer and a date are
+rejected by name; an element's source may carry the book's page and a short
+quote of it (order 14 lane P): a quote needs its page, and `source.verified` may
+be true only for a quote (`source_quote_checks` is the check that sets it); a playbook is a DRAFT until a named engineer and a date are
 recorded, and the report says so. Nothing here is invented by a model: the
 cues are data a person edits, and a model's proposal (`proposer`) is kept only
 when its quote is found verbatim in the passage it cites.
@@ -71,6 +73,11 @@ class Element:
     standard: str
     clause: str
     groups: tuple[tuple[str, tuple[str, ...]], ...]      # (label, phrases)
+    #: Order 14 lane P: the cited book's page and a short quote of it; `verified` only after
+    #: `source_quote_checks` found the quote on that stored page of a held book.
+    page: int | None = None
+    quote: str = ""
+    verified: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,11 +134,27 @@ def parse(data: object, where: str = "playbook") -> Playbook:
             raise PlaybookError(f"{where}: element {eid} has no evidence cues, so nothing can count as present")
         if not str(e.get("title") or "").strip():
             raise PlaybookError(f"{where}: element {eid} has no title")
+        page, quote, verified = _source_page_quote(source, f"{where}: element {eid}")
         elements.append(Element(eid, str(e["title"]).strip(), str(e.get("expects") or "").strip(),
-                                str(source["standard"]).strip(), str(source["clause"]).strip(), tuple(groups)))
+                                str(source["standard"]).strip(), str(source["clause"]).strip(), tuple(groups),
+                                page, quote, verified))
     return Playbook(str(data["id"]).strip(), str(data["title"]).strip(), str(data["version"]).strip(),
                     str(data.get("document_kind") or "").strip(), dict(sign), bool(data.get("clauses_verified", False)),
                     str(data.get("note") or "").strip(), tuple(elements))
+
+
+def _source_page_quote(source: dict, where: str) -> tuple[int | None, str, bool]:
+    """(page, quote, verified) of an element's source. A quote with no page cannot be checked, and a
+    verified flag with no quote has nothing behind it: both are refused by name."""
+    page, quote = source.get("page"), " ".join(str(source.get("quote") or "").split())
+    if page is not None and (isinstance(page, bool) or not isinstance(page, int) or page < 1):
+        raise PlaybookError(f"{where}: source.page must be a page number")
+    if quote and page is None:
+        raise PlaybookError(f"{where}: a source quote needs the page it stands on (source.page)")
+    verified = source.get("verified", False)
+    if not isinstance(verified, bool) or (verified and not quote):
+        raise PlaybookError(f"{where}: source.verified may be true only for a quote")
+    return page, quote, verified
 
 
 def load_file(path: str | Path) -> Playbook:
@@ -284,7 +307,7 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
         held = held_cache.setdefault(element.standard, standard_held(element.standard, library))
         found = _match(element, body)
         entry = {"id": element.id, "title": element.title, "expects": element.expects,
-                 "source": {"standard": element.standard, "clause": element.clause},
+                 "source": _source_out(element),
                  "standard_held": held, "state": None, "reason": None, "evidence": [],
                  "missing_cues": [], "found_at": []}
         if not held and _presence_without_standard():
@@ -340,6 +363,49 @@ def review(document_id: str, playbook: Playbook, *, allowed_document_ids: frozen
             "document": {"id": document_id, "filename": filename, "read_in_full": read_in_full,
                          "passages_read": len(body), "not_read_reason": why_not},
             "elements": results, "counts": counts, "ai": ai}
+
+
+def _source_out(element: Element) -> dict:
+    """The element's source as a report shows it: the page and quote only where the file has them."""
+    out = {"standard": element.standard, "clause": element.clause}
+    if element.page is not None:
+        out["page"] = element.page
+    if element.quote:
+        out.update(quote=element.quote, quote_verified=element.verified)
+    return out
+
+
+#: What `source_quote_checks` says of one element (order 14 lane P). Only the first two pass.
+QUOTE_VERIFIED, BOOK_MISSING_NO_QUOTE = "verified", "book missing, no quote"
+QUOTE_NOT_ON_PAGE, QUOTE_OF_A_BOOK_NOT_HELD = "quote not on the cited page", "quote of a book not held"
+NO_QUOTE = "held book, no quote"
+FLAG_NOT_SET, FLAG_WRONG = "quote found, verified flag not set", "verified flag set, quote not on the cited page"
+
+
+def source_quote_checks(playbook: Playbook, library: list[dict], page_text) -> list[dict]:
+    """Per element: is its source quote on the cited page of the held book? THE quote check of gate G1
+    (`compiled_rule_proof.quote_verified`) on the stored page text `page_text(document_id, page)` gives.
+    A book not held must carry no quote ("book missing"); a held book's element must carry a verified
+    quote, and its `verified` flag must say what the check says. Ids, pages and states only: no text."""
+    from .applicability import find_standard
+    from .compiled_rule_proof import quote_verified
+
+    out = []
+    for e in playbook.elements:
+        book = find_standard(library, e.standard)
+        found = bool(book and e.quote and e.page and quote_verified(e.quote, page_text(book["id"], e.page)))
+        if book is None:
+            state = QUOTE_OF_A_BOOK_NOT_HELD if e.quote else BOOK_MISSING_NO_QUOTE
+        elif not e.quote:
+            state = NO_QUOTE
+        elif not found:
+            state = FLAG_WRONG if e.verified else QUOTE_NOT_ON_PAGE
+        else:
+            state = QUOTE_VERIFIED if e.verified else FLAG_NOT_SET
+        out.append({"playbook": playbook.id, "element": e.id, "standard": e.standard, "clause": e.clause,
+                    "page": e.page, "held": book is not None, "state": state,
+                    "passed": state in (QUOTE_VERIFIED, BOOK_MISSING_NO_QUOTE)})
+    return out
 
 
 def _mark_guessed_headings(document_id: str, body: list[dict]) -> None:

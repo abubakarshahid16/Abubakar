@@ -114,7 +114,8 @@ def valid_data():
 
 def test_the_two_shipped_playbooks_load_and_every_check_cites_its_clause():
     found, broken = playbooks.available()
-    assert broken == [] and set(found) == {"hazop_procedure", "sil_procedure"}
+    # order 14 lane P ships more procedure playbooks beside these two (tests/test_o14_p_procedure_playbooks.py)
+    assert broken == [] and {"hazop_procedure", "sil_procedure"} <= set(found)
     for pb in found.values():
         assert pb.elements
         for e in pb.elements:
@@ -463,7 +464,8 @@ def test_a_model_that_says_not_found_leaves_the_cue_word_result_alone(tmp_path):
 
 def test_the_playbook_list_route_shows_sign_off_and_the_draft_notice():
     body = TestClient(app).get("/api/playbooks").json()
-    assert {p["id"] for p in body["playbooks"]} == {"hazop_procedure", "sil_procedure"}
+    # order 14 lane P ships more procedure playbooks beside these two: the list holds every shipped file
+    assert {p["id"] for p in body["playbooks"]} == set(playbooks.available()[0]) >= {"hazop_procedure", "sil_procedure"}
     for p in body["playbooks"]:
         assert p["signed_off"] is False and "not been signed off" in p["notice"] and p["elements"] >= 10
     assert body["unusable"] == []

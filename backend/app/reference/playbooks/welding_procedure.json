@@ -1,0 +1,539 @@
+{
+ "format": "review-playbook/1",
+ "id": "welding_procedure",
+ "title": "Welding procedure",
+ "version": "1",
+ "document_kind": "procedure",
+ "sign_off": {
+  "status": "draft",
+  "by": null,
+  "date": null
+ },
+ "clauses_verified": false,
+ "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off.",
+ "elements": [
+  {
+   "id": "W01",
+   "title": "WPS and PQR package",
+   "expects": "The procedure lists the welding procedure specifications (WPS) with their qualification records (PQR) for approval before work.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "7.1.1",
+    "page": 16,
+    "quote": "shall be submitted as a complete package to Saudi Aramco for the technical approval prior to the start of work",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "WPS",
+     "any": [
+      "wps",
+      "welding procedure specification*"
+     ]
+    },
+    {
+     "label": "PQR",
+     "any": [
+      "pqr",
+      "procedure qualification record*",
+      "qualification test record*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W02",
+   "title": "Weld and line description table",
+   "expects": "The procedure has a weld table listing each line's materials, thicknesses and joint types with the WPS used.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "7.1.3",
+    "page": 17,
+    "quote": "WPS and PQR submitted for approval shall include a Weld and Line Description Table",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "weld table",
+     "any": [
+      "weld table*",
+      "line description*",
+      "weld map*",
+      "weld matrix",
+      "weld list*",
+      "wps matrix"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W03",
+   "title": "Welding processes",
+   "expects": "The procedure names the welding process for each pass (root, fill, cap).",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "5",
+    "page": 11,
+    "quote": "The following processes are approved for use with the restrictions and requirements as listed below",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "process",
+     "any": [
+      "smaw",
+      "gtaw",
+      "gmaw",
+      "fcaw",
+      "saw",
+      "welding process*",
+      "shielded metal arc",
+      "gas tungsten arc"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W04",
+   "title": "Welding consumables and their classification",
+   "expects": "The procedure names the electrodes, filler wires and fluxes by their code classification.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "6.1",
+    "page": 12,
+    "quote": "Electrodes, filler wires, and fluxes shall conform to ASME SEC IIC.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "consumables",
+     "any": [
+      "electrode*",
+      "filler*",
+      "consumable*",
+      "flux*",
+      "wire*"
+     ]
+    },
+    {
+     "label": "classification",
+     "any": [
+      "aws",
+      "sfa",
+      "classif*",
+      "section ii",
+      "asme"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W05",
+   "title": "Storage and drying of consumables",
+   "expects": "The procedure says how consumables are stored, dried and handed out (ovens, quivers, exposure time).",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "6.2",
+    "page": 13,
+    "quote": "All consumables shall be stored and dried in accordance with the requirements of Attachment 1",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "consumables",
+     "any": [
+      "electrode*",
+      "consumable*",
+      "flux*",
+      "filler*"
+     ]
+    },
+    {
+     "label": "storage",
+     "any": [
+      "stor*",
+      "dry*",
+      "bak*",
+      "oven*",
+      "quiver*",
+      "recondition*",
+      "exposure"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W06",
+   "title": "Welder qualification",
+   "expects": "The procedure says that every welder and welding operator is qualified, and how that is shown.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "8.1",
+    "page": 25,
+    "quote": "All welders, welding operators, brazers, and brazing operators shall be qualified",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "welders",
+     "any": [
+      "welder*",
+      "welding operator*"
+     ]
+    },
+    {
+     "label": "qualification",
+     "any": [
+      "qualif*",
+      "certif*",
+      "performance test*",
+      "job clearance card*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W07",
+   "title": "Preheat",
+   "expects": "The procedure states the minimum preheat temperature for each material and thickness.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "12.1",
+    "page": 33,
+    "quote": "Preheat shall be in accordance with the ASME B31.3 and this standard.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "preheat",
+     "any": [
+      "preheat*",
+      "pre heat*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W08",
+   "title": "Measuring preheat and interpass temperature",
+   "expects": "The procedure says how preheat and interpass temperatures are measured.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "12.4",
+    "page": 34,
+    "quote": "thermocouples, or calibrated contact pyrometers shall be used to measure preheat and interpass temperatures",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "preheat or interpass",
+     "any": [
+      "preheat*",
+      "pre heat*",
+      "interpass"
+     ]
+    },
+    {
+     "label": "measurement",
+     "any": [
+      "crayon*",
+      "tempil*",
+      "thermocouple*",
+      "pyrometer*",
+      "thermometer*",
+      "measur*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W09",
+   "title": "PWHT procedure",
+   "expects": "The procedure describes post weld heat treatment: the equipment, the method of heating, the heating elements and the thermocouple locations.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "13.1",
+    "page": 35,
+    "quote": "The PWHT procedure shall include descriptions of the equipment, method of heating",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "PWHT",
+     "any": [
+      "pwht",
+      "post weld heat treat*",
+      "postweld heat treat*",
+      "stress reliev*",
+      "heat treat*"
+     ]
+    },
+    {
+     "label": "equipment and method",
+     "any": [
+      "thermocouple*",
+      "heating element*",
+      "induction",
+      "resistance heat*",
+      "furnace",
+      "method of heating",
+      "heating pad*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W10",
+   "title": "PWHT cycle per joint",
+   "expects": "The procedure gives, per joint or component, the heating rate, the soak temperature and time, and the cooling rate.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "13.2",
+    "page": 35,
+    "quote": "the contractor or fabricator shall prepare a table listing each joint or component requiring heat treatment",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "PWHT",
+     "any": [
+      "pwht",
+      "post weld heat treat*",
+      "postweld heat treat*",
+      "stress reliev*",
+      "heat treat*"
+     ]
+    },
+    {
+     "label": "cycle",
+     "any": [
+      "heating rate*",
+      "cooling rate*",
+      "soak*",
+      "holding time*",
+      "rate of heating",
+      "rate of cooling"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W11",
+   "title": "PWHT chart records",
+   "expects": "The procedure keeps the PWHT time-temperature charts and submits them for review.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "13.19",
+    "page": 39,
+    "quote": "All PWHT chart records shall be submitted to Saudi Aramco Inspection for review and approval.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "PWHT",
+     "any": [
+      "pwht",
+      "post weld heat treat*",
+      "postweld heat treat*",
+      "stress reliev*",
+      "heat treat*"
+     ]
+    },
+    {
+     "label": "chart",
+     "any": [
+      "chart*",
+      "record*",
+      "recorder*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W12",
+   "title": "Production hardness testing",
+   "expects": "The procedure says which production welds are hardness tested and the hardness limit.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "14.2",
+    "page": 39,
+    "quote": "Production hardness testing of welds shall be performed as required by",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "hardness",
+     "any": [
+      "hardness"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W13",
+   "title": "Weld identification",
+   "expects": "The procedure marks every weld with a weld number and the welder's symbol.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "16.1",
+    "page": 40,
+    "quote": "All weld joints shall be marked for identification by a weld number and a welder symbol",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "identification",
+     "any": [
+      "weld number*",
+      "weld identification",
+      "welder symbol*",
+      "welder stamp*",
+      "welder id*",
+      "joint number*",
+      "weld joint identification",
+      "welder s symbol"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W14",
+   "title": "NDT methods and acceptance criteria",
+   "expects": "The procedure names the NDT method for each weld and its acceptance criteria.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "17.1.1",
+    "page": 41,
+    "quote": "for each inspection method and technique, including acceptance criteria, to be used shall be submitted",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "NDT",
+     "any": [
+      "ndt",
+      "nde",
+      "radiograph*",
+      "ultrason*",
+      "magnetic particle",
+      "penetrant",
+      "rt",
+      "ut",
+      "mt",
+      "pt",
+      "non destructive"
+     ]
+    },
+    {
+     "label": "acceptance",
+     "any": [
+      "acceptance criteria",
+      "accept*",
+      "reject*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W15",
+   "title": "NDT personnel qualification",
+   "expects": "The procedure says how the NDT personnel are qualified.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "17.1.6",
+    "page": 41,
+    "quote": "All NDT personnel shall be qualified in accordance with SAEP-1140",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "NDT personnel",
+     "any": [
+      "ndt",
+      "nde",
+      "radiographer*",
+      "technician*",
+      "level ii",
+      "level 2",
+      "level iii"
+     ]
+    },
+    {
+     "label": "qualification",
+     "any": [
+      "qualif*",
+      "certif*",
+      "asnt",
+      "snt tc 1a",
+      "iso 9712"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W16",
+   "title": "Weld repairs",
+   "expects": "The procedure says how a defective weld is repaired, how many times, and that the repair is examined again.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "18.1",
+    "page": 47,
+    "quote": "Welds repairs are permitted twice at any defect location.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "repair",
+     "any": [
+      "repair*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W17",
+   "title": "PMI of alloy welds",
+   "expects": "The procedure includes positive material identification of alloy welds and materials.",
+   "source": {
+    "standard": "SAES-W-011",
+    "clause": "17.7",
+    "page": 47,
+    "quote": "PMI shall be conducted for the materials listed in Table 1 of SAES-A-206.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "PMI",
+     "any": [
+      "pmi",
+      "positive material identification",
+      "alloy verification"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W18",
+   "title": "WPS and PQR on the code's suggested forms",
+   "expects": "The WPS and PQR follow the code's suggested formats (named by SAES-W-011 7.1.2; the form numbers are the author's reading, engineer to confirm).",
+   "source": {
+    "standard": "ASME Section IX",
+    "clause": "QW-482 and QW-483"
+   },
+   "evidence": [
+    {
+     "label": "WPS or PQR form",
+     "any": [
+      "qw 482",
+      "qw 483",
+      "qw482",
+      "qw483",
+      "asme section ix",
+      "asme sec ix",
+      "asme ix"
+     ]
+    }
+   ]
+  }
+ ]
+}

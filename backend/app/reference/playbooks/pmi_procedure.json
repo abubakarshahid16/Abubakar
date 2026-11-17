@@ -1,0 +1,405 @@
+{
+ "format": "review-playbook/1",
+ "id": "pmi_procedure",
+ "title": "PMI procedure",
+ "version": "1",
+ "document_kind": "procedure",
+ "sign_off": {
+  "status": "draft",
+  "by": null,
+  "date": null
+ },
+ "clauses_verified": false,
+ "note": "AI draft, engineer to confirm. DRAFT written by Claude from the rule books the library holds (order 14 lane P): each element cites its book, clause and page, and a held book's quote was checked by code on that stored page (scripts/playbook_quote_check.py, the quote check of gate G1). An element whose book is not held keeps its clause and reads 'book missing'. The cue words are a starting point, not a finding; a client discipline engineer confirms or changes every element before it is signed off.",
+ "elements": [
+  {
+   "id": "M01",
+   "title": "Testing and reporting covered",
+   "expects": "The procedure covers how PMI testing is done and how its results are reported.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "6.4",
+    "page": 8,
+    "quote": "shall implement a written PMI Procedure, covering testing and reporting",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "PMI",
+     "any": [
+      "pmi",
+      "positive material identification",
+      "alloy verification"
+     ]
+    },
+    {
+     "label": "reporting",
+     "any": [
+      "report*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M02",
+   "title": "Extent of testing",
+   "expects": "The procedure states which materials and components are tested and how many (100 % or a sample).",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "7.2",
+    "page": 9,
+    "quote": "PMI testing shall be performed on all pressure components and welds of alloy materials",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "extent",
+     "any": [
+      "extent",
+      "coverage",
+      "percent*",
+      "100",
+      "sampl*",
+      "random*",
+      "frequency",
+      "each component"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M03",
+   "title": "Weld metal and filler metal",
+   "expects": "The procedure tests the weld metal (and the filler metal) as well as the base material.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "7.3",
+    "page": 9,
+    "quote": "PMI testing of weld metal shall be subjected to the same coverage as for the base material.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "weld",
+     "any": [
+      "weld*"
+     ]
+    },
+    {
+     "label": "filler or weld metal",
+     "any": [
+      "filler*",
+      "consumable*",
+      "electrode*",
+      "weld metal",
+      "deposit*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M04",
+   "title": "Instrument and method",
+   "expects": "The procedure names the PMI instrument and method (for example XRF or OES) and what it can detect.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "8.2.1",
+    "page": 12,
+    "quote": "The primary acceptable method is X-ray emission analysis",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "method",
+     "any": [
+      "xrf",
+      "x ray fluorescence",
+      "x ray",
+      "oes",
+      "optical emission",
+      "spectromet*",
+      "spectrograph*",
+      "analyzer*",
+      "analyser*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M05",
+   "title": "Operator qualification and training",
+   "expects": "The procedure requires trained, qualified instrument operators and keeps their training records.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "8.4",
+    "page": 12,
+    "quote": "instrument operators shall be qualified to operate approved equipment",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "operators",
+     "any": [
+      "operator*",
+      "technician*",
+      "personnel",
+      "inspector*"
+     ]
+    },
+    {
+     "label": "qualification",
+     "any": [
+      "qualif*",
+      "train*",
+      "certif*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M06",
+   "title": "Calibration and its frequency",
+   "expects": "The procedure says how the instrument is calibrated or verified with certified standards, and how often.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "8.5",
+    "page": 12,
+    "quote": "shall specify the frequency interval for this calibration",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "calibration",
+     "any": [
+      "calibrat*",
+      "verif*"
+     ]
+    },
+    {
+     "label": "standards or frequency",
+     "any": [
+      "certified standard*",
+      "reference standard*",
+      "reference sample*",
+      "certified reference*",
+      "frequency",
+      "interval",
+      "daily",
+      "each shift",
+      "start of*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M07",
+   "title": "Surface preparation",
+   "expects": "The procedure says how the test surface is prepared (clean bare metal, grinding where the method needs it).",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "8.8",
+    "page": 13,
+    "quote": "The surface to be analyzed shall be clean bare metal, free of grease or oil",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "surface",
+     "any": [
+      "surface*"
+     ]
+    },
+    {
+     "label": "preparation",
+     "any": [
+      "clean*",
+      "grind*",
+      "bare metal",
+      "prepar*",
+      "slag",
+      "oxide*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M08",
+   "title": "Acceptance criteria",
+   "expects": "The procedure states the acceptance criteria for the measured alloying elements.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "9.1",
+    "page": 13,
+    "quote": "Alloys shall be acceptable if the alloying elements are each within",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "acceptance",
+     "any": [
+      "accept*"
+     ]
+    },
+    {
+     "label": "composition",
+     "any": [
+      "range*",
+      "toleranc*",
+      "alloying element*",
+      "chemical composition*",
+      "chemistry",
+      "within"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M09",
+   "title": "Rejected items segregated and marked",
+   "expects": "The procedure segregates and marks rejected components so they are not used.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "10.3",
+    "page": 13,
+    "quote": "Procedures shall be in place to ensure that rejected components are segregated",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "rejected",
+     "any": [
+      "reject*",
+      "unacceptable",
+      "nonconform*",
+      "non conform*",
+      "fail*"
+     ]
+    },
+    {
+     "label": "segregation or marking",
+     "any": [
+      "segregat*",
+      "quarantin*",
+      "mark*",
+      "tag*",
+      "color cod*",
+      "colour cod*",
+      "red x"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M10",
+   "title": "Test log",
+   "expects": "The procedure keeps a log of each component and weld tested with its results.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "11.1.3",
+    "page": 14,
+    "quote": "The log shall identify all components and welds that have been alloy-verified and the results of testing.",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "log",
+     "any": [
+      "log*",
+      "record*",
+      "register*"
+     ]
+    },
+    {
+     "label": "results",
+     "any": [
+      "result*",
+      "reading*",
+      "percent*",
+      "composition"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M11",
+   "title": "PMI map",
+   "expects": "The procedure prepares a PMI map showing each alloy component and the extent of testing.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "11.1.5",
+    "page": 14,
+    "quote": "The manufacturer shall prepare a detailed PMI map",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "map",
+     "any": [
+      "map",
+      "maps",
+      "isometric*",
+      "test location*",
+      "marked up drawing*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M12",
+   "title": "Final PMI report",
+   "expects": "The procedure produces a final PMI testing report for the data book.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "11.3.1",
+    "page": 14,
+    "quote": "shall prepare a complete PMI Testing Report containing all relevant data",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "report",
+     "any": [
+      "final report*",
+      "pmi report*",
+      "test report*",
+      "testing report*",
+      "data book*",
+      "dossier*"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "M13",
+   "title": "Marking of accepted material",
+   "expects": "The procedure marks accepted material and welds as PMI tested.",
+   "source": {
+    "standard": "SAES-A-206",
+    "clause": "12.1.3",
+    "page": 15,
+    "quote": "All verified materials with an acceptable analysis shall be marked with the letters",
+    "verified": true
+   },
+   "evidence": [
+    {
+     "label": "marking",
+     "any": [
+      "mark*",
+      "stamp*",
+      "stencil*",
+      "label*",
+      "sticker*"
+     ]
+    },
+    {
+     "label": "accepted",
+     "any": [
+      "accept*",
+      "verified",
+      "pass*"
+     ]
+    }
+   ]
+  }
+ ]
+}
