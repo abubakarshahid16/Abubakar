@@ -13,7 +13,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | Job | Modules |
 |---|---|
 | Read a contractor datasheet into facts | `datasheets`, `datasheet_ai`, `claude_datasheet`, `vision_reader` |
-| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text` |
+| Choose the standards that apply to a submittal | `applicability`, `applicability_v2`, `applicability_reasoning`, `claude_selection`, `ai_applicability`, `clause_scope`, `division_claude`, `division_text`, `equipment_rule_books` |
 | Answer a chat question from the documents | `answer`, `chat_claude_first` |
 
 ## Modules
@@ -295,6 +295,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `paper_kind` | Paper kind first (owner order 11 Nov step 2, #805): one kind of a closed list (datasheet, procedure, contract, drawing, test record, other) from the paper's cover and title; a procedure or contract keeps an equipment type only as a secondary label; behind PAPER_KIND_FIRST_ENABLED (off) |
 | `kind_rules` | The document kind chooses the rule set: a non-datasheet gets no equipment datasheet checklist and no equipment-type standards (#1474) |
 | `kind_standards` | Standards by role and document kind: a procedure or study leaves out equipment design standards, counted in the run note; method standards still needed are named once (off by default) |
+| `equipment_rule_books` | Choose the standards that apply to a submittal |
 | `equipment_scope` | Rules written for another equipment type or document kind than the submittal's are left out of a review and counted; unknown scope stays in |
 | `document_refs` | W1: the registry of everything that points at a document, and what a delete does |
 | `docx_chunks` | Chunks for a Word document, built from its STRUCTURE (W5b-01, #525) |

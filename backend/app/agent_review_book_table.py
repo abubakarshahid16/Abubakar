@@ -23,6 +23,7 @@ METHOD_WORDS = {
     "governing_standard": "governs this equipment type (the project's governing-standards table)",
     "equipment_type": "mapped to this equipment type",
     "scope": "its own scope clause names this equipment",
+    "equipment_rules": "holds agreed rules our rule sorting tagged for this equipment",
     "service": "matches the paper's service",
     "project": "named by the project",
     "manual": "chosen by a person",
