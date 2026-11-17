@@ -42,6 +42,13 @@ def general(world, monkeypatch):  # noqa: F811
     monkeypatch.setattr(
         review_engine, "read_facts", lambda *a, **k: (open_facts(), None)
     )
+    with (
+        db.connect() as conn
+    ):  # a read-in paper has its stored page (the general job reads stored text only)
+        conn.execute(
+            "INSERT INTO pages (document_id, page_no, text, char_count, batch_no) VALUES (?, 1, ?, 1, 0)",
+            (world["sub"], "Invented pump paper page 1: noise level 95 dB(A)"),
+        )
     books = [{"id": world["std"], "why": aim_review.WHY_CITED}]
     monkeypatch.setattr(
         aim_review,

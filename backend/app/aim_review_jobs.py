@@ -308,6 +308,18 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
     return job_queue.DONE
 
 
+def _not_read(text) -> dict:
+    """The run of a paper with no stored text to read (or still being read in): stopped, no line, the plain reason."""
+    return {
+        "status": "stopped",
+        "stop_reason": text.stop,
+        "lines": [],
+        "books": [],
+        "usd": 0.0,
+        "seconds": 0.0,
+    }
+
+
 def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
     """The old engine was switched on while this job waited: it goes back to the queue untouched (nothing sent)."""
     with conn:
@@ -326,7 +338,10 @@ def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
 def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
     """Run one claimed general review job to its end. Returns the job's final state. `model`: tests pass the method's fake model;
     the shipped worker passes nothing (the method builds the Claude model)."""
-    from . import agent_review_text, nothing_read
+    from . import (
+        agent_review_text,
+        nothing_read,
+    )  # nothing_read: a stored file found absent while the paper is read
 
     conn = connect()
     job = conn.execute(
@@ -344,7 +359,13 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
         if paper_id not in scope:
             raise PermissionError("the requester can no longer read this paper")
         _progress(conn, job_id, 0, heartbeat)
-        agent_review_text.read_step(conn, paper_id, scope, run_id)
+        # THE PAPER'S STORED TEXT ONLY (rehearsal, 18 Nov): the method reads the stored pages and, for a page with no text layer,
+        # its recognised text (`aim_review.paper.load_paper`). The older datasheet field reader (`agent_review_text.read_step` ->
+        # `submittal_review.ensure_facts_extracted`) made 23+ Claude calls on one paper before the method began, and the method
+        # uses none of its facts, so it is not run here. A paper still being read in, or with no text at all, stops with words.
+        text = agent_review_text.read(conn, paper_id)
+        if text.stops_run(True):
+            return _done(conn, job_id, run_id, _not_read(text))
         books = allowed_books(conn, run_id, paper_id, scope)
         # #1584 route 3: the rule books the reviewer will ask rules from join the approved list just before it asks, only when the
         # paper qualifies and only inside the starter's scope (`on_agent_standards`; off: nothing). The send gate still decides.
