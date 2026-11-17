@@ -439,7 +439,13 @@ class GeneralRun(FindingsMixin):
         }
 
     # ---- all parts
+    def blank_lines(self) -> None:
+        """LPC (C3): code's own lines first: one per page of a contract with blanks to fill (`core.blank_lines`), no model."""
+        for line in core.blank_lines(self.paper, self.kind, self.pages):
+            self.add(line)
+
     def run_all(self) -> None:
+        self.blank_lines()
         if self.local is not None:
             self.run_all_local()
             return

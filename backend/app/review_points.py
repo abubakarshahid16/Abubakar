@@ -653,6 +653,19 @@ def rule_point(
     ref = content.rule_ref(row, finding)
     # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
     missing = book_missing(book_doc, ref["name"], ctx) if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden else ""
+    own = (
+        None
+        if missing or ref_hidden or kind == ROW_KIND_ENGINEER_COMMENT
+        else paper_part(book_doc, ref["name"], ctx)
+    )
+    # LPC: a part of the paper itself (or a held paper of its package) is never cited as a rule book
+    if own is not None:
+        ref = {"name": "", "clause": "", "page": None}
+        # the check's "source not held" label is false for it: the AI's own finding stays
+        if action_source == "ai_suggestion":
+            from .ai_engineering_check import UNVERIFIED_LABEL
+
+            action = _clean(action.replace(UNVERIFIED_LABEL, "").lstrip(" ."))
     unconfirmed = "" if missing or ref_hidden else clause_unconfirmed(book_doc, ref["clause"], finding, ctx)
     if unconfirmed:  # the clause does not hold the rule's words in the book: no clause is cited (the grouping keeps it)
         ref = {**ref, "clause": ""}
@@ -738,6 +751,7 @@ def rule_point(
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_book_missing": missing or None,
+        "_paper_part": contract_package_words(own, ctx) if own is not None else None,
         "_book_missing_words": missing_words or None,
         "_clause_unconfirmed": unconfirmed or None,
         "_row_key": key,
@@ -752,6 +766,15 @@ def rule_point(
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
                      clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)  # fmt: skip
+    # LPC: the reason says what the name is; nothing is shown as a book's words
+    if own is not None:
+        point.update(
+            reason_words=point["_paper_part"],
+            rule_text=None,
+            clause_quote=None,
+            clause_quote_note=NO_CLAUSE_QUOTE,
+            _rule_stored=None,
+        )
     if unproven_ai:  # its "rule" words were written by the AI check, not found in the book: never shown as the book's words (G1)
         point.update(rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)
     return point
@@ -880,7 +903,42 @@ def book_missing(book_doc, name: str, ctx: dict) -> str:
 
     if "_library" not in ctx:
         ctx["_library"] = library_of(connect())
-    return "" if find_standard(ctx["_library"], name) else name
+    if find_standard(ctx["_library"], name):
+        return ""
+    # LPC (C2, P2): the paper's own part, or a held part of its contract package, is never a missing book; a labelled part that is
+    # not held is named by its label ("Schedule X") - `contract_package`, the one home of that decision
+    return paper_parts(ctx).not_held_name(name)
+
+
+def paper_parts(ctx: dict):
+    """The paper's pages and its contract package, read once per listing (`contract_package.PaperParts`)."""
+    if "_paper_parts" not in ctx:
+        from . import contract_package
+        from .db import connect
+
+        ctx["_paper_parts"] = contract_package.PaperParts(
+            connect(), ctx.get("paper_document_id"), ctx.get("readable") or ()
+        )
+    return ctx["_paper_parts"]
+
+
+def contract_package_words(got, ctx: dict) -> str:
+    """What a row says of a name that is the paper's own part or a held part of its package (the held paper named only when the
+    caller may read it, rule 5)."""
+    from . import contract_package
+
+    return contract_package.words_of(got, paper_parts(ctx).held_name(got))
+
+
+def paper_part(book_doc, name: str, ctx: dict):
+    """The resolution of a cited name with no linked book that is the paper's OWN part or a HELD part of its package; else None."""
+    from . import contract_package
+
+    name = _clean(name)
+    if book_doc or not name:
+        return None
+    got = paper_parts(ctx).resolve(name)
+    return got if got.kind in (contract_package.OWN, contract_package.HELD) else None
 
 
 #: Priority words, worst first (a point with none sorts after the ones that have one).
@@ -1161,6 +1219,16 @@ def ai_points_of_run(
             (run_id,),
         )
     ]
+    # LPC: never the paper's own part; a contract lists every labelled part it cites that is not held (`not_held_list`)
+    kind = conn.execute(
+        "SELECT paper_kind FROM agent_review_run WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    kind = kind[0] if kind else None
+    if held or str(kind or "").lower() == "contract":
+        parts = paper_parts(
+            {"paper_document_id": paper_document_id, "readable": readable}
+        )
+        held = parts.not_held_list(conn, held, kind)
     lines = words.read_now(
         stored, [{"rule_book": n} for n in held]
     )  # the one reading of every CRS (order 14)

@@ -386,6 +386,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
+    sentence_quotes(points, _paper_kind(conn, ai_run, paper_id))
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)
@@ -589,6 +590,59 @@ def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | No
     )
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
+
+
+def _paper_kind(conn, ai_run: str | None, paper_id: str) -> str | None:
+    """The kind the paper was reviewed as: its AI run's kind, else the decided kind."""
+    from . import kind_words
+
+    return _contractor_copy(conn, ai_run)["kind"] or kind_words.decided_kind(paper_id)
+
+
+def sentence_quotes(points: list[dict], kind: str | None) -> None:
+    """LPC (C4): on a paper under GENERAL review (a contract, a procedure), a quote is shown as evidence only when it passes the one
+    test (`quote_sentence.is_evidence`); otherwise the point says it holds no quote, with the paper's words and page beside the mark
+    (`quote_sentence.refused_words`). Read: a general AI line's quote, and a rule-check row's quote unless it HOLDS A VALUE
+    (`quote_sentence.holds_value`: a figure, a figure with a unit, a comparator, a range or a code value: what a check compares stays
+    the paper's value). Every datasheet point is never touched. In place."""
+    from . import agent_review_gate, quote_sentence
+
+    if not agent_review_gate.general_kind_enabled(kind):
+        return
+    for p in points:
+        if not _read_by_c4(p):
+            continue
+        rule = p.get("source") == rp.SOURCE_RULE_CHECK
+        refused: list[tuple[object, object]] = []
+        q = p.get("paper_quote")
+        exempt = rule and quote_sentence.holds_value(q)
+        if q and not quote_sentence.is_evidence(q) and not exempt:
+            refused.append((q, p.get("page")))
+            p["paper_quote"] = None
+        # a rule-check row also shows its stored passage ("as stored, not verified"): the same test; a value in it stays as evidence
+        v = p.get("paper_value") if rule else None
+        if (
+            v
+            and not quote_sentence.is_evidence(v)
+            and not quote_sentence.holds_value(v)
+        ):
+            refused.append((v, p.get("paper_value_page")))
+            p["paper_value"] = None
+        if refused and not p.get("paper_quote"):
+            p["paper_quote_refused"] = True
+            p["paper_quote_note"] = quote_sentence.refused_many(refused)
+
+
+def _read_by_c4(point: dict) -> bool:
+    """A general AI line's point, or a rule-check row's point (whose quote a value may exempt)."""
+    line = point.get("_line") or {}
+    if point.get("source") == rp.SOURCE_RULE_CHECK:
+        return True
+    return (
+        point.get("source") == rp.SOURCE_AI_REVIEW
+        and isinstance(line, dict)
+        and line.get("general") is True
+    )
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:
