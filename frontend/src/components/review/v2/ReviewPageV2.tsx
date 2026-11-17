@@ -123,7 +123,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       {drawOld && tab === "how" && (
         <div data-testid="v2-how-tab">
           {howTab}
-          {listing && <OlderFiles ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} documentId={documentId} />}
+          {listing && <OlderFiles ruleCheckRun={listing.runs.rule_check} aiRun={listing.runs.ai_review} {...{ documentId }} />}
         </div>
       )}
 
