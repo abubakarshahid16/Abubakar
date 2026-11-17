@@ -16,6 +16,7 @@ import re
 from collections.abc import Mapping
 
 from . import agent_review_absence as absence
+from .agent_edition import FROM_FILE_NAME
 from .agent_review_two_reader import DISAGREE_ONE_FOUND
 from .agent_review_verdict import (
     CONDITIONAL_WHY,
@@ -444,11 +445,29 @@ EDITION_WORDS = {
 }
 
 
-def edition_words(result: Mapping | None) -> str:
-    """ "edition: binds" (and the edition that binds, and lane G's caveat, when it gives them) for one book's cutoff result."""
+#: a date read from the book's FILE NAME is a guess: never "binds", "later" or "older"; held copies of one name that differ: say so
+EDITION_FILE_NAME_ONLY = "year from the file name only, engineer to check"
+EDITION_COPIES_DIFFER = "the held copies of this book differ, engineer to check"
+
+
+def edition_status_words(result: Mapping | None) -> str:
+    """THE ONE WORDING of a book's edition status (rule 8): "edition: binds", ... Read by the CRS header line, the brackets after a
+    book reference and the sheet Editions (`crs_editions`). A date from the file name says so; an unknown status is "not known"."""
     if not result:
         return "edition: not known"
-    out = "edition: " + EDITION_WORDS.get(_clean(result.get("status")), "not known")
+    if result.get("differs"):
+        return "edition: " + EDITION_COPIES_DIFFER
+    word = EDITION_WORDS.get(_clean(result.get("status")), "not known")
+    from_name = (result.get("printed") or {}).get("source") == FROM_FILE_NAME
+    guess = from_name and word not in ("cannot tell", "not known")
+    return "edition: " + (EDITION_FILE_NAME_ONLY if guess else word)
+
+
+def edition_words(result: Mapping | None) -> str:
+    """ "edition: binds" (and the edition that binds, and lane G's caveat, when it gives them) for one book's cutoff result."""
+    out = edition_status_words(result)
+    if not result or out.endswith((EDITION_FILE_NAME_ONLY, EDITION_COPIES_DIFFER)):
+        return out
     binding, held = _clean(result.get("binding")), _clean(result.get("held"))
     if binding and binding != held:
         out += f" (the edition that binds: {binding})"
@@ -762,6 +781,7 @@ __all__ = [
     "code_phrase",
     "comment_by",
     "drop_noise",
+    "edition_status_words",
     "edition_words",
     "generated_by",
     "guard_words",
