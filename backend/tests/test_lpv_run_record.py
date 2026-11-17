@@ -9,6 +9,7 @@ import sqlite3
 
 from app import agent_review_kind as K
 from app import crs_ai_header, crs_one, run_record, subject_scope
+from tests.test_agent_general_review import job_world, start, world  # noqa: F401  (fixtures)
 
 
 def _reading(kind="datasheet", equipment=None, unsure=None, known=True):
@@ -222,33 +223,55 @@ class _FakeDocs:
         return self.con.execute(sql, args)
 
 
-def test_the_gates_report_keeps_the_papers_reason_out():
+def _gates():
     import importlib.util
     import pathlib
+    import sys
 
     path = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "crs_gates.py"
     spec = importlib.util.spec_from_file_location("lpv_crs_gates", path)
     gates = importlib.util.module_from_spec(spec)
-    import sys
-
     sys.modules[spec.name] = (
         gates  # a dataclass module must be registered while it loads
     )
     spec.loader.exec_module(gates)
-    assert (
-        gates.recorded_type("type unsure: read as A (page 4), but B") == "type unsure"
+    return gates
+
+
+def test_the_gates_report_keeps_the_papers_reason_out():
+    """The report may be pasted into a PR: the run's recorded "type unsure: <reason derived from the paper>" reaches it as the
+    words "type unsure" alone, through the report's own reading of the run (`paper_facts`)."""
+    gates = _gates()
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.executescript(
+        "CREATE TABLE review_runs (id TEXT, submittal_document_id TEXT);"
+        "CREATE TABLE agent_review_run (run_id TEXT, paper_kind TEXT, equipment_type TEXT);"
+        "CREATE TABLE agent_review_missing_book (run_id TEXT, name TEXT);"
     )
+    con.execute("INSERT INTO review_runs VALUES ('r', 'd')")
+    con.execute(
+        "INSERT INTO agent_review_run VALUES ('r', 'datasheet', 'type unsure: read as A (page 4), but B')"
+    )
+    facts = gates.paper_facts(con, "r")
+    assert facts["equipment"] == "type unsure" and "page 4" not in str(facts)
     assert gates.recorded_type("not a datasheet (procedure)") == "not a datasheet"
     assert gates.recorded_type("pump") == "pump" and gates.recorded_type(None) is None
 
 
-def test_a_general_review_run_records_why_it_has_no_type():
-    import inspect
+def test_a_general_review_run_records_why_it_has_no_type(job_world):  # noqa: F811  (the fixture, imported above)
+    from app import agent_review_jobs, db
 
-    from app import agent_general_job
-
-    src = " ".join(inspect.getsource(agent_general_job).split())
-    assert 'kind, "equipment_record", None' in src
+    run_id, job_id = start()
+    agent_review_jobs.run(job_id, "w")
+    row = (
+        db.connect()
+        .execute(
+            "SELECT equipment_type FROM agent_review_run WHERE run_id = ?", (run_id,)
+        )
+        .fetchone()
+    )
+    assert row[0] == "not a datasheet (procedure)"
 
 
 def test_a_discipline_is_never_an_equipment_type():
