@@ -1066,7 +1066,7 @@ def _usage_answer(usage_json: str) -> bytes:
         '{"prompt_tokens": -Infinity, "completion_tokens": 10}',
         '{"prompt_tokens": [1, 2], "completion_tokens": 10}',
         '{"prompt_tokens": 1' + "0" * 400 + ', "completion_tokens": 10}',
-        '[1, 2]',
+        "[1, 2]",
     ],
 )
 def test_every_hold_is_closed_once_whatever_the_usage_says(
@@ -1101,6 +1101,7 @@ def test_every_hold_is_closed_once_whatever_the_usage_says(
         {"prompt_tokens": 10**400, "completion_tokens": 1},
         {"prompt_tokens": [1], "completion_tokens": 1},
         [1, 2],
+        "12",
     ],
 )
 def test_a_usage_that_is_no_count_costs_nothing_known(usage, tmp_path, monkeypatch):
@@ -1108,10 +1109,12 @@ def test_a_usage_that_is_no_count_costs_nothing_known(usage, tmp_path, monkeypat
     assert groq_spend.cost_usd("openai/gpt-oss-120b", usage) is None
     res = groq_spend.reserve("run-u", "openai/gpt-oss-120b", 0.001)
     assert groq_spend.settle_usage(res, {"usage": usage}) == 0.001
-    assert groq_spend.settle(
-        groq_spend.reserve("run-v", "openai/gpt-oss-120b", 0.001), float("inf")
-    ) == 0.001  # fmt: skip
-    assert groq_spend.spent() == pytest.approx(0.002)
+    for bad in (float("inf"), float("nan")):  # a NaN on the ledger would pass every cap
+        held = groq_spend.reserve("run-v", "openai/gpt-oss-120b", 0.001)
+        assert groq_spend.settle(held, bad) == 0.001
+    assert groq_spend.spent() == pytest.approx(0.003)
+    text = groq_spend.ledger_path().read_text(encoding="utf-8")
+    assert "NaN" not in text and "Infinity" not in text
 
 
 def test_a_line_the_second_ai_disagreed_with_asks_the_engineer_in_the_team_file(

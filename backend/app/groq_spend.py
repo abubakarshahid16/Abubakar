@@ -23,6 +23,7 @@ import logging
 import math
 import threading
 import uuid
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -84,22 +85,16 @@ def cost_usd(model: str | None, usage: object) -> float | None:
     try:
         tin, tout = int(usage.get("prompt_tokens")), int(usage.get("completion_tokens"))
         pin, pout = price_for(model)
-        usd = round(max(0, tin) * pin / 1e6 + max(0, tout) * pout / 1e6, 8)
+        return round(max(0, tin) * pin / 1e6 + max(0, tout) * pout / 1e6, 8)
+    # OverflowError: int(Infinity), or an int too big for a float
     except (TypeError, ValueError, OverflowError):
         return None
-    return usd if math.isfinite(usd) else None
 
 
-def settle_usage(res: Reservation, answer: object) -> float:
-    """Settle `res` from an answer's `usage`: THE one close of a call that answered. Closed exactly once whatever the answer
-    holds; a usage code cannot read settles at the worst case, marked estimated."""
-    try:
-        usd = cost_usd(
-            res.model, answer.get("usage") if isinstance(answer, dict) else None
-        )
-    except Exception:  # noqa: BLE001  belt and braces: the hold is closed whatever happened
-        usd = None
-    return settle(res, usd)
+def settle_usage(res: Reservation, answer: Mapping) -> float:
+    """Settle `res` from an answer's `usage`: THE one close of a call that answered (`cost_usd` never raises, so the hold
+    is closed exactly once); a usage code cannot read settles at the worst case, marked estimated."""
+    return settle(res, cost_usd(res.model, answer.get("usage")))
 
 
 def ledger_path() -> Path:
@@ -215,7 +210,7 @@ def settle(res: Reservation, usd: float | None) -> float:
     pass a cap. The charge is capped at the reserved worst case; anything above it is written on the line as `excess_usd` and
     logged as a warning (the reservation is a strict bound, so this means the price table or the usage is wrong)."""
     if usd is not None and not (isinstance(usd, int | float) and math.isfinite(usd)):
-        usd = None  # nothing a cost can be: the worst case, estimated (never Infinity on the ledger)
+        usd = None  # NaN or Infinity: the worst case, estimated (a NaN on the ledger would pass every cap)
     reported = res.worst if usd is None else float(usd)
     charged = min(reported, res.worst)
     excess = round(reported - charged, 8)

@@ -85,7 +85,7 @@ def carried_ids(paper: object, line: Mapping) -> list[str] | None:
     home, never sent with a partial declaration (review R2-1854: fail closed)."""
     book = str(line.get("standard_document_id") or "").strip()
     paper_id = str(paper or "").strip()
-    if not paper_id or paper_id == "None" or not book:
+    if not paper_id or not book:
         return None
     return sorted({paper_id, book})
 
