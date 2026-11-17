@@ -170,7 +170,10 @@ def test_every_call_is_declared_metered_and_tagged_with_the_run(aim_db, fake_lan
     ]
     assert sorted({e["step"] for e in ledger}) == sorted(set(steps))
     assert len(ledger) == len(fake_lane)
-    assert r.usd > 0 and len(r.calls) == len(fake_lane)
+    # one row per model call; the code row "aim_read_pages" (where each page came from, no model, no cost) is not a call
+    assert r.usd > 0 and len([c for c in r.calls if c["model"] != "code"]) == len(
+        fake_lane
+    )
 
 
 def test_a_closed_lane_sends_nothing_and_stops_the_run(aim_db, monkeypatch):

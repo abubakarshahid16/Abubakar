@@ -273,7 +273,10 @@ def test_the_run_meter_stops_before_a_call_that_would_cross_it(aim_db):
         model=model,
     )
     assert r.status == "stopped" and "run_cap" in r.stop_reason
-    assert r.calls and r.calls[0]["code"] == "run_cap" and r.usd == 0.0
+    asked = [
+        c for c in r.calls if c["model"] != "code"
+    ]  # the code row of the page reading is no model call
+    assert asked and asked[0]["code"] == "run_cap" and r.usd == 0.0
 
 
 def test_not_judged_lines_stay_in_lines_but_are_never_sendable():
