@@ -11,7 +11,7 @@ import { ReviewPageV2 } from "./ReviewPageV2";
 import { costWords, engineWords, signWaits, tileLine, wontRunWords } from "./words";
 
 const api = {
-  list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(),
+  list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(), confirmNa: vi.fn(), undoNa: vi.fn(),
   ofDocument: vi.fn(), kinds: vi.fn(), confirmKind: vi.fn(), decideCode: vi.fn(), downloadCrs: vi.fn(), downloadAgentCrs: vi.fn(), downloadPaperCrs: vi.fn(),
 };
 vi.mock("../../../api/reviewPoints", async (orig) => ({
@@ -19,6 +19,7 @@ vi.mock("../../../api/reviewPoints", async (orig) => ({
   reviewPoints: {
     list: (...a: unknown[]) => api.list(...a), plan: (...a: unknown[]) => api.plan(...a), decide: (...a: unknown[]) => api.decide(...a),
     keepAll: (...a: unknown[]) => api.keepAll(...a), add: (...a: unknown[]) => api.add(...a), start: (...a: unknown[]) => api.start(...a),
+    confirmNotApplicable: (...a: unknown[]) => api.confirmNa(...a), undoNotApplicable: (...a: unknown[]) => api.undoNa(...a),
   },
 }));
 vi.mock("../../../api/documents", () => ({
@@ -787,5 +788,53 @@ describe("11 the list of documents that leave, before the start (owner, 12 Nov 2
     fireEvent.click(within(screen.getByTestId("v2-point")).getByRole("button", { name: /Inlet rating/ }));
     expect(screen.getByTestId("v2-check-text")).toHaveTextContent("Our checklist asks (our words): \u201cDatasheet check PSV-05: The inlet rating is stated.\u201d");
     expect(screen.queryByTestId("v2-clause-stored")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------- owner on PR #1872: the AI thinks these do not apply, tick to confirm
+
+describe("the section of lines the AI thinks do not apply", () => {
+  const na = (i: number, book: string, state: "keep" | null = null) => point({
+    id: `ai:r:na${i}`, rank: 9, tile: "na_to_confirm", firm: "to confirm", name: `Unproven field ${i}`, rule_book: book, clause: `${i}.1`,
+    pill: "AI thinks it does not apply · to confirm", decision: state ? { state, words: "Does not apply (confirmed by the engineer)", by: "Sana" } : { state: null, words: "Not decided" },
+  });
+  const withSection = () => {
+    const base = listing();
+    return listing({
+      points: [...base.points, na(1, "Book X"), na(2, "Book X", "keep"), na(3, "Book Y")],
+      counts: { ...base.counts, not_applicable_to_confirm: { label: "AI thinks these do not apply, tick to confirm", total: 3, confirmed: 1, open: 2,
+        sentence: "3 points the AI thinks do not apply, to confirm: 1 confirmed, 2 open." } },
+    });
+  };
+
+  it("shows them in their own section, grouped, counted, and never in the main list", async () => {
+    api.list.mockResolvedValue(ok(withSection()));
+    mount();
+    const section = await screen.findByTestId("v2-na-section");
+    expect(within(section).getByText("AI thinks these do not apply, tick to confirm")).toBeInTheDocument();
+    expect(within(section).getByTestId("v2-na-count")).toHaveTextContent("3 points the AI thinks do not apply, to confirm: 1 confirmed, 2 open.");
+    expect(within(section).getAllByTestId("v2-na-group")).toHaveLength(2);
+    expect(within(section).getAllByTestId("v2-na-line")).toHaveLength(3);
+    expect(within(screen.getByTestId("v2-points")).queryByText(/Unproven field/)).toBeNull();
+  });
+
+  it("a tick confirms one line, unticking undoes it, and Confirm all ticks every open line", async () => {
+    api.list.mockResolvedValue(ok(withSection()));
+    api.confirmNa.mockResolvedValue(ok(withSection()));
+    api.undoNa.mockResolvedValue(ok(withSection()));
+    mount();
+    const section = await screen.findByTestId("v2-na-section");
+    fireEvent.click(within(section).getByLabelText("Confirm: Unproven field 1 does not apply"));
+    await waitFor(() => expect(api.confirmNa).toHaveBeenCalledWith("doc1", ["ai:r:na1"]));
+    fireEvent.click(within(section).getByLabelText("Confirm: Unproven field 2 does not apply"));
+    await waitFor(() => expect(api.undoNa).toHaveBeenCalledWith("doc1", "ai:r:na2"));
+    fireEvent.click(within(section).getByRole("button", { name: "Confirm all" }));
+    await waitFor(() => expect(api.confirmNa).toHaveBeenLastCalledWith("doc1", ["ai:r:na1", "ai:r:na3"]));
+  });
+
+  it("is absent when there is no such line", async () => {
+    mount();
+    await screen.findByTestId("v2-points");
+    expect(screen.queryByTestId("v2-na-section")).toBeNull();
   });
 });

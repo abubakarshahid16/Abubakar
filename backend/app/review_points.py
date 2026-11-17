@@ -29,7 +29,10 @@ import json
 import re
 from collections import Counter, defaultdict
 
+from . import agent_review_not_applicable as not_applicable
+from . import agent_review_wording as wording_mod
 from . import crs_ai_actions as actions
+from . import crs_ai_header
 from . import crs_ai_words as words
 from . import review_points_content as content
 
@@ -43,6 +46,7 @@ RANKS: dict[int, tuple[str, str]] = {
     6: ("Met", "two readers agree"),
     7: ("Met", "proven by code"),
     8: ("Does not apply", ""),
+    9: ("AI thinks it does not apply, to confirm", ""),  # owner on PR #1872: its own section (`agent_review_not_applicable`)
 }
 TILES = ("not_met", "questions", "met", "does_not_apply")
 TILE_OF_RANK = {
@@ -54,6 +58,7 @@ TILE_OF_RANK = {
     6: "met",
     7: "met",
     8: "does_not_apply",
+    9: "na_to_confirm",  # not one of the four tiles: counted apart (`counts`, "not_applicable_to_confirm")
 }
 TILE_WORDS = {
     "not_met": "Not met",
@@ -98,7 +103,7 @@ PASSAGE_PAPER_CHECK = "Checked by code: this passage is on the page."
 PASSAGE_CLAUSE_CHECK = "Checked by code: this passage is in the clause."
 ROUTE_INDEPENDENT = "Two readers reached this verdict independently."
 ROUTE_SAW_FIRST = "A second reader checked this verdict and saw the first answer."
-ENGINE_AI = "AI reviewer on Claude"
+#: FTU-17: an AI point's engine is the engine that READ its line (`crs_ai_header.engine_of_line`), never a fixed "on Claude"
 ENGINE_RC = "Rule check"
 
 
@@ -354,6 +359,8 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     rank, status, order = rank_of_ai_line(line)
     if rank == 0:
         return None
+    if rank == 4 and wording_mod.not_applicable_question(line):
+        rank = 9  # owner on PR #1872: an unproven "does not apply" is its own section, never a main question
     item = str(line.get("item_id") or "")
     book_doc, _name = ctx["book_of"].get(item, (None, None))
     if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):
@@ -424,13 +431,16 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "id": f"ai:{ctx['run_id']}:{item}",
         "source": SOURCE_AI_REVIEW,
         "source_words": SOURCE_WORDS[SOURCE_AI_REVIEW],
-        "engine": ENGINE_AI,
+        "engine": crs_ai_header.engine_words(
+            crs_ai_header.engine_of_line(line, ctx.get("run_engine", ""))
+        ),
         "rank": rank,
         "tile": TILE_OF_RANK[rank],
         "firm": RANKS[rank][1] or None,
         "other_kind": other_kind,
         "name": name,
         "page": page,
+        "page_note": arc.page_note(line),  # a page hint is printed as one (`crs_comments.point_page_words`), never as THE page
         "rule_book": book_name,
         "clause": clause if book_name else None,
         "action": action or None,
@@ -1020,8 +1030,18 @@ def counts(
         if not p.get("books") and not (p.get("_book_docs") or p.get("_book_doc"))
     )
     rows_of = not_held_rows(not_held, points)
+    to_confirm = [p for p in points if p.get("rank") == 9]
+    confirmed = sum(1 for p in to_confirm if (p.get("decision") or {}).get("state") == "keep")
     out = {
         "tiles": tiles,
+        # owner on PR #1872: the lines the AI thinks do not apply, counted apart from the four tiles
+        "not_applicable_to_confirm": {
+            "label": not_applicable.TITLE,
+            "total": len(to_confirm),
+            "confirmed": confirmed,
+            "open": len(to_confirm) - confirmed,
+            "sentence": not_applicable.count_line(len(to_confirm), confirmed) if to_confirm else None,
+        },
         "total": len(points),
         "total_counts": "points of this paper's review (the rule check and the AI review together)",
         "rule_books": [
@@ -1114,6 +1134,7 @@ def ai_points_of_run(
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,
+        "run_engine": crs_ai_header.run_engine(conn, run_id),  # FTU-17: what the run stored
         "paper_document_id": paper_document_id,
         "book_of": _book_of(conn, run_id),
         "readable": readable,

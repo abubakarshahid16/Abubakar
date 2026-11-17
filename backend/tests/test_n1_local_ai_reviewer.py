@@ -753,7 +753,8 @@ def test_the_sheet_header_of_a_local_ai_review_says_local_not_claude():
     from app import crs_ai_header
 
     assert "local model" in crs_ai_header.reviewed_by("r", ai=True, usd=0.0, local=True)
-    assert crs_ai_header.reviewed_by("r", ai=True, usd=0.0) == "AI reviewer on Claude"
+    # review of PR #1872: "on Claude" only from the models the run used
+    assert crs_ai_header.reviewed_by("r", ai=True, usd=0.0, models=["claude-sonnet-5"]) == "AI reviewer on Claude"
 
 
 def test_a_two_reader_state_is_a_code_never_text():

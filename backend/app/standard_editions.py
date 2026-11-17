@@ -31,6 +31,9 @@ from . import live_guard
 from .config import settings
 
 POLICY_FILE = Path(__file__).parent / "reference" / "edition_cutoff.json"
+#: the real cutoff's local home on the app's own machine: git-ignored (`*.local.json`), read when EDITION_CUTOFF_FILE is not
+#: in the process environment (backend/.env never reaches `os.environ`, config.py), before the placeholder template
+LOCAL_POLICY_FILE = POLICY_FILE.with_name("edition_cutoff.local.json")
 RULES = ("in_effect_on", "latest_at_award")
 FEED_CONFLICTS = ("strictest", "none")
 PICKED, BOTH, NEEDS_ENGINEER = "picked", "strictest_of_both", "needs_engineer"
@@ -82,7 +85,8 @@ def date_span(text) -> tuple[date, date] | None:
 def load_policies(path: str | os.PathLike | None = None) -> dict[str, dict]:
     """The contracts' cutoff rules from the owner's file, each checked. A wrong entry raises `BadPolicy` naming it:
     a cutoff nobody can read must not pick an edition."""
-    file = Path(path or os.environ.get("EDITION_CUTOFF_FILE") or POLICY_FILE)
+    local = LOCAL_POLICY_FILE if LOCAL_POLICY_FILE.is_file() else None
+    file = Path(path or os.environ.get("EDITION_CUTOFF_FILE") or local or POLICY_FILE)
     contracts = json.loads(file.read_text(encoding="utf-8")).get("contracts") or {}
     for name, rule in contracts.items():
         if rule.get("rule") not in RULES:

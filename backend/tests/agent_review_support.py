@@ -13,6 +13,17 @@ import threading
 from app import db, rule_label_schema, rule_labels
 from app.config import settings
 
+#: FTU-17: an invented "does not apply" proof, each part found by code: only with it does a reader's "not applicable" stay "does not apply"
+NA_PROOF = {
+    "not_applicable_proof": {
+        "reason": "the rule is for cast parts only",
+        "condition": "Cast parts shall be marked",
+        "condition_found": True,
+        "paper_fact": "Body: forged",
+        "paper_found": True,
+    }
+}
+
 PAPER, STD = "doc_paper", "doc_std"
 PAPER_PAGE = "DATA SHEET\nCoating thickness: 0.35 mm\nMarking blue\nCoating layers two\nSerial invented"
 STD_PAGE = (

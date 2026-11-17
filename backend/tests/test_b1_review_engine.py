@@ -865,7 +865,9 @@ def test_the_normal_sheet_names_the_engine_in_its_title_and_keeps_its_row_geomet
 
 def test_reviewed_by_reads_what_the_run_did(world, lane):
     assert crs_ai_header.reviewed_by("r", ai=False) == "rule check on the local model"
-    assert crs_ai_header.reviewed_by("r", ai=True, usd=0.5) == "AI reviewer on Claude"
+    # review of PR #1872: the engine from the models the run used, never from a cost alone
+    assert crs_ai_header.reviewed_by("r", ai=True, usd=0.5, models=["claude-sonnet-5"]) == "AI reviewer on Claude"
+    assert crs_ai_header.reviewed_by("r", ai=True, usd=0.5) == "AI reviewer (engine not recorded)"
     assert "no model was asked" in crs_ai_header.reviewed_by("r", ai=True, usd=None)
     claude_spend.record(
         step="crs_wording",

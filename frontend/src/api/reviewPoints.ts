@@ -53,13 +53,16 @@ export interface PointDecision {
   reason?: string | null;
 }
 
+/** The four tiles. A line the AI thinks does not apply (no proof) is in none of them: it is its own section ("na_to_confirm"). */
+export type TileName = "not_met" | "questions" | "met" | "does_not_apply";
+
 export interface ReviewPoint {
   id: string;
   source: "rule_check" | "ai_review" | "added";
   source_words: string;
   engine: string | null;
   rank: number;
-  tile: "not_met" | "questions" | "met" | "does_not_apply";
+  tile: TileName | "na_to_confirm";
   firm: string | null;
   other_kind: string | null;
   name: string;
@@ -119,7 +122,9 @@ export interface PointsListing {
   runs: { rule_check: string | null; ai_review: string | null };
   points: ReviewPoint[];
   counts: {
-    tiles: Record<ReviewPoint["tile"], TileCounts>;
+    tiles: Record<TileName, TileCounts>;
+    /** Owner on PR #1872: the lines the AI thinks do not apply, to confirm, counted apart from the tiles. */
+    not_applicable_to_confirm?: { label: string; total: number; confirmed: number; open: number; sentence: string | null };
     total: number;
     rule_books: { id?: string; name: string; points: number }[];
     no_rule_book_points?: number;
@@ -196,6 +201,16 @@ export const reviewPoints = {
   keepAll: (documentId: string, pointIds: string[]) =>
     request<PointsListing>(`${paper(documentId)}/decisions`, {
       method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ point_ids: pointIds }),
+    }),
+  /** Tick "does not apply" on one line, or on every open line of the section ("Confirm all"): one decision per line. */
+  confirmNotApplicable: (documentId: string, pointIds: string[]) =>
+    request<PointsListing>(`${paper(documentId)}/not-applicable/confirm`, {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ point_ids: pointIds }),
+    }),
+  /** Undo one tick: the line is open again (the tick stays in the record). */
+  undoNotApplicable: (documentId: string, pointId: string) =>
+    request<PointsListing>(`${paper(documentId)}/not-applicable/undo`, {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ point_id: pointId }),
     }),
   add: (documentId: string, body: { text: string; page?: number; rule_book?: string; clause?: string }) =>
     request<PointsListing>(`${paper(documentId)}/add`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }),

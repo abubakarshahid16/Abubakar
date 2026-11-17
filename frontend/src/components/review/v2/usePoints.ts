@@ -57,6 +57,8 @@ export function usePoints(documentId: string | null) {
     listing, busy, problem, reload,
     decide: (body: Parameters<typeof reviewPoints.decide>[1]) => write(() => reviewPoints.decide(documentId ?? "", body)),
     keepAll: (ids: string[]) => write(() => reviewPoints.keepAll(documentId ?? "", ids)),
+    confirmNa: (ids: string[]) => write(() => reviewPoints.confirmNotApplicable(documentId ?? "", ids)),
+    undoNa: (id: string) => write(() => reviewPoints.undoNotApplicable(documentId ?? "", id)),
     add: (body: Parameters<typeof reviewPoints.add>[1]) => write(() => reviewPoints.add(documentId ?? "", body)),
   };
 }

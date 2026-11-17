@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from . import agent_review_not_applicable as not_applicable
 from . import (
     crs_comments,
     crs_completeness,
@@ -399,6 +400,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             d = {"state": decisions_mod.KEEP, "words": "Kept", "by": None}
         if d.get("by"):
             d["by"] = names.get(d["by"]) or d["by"]
+        if p.get("tile") == not_applicable.TILE:  # owner on PR #1872: a tick confirms the AI's "does not apply"
+            d = {**d, "words": not_applicable.CONFIRMED if d.get("state") == decisions_mod.KEEP else d.get("words") or not_applicable.OPEN}
         p["decision"] = d
     decided = len(points) - len(review_code_proposal.still_open(points))  # FTU-16: the one open count, as the proposal reads it
     not_held = rp.books_not_held(not_held, points, library)  # with every row's "Book missing": one list for page and sheet

@@ -36,7 +36,8 @@ from .agent_review_crs import (
     _deferred_mark,
     _other_reason,
     against,
-    line_page,
+    found_page,
+    line_page_words,
     sheet_of,
     stated,
 )
@@ -124,11 +125,10 @@ def field_words(line: Mapping) -> str:
 
 
 def _page_text(line: Mapping) -> str:
-    page = line_page(line)
     label = _clean(line.get("field")) or _clean(
         line.get("field_label_ai")
     )  # the paper's own label, as the AI quoted it
-    base = _page_cell(page) or ""
+    base = _page_cell(line_page_words(line)) or ""
     return f"{base} - {label}" if base and label else base or label
 
 
@@ -202,9 +202,8 @@ def _requires(line: Mapping, status: str) -> str:
         if line.get("recommendation") or line.get("rule_kind") == "advice"
         else "requires"
     )
-    if (
-        status == words.STATUS_QUERY and (mark := _deferred_mark(line)) is not None
-    ):  # lane D: the sheet leaves it to the vendor
+    asks = status == words.STATUS_QUERY and not actions.engineer_question(line)
+    if asks and (mark := _deferred_mark(line)) is not None:  # lane D: vendor to give
         lead = (
             "Contractor to confirm the provisional value of"
             if provisional(line)
@@ -212,7 +211,7 @@ def _requires(line: Mapping, status: str) -> str:
         )
         head = f"{lead} {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
         return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
-    if status == words.STATUS_QUERY and not actions.silent_row(line):
+    if asks and not actions.silent_row(line):
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"
         return head + (f', which {verb}: "{ask}".' if ask else f". {_no_quote(line)}")
     if ask:
@@ -234,7 +233,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     field, has, page = (
         field_words(line) or "the value asked for",
         stated(line),
-        line.get("paper_page"),
+        found_page(line),  # never a page hint (a quote's page)
     )
     where = f", page {page}" if page not in (None, "") else ""
     if (

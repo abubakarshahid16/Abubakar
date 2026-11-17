@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 
+from . import crs_ai_header
 from . import review_points as rp
 
 log = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ def _point(point_id: str, name: str, action: str) -> dict:
         "id": point_id,
         "source": rp.SOURCE_AI_REVIEW,
         "source_words": rp.SOURCE_WORDS[rp.SOURCE_AI_REVIEW],
-        "engine": rp.ENGINE_AI,
+        # FTU-17: the run's engine is set by `notes_of_run` (`crs_ai_header`, the one home); never a fixed "on Claude"
+        "engine": crs_ai_header.engine_words(crs_ai_header.ENGINE_UNKNOWN),
         "rank": 4,
         "tile": "questions",
         "firm": None,
@@ -187,4 +189,7 @@ def notes_of_run(run_id: str, paper_id: str, scope, not_held: list[str]) -> list
         out.append(
             _failed(run_id, "standards-cited check", exc)
         )  # logged by type in _failed
-    return out
+    from .db import connect
+
+    engine = crs_ai_header.engine_words(crs_ai_header.run_engine(connect(), run_id))
+    return [{**p, "engine": engine} for p in out]  # FTU-17: the engine the run stored

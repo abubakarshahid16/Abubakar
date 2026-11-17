@@ -8,6 +8,7 @@ import pytest
 
 from app import agent_review_verdict as V
 from app import agent_review_wording as W
+from tests.agent_review_support import NA_PROOF
 
 CHECKLIST = {"item_id": "S-1", "source": "skill", "rule_version_id": None}
 RULE_OK = {"item_id": "R-1", "source": "rule", "rule_label": {"tier": "AI approved"}}
@@ -439,8 +440,8 @@ def test_every_line_is_on_one_sheet_and_every_count_matches_its_sheet(tmp_path):
         mk("L-defer", paper_quote="Value TBA"),
         mk("L-unver", quotes_checked={"paper": True, "clause": False}),
         mk("L-disagree", second_opinion={"agree": False}),
-        mk("L-na", ai_verdict="Query", reason_code="not_applicable"),
-        mk("L-na-moved", reason_code="not_applicable", paper_quote="Value TBA"),
+        mk("L-na", ai_verdict="Query", reason_code="not_applicable", **NA_PROOF),  # FTU-17: with its proof
+        mk("L-na-moved", reason_code="not_applicable", paper_quote="Value TBA", **NA_PROOF),
         mk("L-error", error="timeout", ai_verdict=None),
         mk("L-unapproved", item=no),
     ]

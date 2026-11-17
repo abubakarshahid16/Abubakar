@@ -172,7 +172,8 @@ def test_the_internal_copy_header_holds_the_documents_facts_and_the_notes_sheet_
         if c is not None
     )
     # 12 Nov 2026: the engine on the header, never a model id
-    assert top["Reviewed by:"] == "AI reviewer on Claude"
+    # review of PR #1872: the invented model names are neither a Claude model nor one the local settings name: not recorded
+    assert top["Reviewed by:"] == "AI reviewer (engine not recorded)"
     table = list(wb["CRS"].iter_rows(values_only=True))
     # the header block above has grown before
     first = next(i for i, r in enumerate(table) if r[4] == "Comment By") + 1

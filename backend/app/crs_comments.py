@@ -319,9 +319,25 @@ def _clauses(members: list[dict]) -> list[dict]:
                 continue
             seen.setdefault(
                 (book, p.get("clause"), p.get("page")),
-                {"book": book, "clause": p.get("clause"), "page": p.get("page")},
+                {"book": book, "clause": p.get("clause"), "page": p.get("page"), "page_note": p.get("page_note")},
             )
     return list(seen.values())
+
+
+def point_page_words(p: dict) -> str | None:
+    """A point's (or a clause entry's) page as every cell prints it: "N", or "N (found by word match, not verified)" when it is only
+    a page hint (`page_note`, set from `agent_review_crs.page_of`); None without a page."""
+    from .agent_review_crs import page_words
+
+    return page_words(p.get("page"), bool(p.get("page_note")))
+
+
+def comment_page_words(c: dict) -> str | None:
+    """A comment's pages as the cell prints them, each page hint marked (`point_page_words`); None without a page."""
+    from .agent_review_crs import page_words
+
+    hints = set(c.get("page_hints") or ())
+    return ", ".join(page_words(n, n in hints) or "" for n in c.get("pages") or ()) or None
 
 
 def group(points: list[dict], findings_only: bool = True, near: bool = True) -> list[dict]:
@@ -439,6 +455,8 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
     for p in points:
         if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE:
             continue
+        if p.get("tile") == rp.TILE_OF_RANK[9]:  # owner on PR #1872: the AI thinks it does not apply: its own section, no comment
+            continue
         k = key_of(p)
         if k not in members:
             order.append(k)
@@ -468,6 +486,7 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
         rank = DISAGREE_RANK if disagree else strongest["rank"]
         tags = sorted({t for p in ms for t in p.get("tags") or []})
         pages = sorted({p["page"] for p in ms if p.get("page")})
+        found = {p["page"] for p in ms if p.get("page") and not p.get("page_note")}
         out.append(
             {
                 "number": number,
@@ -485,6 +504,7 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
                 "firm": None if disagree else strongest.get("firm"),
                 "strongest": lead if disagree else strongest,
                 "pages": pages,
+                "page_hints": [n for n in pages if n not in found],  # a page only a page hint gives (`point_page_words`)
                 "tags": tags,
                 "clauses": _clauses(ms),
                 "book_held": any(p.get("_book_docs") or p.get("_book_doc") for p in ms),  # cites a held book (named or not)
@@ -521,7 +541,7 @@ def _line_point(pos: int, line: dict, status: str, order: int) -> dict:
     rank = rp.rank_of_ai_line(dict(line))[0]
     return {
         "id": pos, "name": wb.field_name(line) or arc.against(line), "rule_book": _norm_keep(line.get("standard")),
-        "clause": _norm_keep(line.get("clause")), "page": arc.line_page(line), "rank": rank, "tile": rp.TILE_OF_RANK[rank],
+        "clause": _norm_keep(line.get("clause")), "page": arc.line_page(line), "page_note": arc.page_note(line), "rank": rank, "tile": rp.TILE_OF_RANK[rank],
         "priority": words.priority_ai(status, line, order), "tags": [], "_line": line, "_status": (status, order),
     }  # fmt: skip
 
@@ -573,7 +593,7 @@ def also_words(line: dict) -> list[str]:
     """The comment's OTHER lines (order 14 lane B; R91): each with its own status, rule book, clause, page and what it asks, one part
     per line, so a second finding on the field is never folded away; and whether the lines disagree."""
     from . import crs_ai_workbook as wb
-    from .agent_review_crs import against, line_page
+    from .agent_review_crs import against, line_page_words
 
     c = line.get("_comment") or {}
     out = []
@@ -582,6 +602,6 @@ def also_words(line: dict) -> list[str]:
     for m in c.get("others") or []:
         got = wb.status_of(m)
         ask = wb._contractor_to(m, *got) if got else ""
-        where = (against(m) or "the rule") + (f" (page {pg})" if (pg := line_page(m)) else "")
+        where = (against(m) or "the rule") + (f" (page {pg})" if (pg := line_page_words(m)) else "")
         out.append(f"Also {c.get('where') or 'on this field'}, {_status_words(m)} under {where}" + (f": {ask}" if ask else "."))
     return out
