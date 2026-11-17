@@ -20,6 +20,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
+from typing import NamedTuple
 
 from . import agent_general_review as core
 from . import crs_ai_words as words
@@ -31,7 +32,7 @@ from .agent_general_review import (
     CLASS_NOTE,
     CLASS_QUERY,
 )
-from .agent_review_crs import line_page
+from .agent_review_crs import line_page, line_page_words
 from .agent_run_crs import _cell, _page_cell
 
 COPY_NAMES = ("crs-contractor.xlsx", "crs-scoring-comment-only.xlsx")
@@ -77,11 +78,6 @@ def _c(text) -> str:
     return " ".join(str(text or "").split())
 
 
-def _quote(q: Mapping | None) -> tuple[str, object]:
-    """(quote text, page) of a verified quote, or ('', None)."""
-    return (_c(q.get("text")), q.get("page")) if q else ("", None)
-
-
 def _paper_quote(ln: Mapping) -> Mapping | None:
     return ln.get("quote_a") or ln.get("quote_paper")
 
@@ -90,9 +86,182 @@ def _other_quote(ln: Mapping) -> Mapping | None:
     return ln.get("quote_b") or ln.get("quote_other")
 
 
-def _verified(ln: Mapping, q: Mapping | None) -> Mapping | None:
-    """A quote the CRS comment may print: present AND checked by code (`quotes_verified_by_code` is exactly True)."""
-    return q if ln.get("quotes_verified_by_code") is True else None
+# ------------------------------------------------------------------------------------------------ LP2: a general line on any CRS row
+# A general review's line (stored with `"general": true` by `agent_general_job.store_lines`) holds its point in its OWN keys (topic,
+# sub-kind, part, project paper, the quote code verified, its words and whose words they are). The rule review's cells
+# (`crs_ai_workbook`) read none of them, so on the paper's one CRS and on the AI run's file every such line said only "Engineer to
+# check the item." (order 14 live proof, 17 Nov 2026). `question_row` decides EVERY wording cell of such a row together (REVIEW.md:
+# one function decides the whole row's wording); this file's own parts 1 and 2 come from the same functions.
+
+#: Set on a line by the caller that knows the viewer (`review_points.ai_point`) when its free words may name a book he may not read.
+HIDE_KEY = "_general_words_hidden"
+NO_PAGE = "page not recorded"
+NO_QUOTE = "The AI reviewer holds no verified quote from the paper for this point."
+AI_WORDS = "the AI reviewer's words, not proven by code"
+REVIEW_REASON = "the review's own reason"
+NO_REASON = "no reason was recorded with this point"
+HIDDEN = "its words are not shown here: they may name a document you may not read"
+UNNAMED_BOOKS = "a rule book (not named here)"
+
+
+class QuestionRow(NamedTuple):
+    """Every wording cell of ONE general-review line shown as a CRS row, decided together."""
+
+    point: str  # the paper's point the engineer checks
+    page: str  # "page N", or "page not recorded"
+    requires: str  # part 1: what the point rests on
+    shows: str  # part 2: what the paper shows (a quote code verified, with its page)
+    action: str  # part 3: the question: the point, the page and the reason
+    paper_quote: str  # the paper quote code verified, "" when none
+
+    @property
+    def cells(self) -> tuple[str, str, str]:
+        return self.requires, self.shows, self.action
+
+
+def is_general(line: object) -> bool:
+    return isinstance(line, Mapping) and line.get("general") is True
+
+
+def verified(line: Mapping, *keys: str) -> Mapping | None:
+    """The first of `keys` that holds a quote, only when code checked the line's quotes (`quotes_verified_by_code` is exactly True)."""
+    q = next((line.get(k) for k in keys if line.get(k)), None)
+    return (
+        q
+        if isinstance(q, Mapping) and line.get("quotes_verified_by_code") is True
+        else None
+    )
+
+
+def quote_of(q: Mapping | None) -> tuple[str, object]:
+    """(quote text, page) of a verified quote, or ('', None)."""
+    return (_c(q.get("text")), q.get("page")) if q else ("", None)
+
+
+def _where(page) -> str:
+    return f", page {page}" if page not in (None, "") else ""
+
+
+def _books(line: Mapping) -> str:
+    return _c(line.get("rule_book") or ", ".join(line.get("held_rule_books") or []))
+
+
+def _other(line: Mapping) -> str:
+    return "" if line.get(HIDE_KEY) else _c(line.get("other_document"))
+
+
+def free_words(line: Mapping) -> str:
+    """Every free word and document name a row of the line may print (its words, topic, rule books, project paper): what the caller
+    tests against the books the viewer may not read before it lets them through (`HIDE_KEY`)."""
+    parts = (
+        line.get("text"),
+        line.get("topic"),
+        _books(line),
+        line.get("other_document"),
+    )
+    return " ".join(_c(p) for p in parts if _c(p))
+
+
+def point_words(line: Mapping) -> str:
+    """The paper's point: the checklist point by its topic, the rule books a part-1 line names, else its sub-kind (or part) and the
+    project paper it is held against. Never empty."""
+    topic, sub, other = _c(line.get("topic")), _c(line.get("subkind")), _other(line)
+    if topic:
+        return f'the checklist point "{topic}"'
+    if line.get("part") == 1 and _books(line):
+        return (
+            f"the paper against {UNNAMED_BOOKS if line.get(HIDE_KEY) else _books(line)}"
+        )
+    kind = sub or core.PART_WORDS.get(line.get("part")) or "general review"
+    return f"the paper's point ({kind})" + (
+        f" against {other}" if other and other not in kind else ""
+    )
+
+
+def page_words(line: Mapping) -> str:
+    """THE page of the line (`agent_review_crs.line_page_words`, a page hint said as one), or "page not recorded"."""
+    page = line_page_words(line)
+    return f"page {page}" if page else NO_PAGE
+
+
+def rests_on(line: Mapping) -> str:
+    """The reason the point rests on: the AI reviewer's own words, labelled as its words (a finding, an AI note or a query, whose
+    `text_source` says so), else the review's own reason (a line that was not reviewed or not checked: code wrote its sentence,
+    whatever its part's text source says); plain words only (`crs_ai_words.plain`: no code word, no nothing-to-do phrase)."""
+    text = words.plain(line.get("text")).rstrip(" .")
+    if not text:
+        return NO_REASON
+    if line.get(HIDE_KEY):
+        return HIDDEN
+    finding = line.get("verdict_class") in (CLASS_NOTE, CLASS_QUERY)
+    if finding and line.get("text_source") == core.TEXT_FROM_MODEL:
+        return f'{AI_WORDS}: "{text}"'
+    return f"{REVIEW_REASON}: {text}"
+
+
+def requires_words(line: Mapping) -> str:
+    """Part 1: what the point rests on. In a general review the 'rule' is the checklist point, the paper itself, a project paper's own
+    requirement (its quote only when code verified it), or good practice; a part-1 line rests on no rule book that was checked."""
+    part, other = (
+        line.get("part"),
+        _other(line) or ("A project paper" if line.get("part") == 4 else ""),
+    )
+    if part == 1:
+        books = UNNAMED_BOOKS if line.get(HIDE_KEY) else _books(line)
+        return "No rule book was checked for this point" + (
+            f" (named: {books})." if books else "."
+        )
+    if part == 2:
+        topic = _c(line.get("topic"))
+        return (
+            f"The completeness checklist for this kind of paper asks for: {topic}."
+            if topic
+            else "The completeness checklist for this kind of paper applies."
+        )
+    if part == 3:
+        return (
+            "The paper must agree with itself and every reference in it must resolve."
+        )
+    if part == 4:
+        oq = quote_of(verified(line, "quote_b", "quote_other"))[0]
+        return f'{other} requires: "{oq}".' if oq else f"{other} applies to this paper."
+    return (
+        "No rule book applies to this point; it is an engineering comment on the paper."
+    )
+
+
+def shows_words(line: Mapping, view: str = "") -> str:
+    """Part 2: what the paper shows: ONLY a quote code verified, with its page (`NO_QUOTE` when there is none); for a line of the paper
+    against itself, its second quote too. `view`: a fixed sentence placed before the figures (the general file's AI note)."""
+    text, page = quote_of(verified(line, "quote_a", "quote_paper"))
+    out = f'The paper states "{text}"{_where(page)}.' if text else NO_QUOTE
+    b_text, b_page = (
+        quote_of(verified(line, "quote_b", "quote_other"))
+        if line.get("part") == 3
+        else ("", None)
+    )
+    if b_text:
+        out += f' It also states "{b_text}"{_where(b_page)}.'
+    if view:
+        out += f" {view}"
+    if line.get("figures"):
+        out += f" Figures: {_c(line['figures'])}."
+    return out
+
+
+def question_row(line: Mapping) -> QuestionRow | None:
+    """THE one decision of every wording cell of a general review's line on a CRS row; None for any other line."""
+    if not is_general(line):
+        return None
+    point, page = point_words(line), page_words(line)
+    return QuestionRow(
+        point=point,
+        page=page,
+        requires=requires_words(line),
+        shows=shows_words(line),
+        action=f"Engineer to check {point}, {page}: {rests_on(line)}.",
+        paper_quote=quote_of(verified(line, "quote_a", "quote_paper"))[0],
+    )
 
 
 def _page_text(ln: Mapping) -> str | None:
@@ -114,58 +283,23 @@ def _what(ln: Mapping) -> str:
 
 def _requires(ln: Mapping, status: str) -> str:
     """Part 1: what the rule requires. In this mode the 'rule' is the checklist point, the project paper's own requirement, the paper
-    itself, or good practice; a question is worded 'Contractor to confirm ...'."""
-    part, other = ln["part"], _c(ln.get("other_document"))
-    oq = _quote(_verified(ln, _other_quote(ln)))[0]
+    itself, or good practice (`requires_words`, the one home of these words); a question is worded 'Contractor to
+    confirm ...'."""
     if status == words.STATUS_QUERY:
+        oq = quote_of(verified(ln, "quote_b", "quote_other"))[0]
         tail = f', which requires: "{oq}".' if oq else "."
         return f"Contractor to confirm {_what(ln)}{tail}"
-    if part == 2:
-        topic = _c(ln.get("topic"))
-        return (
-            f"The completeness checklist for this kind of paper asks for: {topic}."
-            if topic
-            else "The completeness checklist for this kind of paper applies."
-        )
-    if part == 3:
-        return (
-            "The paper must agree with itself and every reference in it must resolve."
-        )
-    if part == 4:
-        return (
-            f'{other or "A project paper"} requires: "{oq}".'
-            if oq
-            else f"{other or 'A project paper'} applies to this paper."
-        )
-    return (
-        "No rule book applies to this point; it is an engineering comment on the paper."
-    )
+    return requires_words(ln)
 
 
-NO_QUOTE = "The AI reviewer holds no verified quote from the paper for this point."
 AI_VIEW = "The AI reviewer's view, not proven by code: this point needs the engineer's attention."
 
 
 def _paper_shows(ln: Mapping, status: str) -> str:
-    """Part 2: what the paper shows: ONLY a quote code verified, with its page (`NO_QUOTE` when there is none). The AI's own words
-    never enter the comment (they are on the Evidence sheet); an AI note says, in one fixed sentence, that it is the AI's view."""
-    text, page = _quote(_verified(ln, _paper_quote(ln)))
-    where = f", page {page}" if page not in (None, "") else ""
-    out = f'The paper states "{text}"{where}.' if text else NO_QUOTE
-    b_text, b_page = (
-        _quote(_verified(ln, _other_quote(ln))) if ln["part"] == 3 else ("", None)
-    )
-    if b_text:
-        out += (
-            f' It also states "{b_text}"'
-            + (f", page {b_page}" if b_page not in (None, "") else "")
-            + "."
-        )
-    if status == words.STATUS_AI:
-        out += f" {AI_VIEW}"
-    if ln.get("figures"):
-        out += f" Figures: {_c(ln['figures'])}."
-    return out
+    """Part 2: what the paper shows: ONLY a quote code verified, with its page (`NO_QUOTE` when there is none;
+    `shows_words`, the one home of these words). The AI's own words never enter the comment (they are on the
+    Evidence sheet); an AI note says, in one fixed sentence, that it is the AI's view."""
+    return shows_words(ln, AI_VIEW if status == words.STATUS_AI else "")
 
 
 def _contractor_to(ln: Mapping, status: str) -> str:
@@ -250,8 +384,8 @@ def _table(rows: list[list]) -> list[list]:
 
 def _evidence_row(n: int, ln: Mapping, status: str) -> list:
     """The Evidence row: the quotes and the AI reviewer's own words (here and nowhere else; never in the comment)."""
-    qa, pa = _quote(_paper_quote(ln))
-    qb, pb = _quote(_other_quote(ln))
+    qa, pa = quote_of(_paper_quote(ln))
+    qb, pb = quote_of(_other_quote(ln))
     return [
         n, status, core.PART_WORDS[ln["part"]], ln.get("subkind") or "", qa, pa, qb, pb, _c(ln.get("other_document")),
         "verified by code" if ln.get("quotes_verified_by_code") is True else "no verified quote", ln.get("figures") or "",

@@ -352,6 +352,7 @@ def ai_free_text_ok(line: dict, book_doc, ctx: dict) -> bool:
 def ai_point(line: dict, ctx: dict) -> dict | None:
     """One AI line as a point; None for a line that is not a point (a rule book not held). `ctx`: run_id, paper_document_id,
     book_of (item id -> (document id, name)), readable (frozenset of document ids the caller may read)."""
+    from . import agent_general_crs as general
     from . import agent_review_crs as arc
     from . import crs_ai_workbook as wb
     from .agent_review_two_reader import is_independent
@@ -420,6 +421,9 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
             "requirement": "",
         }
     )
+    if general.is_general(line):  # LP2: its free words and names reach a viewer only when they name no book he may not read
+        shown = {**shown, general.HIDE_KEY: not ai_free_text_ok({"reasoning": general.free_words(line)}, None, ctx)}
+        paper_q = general.question_row(shown).paper_quote or None  # the paper quote code verified, from the line's one home
     action = (
         ""
         if rank == 8
