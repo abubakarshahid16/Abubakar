@@ -380,7 +380,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     )
     # FTU-1: a line whose own reason says the paper does not state the value: its found quote is never shown as evidence; it is
     # where it looked, or (when it may state the value) the engineer's to check
-    silent = actions.silent_row(line) if paper_q else None
+    silent = actions.silent_row(line)  # LPV V2: a row with no quote may be stated on its page too (the same home as the file)
     # a code-proved absence: its proof, never the reader's quote, is the paper side
     proof = actions.absence_proof(line)
     shown_as = (paper_q, None) if paper_q and (silent or proof) else (None, paper_q)

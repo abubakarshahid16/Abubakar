@@ -258,25 +258,31 @@ def silent_row_words(
 
 # ---- order 14 LPV V2: a value the paper states is never asked for -------------------------------------------------------------
 
-#: the key a line carries when code found, on the paper, the value its own record says is not stated: {"quote", "page", "from"}
+#: the key a line carries when code found, on the row's own page, the value its own record says is not stated:
+#: {"quote" (the page's own words), "page", "from"}
 STATED_KEY = "stated_on_paper"
-#: where the stated value was found: another line of the same review on the same field (its quote code verified on the page and
-#: read as the value), or the paper's stored reading (a label that is the field's own label, its value found on its page by code)
-FROM_LINE, FROM_READING = "another point of this review", "the paper's stored reading"
-STATED_REASON = (
-    "the reader says the paper does not state this value, but code found it stated on the page; the engineer checks the rule "
-    "against the stated value"
+#: where the stated value was found: another point of the same review on the same page whose verified quote holds this row's
+#: label and a value, or the page itself (the label and the value together, agreed by the paper's stored reading)
+FROM_LINE, FROM_READING = (
+    "another point of this review",
+    "the page, agreed by the paper's stored reading",
 )
+STATED_REASON = (
+    "the reader says the paper does not state this value, but code found the field's label and a value together on the page; "
+    "the engineer checks the rule against the stated value"
+)
+#: the separators between a label and its value on one line ("Label : value", "Label | value", "Label = value")
+_SEP = " :|=-"
 
 
 def stated_row_words(field: str, stated: Mapping, where: str = "") -> SilentRow:
-    """V2: every wording cell of a row whose own record says "not stated" while code found the value stated on the paper
-    (`STATED_KEY`). The neutral kind (`CONTRADICTS`: the engineer checks, the contractor copy never asks to state it); the stated
-    quote is cited, never "Contractor to state"."""
+    """V2: every wording cell of a row whose own record says "not stated" while code found the field's label and a value together
+    on the row's own page (`STATED_KEY`). The neutral kind (`CONTRADICTS`: the engineer checks, the contractor copy never asks to
+    state it); the page's own words are cited, never "Contractor to state"."""
     what = field or "the value asked for"
     page = stated.get("page")
     on = f", page {page}" if page not in (None, "") else ""
-    found = f'"{stated.get("quote")}"{on}{where} (found on the page by code; from {stated.get("from")})'
+    found = f'"{stated.get("quote")}"{on}{where} (label and value found together on the page by code; from {stated.get("from")})'
     return SilentRow(
         CONTRADICTS,
         STATED_REASON,
@@ -300,140 +306,161 @@ def _would_ask_to_state(line: Mapping, quote: str, labels) -> bool:
     )
 
 
-def _field_key(line: Mapping) -> str:
-    """The field a line is about: its rule's approved label field, else the paper's label it names (folded)."""
-    label = (
-        (line.get("rule_label") or {}).get("field")
-        if isinstance(line.get("rule_label"), Mapping)
-        else None
-    )
-    text = label or line.get("field") or ""
-    return " ".join(re.findall(r"[a-z0-9]+", str(text).replace("_", " ").lower()))
-
-
 def _labels_of(line: Mapping) -> list[str]:
+    """The row's OWN label: its rule's approved label field when it has one (the row is named by it), else the paper's label the
+    line names; never another field's label the reader quoted."""
     rule = line.get("rule_label") if isinstance(line.get("rule_label"), Mapping) else {}
-    return [
-        x
-        for x in (
-            line.get("field"),
-            (rule or {}).get("field"),
-            *(line.get("field_roles") or []),
-        )
-        if x
-    ]
+    own = (rule or {}).get("field") or line.get("field")
+    return [x for x in (own, *(line.get("field_roles") or [])) if x]
 
 
-def holds_a_value(quote: str, labels) -> bool:
-    """The quote is more than the field's label and is no placeholder or deferral: it can hold the value."""
-    q = " ".join(str(quote or "").split())
+def _own_page(line: Mapping) -> int | None:
+    """The row's own page: the page of its quote, else its one page hint; None when it has none or several (keeps asking)."""
+    page = line.get("paper_page")
+    if isinstance(page, int) and not isinstance(page, bool):
+        return page
+    hints = {p for p in line.get("page_hint") or [] if isinstance(p, int)}
+    return hints.pop() if len(hints) == 1 else None
+
+
+def _words(text: object) -> list[str]:
+    return re.findall(r"[a-z0-9]+", str(text or "").replace("_", " ").lower())
+
+
+def holds_a_value(text: str, labels) -> bool:
+    """The text is more than the field's label and is no placeholder or deferral: it can hold the value."""
+    q = " ".join(str(text or "").split())
     return (
-        bool(q)
+        bool(_words(q))
         and not whole_label(q, labels)
         and not quote_is_placeholder(q, labels)
         and not quote_defers(q)
     )
 
 
+def label_cells(text: str, labels) -> list[tuple[str, str]]:
+    """[(the page's own words, the value cell)] for every line of `text` that STARTS with one of the row's labels, whole: the rest
+    of that line after the label and its separators, else the next non-empty line (the label's own cell). Pure."""
+    rows = [" ".join(ln.split()) for ln in str(text or "").splitlines()]
+    heads = [
+        re.compile(r"^\W*" + r"\W+".join(map(re.escape, w)) + r"(?![a-z0-9])", re.I)
+        for w in map(_words, labels)
+        if w
+    ]
+    out = []
+    for n, row in enumerate(rows):
+        m = next((h.match(row) for h in heads if h.match(row)), None)
+        if m is None:
+            continue
+        rest = row[m.end() :].strip(_SEP + "()")
+        nxt = "" if _words(rest) else next((r for r in rows[n + 1 :] if r), "")
+        out.append((f"{row} {nxt}".strip(), rest if _words(rest) else nxt))
+    return out
+
+
+def _agrees(cell: str, value: object) -> bool:
+    """The page's cell and the stored value are the same value: one's words hold all of the other's (in any order)."""
+    a, b = set(_words(cell)), set(_words(value))
+    return bool(a) and bool(b) and (a <= b or b <= a)
+
+
+def _from_reading(line: Mapping, reading: Mapping) -> dict | None:
+    """The row's OWN page holds the field's label and a value TOGETHER (`label_cells`), every place it does so says the same
+    value (several tags on one page saying different values: keeps asking), and the paper's stored reading on that page agrees
+    with it under the field's own label. The page's own words are cited."""
+    page, labels = _own_page(line), _labels_of(line)
+    if page is None or not labels:
+        return None
+    cells = [
+        (w, c)
+        for w, c in label_cells(reading.get("pages", {}).get(page, ""), labels)
+        if holds_a_value(c, labels)
+    ]
+    if not cells or len({" ".join(_words(c)) for _w, c in cells}) != 1:
+        return None
+    words, cell = cells[0]
+    facts = [
+        f
+        for f in reading.get("facts", ())
+        if f.get("page") == page and not f.get("is_blank")
+    ]
+    if not any(
+        whole_label(f.get("field_label"), labels)
+        and _agrees(cell, f.get("field_value"))
+        for f in facts
+    ):
+        return None
+    return {"quote": words, "page": page, "from": FROM_READING}
+
+
 def _from_lines(line: Mapping, siblings: list[Mapping]) -> dict | None:
-    """A line of the same review on the same field that READ a value: decided by code, or met / not met by the reader, its own
-    record not "not stated", its quote verified on the page and holding a value. None when there is none."""
-    labels = _labels_of(line)
+    """Another point of the same review, on the row's own page, that READ a value (decided by code, or met / not met by the
+    reader, its own record not "not stated") and whose quote, verified on the page, holds THIS row's label and a value."""
+    page, labels = _own_page(line), _labels_of(line)
     for other in siblings:
         if (
             other is line
+            or other.get("paper_page") != page
             or str(other.get("ai_verdict") or other.get("verdict"))
             not in ("Pass", "Fail")
             or says_silent(other)
         ):
             continue
         quote = verified_quote(other)
-        if holds_a_value(quote, [*labels, *_labels_of(other)]):
-            return {"quote": quote, "page": other.get("paper_page"), "from": FROM_LINE}
+        cells = [
+            (w, c) for w, c in label_cells(quote, labels) if holds_a_value(c, labels)
+        ]
+        if cells:
+            return {"quote": quote, "page": page, "from": FROM_LINE}
     return None
 
 
-def _from_reading(line: Mapping, facts: list[Mapping]) -> dict | None:
-    """A stored reading of the paper, on ANY page (not only the page the reader quoted), whose label IS the field's own label
-    (`whole_label`), with a value that is no placeholder and whose value and label code found on its page."""
-    labels = _labels_of(line)
-    for f in facts:
-        label, value = (
-            str(f.get("field_label") or ""),
-            " ".join(str(f.get("field_value") or "").split()),
-        )
-        if (
-            f.get("is_blank")
-            or not whole_label(label, labels)
-            or not holds_a_value(value, labels)
-        ):
-            continue
-        if f.get("on_page"):
-            return {
-                "quote": f"{label.rstrip(' :')}: {value}",
-                "page": f.get("page"),
-                "from": FROM_READING,
-            }
-    return None
-
-
-def mark_stated(lines: list[dict], facts: list[Mapping] = ()) -> list[dict]:
+def mark_stated(
+    lines: list[dict],
+    reading: Mapping | None = None,
+    context: list[Mapping] | None = None,
+) -> list[dict]:
     """V2, THE one place that decides it: on each line whose own record says the paper does not state the value
-    (`says_silent`), the value code found stated on the paper (`_from_lines`, then `_from_reading`) under `STATED_KEY`; every
-    other line is returned as it is. `facts`: the paper's stored reading with `on_page` (value and label found on its page)."""
-    by_field: dict[str, list[Mapping]] = {}
-    for ln in lines:
-        if key := _field_key(ln):
-            by_field.setdefault(key, []).append(ln)
+    (`says_silent`), the value code found on the row's own page (`_from_lines` over `context`, every line of the run, default
+    `lines`; then `_from_reading`) under `STATED_KEY`; every other line is returned as it is. Deterministic: lines in their
+    stored order, the reading in page and row order."""
+    reading = reading or {}
+    every = list(context) if context is not None else lines
     out = []
     for ln in lines:
-        if not says_silent(ln) or proven(ln) or not (key := _field_key(ln)):
+        if not says_silent(ln) or proven(ln):
             out.append(ln)
             continue
-        got = _from_lines(ln, by_field.get(key, [])) or _from_reading(ln, facts)
+        got = _from_lines(ln, every) or _from_reading(ln, reading)
         out.append({**ln, STATED_KEY: got} if got else ln)
     return out
 
 
-def paper_reading(paper_id: str | None) -> list[dict]:
-    """The paper's stored reading (live facts) with `on_page`: its value and label found on its page by code. [] when none can
-    be read (then only the review's own lines can show a stated value)."""
+def paper_reading(paper_id: str | None) -> dict:
+    """{"pages": {page: its text}, "facts": the paper's live stored reading, ordered by page and row}; {} when none can be read
+    (then only the review's own points can show a stated value)."""
     if not paper_id:
-        return []
+        return {}
     import sqlite3
 
     from .db import connect
 
     try:
         conn = connect()
-        pages = {int(r[0]): " ".join(re.findall(r"[a-z0-9]+", str(r[1] or "").lower())) for r in conn.execute(
-            "SELECT page_no, text FROM pages WHERE document_id = ?", (paper_id,))}  # fmt: skip
+        pages = {int(r[0]): str(r[1] or "") for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no", (paper_id,))}  # fmt: skip
         rows = conn.execute(
             "SELECT field_label, field_value, page, is_blank FROM submittal_facts WHERE submittal_document_id = ?"
-            " AND superseded_at IS NULL",
+            " AND superseded_at IS NULL ORDER BY page, rowid",
             (paper_id,),
         ).fetchall()
     except sqlite3.Error:
-        return []
-
-    def on(text: object, page: object) -> bool:
-        words = " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
-        return (
-            bool(words)
-            and isinstance(page, int)
-            and f" {words} " in f" {pages.get(page, '')} "
-        )
-
-    return [
-        {
-            "field_label": r[0],
-            "field_value": r[1],
-            "page": r[2],
-            "is_blank": r[3],
-            "on_page": on(r[1], r[2]) and on(r[0], r[2]),
-        }
+        return {}
+    facts = [
+        {"field_label": r[0], "field_value": r[1], "page": r[2], "is_blank": r[3]}
         for r in rows
     ]
+    return {"pages": pages, "facts": facts}
 
 
 @lru_cache(maxsize=1)
