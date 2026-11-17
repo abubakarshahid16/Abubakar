@@ -317,7 +317,12 @@ def type_confirmed(paper_id: str) -> bool:
         found, _source, _doubt = subject_scope.read_equipment(
             record, facts, subject_scope.vocabulary()
         )
-    except Exception:  # noqa: BLE001 - a reading that cannot be made is not a confirmed type: nothing moves
+    except (
+        sqlite3.Error,
+        OSError,
+        ValueError,
+        KeyError,
+    ):  # a reading that cannot be made is no confirmed type: nothing moves
         return False
     return bool(
         found
