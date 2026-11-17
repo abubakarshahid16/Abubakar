@@ -1,27 +1,19 @@
-"""Is a rule about something this paper does not have? (order 14 LPV V1; owner, 17 Nov 2026; the lead's decision after review)
+"""Does a rule fit this paper's equipment? (order 14 LPV V1; owner, 17 Nov 2026; the lead's decision after three review rounds)
 
 A rule was asked of a steel drum because it shared a word ("design life", "design pressure") with a field of the paper, although
-the rule was written for an acrylic window. NOTHING IS DROPPED BY WORDS: such a rule stays in the review, and its point (the rule
-check's or the AI reviewer's) moves to the owner's section "AI thinks these do not apply, tick to confirm" with the reason "the
-paper names no <thing> on any page"; the engineer confirms it (`to_confirm`, applied when the points are assembled).
-
-What a rule is ABOUT, per sentence of its stored text (a stored rule may hold two sentences: each is read):
-  * the sentence's grammatical subject, the words before its "shall" / "must" / ... (`subject_part`);
-  * the whole lead-in of the list it is an item of, only when the items between the lead-in and it are that list's own items
-    in order (`lead_in`);
-  * the title of its section, when that heading is a title (no modal verb) naming no second group (no "and", "or", comma) and
-    the thing is the title's head, its last words ("Tests for <things>", never "... with <thing> liners").
-The things are DATA (`reference/rule_subject_things.json`), with their spellings. A point moves only when EVERY sentence is about
-a thing and the paper names none of the things on any page. In ANY doubt it stays as it is:
-  * the rule REQUIRES the thing (it is named after the verb, or "<thing> shall be provided / fitted / used / installed /
-    supplied / furnished / required"): a missing required part is a finding, never a reason to set the rule aside;
-  * a negation within six words before the thing ("without", "no", "not", "unless", "instead of", "other than", "except",
-    "excluding", "non-"), a subject that joins the thing with another group ("for X and for <thing>", a comma), or a subject
-    holding a verb (the stored text glued two sentences);
-  * a page of the paper not readable as text.
-A sentence that only carries on a worked example of the book ("For example, ... 93 psig. The operating pressure must be kept
-below 93 psig ...", every measured figure of it in the example: `claims.extract_measurements`, never a list or clause number) moves
-to the same section with its own reason. No standard, clause or layout is named in code (rule 13). Reads only; no model."""
+the rule was written for a vessel with an acrylic window. NOTHING IS DROPPED, and no grammar is parsed: the decision rests on the
+AGREED DATA. A rule's point (the rule check's or the AI reviewer's) moves to the owner's section "does not apply? tick to confirm"
+only when BOTH hold:
+  1. the rule names a thing of the data list (`reference/rule_subject_things.json`) in its own words, the lead-in of its list or
+     its section's title, and the paper names none of that thing's spellings on any page (case, punctuation and spaces ignored);
+  2. the rule's AGREED equipment tag (`rule_equipment_label`, decided by `agent_review_equipment.equipment_decision`, the ONE
+     function the AI reviewer's own filter uses) names ANOTHER equipment type than the paper's. A rule tagged for this paper's
+     equipment stays asked even when the paper lacks the part (that is the finding); an untagged, not agreed or general rule
+     never moves; a paper whose equipment is not known moves nothing.
+A sentence that only carries on a worked example of the book ("For example, ... 93 psig. The operating pressure must be kept below
+93 psig ...", every measured figure of the rule in the example: `claims.extract_measurements`) moves with its own reason. The
+engineer confirms each moved point; it is counted and listed, never removed. No standard, clause or layout is named in code (rule
+13). Reads only; no model."""
 
 from __future__ import annotations
 
@@ -40,43 +32,12 @@ EXAMPLE_WORDS = "a worked example in the rule book, not a requirement"
 LABEL = "Does not apply? (code, engineer to confirm)"
 ACTION = "Engineer to check whether the rule applies to this paper: {reason}."
 WHY = "Code, not the AI: {reason} (the engineer confirms)."
-#: where the thing was read, in the reason's own words (honesty rule 4: the reason says where it comes from)
-SOURCE_WORDS = {
-    "own": "its own words are about",
-    "list": "the list it sits in is about",
-    "title": "its section is about",
-}
 
 _ENUM = re.compile(r"^\s*\((\d{1,2}|[a-z]|[ivx]{1,4})\)\s", re.IGNORECASE)
 _ITEM = re.compile(r"\((\d{1,2}|[a-z])\)\s")
 _LIST_START = re.compile(r":\s*\((1|a)\)\s", re.IGNORECASE)
 _SENTENCE_END = re.compile(r"[.;]\s")
-#: a sentence ends at ". " / "; " before a capital or "(", or where a new clause number starts ("... not allowed 5.2.17 Concrete ...")
-_SENTENCE_SPLIT = re.compile(r"(?<=[.;])\s+(?=[A-Z(])|\s+(?=\d+(?:\.\d+)+\s+[A-Z])")
-#: a verb inside the words before "shall": the stored text glued two sentences, so its subject is not one noun phrase (doubt)
-_VERB_IN_SUBJECT = re.compile(
-    r"\b(?:is|are|was|were|been|does|do|did|has|have|had|requires?|allowed|permitted)\b",
-    re.I,
-)
 LEAD_IN_MAX = 600
-_NEGATION = re.compile(
-    r"\b(?:without|no|not|nor|unless|instead of|other than|except|exception|excluding|exclusive of|non)\b(?:\s+\S+){0,6}\s*$"
-)
-#: "flanges such as <thing>", "parts including <thing>": the thing is an example of something else (the rule stays)
-_EXAMPLE_OF = re.compile(
-    r"\b(?:such as|including|includes|include|e g|eg|like|namely)\b(?:\s+\S+){0,3}\s*$"
-)
-_JOINED = re.compile(r"\b(?:and|or)\b|,")
-_AND_OR = re.compile(r"\b(?:and|or)\b")
-#: a subject that opens with a condition on the thing ("Where <thing> is fitted, ...", "If ...", "For <things>, ...")
-_CONDITION = re.compile(
-    r"^\W*(?:\(\w{1,4}\)\s*)?(?:where|if|when|whenever|for|in the case of|in case of)\b",
-    re.I,
-)
-#: the words that put the thing in a qualifier of the subject ("the design life OF the <thing>", "procedures BY <thing> systems")
-_QUALIFIER = re.compile(
-    r"\b(?:of|for|in|on|with|by|to|from|within|inside)\b(?:\s+\S+){0,3}\s*$"
-)
 _EXAMPLE_OPEN = re.compile(
     r"^(?:for example|for instance|e\.\s?g\.)[\s,]", re.IGNORECASE
 )
@@ -88,13 +49,7 @@ def _things(path: str, mtime: float) -> tuple[tuple, ...]:  # noqa: ARG001 - the
     out = []
     for entry in data.get("things") or []:
         words = tuple(
-            sorted(
-                {
-                    subject_scope._fold(w)
-                    for w in entry.get("words") or []
-                    if subject_scope._fold(w)
-                }
-            )
+            sorted({_compact(w) for w in entry.get("words") or [] if _compact(w)})
         )
         paper = tuple(
             sorted(
@@ -111,8 +66,8 @@ def _things(path: str, mtime: float) -> tuple[tuple, ...]:  # noqa: ARG001 - the
 
 
 def things(path: Path | str | None = None) -> tuple[tuple, ...]:
-    """((name, folded spellings, paper spellings), ...) from the data file; a malformed entry is skipped (nothing moves for it).
-    The paper spellings (the spellings plus `paper_words`, compacted) are what keeps a rule when the paper names any of them."""
+    """((name, compacted spellings, compacted paper spellings), ...) from the data file; a malformed entry is skipped. The paper
+    spellings (the spellings plus `paper_words`) are what keeps a rule when the paper names any of them."""
     p = Path(path or THINGS_PATH)
     return _things(str(p), p.stat().st_mtime)
 
@@ -124,76 +79,25 @@ def _compact(text: object) -> str:
 
 def _entry(entry: tuple) -> tuple[str, tuple, tuple]:
     name, words, *rest = entry
-    return name, words, rest[0] if rest else tuple(_compact(w) for w in words)
+    words = tuple(_compact(w) for w in words)
+    return name, words, tuple(_compact(w) for w in rest[0]) if rest else words
 
 
-def _found(text: object, catalogue) -> list[tuple[str, str, bool, int]]:
-    """[(name, the spelling found, doubt, position in the folded text)] for every spelling of a thing that stands whole in `text`.
-    Doubt: a negation within six words before it, or the thing given as an example of something else ("such as", "including")."""
+def named(text: object, catalogue) -> list[tuple[str, str]]:
+    """[(name, spelling)] of every thing `text` names: a spelling standing whole between word boundaries (case, punctuation and
+    spaces ignored inside it)."""
     folded = subject_scope._fold(text)
+    flat = " " + " ".join(folded.split()) + " "
     out = []
     for entry in catalogue:
         name, words, _paper = _entry(entry)
         for w in words:
-            for m in re.finditer(
-                r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", folded
+            if m := re.search(
+                r"(?<![a-z0-9])" + r"\s?".join(map(re.escape, w)) + r"(?![a-z0-9])",
+                flat,
             ):
-                before = folded[: m.start()].rstrip()
-                out.append(
-                    (
-                        name,
-                        w,
-                        bool(_NEGATION.search(before) or _EXAMPLE_OF.search(before)),
-                        m.start(),
-                    )
-                )
+                out.append((name, m.group(0)))  # the rule's own spelling, as it reads
     return out
-
-
-def sentences(text: object) -> list[str]:
-    """The sentences of a stored rule (a stored rule may hold two)."""
-    return [
-        s.strip()
-        for s in _SENTENCE_SPLIT.split(" ".join(str(text or "").split()))
-        if s.strip()
-    ]
-
-
-_OBLIGATION = re.compile(
-    r"\b(?:shall|must|should|will|needs? to|is to|are to|is required|are required|to be)\b",
-    re.IGNORECASE,
-)
-
-
-def subject_part(sentence: object) -> str:
-    """The sentence's grammatical subject: its words before its obligation ("shall", "must", "is required", "to be" ...); "" with
-    none."""
-    text = " ".join(str(sentence or "").split())
-    verb = _OBLIGATION.search(text) or subject_scope._MODAL.search(text)
-    return text[: verb.start()] if verb else ""
-
-
-def requires(sentence: str, catalogue) -> bool:
-    """The sentence's OBLIGATION is on the thing: the thing is its object (named after "shall" / "must" / "is required" / "to be"),
-    or the HEAD of its subject ("A sight glass shall be available", "Fire pumps shall comply ..."). Such a rule STAYS asked: on a
-    paper without the thing, the missing thing is the finding. It is NOT an obligation on the thing when the subject opens with a
-    condition ("Where / If / When <thing> is fitted, ...", "For <things>, ...") or the thing only qualifies the subject ("the design
-    life OF the <thing>")."""
-    text = " ".join(str(sentence or "").split())
-    verb = _OBLIGATION.search(text) or subject_scope._MODAL.search(text)
-    if not verb:
-        return False
-    if any(not doubt for _n, _w, doubt, _at in _found(text[verb.end() :], catalogue)):
-        return True
-    subject = text[: verb.start()]
-    if _CONDITION.search(subject):
-        return False
-    folded = subject_scope._fold(subject)
-    return any(
-        not _QUALIFIER.search(folded[:at].rstrip())
-        for _n, _w, doubt, at in _found(subject, catalogue)
-        if not doubt
-    )
 
 
 def _style(marker: str) -> str:
@@ -206,8 +110,7 @@ def _ordinal(marker: str) -> int:
 
 def lead_in(sentence: object, passage: object) -> str:
     """The lead-in of the list `sentence` is item k of: the sentence ending in ":" right before item (1) / (a) of the same style,
-    found in `passage`, ONLY when the items between it and this one are that list's items 1 .. k-1 in order (a lead-in is never
-    inherited across lists). "" otherwise."""
+    found in `passage`, ONLY when the items between it and this one are that list's items 1 .. k-1 in order. "" otherwise."""
     sent = " ".join(str(sentence or "").split())
     text = " ".join(str(passage or "").split())
     own = _ENUM.match(sent)
@@ -234,18 +137,6 @@ def lead_in(sentence: object, passage: object) -> str:
     return prefix[max(ends[-1] if ends else 0, colon - LEAD_IN_MAX) : colon].strip()
 
 
-def title_of(heading: object) -> str:
-    """A section heading only when it is a TITLE (no modal verb) that names no second group (no "and", "or", comma)."""
-    text = " ".join(str(heading or "").split())
-    if (
-        not text
-        or subject_scope._MODAL.search(text)
-        or _JOINED.search(re.sub(r"^[\d.\-\s]+", "", text))
-    ):
-        return ""
-    return text
-
-
 def is_example(requirement: Mapping, passage: object) -> bool:
     """The rule sentence carries on a worked example: the sentence right before it opens with "For example" / "For instance" /
     "e.g." and holds every MEASURED figure of the rule sentence (a number with its unit, `claims.extract_measurements`; a list or
@@ -268,32 +159,8 @@ def is_example(requirement: Mapping, passage: object) -> bool:
     return bool(_EXAMPLE_OPEN.search(before) and own and own <= there)
 
 
-def _sources(
-    parts: list[str], passage: object, heading: object, catalogue
-) -> list[tuple[str, str, str]] | None:
-    """[(source, name, spelling)] the rule is about, per sentence (own subject, its list's lead-in, its section's title), or None
-    when a sentence is about nothing on the list, or any of it is in doubt (a negation, an example of something else, a subject
-    joining another group or holding a verb). The title counts only with the thing as its head (its last words)."""
-    title = subject_scope._fold(title_of(heading))
-    shared = [("list", h) for h in _found(lead_in(parts[0], passage), catalogue)]
-    shared += [("title", h) for h in _found(title, catalogue) if title.endswith(h[1])]
-    out: list[tuple[str, str, str]] = []
-    for s in parts:
-        subject = subject_part(s)
-        own = [("own", h) for h in _found(subject, catalogue)]
-        hits = own + shared
-        if not hits or any(h[2] for _src, h in hits):
-            return None
-        cond = bool(
-            _CONDITION.search(subject)
-        )  # "For <things>, the ...": its comma ends the condition, it joins nothing
-        joined = (
-            _AND_OR.search(subject.lower()) if cond else _JOINED.search(subject.lower())
-        )
-        if own and (joined or (_VERB_IN_SUBJECT.search(subject) and not cond)):
-            return None  # "for X and for <thing>", or two sentences glued: about more than the thing
-        out += [(src, h[0], h[1]) for src, h in hits]
-    return out
+def _words(text: object) -> str:
+    return str(text or "").replace("_", " ").strip()
 
 
 def decide(
@@ -302,32 +169,36 @@ def decide(
     paper_text: str | None,
     catalogue=None,
     heading: object = "",
+    tag: Mapping | None = None,
 ) -> str | None:
-    """The reason the rule's point moves to the tick section, or None (it stays as it is). The reason says where the thing was
-    read: its own words, the list it sits in, or its section."""
+    """The reason the rule's point moves to the tick section, or None (it stays asked). `tag`: the rule's agreed equipment tag as
+    `equipment_decision` judged it against the paper ({"other": True, "rule": <type or family>, "paper": <types>}), None when
+    the rule's tag fits the paper, is not agreed, is general, or is missing (then nothing moves for a thing)."""
     if paper_text is None:
         return None
     if is_example(requirement, passage):
         return EXAMPLE_WORDS
-    catalogue = catalogue or things()
-    parts = sentences(
-        requirement.get("source_text") or requirement.get("requirement_text")
-    )
-    if not parts or any(requires(s, catalogue) for s in parts):
+    if not (tag and tag.get("other")):
         return None
-    found = _sources(parts, passage, heading, catalogue)
+    catalogue = catalogue or things()
+    sentence = (
+        requirement.get("source_text") or requirement.get("requirement_text") or ""
+    )
+    found = named(
+        " ".join(str(x or "") for x in (heading, lead_in(sentence, passage), sentence)),
+        catalogue,
+    )
     if not found:
         return None
     paper = _compact(paper_text)
     entries = {e[0]: _entry(e) for e in catalogue}
-    if any(w and w in paper for _src, n, _sp in found for w in entries[n][2]):
+    if any(w and w in paper for n, _sp in found for w in entries[n][2]):
         return None  # the paper names the thing (or a word the data list says keeps it), in any case or punctuation
-    source = next(
-        src for src in ("own", "list", "title") if any(f[0] == src for f in found)
+    spelled = " / ".join(dict.fromkeys(sp for _n, sp in found))
+    return (
+        f"its agreed equipment tag is {_words(tag.get('rule'))}, this paper is {_words(tag.get('paper'))}, and the paper names no "
+        f"{spelled} on any page"
     )
-    spelled = " / ".join(dict.fromkeys(sp for src, _n, sp in found if src == source))
-    names = " / ".join(dict.fromkeys(sp for _src, _n, sp in found))
-    return f"{SOURCE_WORDS[source]} {spelled}; the paper names no {names} on any page"
 
 
 # ---- the database side --------------------------------------------------------------------------------------------------------
@@ -398,6 +269,35 @@ def _rules(conn, ids: Iterable[str]) -> dict[str, dict]:
     return out
 
 
+def tag_against(conn, rule_id: str, ctx) -> dict | None:
+    """The rule's agreed equipment tag judged against the paper by the AI reviewer's ONE function (`equipment_decision`, mode
+    "type"): {"other": True, "rule", "paper"} only when it answers "another equipment type", which only an AGREED tag naming a type
+    or family not the paper's gets; a tag not agreed, general or missing, or a paper whose equipment is not known: None."""
+    from . import agent_review_equipment as eqmod
+    from . import rule_equipment
+
+    if ctx is None:
+        return None
+    label = rule_equipment.label_for(conn, "requirement", str(rule_id)) or {}
+    try:
+        row = conn.execute(
+            "SELECT field FROM rule_label WHERE source = 'requirement' AND rule_ref = ?",
+            (str(rule_id),),
+        ).fetchone()
+    except sqlite3.Error:
+        row = None
+    keep, why, _fam = eqmod.equipment_decision(
+        label, ctx.eq, ctx.tax, "type", row[0] if row else None
+    )
+    if keep or why != eqmod.ANOTHER_EQUIPMENT:
+        return None
+    return {
+        "other": True,
+        "rule": label.get("equip_type") or label.get("equip_family"),
+        "paper": ", ".join(sorted(ctx.eq.core_types or ctx.eq.types)),
+    }
+
+
 def _rule_id(point: Mapping) -> str | None:
     finding = point.get("_finding") or {}
     if finding.get("requirement_id"):
@@ -408,8 +308,9 @@ def _rule_id(point: Mapping) -> str | None:
 
 def to_confirm(conn, points: list[dict], paper_id: str) -> int:
     """Move to the tick section (rank 9, `agent_review_not_applicable`) every point, of the rule check or the AI reviewer, whose
-    rule `decide` sets aside, with its reason in the point's own words; an engineer's own point and a "not reviewed" stay. Returns
-    how many moved. Nothing is removed: the point is still counted, listed and decided by a tick."""
+    rule `decide` sets aside, with ONE label and its reason in the point's own words; an engineer's own point and a "not
+    reviewed" stay. Returns how many moved. Nothing is removed: the point is still counted, listed and decided by a tick."""
+    from . import agent_review_equipment as eqmod
     from .agent_review_not_applicable import TILE
 
     movable = [
@@ -418,12 +319,21 @@ def to_confirm(conn, points: list[dict], paper_id: str) -> int:
     text = paper_text(conn, paper_id) if movable else None
     if text is None:
         return 0
+    ctx = eqmod.load_equipment(conn, paper_id, "type")
     catalogue, rules = things(), _rules(conn, (_rule_id(p) for p in movable))
     moved = 0
     for p in movable:
-        rule = rules.get(_rule_id(p) or "")
+        rid = _rule_id(p) or ""
+        rule = rules.get(rid)
         reason = (
-            decide(rule, rule.get("passage"), text, catalogue, rule.get("heading"))
+            decide(
+                rule,
+                rule.get("passage"),
+                text,
+                catalogue,
+                rule.get("heading"),
+                tag_against(conn, rid, ctx),
+            )
             if rule
             else None
         )
@@ -433,6 +343,7 @@ def to_confirm(conn, points: list[dict], paper_id: str) -> int:
                 tile=TILE,
                 firm=None,
                 ai_label=LABEL,  # ONE honest label, never the AI's own answer inside the tick section
+                ai_answer=f"{LABEL}: {reason}.",
                 action=ACTION.format(reason=reason),
                 ai_reasoning=WHY.format(reason=reason),
             )

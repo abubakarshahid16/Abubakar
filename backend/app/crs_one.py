@@ -39,6 +39,7 @@ from . import (
     crs_editions,
     crs_export_quality,
     crs_layout,
+    rule_subject_fit,
     standards_web_search,
     standards_web_search_money,
 )
@@ -132,6 +133,8 @@ def reason_of(point: dict) -> str:
     )
     if point.get("source") == rp.SOURCE_ADDED:
         return "Added by an engineer."
+    if point.get("_subject_fit"):  # LPV V1: moved by code to the tick section: its ONE reason, never the run's own words
+        return _clean(f"{rule_subject_fit.LABEL}: {point['_subject_fit']}")
     if line and (draft := words.ai_draft_words(line)):  # lane A: a check against an AI-draft limit: said first, in code's own words
         return _clean(draft)
     if line:
