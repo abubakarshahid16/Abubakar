@@ -778,3 +778,159 @@ def test_upload_with_no_default_discipline_is_not_measured_and_retried_later(
     # it never started, so the next run tries it again (here with a chosen discipline)
     assert _run(app, setup, "--discipline", "Invented-B", papers=("pump",)) == 0
     assert b"Invented-B" in app.upload_bodies[-1]
+
+
+# ------------------------------------------------------------------------------------------------ the gate: report
+
+
+def _report_setup(
+    tmp_path,
+    found=(8, 8, 8),
+    chance=("0 of 10",) * 3,
+    wrong=(0, 0, 0),
+    n=10,
+    old=2,
+    blocked=None,
+    judge_skip=None,
+):
+    """A forged score folder for the valve: run files, comments, sheets, judge files, a new and an old score output."""
+    sd, jd = tmp_path / "new", tmp_path / "judge"
+    sd.mkdir()
+    jd.mkdir()
+    for c in ("A", "B", "C", "orig"):
+        rec = {
+            "label": f"valve-{c}",
+            "paper": "valve",
+            "copy": c,
+            "status": "completed",
+            "started": True,
+            "comments": n,
+        }
+        if blocked and blocked[0] == c:
+            rec = {
+                "label": f"valve-{c}",
+                "paper": "valve",
+                "copy": c,
+                "status": "not measured",
+                "started": False,
+                "words": blocked[1],
+            }
+        (sd / f"valve-{c}-run.json").write_text(json.dumps(rec))
+        (sd / f"valve-{c}-comments.json").write_text(
+            json.dumps({"comments": [{"field": "x"}] * n})
+        )
+        (sd / f"valve-{c}-sheet.xlsx").write_bytes(b"PK-invented")
+    for c, w in zip("ABC", wrong, strict=True):
+        marks = {str(i): ("WRONG" if i <= w else "KEEP") for i in range(1, n + 1)}
+        if judge_skip == c:
+            marks.pop("1")
+        (jd / f"valve-{c}.json").write_text(json.dumps(marks))
+    rows = [
+        _row("valve", c, f, chance=ch)
+        for c, f, ch in zip("ABC", found, chance, strict=True)
+        if not (blocked and blocked[0] == c)
+    ]
+    argv = [
+        "report",
+        "--score",
+        _score(tmp_path, "new.txt", rows),
+        "--score-dir",
+        str(sd),
+        "--judge-dir",
+        str(jd),
+        "--papers",
+        "valve",
+    ]
+    if old is not None:
+        argv += ["--old", _score(tmp_path, "old.txt", [_row("valve", "A", old)])]
+    return argv, sd
+
+
+def test_report_pass_shows_every_copy_its_sheet_and_the_numbers(tmp_path, capsys):
+    argv, sd = _report_setup(tmp_path)
+    assert gate.main(argv) == 0
+    out = capsys.readouterr().out
+    assert "== valve: PASS" in out and "DONE GATE: PASS (1 of 1 papers PASS)" in out
+    for c in ("A", "B", "C", "orig"):
+        assert str(sd / f"valve-{c}-sheet.xlsx") in out
+    assert "mean 8.00 of 10 | target 7.0 | old engine 2.00 (1 copies)" in out
+    assert "0 WRONG of 30 comments = 0.0%" in out
+
+
+def test_report_below_target_names_the_gap_and_never_rounds_up(tmp_path, capsys):
+    argv, _ = _report_setup(tmp_path, found=(7, 7, 6))
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert "== valve: BELOW TARGET" in out
+    assert (
+        "valve: mean 6.66 (20/3) of 10, target 7.0, short by 0.34" in out
+    )  # 6.666.. shown as 6.66, never 6.67
+    assert "PASS" not in out.split("DONE GATE")[0].replace("NOT PASSED", "")
+
+
+def test_report_below_target_on_false_alarms(tmp_path, capsys):
+    argv, _ = _report_setup(tmp_path, wrong=(2, 1, 1))  # 4 of 30 = 13.3%
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert (
+        "== valve: BELOW TARGET" in out
+        and "valve: 4 WRONG of 30 comments = 13.3%, limit 10%" in out
+    )
+
+
+def test_report_below_target_when_not_above_the_old_engine(tmp_path, capsys):
+    argv, _ = _report_setup(tmp_path, found=(8, 8, 8), old=8)
+    assert gate.main(argv) == 1
+    assert (
+        "not above the old engine: new mean 8.00, old 8.00" in capsys.readouterr().out
+    )
+
+
+def test_report_not_measured_names_the_step_and_the_apps_sentence(tmp_path, capsys):
+    argv, _ = _report_setup(
+        tmp_path, blocked=("B", "upload: HTTP 422 (invented app sentence)")
+    )
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert "== valve: NOT MEASURED" in out
+    assert (
+        "valve-B: upload: HTTP 422 (invented app sentence) (status not measured)" in out
+    )
+
+
+@pytest.mark.parametrize(
+    "case,words",
+    [
+        (
+            "no judge mark",
+            "valve-C: false alarms NOT MEASURED (the reader judged 9 of 10 comments)",
+        ),
+        ("no old", "the old engine's number NOT MEASURED"),
+        ("no chance", "valve-A: chance hits NOT MEASURED"),
+        ("no score", "valve-A: no row in the score output"),
+    ],
+)
+def test_report_not_measured_cases(tmp_path, capsys, case, words):
+    kw = {
+        "no judge mark": {"judge_skip": "C"},
+        "no old": {"old": None},
+        "no chance": {"chance": ("NOT MEASURED", "0 of 10", "0 of 10")},
+    }.get(case, {})
+    argv, _ = _report_setup(tmp_path, **kw)
+    if case == "no score":
+        argv[argv.index("--score") + 1] = _score(tmp_path, "empty.txt", [])
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert "== valve: NOT MEASURED" in out and words in out
+
+
+def test_report_exit_is_zero_only_when_every_paper_passes(tmp_path, capsys):
+    argv, _ = _report_setup(tmp_path)
+    argv.insert(argv.index("--papers") + 2, "pump")  # pump has nothing: NOT MEASURED
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert (
+        "== valve: PASS" in out
+        and "== pump: NOT MEASURED" in out
+        and "1 of 2 papers PASS" in out
+    )
