@@ -669,11 +669,12 @@ def agent_crs(
         review_points_service,
     )  # 12 Nov: the sheet holds the engineer's decisions and added points
 
-    decided = review_points_service.decided_ai_sheet(
+    decided = review_points_service.decided_ai_sheet(  # the decisions, and only what THIS caller may read (rule 5)
         review_run_id,
         _run_or_404(review_run_id, scope)["submittal_document_id"],
         copy,
         path.parent,
+        frozenset(scope.allowed_document_ids),
     )
     path = decided or path
     return FileResponse(path, media_type=XLSX, filename=f"agent-review-{copy}.xlsx")

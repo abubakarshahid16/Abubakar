@@ -93,7 +93,8 @@ def _other_quote(ln: Mapping) -> Mapping | None:
 # check the item." (order 14 live proof, 17 Nov 2026). `question_row` decides EVERY wording cell of such a row together (REVIEW.md:
 # one function decides the whole row's wording); this file's own parts 1 and 2 come from the same functions.
 
-#: Set on a line by the caller that knows the viewer (`review_points.ai_point`) when its free words may name a book he may not read.
+#: Set on a line by the caller that knows the viewer (`review_points.general_hidden`) when a row of it may name or quote a document he
+#: may not read, or its free words may name a held book he may not read. `viewed` then empties every such key (the ONE guard).
 HIDE_KEY = "_general_words_hidden"
 NO_PAGE = "page not recorded"
 NO_QUOTE = "The AI reviewer holds no verified quote from the paper for this point."
@@ -102,6 +103,20 @@ REVIEW_REASON = "the review's own reason"
 NO_REASON = "no reason was recorded with this point"
 HIDDEN = "its words are not shown here: they may name a document you may not read"
 UNNAMED_BOOKS = "a rule book (not named here)"
+HIDDEN_DOCUMENT = "a document you may not read"
+#: no document of this name exists: a quote of another paper that does not say whose it is can never be shown (fail closed)
+UNKNOWN_DOCUMENT = "\x00a quote that names no document"
+#: every key of a general line that may name a document other than the paper, or hold free words (the AI's, or a sentence code
+#: built around a name): emptied under HIDE_KEY, so no reader of the line (a CRS cell, the Evidence sheet, the page's point) prints it
+SCRUBBED = (
+    "topic", "rule_book", "held_rule_books", "standard", "clause", "clause_quote", "requirement", "reasoning", "second_model_reason",
+    "code_words", "model_words", "why", "not_proven_reason", "field", "field_label_ai", "what", "reason", "paper_quote",
+)  # fmt: skip
+PAPER_QUOTES, OTHER_QUOTES = ("quote_a", "quote_paper"), ("quote_b", "quote_other")
+FIXED_SUBKINDS = frozenset(
+    (core.SUB_SELF, core.SUB_REF, core.SUB_OPEN, core.SUB_COUNT, core.SUB_ENGINEERING, core.SUB_CHECKLIST, core.SUB_CONCERN,
+     core.SUB_UNREAD, core.SUB_SILENT)
+)  # fmt: skip
 
 
 class QuestionRow(NamedTuple):
@@ -147,7 +162,52 @@ def _books(line: Mapping) -> str:
 
 
 def _other(line: Mapping) -> str:
-    return "" if line.get(HIDE_KEY) else _c(line.get("other_document"))
+    return _c(line.get("other_document"))
+
+
+def _quote_document(line: Mapping, key: str) -> str | None:
+    """Whose words a quote of the line holds: its own `document`; a paper quote without one is the paper's; another paper's quote
+    without one is `UNKNOWN_DOCUMENT` (never readable). None when the key holds no quote."""
+    q = line.get(key)
+    if not isinstance(q, Mapping):
+        return None
+    own = _c(q.get("document"))
+    return own or (
+        _c(line.get("document")) if key in PAPER_QUOTES else UNKNOWN_DOCUMENT
+    )
+
+
+def documents_named(line: Mapping) -> frozenset[str]:
+    """Every document other than the paper itself that a row of the line may name or quote (its project paper, the document of each
+    of its quotes): each must be readable by the viewer, else the line is shown through `viewed` with HIDE_KEY."""
+    paper = _c(line.get("document"))
+    found = {
+        _other(line),
+        *(_quote_document(line, k) for k in (*PAPER_QUOTES, *OTHER_QUOTES)),
+    }
+    return frozenset(d for d in found if d and d != paper)
+
+
+def viewed(line: Mapping) -> Mapping:
+    """THE one guard of every reader of a general line (CLAUDE.md rule 5): a line with HIDE_KEY set comes back with every name and
+    word that may belong to a document the viewer may not read emptied (`SCRUBBED`), its project paper and a sub-kind that names one
+    said as `HIDDEN_DOCUMENT`, its rule books as `UNNAMED_BOOKS`, its words as `HIDDEN`, and only the quotes of the paper itself kept.
+    Any other line comes back as it is."""
+    if not (is_general(line) and line.get(HIDE_KEY)):
+        return line
+    paper, sub = _c(line.get("document")), line.get("subkind")
+    out = {**line, **dict.fromkeys(SCRUBBED), "held_rule_books": [], "text": HIDDEN}
+    out["rule_book"] = UNNAMED_BOOKS if _books(line) else None
+    out["other_document"] = HIDDEN_DOCUMENT if _other(line) else None
+    out["subkind"] = (
+        sub
+        if sub is None or sub in FIXED_SUBKINDS
+        else core.SUB_DISAGREES.format(document=HIDDEN_DOCUMENT)
+    )
+    for key in (*PAPER_QUOTES, *OTHER_QUOTES):
+        if line.get(key) is not None and _quote_document(line, key) != paper:
+            out[key] = None
+    return out
 
 
 def free_words(line: Mapping) -> str:
@@ -169,9 +229,7 @@ def point_words(line: Mapping) -> str:
     if topic:
         return f'the checklist point "{topic}"'
     if line.get("part") == 1 and _books(line):
-        return (
-            f"the paper against {UNNAMED_BOOKS if line.get(HIDE_KEY) else _books(line)}"
-        )
+        return f"the paper against {_books(line)}"
     kind = sub or core.PART_WORDS.get(line.get("part")) or "general review"
     return f"the paper's point ({kind})" + (
         f" against {other}" if other and other not in kind else ""
@@ -185,15 +243,20 @@ def page_words(line: Mapping) -> str:
 
 
 def rests_on(line: Mapping) -> str:
-    """The reason the point rests on: the AI reviewer's own words, labelled as its words (a finding, an AI note or a query, whose
-    `text_source` says so), else the review's own reason (a line that was not reviewed or not checked: code wrote its sentence,
-    whatever its part's text source says); plain words only (`crs_ai_words.plain`: no code word, no nothing-to-do phrase)."""
+    """The reason the point rests on, each part labelled as whose words it is (CLAUDE.md rule 4): a finding whose sentence code built
+    around the AI reviewer's words (`code_words` + `model_words`) says both, each with its label; a finding in the AI reviewer's own
+    words (`text_source` says so) is labelled as its words; anything else is the review's own reason (code wrote its sentence). Plain
+    words only (`crs_ai_words.plain`: no code word, no nothing-to-do phrase)."""
     text = words.plain(line.get("text")).rstrip(" .")
     if not text:
         return NO_REASON
     if line.get(HIDE_KEY):
         return HIDDEN
     finding = line.get("verdict_class") in (CLASS_NOTE, CLASS_QUERY)
+    frame = words.plain(line.get("code_words")).rstrip(" .;:")
+    said = words.plain(line.get("model_words")).rstrip(" .")
+    if finding and frame and said:
+        return f'{REVIEW_REASON}: {frame}; {AI_WORDS}: "{said}"'
     if finding and line.get("text_source") == core.TEXT_FROM_MODEL:
         return f'{AI_WORDS}: "{text}"'
     return f"{REVIEW_REASON}: {text}"
@@ -207,7 +270,7 @@ def requires_words(line: Mapping) -> str:
         _other(line) or ("A project paper" if line.get("part") == 4 else ""),
     )
     if part == 1:
-        books = UNNAMED_BOOKS if line.get(HIDE_KEY) else _books(line)
+        books = _books(line)
         return "No rule book was checked for this point" + (
             f" (named: {books})." if books else "."
         )
@@ -223,7 +286,8 @@ def requires_words(line: Mapping) -> str:
             "The paper must agree with itself and every reference in it must resolve."
         )
     if part == 4:
-        oq = quote_of(verified(line, "quote_b", "quote_other"))[0]
+        other = other[:1].upper() + other[1:] if other == HIDDEN_DOCUMENT else other
+        oq = quote_of(verified(line, *OTHER_QUOTES))[0]
         return f'{other} requires: "{oq}".' if oq else f"{other} applies to this paper."
     return (
         "No rule book applies to this point; it is an engineering comment on the paper."
@@ -250,9 +314,11 @@ def shows_words(line: Mapping, view: str = "") -> str:
 
 
 def question_row(line: Mapping) -> QuestionRow | None:
-    """THE one decision of every wording cell of a general review's line on a CRS row; None for any other line."""
+    """THE one decision of every wording cell of a general review's line on a CRS row; None for any other line. Every branch reads
+    the line through `viewed` (the one guard): under HIDE_KEY no cell can name or quote a document the viewer may not read."""
     if not is_general(line):
         return None
+    line = viewed(line)
     point, page = point_words(line), page_words(line)
     return QuestionRow(
         point=point,

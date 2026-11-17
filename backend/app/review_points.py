@@ -349,6 +349,30 @@ def ai_free_text_ok(line: dict, book_doc, ctx: dict) -> bool:
     )
 
 
+def general_hidden(line: dict, ctx: dict) -> bool:
+    """Is a general review's line hidden from this viewer (`agent_general_crs.HIDE_KEY`)? Fail closed (CLAUDE.md rule 5: a filter only
+    narrows): yes when a row of it may name or quote a document he may not read (its project paper, the document of any of its
+    quotes; the paper itself is his by the route's own check), or when its free words name a held book he may not read."""
+    from . import agent_general_crs as general
+
+    allowed = ctx["readable"] | {ctx.get("paper_document_id")}
+    if any(d not in allowed for d in general.documents_named(line)):
+        return True
+    return not ai_free_text_ok({"reasoning": general.free_words(line)}, None, ctx)
+
+
+def viewer_ctx(conn, paper_document_id: str, readable: frozenset[str]) -> dict:
+    """What `general_hidden` needs to know of one viewer: the documents he may read, the held books, whether he may read them all."""
+    documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
+    return {
+        "paper_document_id": paper_document_id,
+        "readable": readable,
+        "library": library_of(conn),  # the held books: the AI's free text is tested against the ones the viewer may not read
+        "everything": documents <= readable,
+        "documents": documents,  # the held documents: a line's own stored book counts only when it is one of them
+    }
+
+
 def ai_point(line: dict, ctx: dict) -> dict | None:
     """One AI line as a point; None for a line that is not a point (a rule book not held). `ctx`: run_id, paper_document_id,
     book_of (item id -> (document id, name)), readable (frozenset of document ids the caller may read)."""
@@ -362,6 +386,8 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         return None
     if rank == 4 and wording_mod.not_applicable_question(line):
         rank = 9  # owner on PR #1872: an unproven "does not apply" is its own section, never a main question
+    if general.is_general(line):  # LP2, rule 5: every reader below sees its guard
+        line = general.viewed({**line, general.HIDE_KEY: general_hidden(line, ctx)})
     item = str(line.get("item_id") or "")
     book_doc, _name = ctx["book_of"].get(item, (None, None))
     if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):
@@ -422,9 +448,6 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         }
     )
     if general.is_general(line):  # LP2: every cell from the line's one home
-        # its free words and names reach a viewer only when they name no book he may not read
-        free = ai_free_text_ok({"reasoning": general.free_words(line)}, None, ctx)
-        shown = {**shown, general.HIDE_KEY: not free}
         paper_q = general.question_row(shown).paper_quote or None
     action = (
         ""
@@ -1137,16 +1160,11 @@ def ai_points_of_run(
     lines = words.read_now(
         stored, [{"rule_book": n} for n in held]
     )  # the one reading of every CRS (order 14)
-    documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,
         "run_engine": crs_ai_header.run_engine(conn, run_id),  # FTU-17: what the run stored
-        "paper_document_id": paper_document_id,
         "book_of": _book_of(conn, run_id),
-        "readable": readable,
-        "library": library_of(conn),  # the held books: the AI's free text is tested against the ones the viewer may not read
-        "everything": documents <= readable,
-        "documents": documents,  # the held documents: a line's own stored book counts only when it is one of them
+        **viewer_ctx(conn, paper_document_id, readable),
     }
     return [p for p in (ai_point(ln, ctx) for ln in lines) if p is not None], held
 

@@ -199,7 +199,10 @@ class GeneralRun(FindingsMixin):
             core.SUB_CHECKLIST,
             core.SUB_CONCERN,
         )
-        out["text_source"] = core.TEXT_FROM_MODEL if model_text else None
+        # a caller that built the whole sentence itself says so (`text_source: None`): code's own words are never the model's
+        out["text_source"] = out.get(
+            "text_source", core.TEXT_FROM_MODEL if model_text else None
+        )
         out["part_word"] = core.PART_WORDS[out["part"]]
         out["line_id"] = out["item_id"] = f"G-{len(self.lines) + 1:03d}"
         self.lines.append(out)
@@ -373,8 +376,12 @@ class GeneralRun(FindingsMixin):
             status == "present" and f["verified"]
         ):  # present, and the model sees a problem in it: never lost
             self.add({**base, **quote, "verdict_class": CLASS_NOTE, "subkind": core.SUB_CONCERN,
-                      "text": f"checklist: {topic}: covered, but {concern}"})  # fmt: skip
+                      "text": f"checklist: {topic}: covered, but {concern}",
+                      "code_words": f"checklist: {topic}: covered, with a concern", "model_words": concern})  # fmt: skip
             return False
+        said = {
+            "text_source": None
+        }  # code's own sentence, unless it carries the model's note (below)
         if (
             status == "present"
         ):  # said present, the quote did not verify: never a claim, an open question
@@ -383,6 +390,7 @@ class GeneralRun(FindingsMixin):
         elif status == "partial":
             text = f"checklist: {topic}: partly covered: {note or 'what is missing was not said'}"
             reason = "partly covered"
+            said = core.framed(f"checklist: {topic}: partly covered", note)
         elif (
             status == "absent" and self.unread
         ):  # the place to look may be a page of pictures: never "not found"
@@ -397,6 +405,7 @@ class GeneralRun(FindingsMixin):
                 + (f": {note}" if note else "")
             )
             reason = "unclear"
+            said = core.framed(text.removesuffix(f": {note}"), note)
         self.add(
             {
                 **base,
@@ -405,6 +414,7 @@ class GeneralRun(FindingsMixin):
                 "subkind": core.SUB_CHECKLIST,
                 "text": text,
                 "reason": reason,
+                **said,
             }
         )
         return False
