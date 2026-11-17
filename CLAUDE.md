@@ -42,7 +42,8 @@ machine): those keep their own approval line above; the owner changes them himse
 3. No text is ever cut without a visible mark and the full text beside it.
 4. After every live update you download the CRS for the valve and the pump and count the rows yourself, before you say "live"."
 
-How it is built: `backend/app/crs_completeness.py` is the one home of the comparison (it runs after every review ends, the result is stored with the run, and it runs again at every download: a difference answers 409 with a plain sentence naming the missing points). The contractor file holds fewer rows by design, so it states "N points reviewed, M in this file, K not issued: <reasons with counts>" and code checks M + K = N. `scripts/crs_count_check.py <run>` prints the counts and exits 1 on any difference.
+How it is built: `backend/app/crs_completeness.py` is the one home of the comparison (it runs after every review ends, the result is stored with the run, and it runs again at every download: a difference answers 409 with a plain sentence naming the missing points). The contractor file holds fewer rows by design, so it states "N points reviewed, M in this file, K not issued: <reasons with counts>" and code checks M + K = N. `scripts/crs_count_check.py <run>` prints the counts and exits 1 on any difference. The general review's file has its own home,
+`backend/app/aim_review_completeness.py` (page = database = rows on "All points", comments = rows on "Comments"; same 409).
 
 ## One reviewer only (owner, 12 Nov 2026)
 
@@ -55,6 +56,10 @@ How it is built: `backend/app/crs_completeness.py` is the one home of the compar
 5. Before the old rule check is switched off, measure the AI reviewer on the local model against the same answer key and show me the
    score next to Claude's.
 6. Fix "5 of 5 pages were not fully read" on the current page too. It is a false statement about reading.
+7. (Owner's ONE ORDER, 18 Nov 2026, order 14) The ONE Review button runs the GENERAL review (`backend/app/aim_review/`, job
+   stage `aim_review`) for every kind of paper; every sheet says "AI, to be checked"; no contractor copy until sign-off. The
+   old engine (rule check + old AI reviewer) is off behind ONE switch, `REVIEW_OLD_ENGINE_ENABLED` (default false; true = the
+   way back, exactly as before), read only through `aim_review_gate`. Earlier reviews stay readable as "Earlier version".
 
 ## Where we are (pointers only)
 
