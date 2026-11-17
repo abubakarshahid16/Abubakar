@@ -13,8 +13,7 @@ a topic or another book. It obliges nothing, so it is never the rule a paper is 
                     the text cites at least `MIN_CITATIONS` other standards (`standard_ids.find_citations`).
 
 A REAL REQUIREMENT IS NEVER LOST: a text that holds a requirement word ("shall", "must", "should", "required", a limit word) is a
-requirement wherever its chunk or page sits; from the text alone it is a list entry only when it OPENS in the list (its heading and
-two citations come before that word: `place_of_text`). Reads only; no model, no network. Shared with the procedure
+requirement wherever it sits, so none of the three tests applies to it (lead, review of PR #1889). Reads only; no model, no network. Shared with the procedure
 review (scope and definition clauses are the same family: `not_a_requirement` is the one home to extend).
 """
 
@@ -30,7 +29,6 @@ REFERENCE_LIST = "a reference-list entry"
 #: The chunk kinds the library gives a contents page, an index and a reference list (`chunker`).
 _KIND_PLACE = {"toc": CONTENTS, "index": CONTENTS, "references": REFERENCE_LIST}
 MIN_CITATIONS = 2
-OPENING = 60  # characters: how near its start a text that runs on past the list must open with the list's heading
 #: A requirement word: a text holding one is a requirement wherever it sits (never lost). Broad on purpose: a false "requirement" only
 #: keeps a row; a false "not a requirement" would drop one.
 _REQUIREMENT_WORD = re.compile(
@@ -99,22 +97,15 @@ def place_of_chunk(kind=None, section=None, context=None) -> str | None:
 
 
 def place_of_text(text) -> str | None:
-    """A reference-list entry recognised from the text alone: a reference-list heading stands in it and it cites at least
-    `MIN_CITATIONS` other standards. When the text also holds a requirement word, only a text that OPENS in the list counts: the
-    heading within its first `OPENING` characters and the citations before that word (a span the reader cut from inside the list,
-    running on into a legend or a table; a requirement that only names other books after its "shall" is never one)."""
+    """A reference-list entry recognised from the text alone: a reference-list heading stands in it, it cites at least
+    `MIN_CITATIONS` other standards and it holds no requirement word."""
     from .standard_ids import find_citations
 
     text = str(text or "")
     pattern = _reference_heading_in_text()
-    heading = pattern.search(text) if pattern else None
-    if heading is None:
+    if is_requirement_text(text) or not (pattern and pattern.search(text)):
         return None
-    word = _REQUIREMENT_WORD.search(text)
-    if word and (heading.start() > OPENING or heading.start() > word.start()):
-        return None
-    listed = text[: word.start()] if word else text
-    return REFERENCE_LIST if len(find_citations(listed)) >= MIN_CITATIONS else None
+    return REFERENCE_LIST if len(find_citations(text)) >= MIN_CITATIONS else None
 
 
 def _fold(text) -> str:
@@ -158,13 +149,12 @@ def not_a_requirement(
     """THE decision (W-D7): what the text is when it is a contents entry or a reference-list entry, else None. A text holding a
     requirement word is never one (no real requirement is lost). `chunk` (kind, section, context) is where the library stored it;
     with `conn`, `book_id` and `page`, the quote is looked up on its book page."""
-    if not str(text or "").strip():
+    if not str(text or "").strip() or is_requirement_text(text):
         return None
-    if not is_requirement_text(text):
-        if chunk and (place := place_of_chunk(*chunk)):
-            return place
-        if conn is not None and (place := place_on_page(conn, book_id, page, text)):
-            return place
+    if chunk and (place := place_of_chunk(*chunk)):
+        return place
+    if conn is not None and (place := place_on_page(conn, book_id, page, text)):
+        return place
     return place_of_text(text)
 
 

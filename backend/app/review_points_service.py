@@ -387,7 +387,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     ]
     points = rp.build(ai_pts, rc_pts, add_pts)
     resolve_books(points, readable)
-    crs_no_finding.mark(conn, points, paper_id)  # W-D7, W-D11: a contents or reference-list "rule", a form not held: never a comment
+    crs_no_finding.mark(conn, points, paper_id, readable)  # W-D7, W-D11: a contents or reference-list "rule", a form not held: never a comment
     decided_by_me = decisions_mod.latest(paper_id)
     for p in points:
         d = decisions_mod.decision_of_point(p["id"], decided_by_me)

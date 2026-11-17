@@ -114,27 +114,14 @@ def _held_check(i, name, detail, *, code="other", evidence="12.5", **f) -> dict:
     return _p(i, name, 4, _finding=finding, action=detail)
 
 
-def test_a_check_that_read_the_value_compliant_is_ticked_never_a_comment_unless_the_value_is_open():
+def test_a_held_check_is_never_set_apart_only_code_on_a_trusted_reading_makes_a_met():
+    """Lead (review of PR #1889): a value "read compliant" on a reading in conflict, or under a rule not yet proven, is not proven by
+    code: it stays a question."""
     held = untrusted_value.hold_results(
-        [
-            {
-                "status": "COMPLIANT",
-                "fact_id": "f1",
-                "rule_id": "x",
-                "detail": "Invented value is stated.",
-            }
-        ],
-        [
-            {
-                "id": "f1",
-                "field_label": "Invented field",
-                "reading_conflict": "two readings differ",
-            }
-        ],
-        {"roles": {}},
-        None,
-    )[0]  # the writer's own words: the reader below can never drift from them
-    read_met = _held_check(1, "Invented ratio", held["detail"])
+        [{"status": "COMPLIANT", "fact_id": "f1", "rule_id": "x", "detail": "Invented value is stated."}],
+        [{"id": "f1", "field_label": "Invented field", "reading_conflict": "two readings differ"}], {"roles": {}}, None,
+    )[0]  # fmt: skip
+    conflict = _held_check(1, "Invented ratio", held["detail"])
     unproven = _held_check(
         2,
         "Invented body",
@@ -142,22 +129,63 @@ def test_a_check_that_read_the_value_compliant_is_ticked_never_a_comment_unless_
         code="rule_not_proven",
         rule_said="COMPLIANT",
     )
-    deferred = _held_check(
-        3, "Invented temperature", held["detail"], code="deferred_marker"
+    pts = [conflict, unproven]
+    assert _aside(pts) == {}
+    assert {i for c in crs_comments.group(pts) for i in c["member_ids"]} == {"p1", "p2"}
+
+
+def _missing(i, name, **f) -> dict:
+    row = {
+        "row_kind": f.pop("row_kind", "datasheet_check"),
+        "comment": f.pop(
+            "comment", "Invented own ask. Contractor to provide the value."
+        ),
+    }
+    return _p(i, name, 4, _book_missing="BOOK-9", _book_missing_words="Book missing: BOOK-9 (clause not named by the reviewer)",
+              action="Book missing: BOOK-9 (clause not named by the reviewer). The rule cannot be checked until the book is held; engineer to check.",
+              _row=row, _finding=f)  # fmt: skip
+
+
+def test_an_open_request_in_the_points_own_record_stays_a_comment_whatever_the_book_state():
+    """Lead (review of PR #1889): the point's own record decides FIRST: information missing (a placeholder, a value to provide), two
+    values that conflict, an engineering check's ask stay comments, and say their own ask before the book."""
+    placeholder = _missing(1, "Invented speed", compliance_status="MISSING_INFORMATION")
+    no_label = _missing(2, "Invented material", compliance_status="MISSING_INFORMATION")
+    two_values = _missing(
+        3,
+        "Invented flow",
+        compliance_status="NEEDS_ENGINEER_REVIEW",
+        hold_reason_code="field_several_values",
     )
-    marked = _held_check(
-        4, "Invented pressure", held["detail"], evidence="By Contractor"
+    eng_check = _missing(
+        4,
+        "Invented guard",
+        row_kind="ai_engineering_check",
+        comment="Contractor to confirm the guard material.",
     )
-    not_met = _held_check(
-        5, "Invented density", held["detail"].replace("COMPLIANT", "NON_COMPLIANT")
+    nothing = _missing(
+        5,
+        "Invented head",
+        compliance_status="NEEDS_ENGINEER_REVIEW",
+        hold_reason_code="rule_not_proven",
     )
-    pts = [read_met, unproven, deferred, marked, not_met]
-    assert _aside(pts) == {crs_no_finding.KIND_CODE_READ_MET: ["p1", "p2"]}
+    pts = [placeholder, no_label, two_values, eng_check, nothing]
+    crs_no_finding.mark(_db(), pts, "paper", frozenset())
     assert {i for c in crs_comments.group(pts) for i in c["member_ids"]} == {
+        "p1",
+        "p2",
         "p3",
         "p4",
-        "p5",
     }
+    assert _aside(pts) == {crs_no_finding.KIND_BOOK_NOT_HELD: ["p5"]}
+    assert (
+        placeholder["action"]
+        == "Invented own ask. Contractor to provide the value (Book missing: BOOK-9 (clause not named by the reviewer): not checked against it.)"
+    )
+    assert eng_check["action"].startswith(
+        "Contractor to confirm the guard material (Book missing"
+    )
+    assert nothing["action"].startswith("Book missing: BOOK-9")
 
 
 def test_a_met_point_is_shown_where_met_lines_belong_unless_it_answers_the_same_rule_as_the_finding():
@@ -210,10 +238,19 @@ def test_a_contents_or_reference_list_entry_is_never_a_requirement_and_a_real_re
     )
     listed = "Invented References API 9991 Invented pumps; ISO 12345 Invented seals; ASTM A999 Invented steel"
     assert nar(listed) == rule_text_place.REFERENCE_LIST
-    # a list the reader cut that runs on into a legend with a requirement word: it OPENS in the list, so it is the list
+    # NEVER LOST (lead, review of PR #1889): a text with a requirement word is never "not a requirement", wherever it sits
     assert (
         nar(listed + " Yes (Y) the part is required to be bought from a listed maker")
-        == rule_text_place.REFERENCE_LIST
+        is None
+    )
+    assert nar("References: API 9991 and ISO 12345 shall be met for all pumps") is None
+    assert (
+        rule_text_place.place_of_text(listed + " Each part shall be tested.") is None
+    )  # the text test on its own too
+    normative = "Normative references API 9991 Invented pumps; ISO 12345 Invented seals 4.1 The set pressure shall not exceed 10 bar"
+    assert (
+        nar(normative) is None
+        and nar(normative, chunk=("references", "2 Normative references", None)) is None
     )
     # NEVER LOST: a requirement word wherever the chunk sits; a requirement that names other books after its "shall"
     assert (
@@ -381,7 +418,7 @@ def test_a_rule_that_puts_the_paper_on_a_form_it_is_not_on_says_form_not_held():
         rule_book="STD-1",
         action="Contractor to confirm or justify the form.",
     )
-    crs_no_finding.mark(conn, [p], "paper")
+    crs_no_finding.mark(conn, [p], "paper", frozenset())
     assert p["_form_not_held"] == ["XF-1234"] and p["action"].startswith(
         "Form not held: the rule names form XF-1234"
     )
@@ -394,12 +431,42 @@ def test_a_rule_that_puts_the_paper_on_a_form_it_is_not_on_says_form_not_held():
         conn, [on_it], "paper2"
     )  # the paper IS on the form: nothing changes
     assert on_it["action"] == "kept"
-    held = _ai(3, "Invented form", 4, dict(line), rule_book="STD-1", action="kept")
     conn.execute("INSERT INTO documents VALUES ('d9', 'XF-1234 blank form.pdf')")
+    hidden = _ai(4, "Invented form", 4, dict(line), rule_book="STD-1", action="kept")
     crs_no_finding.mark(
-        conn, [held], "paper"
-    )  # the library holds the form: it can be checked, nothing changes
+        conn, [hidden], "paper", frozenset({"paper"})
+    )  # rule 5: a file the caller may not read is never looked at
+    assert hidden.get("_form_not_held") == ["XF-1234"]
+    held = _ai(3, "Invented form", 4, dict(line), rule_book="STD-1", action="kept")
+    crs_no_finding.mark(
+        conn, [held], "paper", frozenset({"d9"})
+    )  # a held form the caller may read: it can be checked, nothing changes
     assert held["action"] == "kept"
+
+
+def test_a_rule_that_also_asks_something_else_stays_a_comment_with_the_form_noted():
+    """Lead (review of PR #1889): only a FORM-ONLY rule becomes "Form not held"; a rule that also holds another requirement stays a
+    comment for that requirement, the form part noted."""
+    conn = _db()
+    conn.execute(
+        "INSERT INTO chunks VALUES ('k1', 'paper', 1, 1, NULL, 'prose', 'DATA SHEET FOR INVENTED PUMPS', NULL)"
+    )
+    quote = ("The liquid shall be identified from the table with its \u201cMaterials Code(s).\u201d The applicable material code "
+             "shall be specified on the Data Sheet(s) XF-2741 and XF-2745.")  # fmt: skip
+    p = _ai(
+        1,
+        "Invented casing",
+        4,
+        {"source": "rule", "clause_quote": quote},
+        rule_book="STD-1",
+        action="Contractor to state the code.",
+    )
+    crs_no_finding.mark(conn, [p], "paper", frozenset())
+    assert "_form_not_held" not in p and p["_form_note"] == ["XF-2741", "XF-2745"]
+    assert p["action"].startswith(
+        "Contractor to state the code. (Form not held: the rule also names form XF-2741, XF-2745"
+    )
+    assert _aside([p]) == {} and crs_comments.group([p])[0]["member_ids"] == ["p1"]
 
 
 @pytest.fixture(autouse=True)
