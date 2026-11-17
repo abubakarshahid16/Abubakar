@@ -600,25 +600,40 @@ def _paper_kind(conn, ai_run: str | None, paper_id: str) -> str | None:
 
 
 def sentence_quotes(points: list[dict], kind: str | None) -> None:
-    """LPC (C4): on a paper under GENERAL review (a contract, a procedure), an AI's quote is shown as evidence only when it passes
-    the one test (`quote_sentence.is_evidence`); otherwise the point says it holds no quote, with the paper's words beside the mark
-    (`quote_sentence.refused_words`). Only a general AI line's evidence quote: a rule-check row's quote (a value a check compared,
-    or a value the AI engineering check named) and every datasheet point are never touched. In place."""
+    """LPC (C4): on a paper under GENERAL review (a contract, a procedure), a quote is shown as evidence only when it passes the one
+    test (`quote_sentence.is_evidence`); otherwise the point says it holds no quote, with the paper's words and page beside the mark
+    (`quote_sentence.refused_words`). Read: a general AI line's quote, and a rule-check row's quote unless it HOLDS A VALUE
+    (`quote_sentence.holds_value`: a figure, a figure with a unit, a comparator, a range or a code value: what a check compares stays
+    the paper's value). Every datasheet point is never touched. In place."""
     from . import agent_review_gate, quote_sentence
 
     if not agent_review_gate.general_kind_enabled(kind):
         return
     for p in points:
-        q = p.get("paper_quote")
-        if q and _ai_evidence(p) and not quote_sentence.is_evidence(q):
-            p["paper_quote"], p["paper_quote_refused"] = None, True
-            p["paper_quote_note"] = quote_sentence.refused_words(q)
+        if not _read_by_c4(p):
+            continue
+        rule = p.get("source") == rp.SOURCE_RULE_CHECK
+        # a rule-check row also shows its stored passage ("as stored, not verified"): the same test, the same mark
+        for key in ("paper_quote", "paper_value") if rule else ("paper_quote",):
+            q = p.get(key)
+            if not q or quote_sentence.is_evidence(q):
+                continue
+            if rule and quote_sentence.holds_value(q):
+                continue
+            page = p.get("page") if key == "paper_quote" else p.get("paper_value_page")
+            p[key] = None
+            if not p.get("paper_quote"):
+                p["paper_quote_refused"] = True
+                p["paper_quote_note"] = quote_sentence.refused_words(q).rstrip(".") + (
+                    f" (page {page})." if page not in (None, "") else "."
+                )
 
 
-def _ai_evidence(point: dict) -> bool:
-    """A point whose paper quote is a general AI line's evidence (never a rule-check row's quote: it may be the value a check
-    compared, which stays as the paper's value)."""
+def _read_by_c4(point: dict) -> bool:
+    """A general AI line's point, or a rule-check row's point (whose quote a value may exempt)."""
     line = point.get("_line") or {}
+    if point.get("source") == rp.SOURCE_RULE_CHECK:
+        return True
     return (
         point.get("source") == rp.SOURCE_AI_REVIEW
         and isinstance(line, dict)

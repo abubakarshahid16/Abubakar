@@ -157,3 +157,28 @@ def refused_words(text: object) -> str:
     if not flat:
         return "No quote: the passage found on the page is empty."
     return f'No quote: the paper\'s words "{flat}" are not a full sentence.'
+
+
+#: A figure with a unit or a percent sign ("10 barg", "6%", "49 months", "5 MPa"; a capitalised word after a clause number, "2.1 Site",
+#: is not a unit), a comparator before a figure ("< 15", ">= 3"), a range
+#: ("10-20", "10 to 20"), a bare figure that is not a clause or list number ("80", never "4." or "2.1."), a code value (one token
+#: that mixes letters and digits, "A105", "316L", or one upper-case token, "WCB").
+_FIGURE = r"\d+(?:[.,]\d+)*"
+_VALUE = re.compile(
+    rf"[<>\u2264\u2265=]\s*{_FIGURE}|{_FIGURE}\s*(?:-|\u2013|to)\s*{_FIGURE}|{_FIGURE}\s*(?:%|(?:[a-z\u00b0\u00b5/][A-Za-z/]{{0,7}}|[A-Za-z]{{1,3}})\b)",
+)
+_BARE_FIGURE = re.compile(rf"^[+-]?{_FIGURE}$")
+_CODE = re.compile(
+    r"^(?=[A-Za-z0-9-]*\d)(?=[A-Za-z0-9-]*[A-Za-z])[A-Za-z0-9-]{2,20}$|^[A-Z]{2,12}$"
+)
+
+
+def holds_value(text: object) -> bool:
+    """Does the quote hold a value a check can compare (a figure, with a unit, a comparator, a range, or a code value)? A clause or
+    list number ("4.", "2.1.") and a fragment of words are not values."""
+    flat = _flat(text)
+    if not flat:
+        return False
+    if _BARE_FIGURE.match(flat) or _VALUE.search(flat):
+        return True
+    return len(flat.split()) == 1 and bool(_CODE.match(flat))

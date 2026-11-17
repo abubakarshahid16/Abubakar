@@ -74,6 +74,8 @@ class CoverId:
     number_page: int | None = None
     revision: str | None = None
     revision_page: int | None = None
+    #: the paper's OWN number ("Document No.", "Doc. No."), when the cover prints one: sheet 1 prefers it to a contract number
+    document_number: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,18 +103,25 @@ def cover_lines(pages: Pages) -> list[tuple[int, str]]:
 
 
 def cover_id(pages: Pages) -> CoverId:
-    """The labelled number and the revision the cover prints (the first found of each), else None for each. Never guessed."""
-    number = label = n_page = rev = r_page = None
+    """The labelled number and the revision the cover prints, else None for each. Never guessed. `number` (the package's key) is
+    the first contract number, else the first document number; `document_number` is the paper's own number when printed."""
+    found: list[tuple[str, str, int]] = []
+    rev = r_page = None
     for page, line in cover_lines(pages):
-        if number is None and (m := _NUMBER.search(line)):
-            number, label, n_page = (
-                m.group("number").rstrip("./-_"),
-                " ".join(m.group("label").split()),
-                page,
+        for m in _NUMBER.finditer(line):
+            found.append(
+                (
+                    m.group("number").rstrip("./-_"),
+                    " ".join(m.group("label").split()),
+                    page,
+                )
             )
         if rev is None and (r := _REVISION.search(line)):
             rev, r_page = r.group("rev"), page
-    return CoverId(number, label, n_page, rev, r_page)
+    doc = next((f for f in found if re.match(r"doc", f[1], re.I)), None)
+    first = next((f for f in found if re.match(r"contract", f[1], re.I)), doc)
+    number, label, n_page = first or (None, None, None)
+    return CoverId(number, label, n_page, rev, r_page, doc[0] if doc else None)
 
 
 def package_key(number: str | None) -> str:

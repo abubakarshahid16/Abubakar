@@ -7,7 +7,6 @@ run number here: those live on the Notes sheet of the internal copy only.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 from collections.abc import Mapping
 
@@ -54,10 +53,10 @@ NOT_ON_COVER = "not found on the cover"
 
 
 def with_cover(conn, document_id: str, head: dict[str, str]) -> dict[str, str]:
-    """LPC (C5): sheet 1's document number and revision. The labelled number and the revision code reads on the paper's COVER
-    (`contract_package.cover_id`: the top lines of pages 1 and 2; a number labelled other than a document number says its label);
-    else the value the app holds for the document; else "not found on the cover". Never guessed. A copy of `head`; the download
-    name still reads `document_header`."""
+    """LPC (C5): sheet 1's document number and revision, read on the paper's COVER (`contract_package.cover_id`: the top lines of
+    pages 1 and 2). The number: the cover's document number, else the one the app holds, else the cover's contract number (saying
+    it is one), else "not found on the cover". The revision: the cover's revision value, else the one held, else "not found on
+    the cover". Never guessed. A copy of `head`; the download name still reads `document_header`."""
     from . import contract_package
 
     try:
@@ -68,14 +67,9 @@ def with_cover(conn, document_id: str, head: dict[str, str]) -> dict[str, str]:
         sqlite3.Error
     ):  # no page text to read: the value the app holds, else "not found"
         cover = contract_package.CoverId()
-    label = (
-        ""
-        if re.match(r"doc(?:ument)?\b", str(cover.number_label or ""), re.I)
-        else f" ({cover.number_label})"
-    )
-    number = (
-        f"{cover.number}{label}" if cover.number else head.get("document_number")
-    )  # a contract's number says it is one
+    # the paper's own document number first (the cover's, else the one held); a contract number only when neither is known
+    contract = f"{cover.number} ({cover.number_label})" if cover.number else None
+    number = cover.document_number or head.get("document_number") or contract
     revision = cover.revision or head.get("revision")
     return {
         **head,

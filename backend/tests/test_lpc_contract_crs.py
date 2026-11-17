@@ -404,8 +404,10 @@ def test_on_a_general_paper_a_fragment_keeps_its_words_beside_the_mark_and_no_co
     assert (
         compared["paper_quote"] == "95"
     )  # a value code compared keeps its paper value
-    # a rule-check row's quote (here the AI engineering check's) is never read by this test (lead decision on PR #1881)
-    assert drafted["paper_quote"] == "4."
+    # a rule-check row's quote with no value must pass the same test: "4." is a clause number, not a value (lead, PR #1881 round 2)
+    assert drafted["paper_quote"] is None and drafted["paper_quote_note"].startswith(
+        'No quote: the paper\'s words "4."'
+    )
     cell = _general_point("50 m3")
     review_points_service.sentence_quotes([cell], "datasheet")
     assert cell["paper_quote"] == "50 m3"
@@ -581,3 +583,78 @@ def test_automatic_lists_no_package_paper_as_leaving(package, monkeypatch):
     assert (
         package["sched_p"] not in leaving and package["agreement"] not in leaving
     )  # Automatic never sends a contract
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [("80", True), ("< 15", True), ("10 barg", True), ("6%", True), ("10-20", True), ("316L", True), ("WCB", True),
+     ("4.", False), ("2.1.", False), ("(herein called", False), ("2.1 Site Test Handbook", False), ("", False)],
+)  # fmt: skip
+def test_a_quote_holds_a_value_only_as_a_figure_unit_comparator_range_or_code(
+    text, value
+):
+    assert quote_sentence.holds_value(text) is value
+
+
+def test_a_rule_check_quote_that_holds_a_value_is_kept_and_one_without_is_refused_with_its_page():
+    def row(quote):
+        return {"source": review_points.SOURCE_RULE_CHECK, "_row": {"row_kind": "ai_engineering_check"}, "paper_quote": quote,
+                "paper_quote_note": "x", "page": 3}  # fmt: skip
+
+    kept, comparator, frag = row("80"), row("< 15"), row("(herein called")
+    review_points_service.sentence_quotes([kept, comparator, frag], "procedure")
+    assert kept["paper_quote"] == "80" and comparator["paper_quote"] == "< 15"
+    assert frag["paper_quote"] is None
+    assert (
+        frag["paper_quote_note"]
+        == 'No quote: the paper\'s words "(herein called" are not a full sentence (page 3).'
+    )
+
+
+def test_sheet_one_prefers_the_papers_own_document_number_to_a_contract_number(package):
+    conn = db.connect()
+    _paper(
+        "ds_1",
+        [
+            (
+                1,
+                "Contract No. QX-55-01\nDoc. No. DS-0007-A\nRev 2\nAn invented sheet of values.\n",
+            )
+        ],
+        n=93,
+    )
+    assert (
+        crs_ai_header.with_cover(conn, "ds_1", {"document_number": "", "revision": ""})[
+            "document_number"
+        ]
+        == "DS-0007-A"
+    )
+    _paper("ds_2", [(1, "Contract No. QX-55-01\nAn invented sheet of values.\n")], n=94)
+    held = crs_ai_header.with_cover(
+        conn, "ds_2", {"document_number": "DS-0008-B", "revision": ""}
+    )
+    assert (
+        held["document_number"] == "DS-0008-B"
+    )  # the number held for the paper, never the contract's
+    assert (
+        contract_package.cover_id(
+            [(1, "Doc. No. DS-1\nContract No. QX-55-01\n")]
+        ).number
+        == "QX-55-01"
+    )  # the package key
+
+
+def test_a_rule_check_rows_stored_passage_without_a_value_is_refused_and_a_value_is_kept():
+    def row(value):
+        return {"source": review_points.SOURCE_RULE_CHECK, "_row": {"row_kind": "ai_engineering_check"}, "paper_quote": None,
+                "paper_value": value, "paper_value_page": 3, "paper_quote_note": "x"}  # fmt: skip
+
+    frag, value = (
+        row("(USD ....) as set out in the price schedule (herein called"),
+        row("6%"),
+    )
+    review_points_service.sentence_quotes([frag, value], "contract")
+    assert frag["paper_value"] is None and frag["paper_quote_note"].endswith(
+        "are not a full sentence (page 3)."
+    )
+    assert value["paper_value"] == "6%"
