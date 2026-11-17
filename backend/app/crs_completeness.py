@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import sqlite3
 from collections import Counter, OrderedDict
 from datetime import UTC, datetime
 from io import BytesIO
@@ -767,7 +768,7 @@ def _count(sql: str, run_id: str | None) -> int | None:
         return None
     try:
         return connect().execute(sql, (run_id,)).fetchone()[0]
-    except Exception:  # noqa: BLE001 - no table yet: no lines (the key still differs from a run that has some)
+    except sqlite3.OperationalError:  # no table yet: no lines (the key still differs from a run that has some)
         return None
 
 
