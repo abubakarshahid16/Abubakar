@@ -133,7 +133,7 @@ MAX_ASK_WORDS = 30
 
 def _short(text: Any, limit: int) -> str:
     words = _clean(text).split()
-    return " ".join(words[:limit]) + (" ..." if len(words) > limit else "")
+    return " ".join(words[:limit]) + ("…" if len(words) > limit else "")  # FTU-1: the one cut mark
 
 
 def asks(line: Mapping) -> str:
@@ -145,8 +145,13 @@ def asks(line: Mapping) -> str:
 
 
 def stated(line: Mapping) -> str:
-    """What the sheet states, in its own words: the paper quote only when code found it on the page."""
+    """What the sheet states, in its own words: the paper quote only when code found it on the page. FTU-1: never the found quote of a
+    line that says the paper does not state the value (`crs_ai_actions.silent_quote`: where it looked, or a quote the engineer checks)."""
+    from .crs_ai_actions import silent_quote
+
     q = line.get("quotes_checked") or {}
+    if silent_quote(line):
+        return ""
     return (
         _short(line.get("paper_quote"), MAX_QUOTE_WORDS)
         if q.get("paper") and _clean(line.get("paper_quote"))
@@ -305,6 +310,11 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
             else f"{where}: does not meet {rule}"
         )
         return f"{head}. {req}." + (f" {said}" if said else "")
+    # FTU-1: the reader says "not stated" but quoted words that may state it: internal words inside, a plain ask on a contractor copy
+    if quote_said := _quote_said(line):
+        if contractor:
+            return f"{where}: confirm compliance with {rule}. {req}."
+        return f"{where}: {quote_said} {req}. Engineer to check."
     if code in ("absent", "absent_pages_not_named") or (verdict == FAIL and not has):
         pages = f" (pages searched: {searched})" if searched else ""
         return f"{where}: not shown on the sheet{pages}. {req}. " + then("Provide it.")
@@ -332,6 +342,13 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
     return f"{where}: confirm compliance with {rule}. {req}." + (
         f" {said}" if said else ""
     )
+
+
+def _quote_said(line: Mapping) -> str:
+    from .crs_ai_actions import CONTRADICTS, silent_row
+
+    row = silent_row(line)
+    return row.note if row and row.kind == CONTRADICTS else ""
 
 
 def comment_by(line: Mapping) -> str:
@@ -675,6 +692,15 @@ def _independent_cells(line: Mapping) -> list:
     ]
 
 
+def _paper_check_words(line: Mapping) -> str | None:
+    """The paper quote's check cell; FTU-1: on a silent row, its row's check words (`crs_ai_actions.silent_row`), never just "checked"."""
+    from .crs_ai_actions import silent_row
+
+    row = silent_row(line)
+    word = _check_word(bool((line.get("quotes_checked") or {}).get("paper")))
+    return f"{word}; {row.check}" if row else word
+
+
 def _evidence_row(n: int, line: Mapping, status: str) -> list:
     q = line.get("quotes_checked") or {}
     label = line.get("rule_label")
@@ -689,7 +715,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         line.get("paper_page"),
         _clean(line.get("clause_quote")) or None,
         ref or None,
-        _check_word(bool(q.get("paper"))),
+        _paper_check_words(line),
         _check_word(bool(q.get("clause"))),
         _second_reader(line),
         _calls(line),

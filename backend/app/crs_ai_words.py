@@ -142,8 +142,9 @@ def absence_verdict_sentence(item: str, clause_quote: str) -> str:
 
 
 def absence_cell(line: Mapping, item: str) -> str:
-    """The CRS cell of an "AI verdict: not stated" line: `absence_verdict_sentence` with the line's verified clause quote."""
-    quote = plain(" ".join(str(line.get("clause_quote") or "").split())[:300])
+    """The CRS cell of an "AI verdict: not stated" line: `absence_verdict_sentence` with the line's WHOLE verified clause quote (FTU-1:
+    never a silent character cut; a long cell is shortened only by the sheet's one marked cut, with its full text beside it)."""
+    quote = plain(" ".join(str(line.get("clause_quote") or "").split()))
     return absence_verdict_sentence(item or "value for this item", quote)
 
 

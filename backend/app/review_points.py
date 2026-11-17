@@ -372,6 +372,14 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         if quotes.get("paper") and _clean(line.get("paper_quote"))
         else None
     )
+    # FTU-1: a line whose own reason says the paper does not state the value: its found quote is never shown as evidence; it is
+    # where it looked, or (when it may state the value) the engineer's to check
+    silent = actions.silent_row(line) if paper_q else None
+    # a code-proved absence: its proof, never the reader's quote, is the paper side
+    proof = actions.absence_proof(line)
+    shown_as = (paper_q, None) if paper_q and (silent or proof) else (None, paper_q)
+    looked, paper_q = shown_as
+    proved = f"{proof[:1].upper()}{proof[1:]}." if proof else NO_PAPER_QUOTE
     book_readable = bool(book_name)
     # The rule book's own words are the book's: a caller who may not read the book gets neither its name nor its text (rule 5).
     clause_q = (
@@ -428,13 +436,20 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "clause": clause if book_name else None,
         "action": action or None,
         # U5d: the line's STORED words when code did not verify them (shown as stored, "not verified by code"); never when the book is unreadable
-        "paper_value": (None if paper_q else (_clean(line.get("paper_quote")) or None)),
+        "paper_value": (
+            None if paper_q or looked else (_clean(line.get("paper_quote")) or None)
+        ),
         "paper_value_page": page,
         "rule_text": (None if clause_q or not book_readable else (_clean(line.get("clause_quote") or line.get("requirement")) or None)),
         "checked_by": content.AI_REVIEW_BY,
         "paper_quote": paper_q,
+        "paper_looked": looked,
+        # the paper side is code's own proof (its note), with or without a reader's quote
+        "paper_proof": bool(proof),
         "clause_quote": clause_q,
-        "paper_quote_note": PAPER_CHECK if paper_q else NO_PAPER_QUOTE,
+        "paper_quote_note": PAPER_CHECK
+        if paper_q
+        else (silent.note if silent else proved),
         "clause_quote_note": _clause_note(line)
         if clause_q
         else (NO_CLAUSE_QUOTE if book_readable else NO_BOOK_ACCESS),
@@ -540,6 +555,12 @@ def rule_point(
         if side_p.get("verified") and finding
         else ""
     )
+    # FTU-1: a point whose own record says the paper gives no value shows the found passage only as where it looked, never as evidence
+    looked, paper_q = (
+        (paper_q, "")
+        if paper_q and content.says_no_value(kind, finding)
+        else ("", paper_q)
+    )
     clause_q = (
         _clean((finding or {}).get("requirement_source_text"))
         if side_s.get("verified") and finding
@@ -552,7 +573,8 @@ def rule_point(
     )
     name = (
         _plain(field)
-        or _plain(" ".join(comment.split()[:7]))
+        # FTU-1: a shortened name carries its mark (the whole comment is the point's action)
+        or _plain(content._head(comment, 7))
         or "A point of the rule check"
     )
     if page is None and finding:  # the finding's own page of the paper (only a finding the caller may read reaches here)
@@ -581,6 +603,12 @@ def rule_point(
         # Order 14, 16 Nov 2026: the same check named a book NOT held in one run (a question) and the held book's file in the next
         # (a "not met" with no clause), so the sheet changed from run to run on wording alone.
         rank, unproven_ai = 4, True
+    # FTU-1: a point whose own record says no value, with a found passage: ALL its wording cells from the one silent-row decision
+    silent = (
+        actions.silent_row_words(_plain(field), looked, [field]) if looked else None
+    )
+    if silent and not missing and action_source != "hidden":
+        action, action_source = silent.action, "check"
     point = {
         "id": f"rc:{key}",
         "source": SOURCE_RULE_CHECK,
@@ -597,18 +625,24 @@ def rule_point(
         "action": action or None,
         "action_source": action_source,
         # U5d: what the stored finding itself holds, never presented as verified unless code verified it
-        "paper_value": value or None,
+        # FTU-1: never beside a found passage
+        "paper_value": None if looked else (value or None),
         "paper_value_page": value_page,
         # order 14 lane B: our checklist's own wording is never shown as the rule book's words: it is `check_text`, labelled as ours
         "rule_text": None if hidden or is_check_text(finding) else (content.rule_text(finding) or None),
         "check_text": (content.rule_text(finding) or None) if not hidden and is_check_text(finding) else None,
         "rule_hidden": hidden,
         "rule_ref": ref if (ref["name"] or ref["clause"]) and not ref_hidden else None,
-        "reason_words": content.reason_words(kind, finding),
+        "reason_words": silent.reason
+        if silent
+        else content.reason_words(kind, finding),
         "checked_by": content.checked_by(kind),
         "paper_quote": paper_q or None,
+        "paper_looked": looked or None,
         "clause_quote": clause_q or None,
-        "paper_quote_note": PASSAGE_PAPER_CHECK if paper_q else NO_PAPER_QUOTE,
+        "paper_quote_note": PASSAGE_PAPER_CHECK
+        if paper_q
+        else (silent.note if silent else NO_PAPER_QUOTE),
         "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else (NO_BOOK_ACCESS if hidden else NO_CLAUSE_QUOTE),
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
