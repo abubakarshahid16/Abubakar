@@ -475,6 +475,61 @@ def test_an_earlier_scope_book_is_not_listed_when_the_run_did_not_complete_or_th
     assert "ZZZ-D-003" not in json.dumps(docs)
 
 
+def _start_pair(paper, scope_books):
+    """One review start as the app makes it: a completed RULE-CHECK run (job stage `review_jobs.STAGE`) that recorded the books
+    the scope step applied, then, seconds later, the completed AI run (job stage `agent_review_gate.STAGE`) with no book rows."""
+    from app import agent_review_gate
+
+    with db.connect() as conn:
+        for run, job, stage, started in (
+            ("rc_run", "rc_job", review_jobs.STAGE, "2026-11-17T10:00:00Z"),
+            ("ai_run2", "ai_job2", agent_review_gate.STAGE, "2026-11-17T10:00:19Z"),
+        ):
+            conn.execute(
+                "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at, started_at)"
+                " VALUES (?, ?, 'completed', ?, ?, ?)",
+                (run, paper, started, started, started),
+            )
+            conn.execute(
+                "INSERT INTO jobs (id, document_id, stage, state, started_at, updated_at, review_run_id)"
+                " VALUES (?, ?, ?, 'done', ?, ?, ?)",
+                (job, paper, stage, started, started, run),
+            )
+        for n, book in enumerate(scope_books):
+            conn.execute(
+                "INSERT INTO review_applicable_standards (id, review_run_id, standard_document_id, selection_reason,"
+                " selection_method, included, created_at) VALUES (?, 'rc_run', ?, 'x', 'scope', 1, 't')",
+                (f"pr{n}", book),
+            )
+
+
+def test_the_next_plan_lists_the_scope_books_of_the_rule_check_run_not_the_newer_ai_run(
+    lib,
+):
+    """Live defect of 17 Nov 2026: a start makes a rule-check run and then an AI run; the newest completed run is the AI run, which
+    records no books, so the "Review again to include them" promise listed nothing."""
+    _book("bk_p1", "95" * 32, "ZZZ-F-001 pair one.pdf")
+    scope = lib["scope"] | {"bk_p1"}
+    _start_pair(lib["sub"], ["bk_p1"])
+    got = {d["id"]: d["why"] for d in _plan(lib, scope=scope)["leaving"]}
+    assert got.get("bk_p1") == "applied by scope in the last review of this paper"
+    # the other home of "the last review's books" (the plan's older `rule_books` names) reads the same run
+    assert [
+        b["id"] for b in review_engine._earlier_books(db.connect(), lib["sub"])
+    ] == ["bk_p1"]
+    assert review_leaving.last_rule_check_run(db.connect(), lib["sub"]) == "rc_run"
+
+
+def test_a_scope_book_of_the_rule_check_run_the_caller_may_not_read_is_still_not_listed(
+    lib,
+):
+    _book("bk_p2", "96" * 32, "ZZZ-F-002 pair two.pdf")
+    _start_pair(lib["sub"], ["bk_p2"])
+    docs = _plan(lib, scope=lib["scope"])  # bk_p2 is outside the caller's access
+    assert "bk_p2" not in {d["id"] for d in docs["leaving"]}
+    assert "ZZZ-F-002" not in json.dumps(docs)
+
+
 def test_the_result_carries_the_found_during_review_count_and_the_sentence(lib):
     from app import claude_auto_approve
 

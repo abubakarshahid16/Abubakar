@@ -454,12 +454,10 @@ def _any_book_approved(conn, document_id: str, claude_approved) -> bool:
 
 
 def _earlier_books(conn, document_id: str) -> list[dict]:
-    run = conn.execute(
-        "SELECT id FROM review_runs WHERE submittal_document_id = ? AND status = 'complete'"
-        " ORDER BY started_at DESC LIMIT 1",
-        (document_id,),
-    ).fetchone()
-    if run is None:
+    """The books the paper's last completed rule-check run applied (`review_leaving.last_rule_check_run`: never the AI run that
+    follows it, which records no books)."""
+    run_id = review_leaving.last_rule_check_run(conn, document_id)
+    if run_id is None:
         return []
     return [
         {
@@ -471,7 +469,7 @@ def _earlier_books(conn, document_id: str) -> list[dict]:
             "SELECT s.standard_document_id, d.filename, d.sha256 FROM review_applicable_standards s"
             " JOIN documents d ON d.id = s.standard_document_id"
             " WHERE s.review_run_id = ? AND COALESCE(s.included, 1) = 1",
-            (run["id"],),
+            (run_id,),
         )
     ]
 
