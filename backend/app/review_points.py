@@ -421,9 +421,11 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
             "requirement": "",
         }
     )
-    if general.is_general(line):  # LP2: its free words and names reach a viewer only when they name no book he may not read
-        shown = {**shown, general.HIDE_KEY: not ai_free_text_ok({"reasoning": general.free_words(line)}, None, ctx)}
-        paper_q = general.question_row(shown).paper_quote or None  # the paper quote code verified, from the line's one home
+    if general.is_general(line):  # LP2: every cell from the line's one home
+        # its free words and names reach a viewer only when they name no book he may not read
+        free = ai_free_text_ok({"reasoning": general.free_words(line)}, None, ctx)
+        shown = {**shown, general.HIDE_KEY: not free}
+        paper_q = general.question_row(shown).paper_quote or None
     action = (
         ""
         if rank == 8
