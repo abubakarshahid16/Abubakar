@@ -137,3 +137,42 @@ def test_g4_two_clauses_of_one_book_are_two_topics_and_one_clause_twice_fails():
     assert g.key_of(a) != g.key_of(b) and g.key_of(a) == g.key_of(same)
     assert g.g4_one_per_field([a, b]).failed == []
     assert [i for i, _w in g.g4_one_per_field([a, b, same]).failed] == ["C1", "C3"]
+
+
+# ------------------------------------------------------------------------------------------------ the trace reads the same page
+
+
+def test_the_general_trace_shows_the_one_page_and_never_an_unverified_quotes_page():
+    from tests.test_crs_endpoint import _client
+
+    doc, run_id, _ = general_world()
+    client = _client(doc)
+    got = {
+        i: client.get(f"/api/reviews/runs/{run_id}/agent/lines/{i}/trace").json()[
+            "page"
+        ]
+        for i in ("G-1", "G-2", "G-3")
+    }
+    assert got == {"G-1": 3, "G-2": None, "G-3": None}
+
+
+# ------------------------------------------------------------------------------------------------ a page hint is said to be one
+
+
+def test_a_page_hint_is_printed_as_one_in_every_cell_of_the_team_file():
+    from app import agent_review_crs as arc
+    from app import crs_ai_workbook
+    from tests.test_agent_review_crs import mk
+    from tests.test_b1_review_points import ai_run
+
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    hinted = mk("R-8", "Query", None, why="x y", paper_page=None, paper_quote="", page_hint=[5],
+                quotes_checked={"paper": False, "clause": True})  # fmt: skip
+    ai_run(doc, [mk("R-1", "Fail", "Fail"), hinted])
+    marked = f"5 ({arc.HINT_PAGE_WORDS})"
+    data = crs_one.build_team(doc, scope_all())
+    assert _ai_pages(data, crs_one.EVIDENCE_SHEET, "No", "Page") == ["2", marked]
+    assert _ai_pages(data, crs_one.TEAM_SHEET, "Comment", "Pages") == ["2", marked]
+    assert crs_ai_workbook._page_text(hinted).startswith(f"p.{marked}")  # the run file
+    assert f"(page {marked})" in arc.company_comment(hinted, contractor=False)

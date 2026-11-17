@@ -110,23 +110,52 @@ def field_words(line: Mapping) -> str:
     return ", ".join(roles) or against(line) or str(line.get("item_id") or "item")
 
 
+#: The words beside a page that is only a page hint (pages where code found the field's words, `agent_review_items._page_hint`): a
+#: guess where to look, never shown as THE page (honesty rule 4).
+HINT_PAGE_WORDS = "found by word match, not verified"
+
+
+def _page_no(p) -> int | None:
+    return p if isinstance(p, int) and not isinstance(p, bool) and p >= 1 else None
+
+
+def page_of(line: Mapping) -> tuple[int | None, bool]:
+    """(the line's page of the paper, True when it is only a page hint). The page: its own `paper_page`; a general review line's
+    paper quote that code verified on its page (the page `agent_general_job.store_lines` stores; order 14 lane C); else the first
+    page hint, marked as a hint. (None, False) when none is stored."""
+    q = line.get("quote_a") or line.get("quote_paper") or {}
+    q = q if isinstance(q, Mapping) and line.get("quotes_verified_by_code") is True else {}
+    if page := _page_no(line.get("paper_page")) or _page_no(q.get("page")):
+        return page, False
+    hint = next((n for p in line.get("page_hint") or [] if (n := _page_no(p))), None)
+    return hint, hint is not None
+
+
 def line_page(line: Mapping) -> int | None:
-    """The line's page of the paper: its own `paper_page`; a general review line's paper quote that code verified on its page (the
-    page `agent_general_job.store_lines` stores; order 14 lane C); else the first page hint. None when none is stored (never guessed)."""
-    q = (
-        (line.get("quote_a") or line.get("quote_paper") or {})
-        if line.get("quotes_verified_by_code") is True
-        else {}
-    )
-    pages = [
-        line.get("paper_page"),
-        q.get("page") if isinstance(q, Mapping) else None,
-        *(line.get("page_hint") or []),
-    ]
-    return next(
-        (p for p in pages if isinstance(p, int) and not isinstance(p, bool) and p >= 1),
-        None,
-    )
+    """The line's page (`page_of`), a hint included: for a link to the page and for grouping, never printed without `page_words`."""
+    return page_of(line)[0]
+
+
+def page_words(page, hint: bool = False) -> str | None:
+    """THE printed page: "N", or "N (found by word match, not verified)" for a page hint; None without a page."""
+    if page in (None, ""):
+        return None
+    return f"{page} ({HINT_PAGE_WORDS})" if hint else str(page)
+
+
+def page_note(line: Mapping) -> str | None:
+    """The words a point carries beside its page when it is only a page hint (`page_note`), else None."""
+    return HINT_PAGE_WORDS if page_of(line)[1] else None
+
+
+def line_page_words(line: Mapping) -> str | None:
+    return page_words(*page_of(line))
+
+
+def found_page(line: Mapping) -> int | None:
+    """The line's page only when it is not a page hint (the page a quote of the paper stands on)."""
+    page, hint = page_of(line)
+    return None if hint else page
 
 
 def against(line: Mapping) -> str:
@@ -284,7 +313,7 @@ def company_comment(line: Mapping, contractor: bool = False) -> str:
         return "Recommendation (should, not shall): " + company_comment(
             {**line, "_recommended": True}, contractor
         )
-    page = line_page(line)
+    page = line_page_words(line)
     where = f"{field_words(line)} (page {page})" if page else field_words(line)
     if (
         not contractor and moved_by_guard(line)
@@ -433,7 +462,7 @@ def old_row(line: Mapping, paper: str) -> list:
     return [
         line.get("item_id"),
         paper,
-        _page_cell(line_page(line)),
+        _page_cell(line_page_words(line)),
         company_comment(line, contractor=True),
         comment_by(line),
         None,

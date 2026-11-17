@@ -36,7 +36,8 @@ from .agent_review_crs import (
     _deferred_mark,
     _other_reason,
     against,
-    line_page,
+    found_page,
+    line_page_words,
     sheet_of,
     stated,
 )
@@ -124,11 +125,10 @@ def field_words(line: Mapping) -> str:
 
 
 def _page_text(line: Mapping) -> str:
-    page = line_page(line)
     label = _clean(line.get("field")) or _clean(
         line.get("field_label_ai")
     )  # the paper's own label, as the AI quoted it
-    base = _page_cell(page) or ""
+    base = _page_cell(line_page_words(line)) or ""
     return f"{base} - {label}" if base and label else base or label
 
 
@@ -234,7 +234,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     field, has, page = (
         field_words(line) or "the value asked for",
         stated(line),
-        line.get("paper_page"),
+        found_page(line),  # never a page hint (a quote's page)
     )
     where = f", page {page}" if page not in (None, "") else ""
     if (

@@ -431,6 +431,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "other_kind": other_kind,
         "name": name,
         "page": page,
+        "page_note": arc.page_note(line),  # a page hint is printed as one (`crs_comments.point_page_words`), never as THE page
         "rule_book": book_name,
         "clause": clause if book_name else None,
         "action": action or None,
