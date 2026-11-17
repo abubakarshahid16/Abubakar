@@ -2498,7 +2498,7 @@ def _run_comparison(
                 governing, covered_ids, requirements, gated)
     # #288: advice that still applies becomes an engineer's query, not a comparison
     requirements = recommendations.hold_for_query(requirements, held_items)
-    requirements = erb.mark_unpaired(connect(), submittal_id, review_run_id, requirements)
+    requirements = erb.unpairable(connect(), submittal_id, review_run_id, requirements)
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
@@ -2574,8 +2574,12 @@ def _run_comparison(
         # two fields are equally named inside the requirement, which is a
         # question for a person - handing it to a model would replace "we could
         # not tell" with an answer nobody checked. Nor a rule no tier may pair (LPE).
-        if (fact is None and match["reason"] != AMBIGUOUS_MATCH
-                and is_matchable(requirement) and model_reason is None):
+        if (
+            fact is None
+            and match["reason"] != AMBIGUOUS_MATCH
+            and is_matchable(requirement)
+            and model_reason is None
+        ):
             if not settings.match_enabled:
                 model_reason = MODEL_DISABLED
             else:
@@ -2696,38 +2700,35 @@ def _run_comparison(
             if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
                 verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
             # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
-            # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
-            # number is not a limit. Reporting "unit_mismatch" against a table row
-            # tells a reviewer to go and reconcile kPa with bar, which would leave
-            # them comparing a design pressure against a lookup boundary once the
-            # units agreed.
-            # A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a blank
-            # can now be paired by field name); `compare` has already said what
-            # it is - left to be provided.
-            # A STATEMENT HAS NO NUMBER AND NO UNIT TO GUARD either (CRS quick
-            # wins, `match_statement`): `compare` has already said what it is -
-            # a categorical verdict or an engineer's question - and "the
-            # requirement is in no unit" would overwrite that with a reason
-            # that is not the real one.
+            # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the number
+            # is not a limit. Reporting "unit_mismatch" against a table row tells a
+            # reviewer to go and reconcile kPa with bar, which would leave them
+            # comparing a design pressure against a lookup boundary once the units
+            # agreed. A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a
+            # blank can now be paired by field name); `compare` has already said what it
+            # is - left to be provided. A STATEMENT HAS NO NUMBER AND NO UNIT TO GUARD
+            # either (CRS quick wins, `match_statement`): `compare` has already said
+            # what it is - a categorical verdict or an engineer's question - and "the
+            # requirement is in no unit" would overwrite that with a reason that is not
+            # the real one.
             if (fact is not None and not fact.get("is_blank") and rule_verdict is None
                     and requirement.get("requirement_type") not in (
                         requirements_3b.TABLE_ROW, requirements_3b.STATEMENT)):
-                # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
-                # says nothing about whether their numbers can be compared. A
-                # length against a pressure is not a breach and not a pass - it is
-                # a question for a person, and the finding carries both raw units
-                # so they can see what was compared with what.
-                # `same_unit` compares MEASUREMENTS, and it compares the raw
-                # spellings rather than the normalised ones on purpose - `dB(A)`
-                # and `dB` are different units. The base unit is passed as the raw
-                # spelling here so that a gauge pressure and a plain one still meet
-                # (`bar` both sides); the gauge reference itself is carried on the
-                # fact and is a separate question from whether the units match.
-                # THE RAW SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit`
-                # holds the NORMALISED unit, which is NULL for every unit the table
-                # recognises but does not convert - dB(A) among them - so comparing
-                # those columns reported a unit mismatch between two dB(A) values.
-                # `same_unit` is a comparison of spellings and wants the spellings.
+                # THE UNIT GUARD. A match says the two are ABOUT the same thing; it says
+                # nothing about whether their numbers can be compared. A length against
+                # a pressure is not a breach and not a pass - it is a question for a
+                # person, and the finding carries both raw units so they can see what
+                # was compared with what. `same_unit` compares MEASUREMENTS, and it
+                # compares the raw spellings rather than the normalised ones on purpose
+                # - `dB(A)` and `dB` are different units. The base unit is passed as the
+                # raw spelling here so that a gauge pressure and a plain one still meet
+                # (`bar` both sides); the gauge reference itself is carried on the fact
+                # and is a separate question from whether the units match. THE RAW
+                # SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit` holds the
+                # NORMALISED unit, which is NULL for every unit the table recognises but
+                # does not convert - dB(A) among them - so comparing those columns
+                # reported a unit mismatch between two dB(A) values. `same_unit` is a
+                # comparison of spellings and wants the spellings.
                 requirement_unit = _unit_measure(requirement)
                 fact_unit = _unit_measure(fact)
                 if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
@@ -2908,9 +2909,8 @@ def _run_comparison(
     rulebook = run_parts.rulebook(
         run, stored, facts, prepared_rows, findings, allowed_document_ids
     )
-    # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
-    # datasheet self-checks below, which add their own rows to this run and
-    # must not be deleted by it.
+    # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the datasheet
+    # self-checks below, which add their own rows to this run and must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
 
     # #677: a requirement's finding status decides its state; none is an engineer's question.

@@ -190,7 +190,7 @@ def test_the_gate_follows_the_ai_reviewers_equipment_decision(
     world, method, label, code
 ):
     req, run_id = _rule(**label), _run(method)
-    [marked] = erb.mark_unpaired(db.connect(), SUB, run_id, [req])
+    [marked] = erb.unpairable(db.connect(), SUB, run_id, [req])
     assert marked.get(erb.NOT_PAIRED) == code
 
 
@@ -201,7 +201,7 @@ def test_a_tagged_rule_on_a_paper_whose_equipment_is_not_known_is_not_paired(wor
             (SUB,),
         )
     req, run_id = _rule(typ="pump", fam="rotating"), _run("referenced")
-    [marked] = erb.mark_unpaired(db.connect(), SUB, run_id, [req])
+    [marked] = erb.unpairable(db.connect(), SUB, run_id, [req])
     assert marked[erb.NOT_PAIRED] == erb.PAPER_EQUIPMENT_UNKNOWN
 
 
@@ -210,7 +210,7 @@ def test_switch_off_marks_nothing_and_returns_the_same_list(world, monkeypatch):
     req, run_id = _rule(typ="motor", fam="rotating"), _run("equipment_rules")
     rows = [req]
     assert erb.pairing_gate(db.connect(), SUB, run_id) is None
-    assert erb.mark_unpaired(db.connect(), SUB, run_id, rows) is rows
+    assert erb.unpairable(db.connect(), SUB, run_id, rows) is rows
 
 
 # ---------------------------------------------------------------- every pairing tier reads it

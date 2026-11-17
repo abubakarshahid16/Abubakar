@@ -18,7 +18,7 @@ its rules against the paper with this same equipment filter. Measured on a copy 
 rules by tag alone still added two wrong rows to the pump (a pump-tagged plant-layout rule for flammable service, paired by the
 AI matcher with the pumping temperature; a rotating-equipment vibration-plot rule, paired by one word with an inspection tick),
 and its general and untagged rules were most of the 23 wrong rows. A general or untagged rule of a book chosen by a citation,
-its scope or the governing table is paired as before. `mark_unpaired` puts the code on the requirement (`NOT_PAIRED`); every
+its scope or the governing table is paired as before. `unpairable` puts the code on the requirement (`NOT_PAIRED`); every
 pairing tier of the comparison reads it. OFF: nothing is marked, nothing changes.
 
 Read only. No equipment word is written here (rule 13): the paper's equipment and the taxonomy come from the data files. A
@@ -129,7 +129,7 @@ def tag_only_books(conn: sqlite3.Connection, run_id: str | None) -> frozenset[st
 
 # ---- LPE: a rule is paired with a field only when its equipment tag fits the paper ------------------------------------------
 
-#: The key `mark_unpaired` puts on a requirement no pairing tier may pair with a field; its value is one of the codes below.
+#: The key `unpairable` puts on a requirement no pairing tier may pair with a field; its value is one of the codes below.
 NOT_PAIRED = "equipment_not_paired"
 OTHER_EQUIPMENT = "rule_for_other_equipment"
 PAPER_EQUIPMENT_UNKNOWN = "paper_equipment_not_known"
@@ -183,7 +183,7 @@ def pairing_gate(
     return why_not
 
 
-def mark_unpaired(
+def unpairable(
     conn: sqlite3.Connection,
     document_id: str,
     run_id: str | None,
