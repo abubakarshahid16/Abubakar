@@ -605,8 +605,8 @@ def settle(reservation: Reservation, *, usage: dict | None, finish_reason: str,
     entry["settles"] = reservation.id
     if reservation.run:
         entry["run"] = reservation.run
-    with _ledger_lock():  # a hold already closed (a stale-hold sweep, PR 1866) is never closed twice
-        if reservation.id not in {e.get("settles") or e.get("releases") for e in _raw_lines()}:
+    with _ledger_lock():  # a hold already closed is never closed twice
+        if reservation.id not in {e.get("settles") or e.get("releases") for e in _raw_lines()}:  # fmt: skip
             _append(entry)
     return entry
 
@@ -620,9 +620,9 @@ def release(reservation: Reservation, reason: str) -> None:
     """Drop `reservation`: the call provably cost nothing (never sent, never
     connected, rejected with a 4xx). Only `settle_failure` should decide that."""
     with _ledger_lock():
-        if reservation.id not in {e.get("settles") or e.get("releases") for e in _raw_lines()}:
+        if reservation.id not in {e.get("settles") or e.get("releases") for e in _raw_lines()}:  # fmt: skip
             _append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                     "releases": reservation.id, "step": reservation.step, "reason": reason})
+                     "releases": reservation.id, "step": reservation.step, "reason": reason})  # fmt: skip
 
 
 #: #872: the one failure the owner must act on, as a closed word and in plain
