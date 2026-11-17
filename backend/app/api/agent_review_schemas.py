@@ -305,6 +305,8 @@ class AgentRunSummary(BaseModel):
     mode: Mode = "rule review"
     #: the project papers a general review was checked against (empty for a rule review, or when none was named).
     project_papers_used: list[AgentProjectPaper] = []
+    #: how many project papers it used that the caller may not read (counted, never named; null when none).
+    project_papers_hidden: int | None = None
     #: the second-reader step of this run (counts and one code, no text); null when the step was off or the run was stored before it.
     two_reader_step: AgentTwoReaderStep | None = None
     #: the same for the absence word ("AI verdict: not stated"); null when that step was off or the run was stored before it.

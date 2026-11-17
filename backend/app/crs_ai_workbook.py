@@ -18,6 +18,7 @@ import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from . import agent_general_crs as general
 from . import agent_review_local as local_words
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
@@ -307,11 +308,11 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
 
 def _contractor_to(line: Mapping, status: str, order: int) -> str:
     """Part 3: what the contractor must do: ONE fixed sentence per Status, completed with the field label and the rule reference the
-    line already carries. No free text of the AI reader reaches it (its suggested action is on the Evidence sheet). Pass and AI
-    opinion (met): no action line."""
-    if (
-        line.get("ai_draft") is True
-    ):  # lane A: the limit is an AI draft: the engineer confirms it first
+    line already carries. No free text of the AI reader reaches it (its suggested action is on the Evidence sheet), except a general
+    review's line: its own words, quoted and labelled as the AI reviewer's (`agent_general_crs.question_row`). Pass, AI opinion (met): no action."""
+    if row := general.question_row(line):  # LP2: a general line names its point
+        return row.action
+    if line.get("ai_draft") is True:  # lane A: the engineer confirms an AI draft
         return f"Engineer to confirm the AI-draft limit of {against(line) or 'the rule'}, then the comparison."
     if status == words.STATUS_PASS:
         return "No action."
@@ -328,9 +329,7 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     ):
         return f"Contractor to state {field_words(line) or 'the value asked for'}, or the page where it is shown."
     guard = crs_comments.guarded_question_words(line)
-    if (
-        status == words.STATUS_QUERY and guard
-    ):  # order 14 (G6): a guarded AI "met" is a question in every run; R94's words stay
+    if status == words.STATUS_QUERY and guard:  # order 14 (G6): always a question
         return f"Engineer to check the AI reviewer's view: {guard}."
     if status == words.STATUS_QUERY and (action := wording.reader_query_action(line)):
         return action  # a question for the engineer, never worded for the contractor
@@ -351,6 +350,8 @@ def layout_comment(line: Mapping, status: str, order: int) -> str:
         return str(line.get("why") or "")
     if line.get("why") == words.PROVEN_NOT_HELD_WHY:  # order 14: book not held
         return words.proven_not_held_comment(line, field_words(line))
+    if row := general.question_row(line):  # LP2: every cell from the line's one home
+        return "\n".join((*row.cells, *crs_comments.also_words(line)))
     return "\n".join(
         (
             _requires(line, status),

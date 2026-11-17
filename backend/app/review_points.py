@@ -349,42 +349,43 @@ def ai_free_text_ok(line: dict, book_doc, ctx: dict) -> bool:
     )
 
 
-# ------------------------------------------------------------------------------------------------ THE guard for one viewer (rule 5)
-# Every surface that shows an AI line to a viewer outside the page's own points (the AI run file, the lines tab, the trace) reads it
-# through `for_viewer` (same name and signature as PR #1876's, which adds the general review's lines to it). A datasheet line whose
-# rule book the viewer may not read keeps its place, its class and its grouping, but none of the book's words: its name, clause and
-# rule words are said as numbered placeholders (the same value, the same number, in one viewer's file, so rows group and count as
-# for any reader: counted, never named), its free words are removed and any of those words inside another of its texts is replaced.
+def documents_hidden(doc_ids, names_text: str, ctx: dict) -> bool:
+    """THE one decision of "hidden for this viewer" (CLAUDE.md rule 5), for every surface and every kind of point: True only when a
+    document the line or point names or quotes is RESOLVED and the viewer may not read it: one of `doc_ids` is a held document he
+    may not read, or `names_text` (its book name or free words) names a held book he may not read. An unknown, missing or unresolved
+    document hides nothing: there is no document to hide, so nothing is said about one (the paper itself is his by the route's own
+    check)."""
+    allowed = ctx["readable"] | {ctx.get("paper_document_id")}
+    held = ctx.get("documents") or frozenset()
+    if any(d in held and d not in allowed for d in doc_ids if d):
+        return True
+    text = " ".join(str(names_text or "").split())
+    if not text or "library" not in ctx or ctx.get("everything"):
+        return False
+    from . import applicability, standard_ids
 
-HIDDEN_BOOK = "a rule book you may not read"
-HIDDEN_CLAUSE = "not shown"
-HIDDEN_RULE_WORDS = "the rule's words are not shown here"
-HIDDEN_WORDS = "(not shown: a rule book you may not read)"
-#: the keys of a line that hold the PAPER's own words (the viewer reads the paper): never rewritten
-PAPER_KEYS = frozenset(
-    (
-        "paper_quote",
-        "field",
-        "field_label_ai",
-        "quote_a",
-        "quote_paper",
-        "item_id",
-        "source",
-        "verdict",
+    for e in ctx["library"]:
+        if e["id"] in ctx["readable"]:
+            continue
+        stem = re.sub(
+            r"\.[A-Za-z0-9]{2,4}$", "", str(e.get("filename") or "")
+        )  # "BOOK-1.pdf" is cited as "BOOK-1"
+        if any(
+            standard_ids.names_standard(text, n)
+            for n in (*applicability._library_names(e), stem)
+            if n
+        ):
+            return True
+    return False
+
+
+def general_hidden(line: dict, ctx: dict) -> bool:
+    """A general review's line through `documents_hidden`: its project paper and the documents of its quotes, and its free words."""
+    from . import agent_general_crs as general
+
+    return documents_hidden(
+        general.documents_named(line), general.free_words(line), ctx
     )
-)
-MIN_SECRET = 4  # a shorter value (a clause number) is replaced only in its own key, never inside other words
-
-
-class HiddenNames:
-    """The numbered placeholders of ONE viewer's view: an equal value (by the grouping's own key) gets the same number."""
-
-    def __init__(self) -> None:
-        self.seen: dict[str, dict[str, int]] = {}
-
-    def of(self, kind: str, key: str, label: str) -> str:
-        mine = self.seen.setdefault(kind, {})
-        return f"{label} ({mine.setdefault(key, len(mine) + 1)})"
 
 
 def book_doc_of(line: dict, ctx: dict) -> str | None:
@@ -397,87 +398,47 @@ def book_doc_of(line: dict, ctx: dict) -> str | None:
     return book_doc
 
 
-def _free_words(line: dict) -> str:
-    cmp = line.get("compare") if isinstance(line.get("compare"), dict) else {}
-    parts = (
-        line.get("standard"),
-        line.get("clause_quote"),
-        line.get("requirement"),
-        line.get("reasoning"),
-        cmp.get("reason"),
-    )
-    return " ".join(" ".join(str(p).split()) for p in parts if p)
-
-
 def words_hidden(line: dict, ctx: dict) -> bool:
-    """Are a datasheet line's rule-book words hidden from this viewer? Fail closed: its held book is one he may not read, or (no
-    held book linked) its book name or free words name a held book he may not read. A general review's line is PR #1876's."""
-    if line.get("general") is True or ctx.get("everything"):
-        return False
-    book_doc = book_doc_of(line, ctx)
-    if book_doc:
-        return book_doc not in ctx["readable"]
-    return not ai_free_text_ok({"reasoning": _free_words(line)}, None, ctx)
+    """Are the words on an AI line (the AI's, an engineer's edit or reason) hidden from this viewer? `documents_hidden`, the one decision:
+    a general line by `general_hidden`; any other line by its held rule book and the book name it cites."""
+    from . import agent_general_crs as general
+
+    if general.is_general(line):
+        return general_hidden(line, ctx)
+    return documents_hidden([book_doc_of(line, ctx)], rule_words(line), ctx)
 
 
-def _secrets(line: dict, ctx: dict) -> list[str]:
-    from . import applicability
+def rule_words(line: dict) -> str:
+    """Every rule-side word of a datasheet line that may NAME a book (its book name, the rule's words, why, the reader's comment and
+    reasoning, the second reader's reason, figures): what `documents_hidden` tests against the held books he may not read."""
+    from .crs_ai_viewer import RULE_TEXT_KEYS
 
-    cmp = line.get("compare") if isinstance(line.get("compare"), dict) else {}
-    book_doc = book_doc_of(line, ctx)
-    names = [
-        n
-        for e in ctx.get("library") or []
-        if e.get("id") == book_doc
-        for n in applicability._library_names(e)
+    nested = [
+        (line.get(k) or {}).get("reason")
+        for k in ("compare", "second_opinion")
+        if isinstance(line.get(k), dict)
     ]
-    found = {" ".join(str(s).split()) for s in (line.get("standard"), line.get("clause_quote"), line.get("requirement"),
-                                                 line.get("reasoning"), cmp.get("reason"), *names) if s}  # fmt: skip
-    return sorted((s for s in found if len(s) >= MIN_SECRET), key=len, reverse=True)
-
-
-def _replaced(value, secrets: list[str]):
-    if isinstance(value, str):
-        for s in secrets:
-            value = re.sub(re.escape(s), HIDDEN_WORDS, value, flags=re.IGNORECASE)
-        return value
-    if isinstance(value, dict):
-        return {k: _replaced(v, secrets) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_replaced(v, secrets) for v in value]
-    return value
+    return " ".join(
+        " ".join(str(v).split())
+        for v in (*(line.get(k) for k in RULE_TEXT_KEYS), *nested)
+        if v
+    )
 
 
 def for_viewer(line: dict, ctx: dict) -> dict:
-    """THE one guard every surface reads an AI line through for one viewer (CLAUDE.md rule 5). A line whose words are not hidden from
-    him comes back as the SAME object (a full viewer's file, tab and trace are unchanged); a hidden datasheet line comes back with
-    its book, clause and rule words as numbered placeholders (`HiddenNames`, kept in `ctx`), its free words removed, and any of
-    those words inside its other texts replaced (the paper's own words are kept)."""
+    """THE one guard every surface reads an AI line through for one viewer (CLAUDE.md rule 5), with one meaning (`documents_hidden`):
+    a line he may read comes back as the same object; a hidden general line through `agent_general_crs.viewed`; a hidden datasheet
+    line as its ALLOW-LISTED shown line (`crs_ai_viewer.shown`: the paper's own words and the line's class only, every rule-side
+    field and the engineer's text the one fixed sentence). The run file draws its grouping and split from the full lines and its
+    cells from this (`crs_ai_viewer.view_for`)."""
+    from . import agent_general_crs as general
+    from . import crs_ai_viewer
+
     if not words_hidden(line, ctx):
         return line
-    from . import crs_comments as cc
-
-    names = ctx.setdefault("_hidden_names", HiddenNames())
-    secrets = _secrets(line, ctx)
-    out = {
-        k: (v if k in PAPER_KEYS else _replaced(v, secrets)) for k, v in line.items()
-    }
-    if _clean(line.get("standard")):
-        out["standard"] = names.of("book", cc._book_key(line["standard"]), HIDDEN_BOOK)
-    if _clean(line.get("clause")):
-        out["clause"] = names.of(
-            "clause", cc._clause_key(line["clause"]), HIDDEN_CLAUSE
-        )
-    for key in ("clause_quote", "requirement"):
-        if _clean(line.get(key)):
-            folded = re.sub(r"[^0-9a-z]+", " ", cc._norm(line[key])).strip()
-            out[key] = names.of("words", folded, HIDDEN_RULE_WORDS)
-    out.update(
-        {k: None for k in ("reasoning", "clause_book", "clause_page") if line.get(k)}
-    )
-    if isinstance(line.get("compare"), dict) and line["compare"].get("reason"):
-        out["compare"] = {**out["compare"], "reason": HIDDEN_WORDS}
-    return out
+    if general.is_general(line):
+        return general.viewed({**line, general.HIDE_KEY: True})
+    return crs_ai_viewer.shown(line)
 
 
 def viewer_ctx(
@@ -490,9 +451,7 @@ def viewer_ctx(
         **({"book_of": _book_of(conn, run_id)} if run_id else {}),
         "paper_document_id": paper_document_id,
         "readable": readable,
-        "library": library_of(
-            conn
-        ),  # the held books: free words are tested against the ones the viewer may not read
+        "library": library_of(conn),  # the held books: the AI's free text is tested against the ones the viewer may not read
         "everything": documents <= readable,
         "documents": documents,  # the held documents: a line's own stored book counts only when it is one of them
     }
@@ -501,6 +460,7 @@ def viewer_ctx(
 def ai_point(line: dict, ctx: dict) -> dict | None:
     """One AI line as a point; None for a line that is not a point (a rule book not held). `ctx`: run_id, paper_document_id,
     book_of (item id -> (document id, name)), readable (frozenset of document ids the caller may read)."""
+    from . import agent_general_crs as general
     from . import agent_review_crs as arc
     from . import crs_ai_workbook as wb
     from .agent_review_two_reader import is_independent
@@ -510,11 +470,13 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         return None
     if rank == 4 and wording_mod.not_applicable_question(line):
         rank = 9  # owner on PR #1872: an unproven "does not apply" is its own section, never a main question
+    hidden = words_hidden(line, ctx)  # rule 5: his words on it are hidden too
+    if general.is_general(
+        line
+    ):  # LP2, rule 5: a general line's words through the one guard; a datasheet point is the page's own
+        line = for_viewer(line, ctx)
     item = str(line.get("item_id") or "")
-    book_doc, _name = ctx["book_of"].get(item, (None, None))
-    if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):
-        # order 14 lane B: a checklist line has no asked-rule row; its book is the held document the line itself stored
-        book_doc = line["standard_document_id"]
+    book_doc = book_doc_of(line, ctx)
     book_name = (
         _plain(line.get("standard"))
         if book_doc and not rule_book_hidden(book_doc, ctx)
@@ -553,6 +515,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     name = (
         _plain(field)
         or (_plain(arc.against(line)) if book_name else "")
+        or _plain(general.field_label(line))  # LP2: a general line's own topic
         or "A point of the AI review"
     )
     # The reason is part of the group key: points asked for different reasons (value blank, values conflict, held for a condition)
@@ -569,6 +532,8 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
             "requirement": "",
         }
     )
+    if general.is_general(line):  # LP2: every cell from the line's one home
+        paper_q = general.question_row(shown).paper_quote or None
     action = (
         ""
         if rank == 8
@@ -637,6 +602,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "added_by": None,
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
+        "_words_hidden": hidden,
         "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
     }
 
@@ -819,10 +785,21 @@ def rule_point(
         "paper_value_page": value_page,
         # order 14 lane B: our checklist's own wording is never shown as the rule book's words: it is `check_text`, labelled as ours
         # honesty rule 4 (G1): the stored words are shown as the book's only where code finds them in the linked book (`book_words`)
-        "rule_text": None if hidden or is_check_text(finding) else shown_rule_words(book_doc, content.rule_text(finding), (finding or {}).get("standard_page"), ctx),
-        "check_text": (content.rule_text(finding) or None) if not hidden and is_check_text(finding) else None,
+        "rule_text": None
+        if hidden or is_check_text(finding)
+        else shown_rule_words(
+            book_doc,
+            content.rule_text(finding),
+            (finding or {}).get("standard_page"),
+            ctx,
+        ),
+        "check_text": (content.rule_text(finding) or None)
+        if not hidden and is_check_text(finding)
+        else None,
         # the stored rule words as they were before the G1 rule: the comment grouping keys on them (`crs_comments._requirement_of`)
-        "_rule_stored": None if hidden or is_check_text(finding) else (content.rule_text(finding) or None),
+        "_rule_stored": None
+        if hidden or is_check_text(finding)
+        else (content.rule_text(finding) or None),
         "rule_hidden": hidden,
         "rule_ref": ref if (ref["name"] or ref["clause"]) and not ref_hidden else None,
         "reason_words": silent.reason
@@ -835,12 +812,16 @@ def rule_point(
         "paper_quote_note": PASSAGE_PAPER_CHECK
         if paper_q
         else (silent.note if silent else NO_PAPER_QUOTE),
-        "clause_quote_note": PASSAGE_CLAUSE_CHECK if clause_q else (NO_BOOK_ACCESS if hidden else NO_CLAUSE_QUOTE),
+        "clause_quote_note": PASSAGE_CLAUSE_CHECK
+        if clause_q
+        else (NO_BOOK_ACCESS if hidden else NO_CLAUSE_QUOTE),
         "route_note": None,
         "view_page": _view_page(ctx.get("paper_document_id"), page),
         "shall": strength != "should",
         "strength_unknown": strength == "unknown",
-        "priority": words.priority(status, {}, words.ORDER_AI_NOT_MET),  # the rule check's own vocabulary (`crs_normal.decorate`)
+        "priority": words.priority(
+            status, {}, words.ORDER_AI_NOT_MET
+        ),  # the rule check's own vocabulary (`crs_normal.decorate`)
         "ai_reasoning": "",
         "group_key": group_key(
             SOURCE_RULE_CHECK,
@@ -858,6 +839,7 @@ def rule_point(
         ),
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
+        "_name_hidden": ref_hidden,  # its name is a fixed phrase: counted, never listed, in a comment's Note
         "_book_missing": missing or None,
         "_book_missing_words": missing_words or None,
         "_clause_unconfirmed": unconfirmed or None,
@@ -1280,16 +1262,11 @@ def ai_points_of_run(
     lines = words.read_now(
         stored, [{"rule_book": n} for n in held]
     )  # the one reading of every CRS (order 14)
-    documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     ctx = {
         "run_id": run_id,
         "run_engine": crs_ai_header.run_engine(conn, run_id),  # FTU-17: what the run stored
-        "paper_document_id": paper_document_id,
         "book_of": _book_of(conn, run_id),
-        "readable": readable,
-        "library": library_of(conn),  # the held books: the AI's free text is tested against the ones the viewer may not read
-        "everything": documents <= readable,
-        "documents": documents,  # the held documents: a line's own stored book counts only when it is one of them
+        **viewer_ctx(conn, paper_document_id, readable),
     }
     return [p for p in (ai_point(ln, ctx) for ln in lines) if p is not None], held
 

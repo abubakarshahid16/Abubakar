@@ -151,7 +151,7 @@ def test_a_note_is_decided_like_any_point_and_never_reaches_the_contractor_copy(
     assert after["decision"]["state"] == review_point_decisions.KEEP
     from app import agent_review_jobs
 
-    path = review_points_service.decided_ai_sheet(  # drawn for a viewer (rule 5), who here may read the paper
+    path = review_points_service.decided_ai_sheet(  # LP2 round 2: drawn for a viewer, who here may read the paper
         ai, doc, "contractor", agent_review_jobs.run_dir(ai), frozenset({doc})
     )
     text = sheet_text(path.read_bytes())

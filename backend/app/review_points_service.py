@@ -246,6 +246,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
     conn = connect()
     library = library_of(conn)
     everything = {r[0] for r in conn.execute("SELECT id FROM documents")} <= ctx["readable"]
+    seen = rp.viewer_ctx(conn, paper_id, ctx["readable"])  # rule 5: the one decision
     out = []
     for row in rows:
         fid = row.get("finding_id")
@@ -267,6 +268,9 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
             finding = {**finding, "requirement_source_text": text, "requirement": text}
         p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding), proof=proof, app_text_only=app_text)
         p["_book_docs"] = docs
+        p["_words_hidden"] = rp.documents_hidden(
+            docs, str(row.get("standard_reference") or ""), seen
+        )
         p["_confirmed"], p["_rejected"] = (
             bool(row.get("engineer_confirmed")),
             bool(row.get("engineer_rejected")),
@@ -288,7 +292,11 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
                 and finding.get("review_run_id") == run_id
                 and scope.may_read(finding["document_id"])
             ):
-                out.append(rp.removed_stub(finding, ctx, strength=_strength(finding)))
+                stub = rp.removed_stub(finding, ctx, strength=_strength(finding))
+                stub["_words_hidden"] = rp.documents_hidden(
+                    [finding.get("standard_document_id")], "", seen
+                )
+                out.append(stub)
     return out
 
 
@@ -365,6 +373,16 @@ def _names(ids) -> dict[str, str]:
     }
 
 
+def hidden_decision(d: dict) -> dict:
+    """A decision on a point whose words are hidden from this viewer (`review_points.documents_hidden`): the engineer's edited text and
+    his reason are said by what he did (`agent_general_crs.engineer_hidden_words`: edited, removed, kept), never shown; the state, who
+    and when stay."""
+    from .agent_general_crs import engineer_hidden_words
+
+    said = engineer_hidden_words(d.get("state"))
+    return {**d, **{k: said for k in ("text", "reason") if d.get(k)}}
+
+
 def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     """(the listing, the RAW points with their private keys, the facts the one-CRS export needs). `assemble` is the listing alone."""
     conn = connect()
@@ -402,6 +420,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             d["by"] = names.get(d["by"]) or d["by"]
         if p.get("tile") == not_applicable.TILE:  # owner on PR #1872: a tick confirms the AI's "does not apply"
             d = {**d, "words": not_applicable.CONFIRMED if d.get("state") == decisions_mod.KEEP else d.get("words") or not_applicable.OPEN}
+        if p.get("_words_hidden"):  # rule 5: his words may quote a hidden document
+            d = hidden_decision(d)
         p["decision"] = d
     decided = len(points) - len(review_code_proposal.still_open(points))  # FTU-16: the one open count, as the proposal reads it
     not_held = rp.books_not_held(not_held, points, library)  # with every row's "Book missing": one list for page and sheet
@@ -575,13 +595,16 @@ def decided_ai_sheet(
     run_id: str, paper_id: str, copy: str, folder, readable: frozenset[str]
 ) -> Path | None:
     """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in) and for
-    THIS viewer (`readable`: the documents he may read): every line through the one guard (`review_points.for_viewer`; CLAUDE.md rule
-    5), and a file with a hidden line under a name of its own (the hidden lines' digest), so one viewer's file is never served to
-    another. None when nothing was decided or added and nothing is hidden from him (the stored file stands). Meta: `run_meta`."""
+    THIS viewer (`readable`: the documents he may read), through the one guard (`review_points.for_viewer`; CLAUDE.md rule 5): a
+    general line he may not read is its viewed line; a datasheet line he may not read keeps its place, its grouping and its Status
+    (drawn from the full line) and only its cells come from its shown line (`crs_ai_viewer.view_for`). A file with a hidden line has
+    a name of its own (the hidden lines' digest), so one viewer's file is never served to another. None when nothing was decided or
+    added and nothing is hidden from him (the stored file stands). Meta: `run_meta`."""
     import hashlib
     from pathlib import Path
 
-    from . import agent_review_crs, crs_ai_workbook
+    from . import agent_general_crs as general
+    from . import agent_review_crs, crs_ai_viewer, crs_layout
 
     conn = connect()
     lines = stored_lines(conn, run_id)
@@ -594,19 +617,33 @@ def decided_ai_sheet(
         else lines
     )
     ctx = rp.viewer_ctx(conn, paper_id, readable, run_id)
-    guarded = [rp.for_viewer(ln, ctx) for ln in kept]  # the one guard (rule 5)
+
+    def hidden_rule(
+        ln,
+    ) -> (
+        bool
+    ):  # a datasheet line he may not read (read after `read_now`, as the file reads it)
+        return not general.is_general(ln) and rp.words_hidden(ln, ctx)
+
+    kept = [rp.for_viewer(ln, ctx) if general.is_general(ln) else ln for ln in kept]
     hidden = sorted(
-        str(a.get("item_id")) for a, b in zip(kept, guarded, strict=True) if a is not b
+        str(ln.get("item_id"))
+        for ln in kept
+        if general.HIDE_KEY in ln or hidden_rule(ln)
     )
     if not decided and not hidden:
         return None
     folder = Path(folder)
     meta = run_meta(conn, run_id, paper_id, folder)
-    kept = guarded
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     digest = hashlib.sha256("\n".join(hidden).encode()).hexdigest()[:16]
-    name = f"crs-{copy}-decided{'-viewer-' + digest if hidden else ''}.xlsx"
-    return crs_ai_workbook.write(kept, folder / name, meta, copy)
+    path = folder / f"crs-{copy}-decided{'-viewer-' + digest if hidden else ''}.xlsx"
+    path.write_bytes(
+        crs_layout.build_layout_crs(
+            crs_ai_viewer.view_for(kept, meta, copy, hidden_rule)
+        )
+    )
+    return path
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:

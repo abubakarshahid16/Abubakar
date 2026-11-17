@@ -714,9 +714,22 @@ def comment_note(c: dict, ms: list[dict]) -> str:
     many = f"{c['n_points']} points on this field" if c["n_points"] > 1 else ""
     note = comments.DISAGREE if c["disagree"] else many
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
-    # R91: each other point, its class and ask
-    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])
+    # R91: each other point, its class and ask; rule 5: a point whose rule this viewer may not see is counted, never listed, so the
+    # Note stays a whole cell (a list of hundreds of them overran the cell and the file was refused)
+    others = [p for p in ms if p is not c["strongest"]]
+    note += "".join(f"\n{member_words(p)}" for p in others if not _rule_not_shown(p))
+    away = sum(1 for p in others if _rule_not_shown(p))
+    note += (
+        f"\nAlso: {away} more point(s) whose rule is not shown to you (counted, not listed)."
+        if away
+        else ""
+    )
     return _clean(note.strip(" ;"))
+
+
+def _rule_not_shown(p: dict) -> bool:
+    """A point whose rule this viewer may not see: its words hidden (`_words_hidden`) or its name a fixed phrase (`_name_hidden`)."""
+    return bool(p.get("_words_hidden") or p.get("_name_hidden"))
 
 
 def comment_full_texts(
@@ -973,8 +986,12 @@ def build_team(
 
 def issuable_text(p: dict) -> str:
     """The words a contractor may be given for one point, or "": the engineer's own text (an edit, an added point), else, for a point
-    PROVEN by code to be Not met, the code's own action line. Never the stored waiting placeholder (`NOTE_PARKED`); the engineer's own sentence is issued whatever words it uses."""
+    PROVEN by code to be Not met, the code's own action line. Never the stored waiting placeholder (`NOTE_PARKED`); the engineer's own sentence is issued whatever words it uses.
+    Rule 5: an edit on a point whose words are hidden from this viewer (`_words_hidden`) is never issued in his copy, and no sentence
+    about it either: the point is counted apart (`crs_completeness.REASON_NOT_SHOWN`)."""
     d = p.get("decision") or {}
+    if p.get("_words_hidden") and d.get("state") == decisions_mod.EDIT:
+        return ""
     if p.get("source") == rp.SOURCE_ADDED or d.get("state") == decisions_mod.EDIT:
         text = _clean(
             d.get("text")

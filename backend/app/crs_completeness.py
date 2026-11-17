@@ -38,7 +38,15 @@ REASON_NO_WORDING = "kept, with no comment written for the contractor"
 REASON_NOT_DECIDED = "not decided yet"
 #: owner on PR #1872: a line the AI thought does not apply and the engineer confirmed (contractor words)
 REASON_NOT_APPLICABLE = "does not apply"
-REASON_ORDER = (REASON_NOT_DECIDED, REASON_NO_WORDING, REASON_NOT_APPLICABLE, REASON_REMOVED)
+#: rule 5: an engineer's comment on a point whose words this viewer may not see is not in his copy (counted, never shown)
+REASON_NOT_SHOWN = "edited, its comment is not in this copy"
+REASON_ORDER = (
+    REASON_NOT_DECIDED,
+    REASON_NO_WORDING,
+    REASON_NOT_SHOWN,
+    REASON_NOT_APPLICABLE,
+    REASON_REMOVED,
+)
 
 
 #: FTU-1: the sentence of a CRS asked for a paper with no finished review (the download answers 409 with it, never an empty file)
@@ -133,6 +141,8 @@ def contractor_split(raw: list[dict]) -> tuple[list[dict], dict[str, int]]:
         )
         if state == decisions_mod.REMOVE:
             reasons[REASON_REMOVED] += 1
+        elif state == decisions_mod.EDIT and p.get("_words_hidden"):  # rule 5
+            reasons[REASON_NOT_SHOWN] += 1
         elif state == decisions_mod.KEEP and p.get("rank") == 9:  # confirmed: does not apply
             reasons[REASON_NOT_APPLICABLE] += 1
         elif (

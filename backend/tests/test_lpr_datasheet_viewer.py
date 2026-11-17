@@ -1,30 +1,38 @@
-"""Rule 5 on the AI run file, the lines tab and the trace (order 14, found on PR #1876): a DATASHEET line whose rule book the viewer
-may not read shows him none of the book's words (its name, clause, rule words, the AI's free words about it), on every one of the
-three surfaces, through the one guard `review_points.for_viewer`; a reader of the book gets exactly what he got before; both get the
-same number of rows (a hidden line is counted, never named). Invented values only."""
+"""Rule 5 on every surface of the AI review (order 14, PR #1883 on PR #1876): a DATASHEET line whose rule book the viewer may not read
+shows him none of the book's words, through the ONE guard `review_points.for_viewer` and its ALLOW-LIST (`crs_ai_viewer.shown`):
+the paper's own words and the line's class only, every rule-side field one fixed sentence. No numbering, no text search: a line
+break, a fragment, a clause number alone or another spelling of the book's name cannot slip through. The run file keeps the full
+lines' grouping, split, order and Status for every viewer. A reader of every book gets exactly what main gives. Invented values."""
 
 from __future__ import annotations
 
 import io
+import json
 
 import pytest
 from openpyxl import load_workbook
 
-from app import agent_review_jobs
+from app import agent_review_jobs, crs_ai_viewer, db
 from app import review_points as rp
 from app.config import settings
 from tests.test_agent_review_crs import mk
 from tests.test_b1_review_points import ai_run, sheet_text
 from tests.test_crs_endpoint import _client, _submittal, temp_db  # noqa: F401 - fixture
 
-BOOK, RULE_WORDS, AI_WORDS = (
+BOOK_DOC, BOOK_FILE = "doc_std", "STD-A-001.pdf"
+BOOK, OTHER_BOOK = (
     "STD-1",
-    "Nameplates shall be steel and fixed",
-    "It is steel",
-)
-OTHER_BOOK = "STD-9"  # another name the hidden book is cited by (invented)
-SECRETS = (BOOK, RULE_WORDS, AI_WORDS, OTHER_BOOK)
-BOOK_DOC = "doc_std"
+    "STD-9",
+)  # the names the lines cite the hidden book by (invented)
+RULE_WORDS, AI_WORDS = "Nameplates shall be steel and fixed", "It is steel"
+SECRETS = (
+    BOOK, OTHER_BOOK, RULE_WORDS, AI_WORDS,
+    "stainless steel", "7.3.9",  # a rule quote broken by a line break; a clause number alone
+    "STDA001",  # another spelling of the book's own name, on a line that links no book
+    "asks for steel", "Figure 9", "Use steel",  # the second reader's reason, a figure, the reader's suggested action
+)  # fmt: skip
+HIDDEN = crs_ai_viewer.HIDDEN_RULE
+DOC: list[str] = []
 
 
 @pytest.fixture(autouse=True)
@@ -34,33 +42,35 @@ def on(monkeypatch, temp_db):  # noqa: F811
     monkeypatch.setattr(settings, "old_crs_download_enabled", True)
 
 
-def world() -> tuple[str, str]:
-    """A paper and its AI run against the held book BOOK_DOC: a proven Fail, a query, and two lines with no field that one rule
-    groups into one comment (invented)."""
+def setup_world() -> str:
+    """A paper and its AI run against the held rule book BOOK_DOC (a library book: it holds a stored rule)."""
     doc = _submittal()
-    _submittal(BOOK_DOC, "STD-A-001.pdf")
+    _submittal(BOOK_DOC, BOOK_FILE)
+    with db.connect() as conn:
+        conn.execute("INSERT INTO standard_requirements (id, standard_document_id, clause, page, requirement_text, source_text,"
+                     " created_at, updated_at) VALUES ('rq1', ?, '1', 1, 'x', 'x', 't', 't')", (BOOK_DOC,))  # fmt: skip
     lines = [
         mk("R-1", "Fail", "Fail"),
-        mk(
-            "R-8",
-            "Query",
-            None,
-            why=f"the clause of {BOOK} was not confirmed",  # the book's name inside another text
-        ),
+        mk("R-8", "Query", None, why=f"the clause of {BOOK} was not confirmed", comment=f"Use steel per {BOOK}",
+           second_opinion={"agree": False, "reason": f"{BOOK} asks for steel"}, clause_figure=f"Figure 9 of {BOOK}"),
         mk("R-21", "Query", "Fail", why="no second opinion", field="", field_roles=[]),
         mk("R-22", "Query", "Fail", why="no second opinion", field="", field_roles=[]),
-        # the same clause and words of ANOTHER name of the hidden book: its own comment for both viewers (numbered, never merged)
-        mk(
-            "R-23",
-            "Query",
-            "Fail",
-            why="no second opinion",
-            field="",
-            field_roles=[],
-            standard=OTHER_BOOK,
-        ),
-    ]
-    return doc, ai_run(doc, lines, book_doc=BOOK_DOC)
+        mk("R-23", "Query", "Fail", why="no second opinion", field="", field_roles=[], standard=OTHER_BOOK),
+        mk("R-30", "Query", "Fail", why="no second opinion", clause="7.3.9", clause_quote="Plates shall be\nstainless steel"),
+        mk("R-40", "Query", None, why="the value is held per STDA001 table", standard=""),
+        mk("R-50", "Query", None, why="x y", quotes_checked={"paper": False, "clause": True}),
+        # a coverage line: N rules of the hidden book could not be matched (its book is named in the coverage note)
+        mk("G-1", "Query", None, item={"source": "group"}, group_count=3, field="", field_roles=[]),
+    ]  # fmt: skip
+    ai = ai_run(doc, lines, book_doc=BOOK_DOC)
+    with (
+        db.connect() as conn
+    ):  # R-40 links no book: it is hidden only because its words name the book
+        conn.execute(
+            "UPDATE agent_review_rule SET standard_document_id = NULL, rule_book = '' WHERE rule_key = 'R-40'"
+        )
+    DOC[:] = [doc]
+    return ai
 
 
 def full():
@@ -73,16 +83,7 @@ def restricted():
     return _client(DOC[0])
 
 
-DOC: list[str] = []
-
-
-def setup_world() -> str:
-    doc, ai = world()
-    DOC[:] = [doc]
-    return ai
-
-
-def sheet_rows(data: bytes) -> dict[str, int]:
+def sheets(data: bytes) -> dict[str, int]:
     wb = load_workbook(io.BytesIO(data))
     return {
         ws.title: sum(
@@ -92,52 +93,77 @@ def sheet_rows(data: bytes) -> dict[str, int]:
     }
 
 
-def test_the_run_file_shows_a_restricted_viewer_none_of_the_books_words_and_the_same_rows():
+def statuses(data: bytes) -> list:
+    return [
+        r[-1]
+        for r in load_workbook(io.BytesIO(data))["CRS"].iter_rows(values_only=True)
+    ]
+
+
+def leaked(text: str) -> list[str]:
+    return [s for s in SECRETS if s in text]
+
+
+def test_the_run_file_shows_a_restricted_viewer_no_rule_words_and_the_same_split():
     ai = setup_world()
     url = f"/api/reviews/runs/{ai}/agent/crs?copy=internal"
-    hidden = restricted().get(url)
+    hidden, shown = restricted().get(url), full().get(url).content
     assert hidden.status_code == 200, hidden.text
-    shown = full().get(url).content
     text = sheet_text(hidden.content)
-    assert not any(s in text for s in SECRETS), text
-    assert rp.HIDDEN_BOOK in text and "clause 4.1" not in text
-    assert "clause 4.1" in sheet_text(shown)
-    assert all(s in sheet_text(shown) for s in SECRETS)
-    # counted, never named: the same rows on every sheet, and the two lines of one rule are one comment for both viewers
-    assert sheet_rows(hidden.content) == sheet_rows(shown)
-    assert "Part of comment" in sheet_text(shown) and "Part of comment" in text
-    stored = (agent_review_jobs.run_dir(ai) / "crs-internal.xlsx").read_bytes()
-    assert shown == stored  # the reader of the book gets the stored file, byte for byte
+    assert leaked(text) == [], leaked(text)
+    assert HIDDEN in text and "holds no verified quote" not in text
+    assert BOOK in sheet_text(shown) and "holds no verified quote" in sheet_text(
+        shown
+    )  # (so the checks above are not vacuous)
+    assert sheets(hidden.content) == sheets(shown) and statuses(
+        hidden.content
+    ) == statuses(shown)  # the same split, order, Status
+    assert (
+        shown == (agent_review_jobs.run_dir(ai) / "crs-internal.xlsx").read_bytes()
+    )  # main's bytes for the reader of the book
 
 
-def test_the_lines_tab_and_the_trace_show_a_restricted_viewer_none_of_the_books_words():
+def test_the_lines_tab_and_the_trace_show_a_restricted_viewer_no_rule_words():
     ai = setup_world()
     lines_url = f"/api/reviews/runs/{ai}/agent/lines"
     hidden, shown = restricted().get(lines_url), full().get(lines_url)
-    assert hidden.status_code == 200, hidden.text
-    assert not any(s in hidden.text for s in SECRETS), hidden.text
+    assert hidden.status_code == 200 and leaked(hidden.text) == [], leaked(hidden.text)
+    assert [ln["verdict_class"] for ln in hidden.json()["lines"]] == [
+        ln["verdict_class"] for ln in shown.json()["lines"]
+    ]
     assert BOOK in shown.text
-    assert len(hidden.json()["lines"]) == len(shown.json()["lines"])
-    for item in ("R-1", "R-8"):
-        url = f"/api/reviews/runs/{ai}/agent/lines/{item}/trace"
-        got = restricted().get(url)
-        assert got.status_code == 200, got.text
-        assert not any(s in got.text for s in SECRETS), (item, got.text)
-        assert BOOK in full().get(url).text
+    for item in ("R-1", "R-8", "R-30", "R-40"):
+        got = restricted().get(f"/api/reviews/runs/{ai}/agent/lines/{item}/trace")
+        assert got.status_code == 200 and leaked(got.text) == [], (
+            item,
+            leaked(got.text),
+        )
+        assert (
+            got.json()["rule_book"] == HIDDEN
+        )  # one sentence, never a number that differs between the tab and the trace
 
 
-def test_a_full_viewers_lines_tab_and_trace_are_unchanged_by_the_guard(monkeypatch):
+def test_rules_used_counts_a_hidden_rule_and_never_names_it():
     ai = setup_world()
-    before = [
-        full().get(f"/api/reviews/runs/{ai}/agent/lines").json(),
-        full().get(f"/api/reviews/runs/{ai}/agent/lines/R-1/trace").json(),
+    url = f"/api/reviews/runs/{ai}/rules-used"
+    hidden, shown = restricted().get(url).json(), full().get(url).json()
+    assert len(hidden["asked"]) == len(shown["asked"]) and BOOK in json.dumps(shown)
+    assert BOOK not in json.dumps(hidden) and all(
+        r["rule_book"] == HIDDEN for r in hidden["asked"] if r["rule_book"]
+    )
+
+
+def test_a_reader_of_every_book_is_unchanged_by_the_guard(monkeypatch):
+    ai = setup_world()
+    urls = [
+        f"/api/reviews/runs/{ai}/agent/lines",
+        f"/api/reviews/runs/{ai}/agent/lines/R-8/trace",
+        f"/api/reviews/runs/{ai}/rules-used",
     ]
+    before = [full().get(u).json() for u in urls]
     monkeypatch.setattr(rp, "for_viewer", lambda line, ctx: line)  # the guard off
-    after = [
-        full().get(f"/api/reviews/runs/{ai}/agent/lines").json(),
-        full().get(f"/api/reviews/runs/{ai}/agent/lines/R-1/trace").json(),
-    ]
-    assert before == after
+    monkeypatch.setattr(rp, "documents_hidden", lambda *a: False)
+    assert [full().get(u).json() for u in urls] == before
 
 
 def test_two_viewers_of_one_run_file_never_share_a_file():
@@ -164,14 +190,59 @@ def test_two_viewers_of_one_run_file_never_share_a_file():
     )
     theirs = svc.decided_ai_sheet(ai, DOC[0], "internal", folder, frozenset({DOC[0]}))
     assert mine.name != theirs.name
-    assert not any(s in sheet_text(theirs.read_bytes()) for s in SECRETS)
-    assert all(s in sheet_text(mine.read_bytes()) for s in SECRETS)
-
-
-def test_equal_hidden_values_keep_one_number_and_different_ones_differ():
-    names = rp.HiddenNames()
-    a, b = (
-        names.of("book", "std 1", rp.HIDDEN_BOOK),
-        names.of("book", "std 2", rp.HIDDEN_BOOK),
+    assert leaked(sheet_text(theirs.read_bytes())) == [] and BOOK in sheet_text(
+        mine.read_bytes()
     )
-    assert a != b and names.of("book", "std 1", rp.HIDDEN_BOOK) == a
+
+
+def test_a_summary_names_only_the_project_papers_the_viewer_may_read():
+    ai = setup_world()
+    _submittal("doc-proj-q", "project-q.pdf")
+    with db.connect() as conn:
+        conn.execute("INSERT INTO agent_review_general (run_id, project_json) VALUES (?, ?)",
+                     (ai, json.dumps([{"document_id": "doc-proj-q", "name": "project-q.pdf"}])))  # fmt: skip
+    hidden = restricted().get(f"/api/reviews/runs/{ai}/agent/summary").json()
+    assert (
+        "project-q" not in json.dumps(hidden) and hidden["project_papers_hidden"] == 1
+    )
+    shown = (
+        _client(DOC[0], BOOK_DOC, "doc-proj-q")
+        .get(f"/api/reviews/runs/{ai}/agent/summary")
+        .json()
+    )
+    assert (
+        shown["project_papers_used"][0]["name"] == "project-q.pdf"
+        and shown["project_papers_hidden"] is None
+    )
+
+
+def test_a_stored_line_that_cannot_be_read_is_hidden_from_a_restricted_viewer():
+    from app.api.agent_review import UNREADABLE_LINE
+
+    ai = setup_world()
+    with db.connect() as conn:
+        conn.execute("UPDATE agent_review_line SET line_json = '{not json', reason = ? WHERE run_id = ? AND item_id = 'R-8'",
+                     (f"stored words of {BOOK}", ai))  # fmt: skip
+    hidden = restricted().get(f"/api/reviews/runs/{ai}/agent/lines").text
+    assert BOOK not in hidden and UNREADABLE_LINE in hidden
+    assert (
+        f"stored words of {BOOK}"
+        in full().get(f"/api/reviews/runs/{ai}/agent/lines").text
+    )  # a reader of every book: as stored
+
+
+def test_a_comment_note_counts_the_points_whose_rule_is_not_shown_and_stays_whole():
+    from app import crs_one
+
+    c = {"n_points": 3, "disagree": False, "tags": [], "strongest": {"id": "a"}}
+    ms = [
+        c["strongest"],
+        {"id": "b", "name": "Field B", "rank": 4},
+        {"id": "c", "name": "A requirement", "rank": 4, "_name_hidden": True},
+    ]
+    note = crs_one.comment_note(c, ms)
+    assert (
+        "Field B" in note
+        and "A requirement" not in note
+        and "1 more point(s) whose rule is not shown to you" in note
+    )

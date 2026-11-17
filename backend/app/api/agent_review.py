@@ -314,7 +314,7 @@ def agent_summary(
         missing_books=books,
         not_reviewed=counts.get("Not reviewed", 0),
         query_groups=groups,
-        **_mode_of(conn, review_run_id),
+        **_mode_of(conn, review_run_id, _viewer(review_run_id, run, scope)),
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
         two_reader_step=_two_reader_step(run),
@@ -424,44 +424,55 @@ def _viewer(run_id: str, run: dict, scope: access.AccessScope) -> dict:
     )
 
 
-def _guarded(row: dict, seen: dict) -> dict:
-    """A stored row read through the one guard (`review_points.for_viewer`, rule 5): a line whose words are hidden from this caller
-    keeps none of them, in its stored JSON or in its reason, rule book and clause columns (written as `store_line` writes them)."""
-    from .. import review_points
+#: (rule 5, fail closed) what a caller who may not read every document sees of a stored line that cannot be read
+UNREADABLE_LINE = "a stored line could not be read, so its words are not shown"
 
-    try:
-        line = json.loads(row.get("line_json") or "")
-    except ValueError:
-        return row
-    if not isinstance(line, dict):
-        return row
-    full = {**line, "item_id": row.get("item_id")}
+
+def _hidden_words(row: dict, now: dict | None, seen: dict) -> dict | None:
+    """The words of a stored row for this caller through the one guard (`review_points.for_viewer`, rule 5), or None when nothing is
+    hidden from him. A line he may not read: a general line's viewed words; a datasheet line's shown comment and the fixed sentence
+    for its book (`crs_ai_viewer`). A row whose stored line cannot be read is hidden from anyone who may not read every document."""
+    from .. import crs_ai_viewer, review_points
+
+    if now is None:
+        return (
+            None
+            if seen.get("everything")
+            else {"reason": UNREADABLE_LINE, "rule_book": "", "clause": ""}
+        )
+    full = {**now, "item_id": row.get("item_id")}
     shown = review_points.for_viewer(full, seen)
     if shown is full:
-        return row
-    reason = (
-        shown.get("not_proven_reason")
-        or shown.get("reasoning")
-        or shown.get("why")
-        or ""
-    )
-    return {**row, "line_json": json.dumps(shown, default=str), "reason": str(reason),
-            "rule_book": str(shown.get("standard") or ""), "clause": str(shown.get("clause") or "")}  # fmt: skip
+        return None
+    if crs_ai_viewer.is_shown(shown):
+        return {
+            "reason": crs_ai_viewer.comment(shown),
+            "rule_book": crs_ai_viewer.HIDDEN_RULE,
+            "clause": "",
+        }
+    return {
+        "reason": shown.get("text") or "",
+        "rule_book": shown.get("rule_book") or "",
+        "clause": "",
+    }
 
 
 def _read_line(row: dict, missing=(), seen: dict | None = None) -> contract.AgentLine:
-    """One stored line as the contract's line, through the one guard for the caller (`seen`). A pair the contract refuses but that maps
-    by its own one table (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten.
-    A row that still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list
-    down."""
+    """One stored line as the contract's line, through the one guard for the caller (`seen`): its class from the FULL line read as
+    today, its words from what the guard lets him see. A pair the contract refuses but that maps by its own one table
+    (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that still
+    fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
     row = {k: v for k, v in row.items() if k != "rid"}
-    row = _guarded(row, seen) if seen is not None else row
     raw = row.pop("line_json", None)
     now = _line_now({**row, "line_json": raw}, missing)
-    shown = json.dumps(now, default=str) if now else raw
-    row["reason"] = crs_ai_workbook.screen_text(shown) or row.get(
-        "reason"
-    )  # the file's three lines
+    hidden = _hidden_words(row, now, seen) if seen is not None else None
+    if hidden is not None:
+        row.update(hidden)
+    else:
+        shown = json.dumps(now, default=str) if now else raw
+        row["reason"] = crs_ai_workbook.screen_text(shown) or row.get(
+            "reason"
+        )  # the file's three lines
     query = agent_review_wording.CLASS_QUERY
     if (
         now and now["verdict_class"] == query and row.get("verdict_class") != query
@@ -505,9 +516,12 @@ def _no_verdict_line(raw: str | None) -> bool:
     return isinstance(line, dict) and agent_review_wording.no_verdict(line)
 
 
-def _mode_of(conn, run_id: str) -> dict:
+def _mode_of(conn, run_id: str, seen: dict) -> dict:
     """The mode of a run and the project papers a general review used: a run with a row in `agent_review_general` is a general
-    review. Read only."""
+    review. Only the papers this caller may read are named; the others are counted (rule 5, `review_points.documents_hidden`).
+    Read only."""
+    from .. import review_points
+
     row = conn.execute(
         "SELECT project_json FROM agent_review_general WHERE run_id = ?", (run_id,)
     ).fetchone()
@@ -517,6 +531,11 @@ def _mode_of(conn, run_id: str) -> dict:
         used = json.loads(row["project_json"] or "[]")
     except ValueError:
         used = []
+    hidden = [
+        p
+        for p in used
+        if review_points.documents_hidden([str(p["document_id"])], str(p["name"]), seen)
+    ]
     return {
         "mode": "general review",
         "project_papers_used": [
@@ -524,8 +543,22 @@ def _mode_of(conn, run_id: str) -> dict:
                 document_id=str(p["document_id"]), name=str(p["name"])
             )
             for p in used
+            if p not in hidden
         ],
+        "project_papers_hidden": len(hidden) or None,
     }
+
+
+def _hidden_trace(item_id: str, shown: dict) -> contract.AgentTrace:
+    """The trace of a datasheet line whose rule book the caller may not read: its shown line only (`crs_ai_viewer.shown`)."""
+    from ..agent_review_crs import line_page
+    from ..crs_ai_actions import verified_quote
+    from ..crs_ai_viewer import HIDDEN_RULE
+
+    return contract.AgentTrace(
+        item_id=item_id, page=line_page(shown), paper_quote=verified_quote(shown), rule_quote=HIDDEN_RULE, rule_book=HIDDEN_RULE,
+        clause="", model=str(shown.get("model") or ""), reason=HIDDEN_RULE, gate=_gate_steps(shown),
+    )  # fmt: skip
 
 
 def _gate_steps(line: dict) -> list[contract.AgentGateStep]:
@@ -656,11 +689,21 @@ def agent_trace(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="no such line")
-    # rule 5: the stored row through the one guard for this caller, then read time (the same words as a new line)
-    row = _guarded(dict(row), _viewer(review_run_id, run, scope))
-    line = agent_review_wording.read_time(json.loads(row["line_json"]))
+    line = agent_review_wording.read_time(
+        json.loads(row["line_json"])
+    )  # read time: the same words as a new line
+    # rule 5: then the one guard for this caller (`review_points.for_viewer`)
+    from .. import crs_ai_viewer, review_points
+
+    full = {**line, "item_id": item_id}
+    shown = review_points.for_viewer(full, _viewer(review_run_id, run, scope))
     if line.get("general"):
-        return _general_trace(item_id, line, str(row["reason"] or ""))
+        said = (
+            str(row["reason"] or "") if shown is full else str(shown.get("text") or "")
+        )
+        return _general_trace(item_id, shown, said)
+    if crs_ai_viewer.is_shown(shown):
+        return _hidden_trace(item_id, shown)
     page = line.get("paper_page")
     code_line = (
         str(line.get("source") or "").strip().casefold() == "code"
@@ -736,6 +779,26 @@ def agent_crs_older(
     return crs_completeness.older_counts(review_run_id, run["submittal_document_id"], scope)
 
 
+def _rule_for(r, seen: dict) -> dict:
+    """An asked or left-out rule as this caller may see it: a rule of a held book he may not read keeps its place and its counts,
+    its book, clause and words are the one fixed sentence (`crs_ai_viewer.HIDDEN_RULE`)."""
+    from .. import review_points
+    from ..crs_ai_viewer import HIDDEN_RULE
+
+    row = dict(r)
+    hidden = review_points.documents_hidden(
+        [row.get("standard_document_id")], str(row.get("rule_book") or ""), seen
+    )
+    if hidden:
+        row.update(
+            rule_book=HIDDEN_RULE,
+            clause="",
+            quote=HIDDEN_RULE if row.get("quote") else "",
+            field=row.get("field"),
+        )
+    return {**row, "_hidden": hidden}
+
+
 def _coverage_for(rules: list) -> list[contract.AgentBookCoverage]:
     """One entry per rule book that was asked or left out; numbers from the coverage file, None without a row."""
     coverage = agent_review_coverage.load()
@@ -775,10 +838,13 @@ def rules_used(
     reject_unknown_params(request, set())
     run = _run_or_404(review_run_id, scope)
     conn = connect()
-    rules = conn.execute(
+    all_rules = conn.execute(
         "SELECT * FROM agent_review_rule WHERE run_id = ? ORDER BY rule_book, clause, rule_key",
         (review_run_id,),
     ).fetchall()
+    # rule 5: a rule of a book this caller may not read is counted, never named (`review_points.documents_hidden`, the one decision)
+    seen = _viewer(review_run_id, run, scope)
+    rules = [_rule_for(r, seen) for r in all_rules]
     asked = [
         contract.AgentAskedRule(
             rule_book=r["rule_book"] or "", clause=r["clause"] or "", quote=r["quote"] or "",
@@ -805,7 +871,7 @@ def rules_used(
     other = cand.get("books_not_selected")
     return contract.AgentRulesUsed(
         paper_kind=run["paper_kind"], equipment_type=run["equipment_type"], asked=asked, left_out=left,
-        left_out_counts=counts, missing_books=missing, books=_coverage_for(rules),
+        left_out_counts=counts, missing_books=missing, books=_coverage_for([r for r in rules if not r["_hidden"]]),
         rule_set_changed_by=run["rule_set_changed_by"],
         equipment_state=_equipment(run).get("state"),
         equipment_notes=_equipment(run).get("notes") or [],
