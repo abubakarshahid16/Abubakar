@@ -755,8 +755,20 @@ def _current_key(paper_id: str, scope, listing_raw: tuple) -> str:
     _listing, raw, facts = listing_raw
     shown = [(p.get("id"), p.get("rank"), p.get("name"), p.get("action"), json.dumps(p.get("decision"), sort_keys=True, default=str))
              for p in raw]  # fmt: skip
-    what = [paper_id, facts.get("rc_run"), facts.get("ai_run"), sorted(scope.allowed_document_ids or ()), shown]
+    # the runs' stored line counts: a line stored or removed after a run changes the database count
+    lines = [_count("SELECT COUNT(*) FROM agent_review_line WHERE run_id = ?", facts.get("ai_run")),
+             _count("SELECT COUNT(*) FROM review_findings WHERE review_run_id = ?", facts.get("rc_run"))]  # fmt: skip
+    what = [paper_id, facts.get("rc_run"), facts.get("ai_run"), lines, sorted(scope.allowed_document_ids or ()), shown]
     return hashlib.sha256(json.dumps(what, default=str).encode()).hexdigest()
+
+
+def _count(sql: str, run_id: str | None) -> int | None:
+    if not run_id:
+        return None
+    try:
+        return connect().execute(sql, (run_id,)).fetchone()[0]
+    except Exception:  # noqa: BLE001 - no table yet: no lines (the key still differs from a run that has some)
+        return None
 
 
 def current(paper_id: str, scope, listing_raw: tuple) -> dict | None:

@@ -653,9 +653,13 @@ def rule_point(
     # W-H4 / W-H5 (order 14): a stored rule that is not a requirement on the paper (the book's scope, terms, deviations rule, or a
     # sentence that only defines a word), or the AI check's question about the paper's own table that no rule asks: set apart with
     # its reason (rank 8), counted and listed, never a question; its book, clause and words stay on the point
+    # the point's OWN record decides first (lead, review 2 of #1891): a verdict, a value of the paper, an ask of its own: never set apart
+    f = finding or {}
+    own_record = (rank in (1, 2, 3, 5, 6, 7) or f.get("compliance_status") in ("COMPLIANT", "NON_COMPLIANT") or bool(value or paper_q or looked)
+                  or action_source == "check")  # fmt: skip
     not_req = ""
-    if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden and other_kind is None and not missing:
-        not_req = content.not_a_requirement_words(content.rule_text(finding), ctx.get("req_sections", {}).get((finding or {}).get("requirement_id")))
+    if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden and other_kind is None and not missing and not own_record:
+        not_req = content.not_a_requirement_words(f.get("requirement_id"), ctx.get("req_sections", {}).get(f.get("requirement_id")))
     if not_req:  # never "Requirement: ... engineer to check" on a row that is set apart
         rank, other_kind, unproven_ai = 8, content.NOT_A_REQUIREMENT, False
         action, action_source = content.NOT_A_REQUIREMENT_ACTION, "check"

@@ -241,76 +241,112 @@ def test_a_rule_text_cut_where_its_list_begins_carries_a_visible_mark_and_a_quot
 # ------------------------------------------------------------------------------------------------ W-H4: not a requirement to check
 
 
-def test_one_function_sets_apart_only_the_books_top_level_scope_and_deviations_clause_and_a_true_definition():
-    """W-H4 through `rule_text_place.not_a_requirement` (the one function of #1889): a text with a requirement word is never set
-    apart, except a top-level whole-title scope or conflicts-and-deviations clause of the book and a true defining sentence."""
+_N = [0]
+
+
+def _rule(section: str | None, clause: str | None, text: str) -> str:
+    """An invented stored rule under a chunk titled `section`; returns its id."""
+    _N[0] += 1
+    rid, cid = f"req-{_N[0]}", f"chk-{_N[0]}"
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,token_count,content_hash,retrievable)"
+            " VALUES (?,'doc_book','b.pdf',?,1,1,?,'prose','x',1,?,1)",
+            (cid, _N[0], section, f"h-{cid}"),
+        )
+        conn.execute(
+            "INSERT INTO standard_requirements (id,standard_document_id,clause,requirement_text,chunk_id,created_at,updated_at)"
+            " VALUES (?,'doc_book',?,?,?,?,?)",
+            (rid, clause, text, cid, NOW, NOW),
+        )
+    return rid
+
+
+def test_one_function_sets_apart_only_the_books_deviations_clause_and_a_true_definition():
+    """W-H4 through #1889's `rule_text_place.place_of_requirement`: a requirement word keeps a rule a requirement, except the book's
+    top-level conflicts-and-deviations clause and a true defining sentence (lead, review 2 of #1891: a scope clause can oblige)."""
     from app import rule_text_place as rtp
 
-    def why(text, section):
-        return rtp.not_a_requirement(text, chunk=("prose", section, ""))
+    _submittal("doc_book", "b.pdf")
+    conn = db.connect()
+
+    def why(section, clause, text):
+        return rtp.place_of_requirement(conn, _rule(section, clause, text))
 
     assert (
-        why("Where in conflict, the invented standards shall govern.", "1 Scope")
-        == rtp.SCOPE_CLAUSE
-    )
-    assert (
         why(
-            "Any deviation shall follow the invented procedure.",
             "2 Conflicts and Deviations",
+            "2.1",
+            "Any deviation shall follow the invented procedure.",
         )
         == rtp.DEVIATIONS_CLAUSE
     )
     assert (
-        why("Shall: Indicates a mandatory requirement.", "4.2 Terms") == rtp.DEFINITION
+        why("4.2 Terms", "4.2", "Shall: Indicates a mandatory requirement.")
+        == rtp.DEFINITION
     )
     assert (
         why(
-            'For this invented standard, the words "hot fluid" shall mean a fluid above 60 C.',
             "3 Definitions",
+            "3",
+            'For this invented standard, the words "hot fluid" shall mean a fluid above 60 C.',
         )
         == rtp.DEFINITION
     )
-    # a requirement word keeps every other text a requirement (lead, review of #1891)
+    # a requirement word keeps every other rule a requirement: a scope clause, other titles, a stored clause of another clause
     for section in (
+        "1 Scope",
+        "1 Purpose and Scope",
         "7.2 Exceptions",
         "8.4 Deviations",
-        "6.1 Scope",
         "3 Applicability",
-        "1.1 Purpose",
         "3 References",
         "4.2 Terms",
     ):
-        assert why("The invented valve shall close in 10 s.", section) is None, section
+        assert (
+            why(section, section.split()[0], "The invented valve shall close in 10 s.")
+            is None
+        ), section
     assert (
-        why("A trip is defined as a stop. The invented valve shall close.", "5 Design")
+        why("2 Conflicts and Deviations", "4.3", "The invented valve shall close.")
         is None
     )
     assert (
-        why("Invented layers must be independent of each other.", "4.2 Terms") is None
+        why("2 Conflicts and Deviations", None, "Any deviation shall follow X.") is None
+    )  # no stored clause number: never
+    assert (
+        why("4.2 Terms", None, "Shall: Indicates a mandatory requirement.") is None
+    )  # nor a definition with no clause number
+    assert (
+        why(
+            "5 Design",
+            "5.1",
+            "A trip is defined as a stop. The invented valve shall close.",
+        )
+        is None
     )
-    # a rule whose own stored clause is of another top-level clause is not that clause's housekeeping
-    assert rtp.not_a_requirement("The valve shall close.", chunk=("prose", "1 Scope", ""), clause="4.3") is None
-    assert rtp.not_a_requirement("Where in conflict X shall govern.", chunk=("prose", "1 Scope", ""), clause="1.2") == rtp.SCOPE_CLAUSE
 
 
-def test_the_rule_check_sets_such_a_point_apart_with_its_reason_and_no_action_for_the_contractor(
+def test_the_points_own_record_decides_first_and_a_set_apart_point_asks_nothing(
     monkeypatch,
 ):
     from app import review_points as rp
 
+    _submittal("doc_book", "b.pdf")
+    rid = _rule("2 Conflicts and Deviations", "2", "Any deviation shall follow X.")
     row = {
         "row_kind": "clause_review",
         "finding_id": "f1",
         "standard_reference": "BOOK-A",
         "page_section": "",
-        "comment": "x",
+        "comment": "",
     }
-    finding = {"requirement_id": "r1", "standard_document_id": "doc_book", "standard_clause": "2", "requirement": "Any deviation shall follow X.",
+    finding = {"requirement_id": rid, "standard_document_id": "doc_book", "standard_clause": "2", "requirement": "Any deviation shall follow X.",
                "required_action": 'Requirement: "Any deviation shall follow X." Engineer to check.'}  # fmt: skip
     ctx = {
         "readable": frozenset({"doc_book"}),
         "paper_document_id": "doc_p",
-        "req_sections": {"r1": (("prose", "2 Conflicts and Deviations", ""), "2")},
+        "req_sections": {rid: "2 Conflicts and Deviations"},
     }
     monkeypatch.setattr(rp, "clause_unconfirmed", lambda *a, **k: "")
     monkeypatch.setattr(rp, "shown_rule_words", lambda *a, **k: None)
@@ -327,10 +363,13 @@ def test_the_rule_check_sets_such_a_point_apart_with_its_reason_and_no_action_fo
     assert "conflicts-and-deviations" in got[
         "_not_a_requirement"
     ] and "conflicts-and-deviations" in crs_one.apart_proof(got)
-    plain = rp.rule_point(
-        row, {**ctx, "req_sections": {"r1": (("prose", "5 Design", ""), "5")}}, finding, {}
-    )
-    assert plain["rank"] != 8 and not plain["_not_a_requirement"]
+    # its own record decides first: a decided verdict, a value of the paper, an ask of its own: never set apart
+    for over, r in (({"compliance_status": "NON_COMPLIANT"}, row), ({"contractor_evidence_text": "Invented value 5"}, row),
+                    ({}, {**row, "comment": "Invented: state the deviation number on the sheet."})):  # fmt: skip
+        kept = rp.rule_point(
+            r, ctx, {**finding, **over}, {"submittal": {"verified": True, "page": 2}}
+        )
+        assert kept["rank"] != 8 and not kept["_not_a_requirement"], over
 
 
 # ------------------------------------------------------------------------------------------------ W-H5: the AI's note on the paper's own table

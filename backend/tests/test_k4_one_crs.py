@@ -968,7 +968,7 @@ def test_a_file_missing_a_whole_sheet_is_refused_with_a_sentence_never_a_crash(
     assert f"the sheet {name} is missing" in e.value.report["missing"]
 
 
-def test_a_rule_whose_clause_sits_under_the_books_deviations_heading_is_set_apart_on_the_page_and_in_the_file():
+def test_a_rule_whose_clause_sits_under_the_books_deviations_heading_is_set_apart_on_the_page_and_in_the_file(monkeypatch):
     """W-H4 (order 14), through the listing and the file: the clause's own heading (read from the book's stored section title) makes
     it not a requirement: set apart with its reason, still counted (page = database = file)."""
     from app import crs_completeness as cc
@@ -981,9 +981,21 @@ def test_a_rule_whose_clause_sits_under_the_books_deviations_heading_is_set_apar
         )
         conn.execute(
             "INSERT INTO standard_requirements (id,standard_document_id,clause,requirement_text,chunk_id,created_at,updated_at)"
-            " VALUES ('req-dev','doc_std','2','Any deviation shall follow the invented procedure.','c-dev','2026-09-19','2026-09-19')"
+            " VALUES ('req-dev','doc_std','2.1','Any deviation shall follow the invented procedure.','c-dev','2026-09-19','2026-09-19')"
         )
-        conn.execute("UPDATE review_findings SET requirement_id = 'req-dev' WHERE review_run_id = ?", (rc,))
+        # a finding with no verdict, no value of the paper and no ask of its own (its own record decides first)
+        conn.execute(
+            "UPDATE review_findings SET requirement_id = 'req-dev', compliance_status = 'NEEDS_ENGINEER_REVIEW', contractor_evidence_text = NULL"
+            " WHERE review_run_id = ?",
+            (rc,),
+        )
+    listing = points_of(client, doc)
+    rule = next(p for p in listing["points"] if p["source"] == "rule_check")
+    assert rule["rank"] != 8  # the invented row asks the contractor something of its own: its own record decides first
+    from app import review_points_content
+
+    real = review_points_content.action_of
+    monkeypatch.setattr(review_points_content, "action_of", lambda *a, **k: ("", "") if real(*a, **k)[1] == "check" else real(*a, **k))
     listing = points_of(client, doc)
     rule = next(p for p in listing["points"] if p["source"] == "rule_check")
     assert rule["rank"] == 8 and rule["other_kind"] == "Not a requirement to check"
@@ -1004,6 +1016,9 @@ def test_the_page_block_is_built_once_per_list_and_a_check_that_cannot_run_never
     other = next(p for p in points_of(client, doc)["points"] if p["source"] == "ai_review")
     assert decide(client, doc, other["id"], "keep").status_code == 200
     assert len(calls) == 2  # a decision changes the list: checked again
+    monkeypatch.setattr(cc, "_count", lambda sql, run: 99)  # a line stored after the run, with the list unchanged: checked again
+    points_of(client, doc)
+    assert len(calls) == 3
 
     def broken(*a, **k):
         raise RuntimeError("invented build failure")

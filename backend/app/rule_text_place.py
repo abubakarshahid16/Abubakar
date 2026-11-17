@@ -15,7 +15,7 @@ a topic or another book. It obliges nothing, so it is never the rule a paper is 
 A REAL REQUIREMENT IS NEVER LOST: a text that holds a requirement word ("shall", "must", "should", "required", a limit word) is a
 requirement wherever it sits, so none of the three tests applies to it (lead, review of PR #1889). Reads only; no model, no network. Shared with the procedure
 review (scope and definition clauses are the same family: `not_a_requirement` is the one home to extend). W-H4 (order 14) adds
-the ONE narrow exception: a top-level scope or conflicts-and-deviations clause of the book, and a true defining sentence (`housekeeping`).
+ONE narrow exception before the guard of `place_of_requirement`: a top-level conflicts-and-deviations clause, a true definition.
 """
 
 from __future__ import annotations
@@ -132,12 +132,16 @@ def place_of_requirement(conn, requirement_id) -> str | None:
     if not requirement_id:
         return None
     r = conn.execute(
-        "SELECT r.requirement_text, r.source_text, c.kind, c.section, c.context FROM standard_requirements r"
+        "SELECT r.requirement_text, r.source_text, r.clause, c.kind, c.section, c.context FROM standard_requirements r"
         " LEFT JOIN chunks c ON c.id = r.chunk_id WHERE r.id = ?",
         (requirement_id,),
     ).fetchone()
     if r is None:
         return None
+    if place := housekeeping((r["source_text"], r["requirement_text"]), r["section"], r["clause"]):  # W-H4: the one exception
+        return place
+    if any(is_requirement_text(x) for x in (r["source_text"], r["requirement_text"])):
+        return None  # every stored text of the rule is read: a requirement word in any of them and it is a requirement
     return not_a_requirement(
         r["source_text"] or r["requirement_text"],
         chunk=(r["kind"], r["section"], r["context"]),
@@ -145,16 +149,12 @@ def place_of_requirement(conn, requirement_id) -> str | None:
 
 
 def not_a_requirement(
-    text, *, chunk=None, conn=None, book_id=None, page=None, clause=None
+    text, *, chunk=None, conn=None, book_id=None, page=None
 ) -> str | None:
     """THE decision (W-D7): what the text is when it is a contents entry or a reference-list entry, else None. A text holding a
     requirement word is never one (no real requirement is lost). `chunk` (kind, section, context) is where the library stored it;
     with `conn`, `book_id` and `page`, the quote is looked up on its book page."""
-    if not str(text or "").strip():
-        return None
-    if place := housekeeping(text, chunk, clause):  # W-H4: the one narrow exception to the rule below
-        return place
-    if is_requirement_text(text):
+    if not str(text or "").strip() or is_requirement_text(text):
         return None
     if chunk and (place := place_of_chunk(*chunk)):
         return place
@@ -165,30 +165,29 @@ def not_a_requirement(
 
 # ------------------------------------------------------------------------------------------------ W-H4: the book's own housekeeping
 
-SCOPE_CLAUSE = "the rule book's own scope clause"
 DEVIATIONS_CLAUSE = "the rule book's own conflicts-and-deviations clause"
 DEFINITION = "a sentence that defines a word"
-#: A TOP-LEVEL clause of the book whose WHOLE title is its scope or its conflicts-and-deviations rule ("1 Scope", "2 Conflicts and
-#: Deviations"): it says what the book covers and how to deviate from it, never what a paper must hold. A sub-clause ("4.1 Scope"),
-#: another title ("3 Applicability", "7.2 Exceptions", "8.4 Deviations") or a title with more words is not one.
-_HOUSEKEEPING_TITLE = re.compile(
-    r"^\s*\d+\.?\s+(?:(?P<scope>purpose\s+and\s+scope|scope\s+and\s+purpose|scope)|conflicts\s+and\s+deviations)\s*:?\s*$",
-    re.IGNORECASE,
-)
+#: A TOP-LEVEL clause of the book whose WHOLE title is its conflicts-and-deviations rule ("2 Conflicts and Deviations"): it says how
+#: to deviate from the book, never what a paper must hold. A sub-clause ("8.4 Deviations"), another title ("7.2 Exceptions") or a
+#: scope clause (it can hold real obligations: lead, review 2 of PR #1891) is not one.
+_DEVIATIONS_TITLE = re.compile(r"^\s*(\d+)\.?\s+conflicts\s+and\s+deviations\s*:?\s*$", re.IGNORECASE)
 
 
-def housekeeping(text, chunk=None, clause=None) -> str | None:
-    """W-H4 (order 14): the ONE exception to "a text with a requirement word is never set apart": the text sits in a top-level
-    scope or conflicts-and-deviations clause of its book (`_HOUSEKEEPING_TITLE`, the chunk's own section title), or it is a true
-    defining sentence (`defines_a_word`). A stored clause number of another top-level clause (`clause`) keeps it a requirement.
-    Else None."""
-    section = chunk[1] if chunk and len(chunk) > 1 else None
-    found = _HOUSEKEEPING_TITLE.match(str(section or ""))
-    if found and clause and str(clause).strip().split(".")[0] != str(section).split()[0].rstrip("."):
-        found = None
-    if found:
-        return SCOPE_CLAUSE if found.group("scope") else DEVIATIONS_CLAUSE
-    return DEFINITION if defines_a_word(text) else None
+def housekeeping(texts, section, clause) -> str | None:
+    """W-H4 (order 14): the ONE exception, applied before the guard that a requirement word makes a requirement: the stored rule
+    sits in its book's top-level conflicts-and-deviations clause (its own clause number in that clause), or every stored text of it
+    is a true defining sentence or obliges nothing, one of them defining (`defines_a_word`). A rule with no stored clause number is
+    never set apart here. Else None."""
+    clause = str(clause or "").strip()
+    texts = [str(t) for t in texts if str(t or "").strip()]
+    if not clause or not texts:
+        return None
+    found = _DEVIATIONS_TITLE.match(str(section or ""))
+    if found and clause.split(".")[0] == found.group(1):
+        return DEVIATIONS_CLAUSE
+    if any(defines_a_word(t) for t in texts) and all(defines_a_word(t) or not is_requirement_text(t) for t in texts):
+        return DEFINITION
+    return None
 
 
 def defines_a_word(text) -> bool:

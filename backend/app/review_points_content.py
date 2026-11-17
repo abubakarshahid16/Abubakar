@@ -191,17 +191,17 @@ NOT_A_REQUIREMENT = "Not a requirement to check"
 NOT_A_REQUIREMENT_ACTION = "Nothing for the contractor to do: this is not a requirement on the paper (see the reason)."
 
 
-def not_a_requirement_words(text: str | None, where: tuple | None) -> str:
+def not_a_requirement_words(requirement_id: str | None, section: str | None) -> str:
     """W-H4 (order 14): the reason, in words, why a stored rule is not a requirement to check against a paper, or "". The decision is
-    the ONE function `rule_text_place.not_a_requirement` (a text with a requirement word is never set apart, except the book's own
-    top-level scope or conflicts-and-deviations clause and a true defining sentence); this only words it, with the section title."""
+    the ONE function of where a rule's text sits (`rule_text_place.place_of_requirement`: a requirement word keeps it a requirement,
+    except the book's top-level conflicts-and-deviations clause and a true definition); this only words it, with the section title."""
     from . import rule_text_place
+    from .db import connect
 
-    chunk, clause = where or (None, None)  # (the chunk's kind, section, heading chain), the stored clause number
-    place = rule_text_place.not_a_requirement(text, chunk=chunk, clause=clause)
+    place = rule_text_place.place_of_requirement(connect(), requirement_id) if requirement_id else None
     if not place:
         return ""
-    title = " ".join(str((chunk or (None, None))[1] or "").split())
+    title = " ".join(str(section or "").split())
     return f'{place} (section "{title}"), not a requirement on the paper' if title else f"{place}, not a requirement on the paper"
 
 
