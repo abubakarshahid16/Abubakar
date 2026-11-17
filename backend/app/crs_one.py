@@ -46,6 +46,7 @@ from . import review_points as rp
 from . import review_points_content as content
 from .agent_run_crs import _cell
 from .crs_ai_actions import reason_for
+from .crs_comments import comment_page_words, point_page_words
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -249,7 +250,7 @@ def row_of(n: int, point: dict, comment: int | str | None = None) -> tuple[list,
     )
     cells = [
         n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""), point.get("priority") or None,
-        point.get("name"), point.get("page") or NOT_RECORDED, books or no_rule_words([point]), point.get("clause"), shown["action"] or None,
+        point.get("name"), point_page_words(point) or NOT_RECORDED, books or no_rule_words([point]), point.get("clause"), shown["action"] or None,
         shown["paper_shows"], point.get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, point.get("checked_by") or None, decision_words(point), group_words(point) or None,
         first, second, agreed, "\n".join(full) or None,
     ]  # fmt: skip
@@ -657,7 +658,7 @@ def comment_full_texts(c: dict, by_id: dict | None = None) -> dict[str, str]:
     out["clauses"] = "; ".join(
         " ".join(
             x
-            for x in (k["book"], k["clause"], f"(p.{k['page']})" if k["page"] else "")
+            for x in (k["book"], k["clause"], f"(p.{point_page_words(k)})" if k["page"] else "")
             if x
         )
         for k in c["clauses"]
@@ -697,7 +698,7 @@ def comment_cells(c: dict, by_id: dict) -> tuple[list, int]:
     decided = sum(1 for p in ms if (p.get("decision") or {}).get("state"))
     cells = [
         c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), highest_priority(ms) or None, c["name"], c["n_points"],
-        ", ".join(str(x) for x in c["pages"]) or NOT_RECORDED, shown["clauses"] or None, shown["action"] or None,
+        comment_page_words(c) or NOT_RECORDED, shown["clauses"] or None, shown["action"] or None,
         shown["paper_shows"], c["strongest"].get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, c["strongest"].get("checked_by") or None, f"{decided} of {len(ms)} decided",
         shown["note"] or None, "\n".join(full) or None,
     ]  # fmt: skip
@@ -821,12 +822,12 @@ def build_team(
     )  # fmt: skip
     _sheet_table(
         wb, REMOVED_SHEET, ("No", "Field or item", "Page", "Removed by", "When", "Why"),
-        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("page"), (p["decision"].get("by") or NOT_RECORDED), p["decision"].get("at") or NOT_RECORDED, p["decision"].get("reason") or NOT_RECORDED)] for p in removed],
+        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), point_page_words(p), (p["decision"].get("by") or NOT_RECORDED), p["decision"].get("at") or NOT_RECORDED, p["decision"].get("reason") or NOT_RECORDED)] for p in removed],
         (6, 40, 8, 22, 22, 60), note="Points an engineer removed. They stay in the record and are counted in the line above the sheet CRS.",
     )  # fmt: skip
     _sheet_table(
         wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses", "Class of each point"),
-        [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), ", ".join(str(g) for g in x["pages"]) or None,
+        [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), comment_page_words(x),
                              comment_full_texts(x)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]))] for x, kind in aside],
         (40, 28, 8, 20, 12, 60, 50),
         note=f"{aside_line(aside)} Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
@@ -841,7 +842,7 @@ def build_team(
     dna = [p for p in raw if p.get("rank") == 8]
     _sheet_table(
         wb, DNA_SHEET, ("No on the sheet Evidence", "Field or item", "What it is", "Page"),
-        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("other_kind") or words.KIND_NOT_APPLICABLE, p.get("page"))] for p in dna],
+        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), p.get("other_kind") or words.KIND_NOT_APPLICABLE, point_page_words(p))] for p in dna],
         (12, 48, 30, 8), note="These points are also rows of the sheet Evidence (they are counted on the page); listed here by themselves.",
     )  # fmt: skip
     held = extra.get("not_held") or []
@@ -967,7 +968,7 @@ def build_contractor(
                 for c in (
                     n,
                     paper,
-                    f"p.{p['page']}" if p.get("page") else NOT_RECORDED,
+                    f"p.{point_page_words(p)}" if p.get("page") else NOT_RECORDED,
                     "\n".join(x for x in parts if x),
                     ref.strip() or None,
                     "High" if status == "Fail" else None,

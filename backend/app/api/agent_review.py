@@ -582,9 +582,11 @@ def _general_trace(item_id: str, line: dict, reason: str) -> contract.AgentTrace
     steps.append(
         ("decision", str(line.get("word") or ""), str(line.get("subkind") or ""))
     )
-    page = q_a.get("page")
+    # the one page of a line: the trace, the page and every CRS agree
+    from ..agent_review_crs import line_page
+
     return contract.AgentTrace(
-        item_id=item_id, page=page if isinstance(page, int) and page >= 1 else None,
+        item_id=item_id, page=line_page(line),
         paper_quote=str(q_a.get("text") or ""), rule_quote="", rule_book=str(line.get("rule_book") or ""), clause="",
         model=", ".join(line.get("second_model") or []), reason=reason,
         gate=[contract.AgentGateStep(step=a, outcome=b, reason=c) for a, b, c in steps],
