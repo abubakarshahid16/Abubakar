@@ -454,12 +454,21 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     grouped = crs_comments.group(points)  # P2: the SAME function the CRS file uses, so the page and the file show the same comments
     listing["comments"] = [crs_comments.public(c) for c in grouped]
     listing["comment_count"] = len(grouped)
-    listing["completeness"] = crs_completeness.stored_latest(rc_run, ai_run)  # the three counts of the last review: the page says when they differ
+    listing["completeness"] = None  # W-H9: filled by `assemble` from the live check (`crs_completeness.current`), the one source
     facts = {"names": names, "not_held": not_held, "ai_run": ai_run, "rc_run": rc_run}
     return listing, points, {**facts, **online}
 
 
 def assemble(paper_id: str, scope) -> dict:
+    """The page's listing, with the completeness block from the SAME check the check route and the download run (W-H9)."""
+    got = _assemble(paper_id, scope)
+    listing = got[0]
+    listing["completeness"] = crs_completeness.current(paper_id, scope, got)
+    return listing
+
+
+def assemble_unchecked(paper_id: str, scope) -> dict:
+    """The listing without the completeness check: only for finding a point before a decision is written (never served)."""
     return _assemble(paper_id, scope)[0]
 
 

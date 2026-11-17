@@ -500,12 +500,13 @@ def verify(
     return report
 
 
-def checked_files(paper_id: str, scope) -> dict:
-    """Both files built ONCE, each checked: {"team": (bytes, report), "contractor": (bytes, report)}. Reads only."""
+def checked_files(paper_id: str, scope, listing_raw: tuple | None = None) -> dict:
+    """Both files built ONCE, each checked: {"team": (bytes, report), "contractor": (bytes, report)}. Reads only. `listing_raw`: the
+    listing already assembled for this caller (the page's own), so the page and the check count the same list."""
     from . import crs_one
     from . import review_points_service as svc
 
-    listing, raw, facts = svc.export_listing(paper_id, scope)
+    listing, raw, facts = listing_raw or svc.export_listing(paper_id, scope)
     out = {}
     for copy, build in (
         ("team", crs_one.build_team),
@@ -724,6 +725,28 @@ def stored(run_id: str | None) -> dict | None:
         "ok": bool(row["ok"]), "page": row["page"], "database": row["database_lines"], "team_rows": row["team_rows"],
         "contractor_rows": row["contractor_rows"], "missing": missing, "sentence": (bad or [None])[0], "checked_at": row["checked_at"],
     }  # fmt: skip
+
+
+def summary(team: dict, contractor: dict) -> dict:
+    """The page's block, in the shape `stored` gives, from the two reports of ONE check."""
+    missing = list(dict.fromkeys([*team.get("missing", []), *contractor.get("missing", [])]))
+    bad = [r.get("sentence") for r in (team, contractor) if not r.get("ok", True)]
+    return {
+        "ok": bool(team.get("ok") and contractor.get("ok")), "page": team["page"], "database": team["database"]["total"],
+        "team_rows": team["rows_in_file"], "contractor_rows": contractor["rows_in_file"], "missing": missing,
+        "sentence": (bad or [None])[0], "checked_at": team["checked_at"],
+    }  # fmt: skip
+
+
+def current(paper_id: str, scope, listing_raw: tuple) -> dict | None:
+    """W-H9 (order 14): THE ONE SOURCE of the page's three counts: the same check as `GET .../crs/check` and the download, run on the
+    list the page shows now. A result stored with a run (`stored`) is a record of that moment; the paper's list can change after it
+    (another run, a decision, a newer build), so the page never shows it as today's counts. None for a paper never reviewed (the page
+    offers a review; nothing to count)."""
+    if not_reviewed(listing_raw[1], listing_raw[2]):
+        return None
+    got = checked_files(paper_id, scope, listing_raw)
+    return summary(got["team"][1], got["contractor"][1])
 
 
 def stored_latest(*run_ids: str | None) -> dict | None:

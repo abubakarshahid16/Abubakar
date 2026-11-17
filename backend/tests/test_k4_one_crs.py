@@ -889,6 +889,23 @@ def test_the_page_says_when_the_three_counts_differ_and_names_the_missing_point(
     )
 
 
+def test_the_page_block_shows_the_counts_of_the_check_route_not_an_older_stored_result():
+    """W-H9 (order 14): the run stored its counts when it ended; the paper's list grew after (an added point). The page's block is the
+    check route's numbers, never the older record."""
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    before = cc.record_after_run(ai)["team"]["page"]
+    got = client.post(f"/api/reviews/papers/{doc}/points/add", json={"text": "Invented added point", "page": 1})
+    assert got.status_code == 200, got.text
+    check = client.get(f"/api/reviews/papers/{doc}/crs/check").json()
+    page = points_of(client, doc)["completeness"]
+    assert check["team"]["page"] == before + 1
+    assert (page["page"], page["database"], page["team_rows"], page["contractor_rows"]) == (
+        check["team"]["page"], check["team"]["database"]["total"], check["team"]["rows_in_file"], check["contractor"]["rows_in_file"],
+    )  # fmt: skip
+
+
 def test_a_point_on_the_page_that_is_not_in_the_database_is_named(monkeypatch):
     from app import crs_completeness as cc
 

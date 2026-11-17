@@ -327,7 +327,7 @@ def decide_point(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     _not_in_section(listing, body.point_id)
     _decide(listing, document_id, body, actor)
     return svc.assemble(document_id, scope)
@@ -348,7 +348,7 @@ def keep_points(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     for pid in body.point_ids:  # all-or-nothing on the ids: an unknown one refuses the whole click before anything is written
         _not_in_section(listing, pid)
     for pid in body.point_ids:
@@ -403,7 +403,7 @@ def confirm_not_applicable(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     already = 0
     for pid in body.point_ids:
         _to_confirm(listing, pid)
@@ -431,7 +431,7 @@ def undo_not_applicable(
     actor = _actor(scope)
     reject_unknown_params(request, set())
     require_document(document_id, scope)
-    listing = svc.assemble(document_id, scope)
+    listing = svc.assemble_unchecked(document_id, scope)
     _to_confirm(listing, body.point_id)
     try:
         dec.undo(document_id, body.point_id, actor=actor)
