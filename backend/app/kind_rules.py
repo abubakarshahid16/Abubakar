@@ -7,8 +7,10 @@ standard never gets an equipment datasheet checklist or an equipment-type
 today's behaviour and are marked. A kind only NARROWS what is applied (rule 5):
 nothing here adds a standard or reads another document.
 
-Behind `settings.kind_chooses_rules_enabled`, OFF by default: off, every
-function here answers "not blocked" and the review is exactly as before.
+Behind `settings.kind_chooses_rules_enabled`, ON by default (the switch expires
+26 Nov 2026; removing it must keep the ON behaviour): off, every function here
+answers "not blocked" and the review is as it was before #1474. The books our
+rule sorting tagged for the equipment (LPB) are equipment-type books here too.
 """
 
 from __future__ import annotations
