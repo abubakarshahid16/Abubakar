@@ -28,6 +28,7 @@ from typing import Any
 
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
+from . import ai_text_whole
 from . import crs_ai_words as words
 from .agent_review_local import LOCAL_TOO_LONG, NOT_ASKED_WORDS
 from . import numparse
@@ -71,8 +72,6 @@ OLD_HEADERS = (
     "Item No", "Document Name", "Page No./Section", "COMPANY Comments", "Comment By", "Contractor's Response",
     "Final Resolution", "Standard Reference", "Priority", "AI Review Comments",
 )  # fmt: skip
-MAX_REASON_SENTENCES = 2
-MAX_REASON_WORDS = 60
 MAX_COMMENT_WORDS = 40
 
 
@@ -80,14 +79,10 @@ def _clean(text: Any) -> str:
     return " ".join(str(text or "").split())
 
 
-def two_sentences(text: Any) -> str:
-    """The AI's reasoning cut to at most two sentences and MAX_REASON_WORDS words."""
-    parts = re.split(r"(?<=[.!?])\s+", _clean(text))
-    out = " ".join(p for p in parts[:MAX_REASON_SENTENCES] if p)
-    words = out.split()
-    if len(words) > MAX_REASON_WORDS:
-        out = " ".join(words[:MAX_REASON_WORDS]).rstrip(".,;") + "."
-    return out
+def whole_reasoning(text: Any) -> str:
+    """The AI's reasoning WHOLE, spaces made single (order 14 W-C6: it was cut to two "sentences" and 60 words, and the split at
+    "e.g." cut it mid-sentence with no mark; completeness rule 3: a stored text is never cut)."""
+    return ai_text_whole.whole(text)
 
 
 def _sentence(text: Any, limit: int = MAX_COMMENT_WORDS) -> str:
@@ -263,10 +258,19 @@ def is_not_applicable(line: Mapping) -> bool:
     )  # N9: a line the exit made a plain Query (class Query) is on the Query side
 
 
+def general_not_reviewed(line: Mapping) -> bool:
+    """A general review's "Not reviewed" line: a part of the review that did not run, written by code (order 14 W-C3). It is a
+    status, never a question for the engineer or the contractor. Only code writes that class (`agent_general_parts.not_reviewed`
+    and the parts' own "did not run" lines); the single exit refuses any other class word."""
+    from .agent_general_review import CLASS_NOT_REVIEWED as GENERAL_NOT_REVIEWED
+
+    return bool(line.get("general")) and line.get("verdict_class") == GENERAL_NOT_REVIEWED
+
+
 def sheet_of(line: Mapping) -> str:
     """THE one decision of which sheet of the internal copy a line is on. Every sheet's rows and every printed count
     (`sheet_rows`, `held_ai_pass`, `query_not_applicable`, the Run sheet) come from it: a line is on exactly one sheet."""
-    if wording.is_not_reviewed(line):
+    if wording.is_not_reviewed(line) or general_not_reviewed(line):
         return NOT_REVIEWED_SHEET
     if wording.is_unapproved(line):
         return UNAPPROVED_SHEET

@@ -26,6 +26,7 @@ from app import (
     agent_review_gate,
     agent_review_jobs,
     agent_review_kind,
+    ai_text_whole,
     claude_approved,
     claude_spend,
     db,
@@ -1141,7 +1142,8 @@ def test_a_cut_off_answer_is_not_reviewed_with_its_error_code_never_a_verdict(wo
     assert lines and {ln["verdict_class"] for ln in lines if ln["part"] != 1} == {
         core.CLASS_NOT_REVIEWED
     } - {None} | {core.CLASS_NOT_REVIEWED}
-    assert any("stop_max_tokens" in ln["text"] for ln in lines)
+    # order 14 W-C6: the cut-off answer is said in plain words (it was the bare code "stop_max_tokens")
+    assert any(ai_text_whole.REPLY_CUT in ln["text"] for ln in lines)
     assert g.failures > 0 and not [
         ln for ln in lines if ln["verdict_class"] in (core.CLASS_NOTE,)
     ]

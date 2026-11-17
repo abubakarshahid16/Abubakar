@@ -728,6 +728,7 @@ class LocalEngine:
         if answer.get("done_reason") == "length":
             exc = agent_claude.AgentBadReply("stop_max_tokens")
             exc.usd = 0.0
+            exc.received = text  # order 14 W-C6: kept, marked, in the run's record by a caller that keeps one; never used
             raise exc
         answered = answer.get("model")
         return {

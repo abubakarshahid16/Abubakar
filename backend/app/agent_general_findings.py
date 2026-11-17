@@ -33,8 +33,8 @@ GROUP_TOKENS = 8_000  # small project papers are asked together up to this size
 MAX_FINDINGS_P3 = 30  # per window: findings beyond it are counted, never reviewed
 MAX_FINDINGS_P4 = 15  # per call
 MAX_COMMENTS_P5 = 10  # per RUN
-MAX_WORDS_WHAT = 25
-MAX_WORDS_NOTE = 40
+MAX_WORDS_WHAT = 25  # the prompt asks at most this many words; a longer answer is stored WHOLE (order 14 W-C6), never cut
+MAX_WORDS_NOTE = 40  # the same: asked in the prompt, never enforced by a cut
 MAX_TOKENS_P3, MAX_TOKENS_P4, MAX_TOKENS_P5, MAX_TOKENS_REVIEW = 6000, 4000, 3000, 1500
 
 KINDS_P3 = ("disagreement", "broken_reference", "open_action", "count_mismatch")
@@ -290,7 +290,7 @@ class FindingsMixin:
             self.dropped.add(3, "the same quote twice")
             return None
         sev = str(f.get("severity") or "").strip().lower()
-        what = core.words_cut(f.get("what"), MAX_WORDS_WHAT)
+        what = core.whole_words(f.get("what"))
         return {"kind": f["kind"], "quote_a": qa, "quote_b": qb, "what": what, "claims_missing": core.claims_missing(f.get("claims_missing"), what),
                 "severity": sev if sev in SEVERITIES else "not given"}  # fmt: skip
 
@@ -476,7 +476,7 @@ class FindingsMixin:
         if f["kind"] == "silent":
             qp = None  # silence has no paper quote
         return {"kind": f["kind"], "document": d, "quote_paper": qp, "quote_other": qo,
-                "what": core.words_cut(f.get("what"), MAX_WORDS_WHAT)}  # fmt: skip
+                "what": core.whole_words(f.get("what"))}  # fmt: skip
 
     def review_job_p4(self, s: dict) -> Callable[[], tuple[bool, str, bool | None]]:
         def job() -> tuple[bool, str, bool | None]:
@@ -503,7 +503,7 @@ class FindingsMixin:
         """One comment into a line; False (and counted) when it is malformed, unverified or a repeat."""
         q = self.quote_of(c.get("quote")) if isinstance(c, dict) else None
         text = (
-            core.words_cut(c.get("comment"), MAX_WORDS_NOTE)
+            core.whole_words(c.get("comment"))
             if isinstance(c, dict)
             else ""
         )

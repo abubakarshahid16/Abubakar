@@ -406,6 +406,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         or (_plain(arc.against(line)) if book_name else "")
         or "A point of the AI review"
     )
+    if arc.general_not_reviewed(line):  # order 14 W-C3: a part that did not run says which and why, never a bare question
+        from .agent_general_review import not_reviewed_words
+
+        name = not_reviewed_words(line)
     # The reason is part of the group key: points asked for different reasons (value blank, values conflict, held for a condition)
     # are never one group, so "Keep all" never decides them unseen.
     reason = line.get("reason_code") or line.get("not_proven_reason") or ""
@@ -490,6 +494,21 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "_book_docs": [book_doc] if book_doc else [],
         "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
     }
+
+
+def _page_proven(finding: dict, page: int, ctx: dict) -> bool:
+    """The page of a rule-check finding is shown only when code proved it (`ai_engineering_check.page_verified`)."""
+    from . import ai_engineering_check
+    from .db import connect
+
+    if finding.get("origin") != ai_engineering_check.ORIGIN:
+        return True
+    texts = ctx.setdefault("_page_texts", {})
+    doc = finding.get("document_id") or ctx.get("paper_document_id")
+    if (doc, page) not in texts:
+        row = connect().execute("SELECT text FROM pages WHERE document_id = ? AND page_no = ?", (doc, page)).fetchone()
+        texts[(doc, page)] = row[0] if row else ""
+    return ai_engineering_check.page_verified(finding, texts[(doc, page)])
 
 
 def _view_page(document_id: str | None, page) -> dict | None:
@@ -615,6 +634,8 @@ def rule_point(
     )
     if page is None and finding:  # the finding's own page of the paper (only a finding the caller may read reaches here)
         page = content.paper_value(finding)[1]
+    if page is not None and finding and not _page_proven(finding, page, ctx):
+        page = None  # order 14 W-C9: a page an AI step named that code did not prove is never shown as THE page ("page not recorded")
     value, value_page = content.paper_value(finding)
     # a hidden book's point: the check's own comment only (no fallback to the finding's or the AI's words, which can quote the requirement)
     if finding and finding.get("requirement_id"):  # lane C's re-read: never the old clause of a superseded requirement

@@ -276,7 +276,8 @@ def test_reader_columns_come_from_the_stored_line_and_one_reader_is_said_once():
         for p in review_points_service.export_listing(doc, scope_all())[1]
         if p["source"] == "rule_check"
     )
-    assert crs_one.readers_of(rc_point)[0] == "the rule check (code)"
+    # order 14 W-C8: the one name of the part that raised it, the same words as Checked by (it said "the rule check (code)" for an AI step)
+    assert crs_one.readers_of(rc_point)[0] == crs_one.content.reader_words(rc_point["checked_by"])
 
 
 # ------------------------------------------------------------------------------------------------ the stored class wins
@@ -356,12 +357,15 @@ def test_every_stored_run_of_the_data_copy_has_equal_counts(monkeypatch, tmp_pat
         got = cc.checked_files(
             doc, scope
         )  # three counts agree, and no cell ends cut without the mark and its full text
-        assert got["team"][1]["ok"] and got["contractor"][1]["ok"], (
-            doc,
-            got["team"][1]["sentence"],
-            got["contractor"][1]["sentence"],
-        )
-        assert got["team"][1]["cut_problems"] == 0
+        # order 14 W-C6: this copy predates whole-text storage; a line stored cut is now REPORTED (the check could not see it before),
+        # and its whole text is in the run's record (`scripts/restore_whole_ai_text.py`). Every other difference is still refused.
+        stored_cut = "was stored cut before this file"
+        for copy in ("team", "contractor"):
+            rep = got[copy][1]
+            assert rep["page"] == rep["database"]["total"] == rep["accounted"], (doc, copy)
+            assert [m for m in rep["missing"] if stored_cut not in m] == [], (doc, rep["sentence"])
+        team_cuts = [m for m in got["team"][1]["missing"] if stored_cut in m]
+        assert got["team"][1]["cut_problems"] == len(team_cuts)
         checked += 1
     db.reset_connection()
     assert checked == len(papers)
@@ -505,7 +509,8 @@ def test_the_engine_of_a_run_with_no_model_name_is_not_recorded():
         conn.execute("UPDATE review_runs SET model_name = NULL WHERE id = ?", (rc,))
     _l, _raw, extra = review_points_service.export_listing(doc, scope_all())
     rule = next(r for r in crs_one._run_facts(extra) if r["what"] == "Rule check")
-    assert rule["engine"] == crs_one.NOT_RECORDED
+    # order 14 W-C8: the rule check is code; only the engine of its AI steps is not recorded
+    assert rule["engine"] == "code; the engine of its AI steps is not recorded" and crs_one.NOT_RECORDED in rule["engine"]
 
 
 # ------------------------------------------------------------------------------------------------ completeness is a hard rule
@@ -949,3 +954,25 @@ def test_a_file_missing_a_whole_sheet_is_refused_with_a_sentence_never_a_crash(
     with pytest.raises(cc.Incomplete) as e:
         cc.file_or_refuse(doc, scope_all(), copy)
     assert f"the sheet {name} is missing" in e.value.report["missing"]
+
+
+def test_a_line_stored_cut_before_the_file_refuses_both_files_and_names_it():
+    """Order 14 W-C6: an AI text cut when its line was stored is invisible to the file's own cells; the check reads the run's record."""
+    import json
+
+    from app import agent_review_jobs
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    whole = "The invented sheet names the set pressure. The margin (e.g. 10 per cent) is not shown, so it is not checked."
+    with db.connect() as conn:
+        line = json.loads(conn.execute("SELECT line_json FROM agent_review_line WHERE run_id = ? AND item_id = 'R-8'", (ai,)).fetchone()[0])
+        conn.execute("UPDATE agent_review_line SET line_json = ? WHERE run_id = ? AND item_id = 'R-8'",
+                     (json.dumps({**line, "reasoning": "The invented sheet names the set pressure. The margin (e.g."}), ai))  # fmt: skip
+    folder = agent_review_jobs.run_dir(ai)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "trace.jsonl").write_text(json.dumps({"type": "item", "item_id": "R-8", "lead_answer": {"reasoning": whole}}) + "\n")
+    got = cc.checked_files(doc, scope_all())
+    for copy in ("team", "contractor"):
+        rep = got[copy][1]
+        assert not rep["ok"] and any("R-8 was stored cut before this file" in m for m in rep["missing"])

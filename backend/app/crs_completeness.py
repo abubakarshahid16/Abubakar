@@ -25,6 +25,7 @@ from io import BytesIO
 
 from openpyxl import load_workbook
 
+from . import ai_text_whole
 from . import review_point_decisions as decisions_mod
 from .db import connect
 
@@ -102,9 +103,29 @@ class Incomplete(Exception):
 # ------------------------------------------------------------------------------------------------ the one statement
 
 
-def team_statement(n: int, comments: int | None = None) -> str:
+def team_statement(n: int, comments: int | None = None, split: dict | None = None) -> str:
+    """Sheet 1's count line. With `split` (`review_split`, the ONE count of what was reviewed): when some points were not reviewed
+    or not checked, it says so instead of calling them all reviewed (order 14 W-C5)."""
     as_comments = f", as {comments} comments" if comments is not None else ""
-    return f"{n} points reviewed, {n} in this file{as_comments}"
+    if not split or split["reviewed"] == n:
+        return f"{n} points reviewed, {n} in this file{as_comments}"
+    parts = [f"{split['reviewed']} reviewed"]
+    if split["not_reviewed"]:
+        parts.append(f"{split['not_reviewed']} not reviewed (a part of the review that did not run)")
+    if split["not_checked"]:
+        parts.append(f"{split['not_checked']} not checked (rule book not held)")
+    return f"{n} points in this review, {n} in this file{as_comments}: " + "; ".join(parts)
+
+
+def review_split(raw: list[dict]) -> dict[str, int]:
+    """THE count of the page's points by what happened to them (order 14 W-C5): not reviewed (a status: a part that did not run),
+    not checked (the point marks its rule book not held), reviewed (every other point). Adds up to the page's points."""
+    from . import crs_ai_words as words
+    from . import review_points as rp
+
+    not_reviewed = sum(1 for p in raw if p.get("other_kind") == words.KIND_NOT_REVIEWED)
+    not_checked = sum(1 for p in raw if p.get("other_kind") != words.KIND_NOT_REVIEWED and rp._books_marked(p))
+    return {"reviewed": len(raw) - not_reviewed - not_checked, "not_reviewed": not_reviewed, "not_checked": not_checked}
 
 
 def contractor_statement(n: int, m: int, reasons: dict[str, int]) -> str:
@@ -321,7 +342,16 @@ def _reasoning_cuts(head: list, rows: list, by_no: dict) -> list[str]:
             out.append(
                 f"row {r[0]}: the AI reviewer's reasoning is shortened or changed"
             )
+        elif left := words_left_out(by_no[r[0]], want):
+            out.append(f"row {r[0]}: {left} sentence(s) of the AI reviewer's reasoning are cut without the mark")
     return out
+
+
+def words_left_out(point: dict, shown: str) -> int:
+    """Sentences of the line's STORED reasoning missing from the shown cell without their mark (order 14 W-C6): the cell is checked
+    against what the AI said, not against the point's own copy of the cell. 0 for an empty cell (a field removed by design)."""
+    line = point.get("_line") or {}
+    return ai_text_whole.reasoning_left_out(line.get("reasoning"), shown) if shown and line.get("reasoning") else 0
 
 
 def _comment_cuts(
@@ -356,6 +386,8 @@ def _comment_cuts(
             problems.append(
                 f"comment {r[0]}: the AI reviewer's reasoning is shortened or changed"
             )
+        elif left := words_left_out(by_no[r[0]]["strongest"], want_r):
+            problems.append(f"comment {r[0]}: {left} sentence(s) of the AI reviewer's reasoning are cut without the mark")
         texts = crs_one.comment_full_texts(by_no[r[0]], by_id, editions)
         for key, full in texts.items():
             shown = "" if r[spots[key]] is None else str(r[spots[key]])
@@ -483,6 +515,10 @@ def verify(
         else {"marked": 0, "problems": []}
     )
     missing += cuts["problems"]
+    # order 14 W-C6: an AI text cut BEFORE the file (when the line was stored) is invisible to the file's own cells: checked
+    # against the run's record of what the AI sent
+    stored_cuts = ai_text_whole.problems(facts.get("ai_run"))
+    missing += stored_cuts
     ok = page == db["total"] == accounted and not missing
     report = {
         "ok": ok,
@@ -493,7 +529,7 @@ def verify(
         "accounted": accounted,
         "missing": missing,
         "cut_cells_marked": cuts["marked"],
-        "cut_problems": len(cuts["problems"]),
+        "cut_problems": len(cuts["problems"]) + len(stored_cuts),
         "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     report["sentence"] = sentence_of(report)

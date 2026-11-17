@@ -180,7 +180,7 @@ def readers_of(point: dict) -> tuple[str, str, str]:
     if point.get("source") != rp.SOURCE_AI_REVIEW:
         return (
             (
-                "the rule check (code)"
+                content.reader_words(point.get("checked_by"))  # order 14 W-C8: the one name, the same as the header's
                 if point.get("source") == rp.SOURCE_RULE_CHECK
                 else "an engineer"
             ),
@@ -190,7 +190,8 @@ def readers_of(point: dict) -> tuple[str, str, str]:
     from .agent_review_two_reader import independent
 
     line = point.get("_line") or {}
-    first = _clean(line.get("model")) or NOT_RECORDED
+    # order 14 W-C8: a line that stores no model of its own is named by the engine the page names it by (the run's), never "not recorded"
+    first = _clean(line.get("model")) or _clean(point.get("engine")) or NOT_RECORDED
     indep = independent(line)
     second = line.get("second_opinion")
     if isinstance(indep, dict):
@@ -293,7 +294,7 @@ def _run_facts(extra: dict) -> list[dict]:
         r = conn.execute("SELECT * FROM review_runs WHERE id = ?", (rc,)).fetchone()
         model = (r["model_name"] if r else None) or ""
         out.append({
-            "what": "Rule check", "run": rc, "engine": _engine_of(conn, rc, model, "rule_check"),
+            "what": "Rule check", "run": rc, "engine": content.rule_check_engine(_engine_of(conn, rc, model, "rule_check")),
             "models": [model] if model else [], "date": (r["completed_at"] or r["started_at"]) if r else None, "kind": None,
             "equipment": None, "usd": None,
         })  # fmt: skip
@@ -380,6 +381,11 @@ def _books_line(points: list[dict], editions: dict | None = None) -> str:
     return "; ".join(one(n, k) for n, k in sorted(c.items(), key=lambda kv: (-kv[1], kv[0]))) or "none"
 
 
+def _held_words(held) -> str:
+    """Beside the books used: the books cited but not held, from the list the sheet "Rule books not held" draws (order 14 W-C5)."""
+    return f"; cited but not held, so not used: {len(held)} (the sheet {HELD_SHEET})" if held else ""
+
+
 def _put_block(ws, pairs: list[tuple[str, str]], lines: list[str]) -> int:
     """The header block and the count lines above the table; returns the table's header row."""
     ws.append([_cell("Comment Resolution Sheet")])
@@ -442,7 +448,7 @@ def _outcome(run_id: str, scope) -> dict:
 
 def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
     """What the review did NOT check, in counts and plain words: from the stored runs only."""
-    from . import local_engine_bar, page_ledger
+    from . import kind_words, local_engine_bar, page_ledger
 
     conn = connect()
     rows: list[list] = []
@@ -475,14 +481,8 @@ def _not_checked_rows(points: list[dict], extra: dict, scope) -> list[list]:
                 ["Page record", None, "the reading record is missing for this review"]
             )
         comp = outcome.get("completeness") or {}
-        if comp.get("not_checked_plain"):
-            rows.append(
-                [
-                    "Nothing of this kind of paper was checked",
-                    None,
-                    _clean(comp["not_checked_plain"]),
-                ]
-            )
+        if comp.get("not_checked_plain"):  # order 14 W-C5: what the RULE CHECK did not check, never "nothing was checked"
+            rows.append(["Rule check: no checklist for this kind of paper", None, kind_words.current_not_checked(comp["not_checked_plain"])])
         for skipped in outcome.get(local_engine_bar.OUTCOME_KEY) or []:
             rows.append(
                 [
@@ -581,7 +581,8 @@ def _how_rows(extra: dict, scope) -> list[list]:
         rows.append(
             [
                 "Readers",
-                "the rule check is code; the AI review has a first reader and, where the line says so, a second reader (columns First reader, Second reader, Agreed)",
+                "the rule check is code with AI steps (the column First reader names the part that raised each point: code or an AI step); "
+                "the AI review has a first reader and, where the line says so, a second reader (columns First reader, Second reader, Agreed)",
             ]
         )
     rows.append(
@@ -883,7 +884,7 @@ def build_team(
     ws.title = TEAM_SHEET
     lines = [
         *completeness.cancelled_line(paper_id, extra),  # FTU-17: a later review was cancelled: said first
-        completeness.team_statement(listing["of"], len(grouped)),
+        completeness.team_statement(listing["of"], len(grouped), completeness.review_split(raw)),
         count_line(listing, len(evidence), len(grouped)),
         aside_line(aside),
         *([to_confirm_line(confirm)] if confirm else []),
@@ -895,7 +896,7 @@ def build_team(
             if cut
             else "; no cell shortened"
         ),
-        "Rule books used (points): " + _books_line(raw, crs_editions.by_name(editions)),
+        "Rule books used (points): " + _books_line(raw, crs_editions.by_name(editions)) + _held_words(extra.get("not_held")),
     ]
     header_row = _put_block(
         ws,

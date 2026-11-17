@@ -13,6 +13,7 @@ from functools import lru_cache
 from typing import NamedTuple
 
 from . import agent_review_two_reader as two
+from . import ai_text_whole
 from . import crs_ai_words as words
 from .agent_review_verdict import SILENCE_CODES, quote_defers
 
@@ -486,7 +487,7 @@ def reasoning_part(line: Mapping, status: str, guard: str) -> str:
     line, and "" when a guard's own view sentence is already printed."""
     if guard or status not in _SAYS:
         return ""
-    # the AI's own `reasoning`, WHOLE (no character cut: a cell is never cut without the mark and its full text); never the model's
+    # the AI's own `reasoning`, WHOLE (no cut, and no word taken out of a sentence: order 14 W-C6); never the model's
     # contractor-facing `comment` under this label
-    view = words.plain(" ".join(str(line.get("reasoning") or "").split()))
+    view = ai_text_whole.plain_whole(line.get("reasoning"))
     return f" {REASONING_LABEL} {view}" if view else ""

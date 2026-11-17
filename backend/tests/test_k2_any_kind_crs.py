@@ -106,7 +106,7 @@ def test_a_review_that_checked_nothing_says_what_was_not_checked_and_why():
     said = comparison.plain_reason("Manual Review Required", TECH, BASE, None, [])
     text = kind_words.in_noun(said, comp)
     assert text.startswith(
-        "No contract checklist is held, so no point of this contract was checked;"
+        "No contract checklist is held, so the rule check compared no point of this contract with a checklist;"  # order 14 W-C5: about the rule check; the AI review may have points
     )
     assert "does not mean the contract is acceptable" in text
     assert (
@@ -164,7 +164,7 @@ def test_a_stored_run_of_a_contract_gets_its_noun_and_the_sentence_a_datasheets_
     }
     assert got["doc_k2"]["completeness"]["paper_noun"] == "contract"
     assert got["doc_k2"]["reason"].startswith(
-        "No contract checklist is held, so no point of this contract was checked;"
+        "No contract checklist is held, so the rule check compared no point of this contract with a checklist;"  # order 14 W-C5: about the rule check; the AI review may have points
     )
     assert (
         "datasheet" not in got["doc_k2"]["details"]
@@ -381,7 +381,7 @@ def test_a_run_stored_before_this_change_is_shown_with_the_decided_noun_on_the_c
         [],
     )
     assert got["recommended_code_reason"].startswith(
-        "No contract checklist is held, so no point of this contract was checked;"
+        "No contract checklist is held, so the rule check compared no point of this contract with a checklist;"  # order 14 W-C5: about the rule check; the AI review may have points
     )
     assert "datasheet" not in got["recommended_code_reason"]
 

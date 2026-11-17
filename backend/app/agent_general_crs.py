@@ -22,6 +22,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from . import agent_general_review as core
+from . import ai_text_whole as whole_mod
 from . import crs_ai_words as words
 from . import crs_ai_workbook as workbook
 from . import crs_export, crs_layout, kind_review_table
@@ -184,7 +185,7 @@ def comment_of(ln: Mapping, status: str) -> str:
 
 
 def _sentence(text) -> str:
-    said = words.plain(text) or "No reason was given."
+    said = whole_mod.plain_whole(text) or "No reason was given."
     return said[:1].upper() + said[1:]
 
 
@@ -255,7 +256,7 @@ def _evidence_row(n: int, ln: Mapping, status: str) -> list:
     return [
         n, status, core.PART_WORDS[ln["part"]], ln.get("subkind") or "", qa, pa, qb, pb, _c(ln.get("other_document")),
         "verified by code" if ln.get("quotes_verified_by_code") is True else "no verified quote", ln.get("figures") or "",
-        words.plain(ln.get("text")), _c(ln.get("second_model_reason")), _c(ln.get("text_source")) or "",
+        whole_mod.plain_whole(ln.get("text")), _c(ln.get("second_model_reason")), _c(ln.get("text_source")) or "",
         ln.get("line_id") or "",
     ]  # fmt: skip
 

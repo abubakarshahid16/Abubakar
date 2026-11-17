@@ -29,6 +29,7 @@ from . import agent_general_prompts as prompts
 from . import agent_general_review as core
 from . import agent_review_local as local_mod
 from . import agent_review_verdict as verdict
+from . import ai_text_whole as whole_mod
 from .agent_general_findings import (  # noqa: F401  (the limits are re-exported for the callers and the tests)
     GROUP_TOKENS,
     MAX_COMMENTS_P5,
@@ -47,6 +48,14 @@ from .agent_general_review import (
     Documents,
 )
 from .agent_review_request import FATAL, MAX_TOKENS_CAP, _text_of
+
+
+def failure_words(code: str) -> str:
+    """A failed call's code in the words a line carries: plain words where the code has them (a reply cut at its length limit,
+    order 14 W-C6; a request too long for the local model), else the code."""
+    said = {local_mod.LOCAL_TOO_LONG: local_mod.NOT_ASKED_WORDS, whole_mod.STOP_MAX_TOKENS: whole_mod.REPLY_CUT}
+    return said.get(code, code)
+
 
 LEAD_MODEL = agent_claude.LEAD_MODEL
 SECOND_MODEL = agent_claude.SECOND_MODEL
@@ -162,7 +171,13 @@ class GeneralRun(FindingsMixin):
         ]  # the page tags only: ids and page numbers, not text
         self.trace({"type": "request", "step": key, "model": model, "max_tokens": max_tokens, "pages_opened": opened,
                     "question": blocks[-1]["text"]})  # fmt: skip
-        answer, usd = self.runner.call(model, parts, max_tokens)
+        try:
+            answer, usd = self.runner.call(model, parts, max_tokens)
+        except agent_claude.AgentBadReply as exc:
+            if exc.code == whole_mod.STOP_MAX_TOKENS:  # order 14 W-C6: the cut reply is kept whole and marked, never used
+                self.trace({"type": "answer_cut", "step": key, "model": model, "cut_by_length_limit": True,
+                            "text": getattr(exc, "received", None)})  # fmt: skip
+            raise
         rec = {
             "text": _text_of(answer),
             "model": agent_claude._answered_model(answer),
@@ -217,11 +232,7 @@ class GeneralRun(FindingsMixin):
         if isinstance(exc, FATAL):
             self.halt(exc)
         self.failures += 1
-        code = getattr(exc, "code", type(exc).__name__)
-        self.not_reviewed(
-            part,
-            f"{label}: {local_mod.NOT_ASKED_WORDS if code == local_mod.LOCAL_TOO_LONG else code}",
-        )
+        self.not_reviewed(part, f"{label}: {failure_words(getattr(exc, 'code', type(exc).__name__))}")
 
     def check(self, quote: Any, page: Any, doc: str) -> bool:
         ok, _why = verdict.check_paper_quote(quote, page, self.docs.pages(doc))
@@ -308,7 +319,7 @@ class GeneralRun(FindingsMixin):
                     self.failures += 1
                     for i in batch:
                         failed[i["item_id"]] = (
-                            f"no answer from the AI: {local_mod.NOT_ASKED_WORDS if exc.code == local_mod.LOCAL_TOO_LONG else exc.code}"
+                            f"no answer from the AI: {failure_words(exc.code)}"
                         )
                     continue
                 self._p2_take(rec, batch, found, failed)
@@ -357,8 +368,8 @@ class GeneralRun(FindingsMixin):
         }
         quote = {"quote_a": {"document": self.paper, "page": verdict._page_no(a.get("paper_page")), "text": str(a.get("paper_quote") or "").strip()},
                  "quotes_verified_by_code": True} if f["verified"] else {}  # fmt: skip
-        note = core.words_cut(a.get("note"), MAX_WORDS_NOTE)
-        concern = core.words_cut(a.get("concern"), MAX_WORDS_NOTE)
+        note = core.whole_words(a.get("note"))
+        concern = core.whole_words(a.get("concern"))
         status = f["status"]
         if status == "present" and f["verified"] and not concern:
             self.trace(
