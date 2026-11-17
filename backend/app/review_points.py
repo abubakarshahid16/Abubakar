@@ -46,7 +46,7 @@ RANKS: dict[int, tuple[str, str]] = {
     6: ("Met", "two readers agree"),
     7: ("Met", "proven by code"),
     8: ("Does not apply", ""),
-    9: ("AI thinks it does not apply, to confirm", ""),  # owner on PR #1872: its own section (`agent_review_not_applicable`)
+    9: (words.KIND_NA_TO_CONFIRM, ""),  # owner on PR #1872: its own section (`agent_review_not_applicable`)
 }
 TILES = ("not_met", "questions", "met", "does_not_apply")
 TILE_OF_RANK = {
@@ -138,6 +138,13 @@ def rank_of_ai_line(line: dict) -> tuple[int, str | None, int | None]:
     if wb.OTHER_KIND_OF_SHEET.get(sheet_of(line)) == words.KIND_NOT_HELD:
         return 0, None, None
     return 8, None, None
+
+
+def shown_rank(line: dict, rank: int | None = None) -> int:
+    """The rank an AI line is SHOWN with, on the page and in the AI run's own file alike (one home, LP1): `rank_of_ai_line`, except
+    that an unproven "does not apply" is its own section, never a main question (rank 9, owner on PR #1872)."""
+    rank = rank_of_ai_line(line)[0] if rank is None else rank
+    return 9 if rank == 4 and wording_mod.not_applicable_question(line) else rank
 
 
 def group_key(
@@ -359,8 +366,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
     rank, status, order = rank_of_ai_line(line)
     if rank == 0:
         return None
-    if rank == 4 and wording_mod.not_applicable_question(line):
-        rank = 9  # owner on PR #1872: an unproven "does not apply" is its own section, never a main question
+    rank = shown_rank(line, rank)
     item = str(line.get("item_id") or "")
     book_doc, _name = ctx["book_of"].get(item, (None, None))
     if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):

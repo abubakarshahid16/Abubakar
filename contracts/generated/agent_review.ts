@@ -60,6 +60,8 @@ export interface AgentQueryGroups {
   contractor_silent: number;
   engineer_drawing: number;
   could_not_decide: number;
+  /** LP1: a firm "not met" held as a question because its clause was not checked or its rule book is not held (not the reader's own Query: the engineer confirms the clause) */
+  clause_not_checked: number;
 }
 
 export interface AgentPaperText {

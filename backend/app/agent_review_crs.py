@@ -30,7 +30,7 @@ from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import crs_ai_words as words
 from .agent_review_local import LOCAL_TOO_LONG, NOT_ASKED_WORDS
-from . import numparse
+from . import firm_clause, numparse
 from .agent_review_verdict import (
     BY_ABSENCE,
     BY_AI,
@@ -164,7 +164,7 @@ def against(line: Mapping) -> str:
         return f"{std} ({words.BOOK_NOT_HELD})" if std else ""
     if std and line.get(words.CLAUSE_UNCONFIRMED_KEY):  # order 14 G4: the page where code found the rule's words, never the clause
         book = line.get("clause_book") if isinstance(line.get("clause_book"), Mapping) else {}
-        why = words.not_checked_words(line) or words.CLAUSE_NOT_CONFIRMED
+        why = firm_clause.not_checked_words(line) or words.CLAUSE_NOT_CONFIRMED
         return f"{std} page {book['page']} ({why})" if book.get("page") else f"{std} ({why})"
     return " ".join(x for x in (std, f"clause {clause}" if clause else "") if x)
 
