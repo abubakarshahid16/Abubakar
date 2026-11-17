@@ -439,6 +439,8 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
     for p in points:
         if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE:
             continue
+        if p.get("tile") == rp.TILE_OF_RANK[9]:  # owner on PR #1872: the AI thinks it does not apply: its own section, no comment
+            continue
         k = key_of(p)
         if k not in members:
             order.append(k)

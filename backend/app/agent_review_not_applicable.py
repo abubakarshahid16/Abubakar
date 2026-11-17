@@ -17,6 +17,20 @@ UNPROVEN_WHY = (
 )
 ACTION = "Engineer to check whether the rule applies to this paper: the AI reader judged it does not, without proof."
 
+#: Owner's decision on PR #1872: these lines are NOT the main questions. They are their own short section, grouped, each ticked to
+#: confirm (one engineer decision per line, who and when; "Confirm all" is the same tick on each; a tick can be undone), counted apart,
+#: never on the contractor copy. Until ticked a line is still to decide.
+TITLE = "AI thinks these do not apply, tick to confirm"
+SHEET = "AI thinks does not apply"
+CONFIRMED = "Does not apply (confirmed by the engineer)"
+OPEN = "Not confirmed yet"
+TILE = "na_to_confirm"
+
+
+def count_line(n: int, confirmed: int) -> str:
+    """The ONE count sentence of the group (sheet 1 of the team file, the group's sheet, the page): N, K confirmed, M open."""
+    return f"{n} points the AI thinks do not apply, to confirm: {confirmed} confirmed, {n - confirmed} open."
+
 
 def proof(line: Mapping) -> dict | None:
     """The proof a "does not apply" carries: its reason, the rule's condition and the paper's fact, with code's own finding of each

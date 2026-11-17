@@ -32,6 +32,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from . import agent_review_not_applicable as not_applicable
 from . import (
     crs_ai_header,
     crs_export_quality,
@@ -58,6 +59,8 @@ TEAM_SHEET, CONTRACTOR_SHEET = "CRS", "CRS"
 EVIDENCE_SHEET = "Evidence"
 REMOVED_SHEET = "Removed (record)"
 DNA_SHEET = "Does not apply"
+#: owner on PR #1872: the lines the AI thinks do not apply, to confirm: their own sheet, never comment rows, never the contractor's
+NA_SHEET = not_applicable.SHEET
 HELD_SHEET = "Rule books not held"
 NOT_CHECKED_SHEET = "What was not checked"
 HOW_SHEET = "How it was reviewed"
@@ -659,6 +662,24 @@ def apart_proof(p: dict) -> str | None:
     return f"{proof['reason']}: {cond}; the paper: \"{proof['paper_fact']}\" (found on the page by code)."
 
 
+def to_confirm(points: list[dict]) -> list[dict]:
+    """Owner on PR #1872: the lines the AI thinks do not apply (rank 9), not removed: their own sheet, one row each."""
+    return [p for p in points if p.get("rank") == 9 and (p.get("decision") or {}).get("state") != decisions_mod.REMOVE]
+
+
+def to_confirm_line(points: list[dict]) -> str:
+    """The group's ONE count sentence (`agent_review_not_applicable.count_line`), with the sheet it is on."""
+    done = sum(1 for p in points if (p.get("decision") or {}).get("state") == decisions_mod.KEEP)
+    return f"{not_applicable.count_line(len(points), done)[:-1]} (the sheet {NA_SHEET})."
+
+
+def confirmed_words(p: dict) -> str:
+    d = p.get("decision") or {}
+    if d.get("state") != decisions_mod.KEEP:
+        return not_applicable.OPEN
+    return f"{not_applicable.CONFIRMED}: {d.get('by') or NOT_RECORDED}, {d.get('at') or NOT_RECORDED}"
+
+
 def aside_line(aside: list[tuple[dict, str]]) -> str:
     """ONE sentence counting the points that are not comments, by what they are (order 14 lane B)."""
     by: Counter = Counter()
@@ -827,6 +848,8 @@ def build_team(
     comment_of = {i: c["number"] for c in grouped for i in c["member_ids"]}
     aside = comments.set_aside(raw)  # order 14 lane B: no finding, so not a comment; named on Evidence, counted, listed on its sheet
     comment_of.update({i: kind for c, kind in aside for i in c["member_ids"]})
+    confirm = to_confirm(raw)
+    comment_of.update({p["id"]: NA_SHEET for p in confirm})
     evidence, cut = [], 0
     for p in raw:
         row, cc = row_of(numbers[p["id"]], p, comment_of.get(p["id"], "removed"))
@@ -845,6 +868,7 @@ def build_team(
         completeness.team_statement(listing["of"], len(grouped)),
         count_line(listing, len(evidence), len(grouped)),
         aside_line(aside),
+        *([to_confirm_line(confirm)] if confirm else []),
         *([apart_words] if (apart_words := set_apart_line(set_apart(raw))) else []),
         *([f"Coverage note: {note}"] if (note := comments.coverage_note(raw)) else []),
         f"Decisions: {listing['decided']} of {listing['of']} decided"
@@ -885,6 +909,12 @@ def build_team(
             (6, 10, 30, 18, 30, 60, 60, 26),
             note=f"{len(c_rows)} contract check result(s) to look at; {consistent} consistent (not listed). {CONTRACT_CLASS}: never on the contractor file.",
         )  # fmt: skip
+    _sheet_table(
+        wb, NA_SHEET, ("No on the sheet Evidence", "Field or item", "Rule books and clauses", "Page", "Why the AI thinks so", "Confirmed"),
+        [[_cell(c) for c in (numbers[p["id"]], p.get("name"), " ".join(x for x in (p.get("rule_book"), p.get("clause")) if x) or None,
+                             p.get("page"), p.get("ai_reasoning") or p.get("action"), confirmed_words(p))] for p in confirm],
+        (12, 40, 30, 8, 70, 40), note=f"{not_applicable.TITLE}. {to_confirm_line(confirm)} These lines are not comments and never go to the contractor.",
+    )  # fmt: skip
     dna = [p for p in raw if p.get("rank") == 8]
     _sheet_table(
         wb, DNA_SHEET, ("No on the sheet Evidence", "Field or item", "What it is", "Page", "Why, with its proof (found by code)"),

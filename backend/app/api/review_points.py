@@ -6,6 +6,8 @@
     POST /api/reviews/papers/{document_id}/points/decision   Keep, Edit or Remove one point (Edit needs text, Remove a one-line reason)
     POST /api/reviews/papers/{document_id}/points/decisions  Keep several points at once ("Keep all" of a group)
     POST /api/reviews/papers/{document_id}/points/add        the engineer's own point
+    POST /api/reviews/papers/{document_id}/points/not-applicable/confirm   tick "does not apply" on one or more of the AI's lines
+    POST /api/reviews/papers/{document_id}/points/not-applicable/undo      undo one such tick
 
 Read: any caller who may read the paper; every rule book or document the caller may not read is counted, never named. Write: an
 identified engineer (not only an admin, like the other decision routes), and only on a point of the list the caller was shown.
@@ -23,6 +25,9 @@ from .. import (
     crs_issue,
     errors,
     schemas,
+)
+from .. import (
+    agent_review_not_applicable as na,
 )
 from .. import (
     review_point_decisions as dec,
@@ -143,6 +148,10 @@ class DecisionRequest(BaseModel):
 
 class BulkKeepRequest(BaseModel):
     point_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class UndoRequest(BaseModel):
+    point_id: str
 
 
 class AddPointRequest(BaseModel):
@@ -347,6 +356,67 @@ def keep_points(
             actor,
             bulk=True,
         )
+    return svc.assemble(document_id, scope)
+
+
+def _to_confirm(listing: dict, point_id: str) -> dict:
+    """A point of the section "AI thinks these do not apply, tick to confirm" (owner on PR #1872), or 422."""
+    point = _point(listing, point_id)
+    if point.get("tile") != na.TILE:
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(errors.INVALID_PARAMETER, "only a line the AI thinks does not apply is confirmed here"),
+        )
+    return point
+
+
+@router.post(
+    "/api/reviews/papers/{document_id}/points/not-applicable/confirm",
+    response_model=PointsListingOut,
+    dependencies=ON,
+    responses={**schemas.ERRORS_404},
+)
+def confirm_not_applicable(
+    document_id: str,
+    body: BulkKeepRequest,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Tick "does not apply" on one line or on all of the section ("Confirm all"): ONE decision per line, who and when, the same as a
+    single tick; all-or-nothing on the ids. The line then reads "Does not apply (confirmed by the engineer)"."""
+    actor = _actor(scope)
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    listing = svc.assemble(document_id, scope)
+    for pid in body.point_ids:
+        _to_confirm(listing, pid)
+    for pid in dict.fromkeys(body.point_ids):
+        _decide(listing, document_id, DecisionRequest(point_id=pid, state="keep", reason=na.CONFIRMED), actor)
+    return svc.assemble(document_id, scope)
+
+
+@router.post(
+    "/api/reviews/papers/{document_id}/points/not-applicable/undo",
+    response_model=PointsListingOut,
+    dependencies=ON,
+    responses={**schemas.ERRORS_404},
+)
+def undo_not_applicable(
+    document_id: str,
+    body: UndoRequest,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Undo one tick of the section: the line is open again (the tick stays in the record, with the undo, who and when)."""
+    actor = _actor(scope)
+    reject_unknown_params(request, set())
+    require_document(document_id, scope)
+    listing = svc.assemble(document_id, scope)
+    _to_confirm(listing, body.point_id)
+    try:
+        dec.undo(document_id, body.point_id, actor=actor)
+    except dec.PointRefused as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc))) from exc
     return svc.assemble(document_id, scope)
 
 

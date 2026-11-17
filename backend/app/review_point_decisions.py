@@ -30,6 +30,7 @@ STATES = (KEEP, EDIT, REMOVE)
 STATE_WORDS = {KEEP: "Kept", EDIT: "Edited", REMOVE: "Removed"}
 AUDIT = "review_point_decided"
 AUDIT_ADDED = "review_point_added"
+AUDIT_UNDONE = "review_point_undone"
 MAX_TEXT = 4000
 #: The same minimum as the rule check's own record (`crs_issue.MIN_REASON_LENGTH`): one reason, two records.
 MIN_REASON = 10
@@ -59,6 +60,16 @@ def ensure_schema(conn=None) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS review_point_decision_paper ON review_point_decision (paper_document_id, point_id)"
+    )
+    # owner on PR #1872: a tick can be undone. The undo names the decision row it undoes; nothing is deleted or overwritten
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS review_point_undo (
+            id TEXT PRIMARY KEY,
+            paper_document_id TEXT NOT NULL,
+            point_id TEXT NOT NULL,
+            decision_id TEXT NOT NULL,
+            undone_by TEXT NOT NULL,
+            undone_at TEXT NOT NULL)"""
     )
     conn.execute(
         """CREATE TABLE IF NOT EXISTS review_point_added (
@@ -182,7 +193,34 @@ def latest(paper_id: str) -> dict[str, dict]:
         (paper_id,),  # commit order, not the clock
     ):
         out[r["point_id"]] = dict(r)
-    return out
+    undone = _undone(conn, paper_id)
+    return {k: d for k, d in out.items() if d["id"] not in undone}  # an undone latest decision: the point is open again
+
+
+def _undone(conn, paper_id: str) -> set[str]:
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'review_point_undo'").fetchone():
+        return set()
+    return {r[0] for r in conn.execute("SELECT decision_id FROM review_point_undo WHERE paper_document_id = ?", (paper_id,))}
+
+
+def undo(paper_id: str, point_id: str, *, actor: str) -> dict:
+    """Undo the latest decision of one point (owner on PR #1872: a tick can be undone): a row naming the decision undone, who and when,
+    and an audit event; the decision row stays. Raises `PointRefused` when the point has no decision to undo."""
+    d = latest(paper_id).get(point_id)
+    if not d:
+        raise PointRefused("this point has no decision to undo")
+    conn = connect()
+    ensure_schema(conn)
+    row = {"id": str(uuid.uuid4()), "paper_document_id": paper_id, "point_id": point_id, "decision_id": d["id"],
+           "undone_by": actor, "undone_at": _now()}  # fmt: skip
+    with conn:
+        conn.execute(
+            "INSERT INTO review_point_undo (id, paper_document_id, point_id, decision_id, undone_by, undone_at)"
+            " VALUES (:id, :paper_document_id, :point_id, :decision_id, :undone_by, :undone_at)",
+            row,
+        )
+        _audit(conn, AUDIT_UNDONE, actor, paper_id, {"point": point_id, "undone": d["state"]})
+    return row
 
 
 def people(paper_id: str) -> set[str]:

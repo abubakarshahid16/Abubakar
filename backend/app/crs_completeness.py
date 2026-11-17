@@ -36,7 +36,9 @@ CUT_MARK = "…"  # the visible mark of a shortened cell: one literal, checked h
 REASON_REMOVED = "removed"
 REASON_NO_WORDING = "kept, with no comment written for the contractor"
 REASON_NOT_DECIDED = "not decided yet"
-REASON_ORDER = (REASON_NOT_DECIDED, REASON_NO_WORDING, REASON_REMOVED)
+#: owner on PR #1872: a line the AI thought does not apply and the engineer confirmed (contractor words)
+REASON_NOT_APPLICABLE = "does not apply"
+REASON_ORDER = (REASON_NOT_DECIDED, REASON_NO_WORDING, REASON_NOT_APPLICABLE, REASON_REMOVED)
 
 
 #: FTU-1: the sentence of a CRS asked for a paper with no finished review (the download answers 409 with it, never an empty file)
@@ -131,6 +133,8 @@ def contractor_split(raw: list[dict]) -> tuple[list[dict], dict[str, int]]:
         )
         if state == decisions_mod.REMOVE:
             reasons[REASON_REMOVED] += 1
+        elif state == decisions_mod.KEEP and p.get("rank") == 9:  # confirmed: does not apply
+            reasons[REASON_NOT_APPLICABLE] += 1
         elif (
             wanted or state == decisions_mod.KEEP
         ):  # kept, but no words of the engineer's own to issue
@@ -404,23 +408,28 @@ def _comment_accounting(data: bytes, raw: list[dict]) -> list[str]:
     wb = load_workbook(BytesIO(data))
     groups, aside = crs_comments.group(raw), crs_comments.set_aside(raw)
     removed = sum(1 for p in raw if (p.get("decision") or {}).get("state") == decisions_mod.REMOVE)
+    # owner on PR #1872: the lines the AI thinks do not apply are their own sheet, one row and one point each
+    to_confirm = len(crs_one.to_confirm(raw))
     out, points = [], 0
     for sheet, first, want, what in (
         (crs_one.TEAM_SHEET, "Comment", len(groups), "comments"),
         (crs_one.NOT_A_COMMENT_SHEET, "Field or item", len(aside), "fields that are not comments"),
+        (crs_one.NA_SHEET, "No on the sheet Evidence", to_confirm, "lines the AI thinks do not apply"),
     ):
         if sheet not in wb.sheetnames:
-            out.append(f"the sheet {sheet} is missing")
+            if want or sheet != crs_one.NA_SHEET:  # the section's sheet is needed only when it has lines
+                out.append(f"the sheet {sheet} is missing")
             continue
         ws = wb[sheet]
         rows = _table_rows(ws, first)
         head = next(list(r) for r in ws.iter_rows(values_only=True) if r and r[0] == first)
-        points += sum(int(r[head.index("Points")] or 0) for r in rows)
+        points += sum(int(r[head.index("Points")] or 0) for r in rows) if "Points" in head else len(rows)
         if len(rows) != want:
             out.append(f"the sheet {sheet} has {len(rows)} rows, the grouping has {want} {what}")
     if points + removed != len(raw):
         out.append(
-            f"the comments ({points} points with the fields that are not comments) and the {removed} removed points do not add up "
+            f"the comments ({points} points with the fields that are not comments and the lines the AI thinks do not apply) and the "
+            f"{removed} removed points do not add up "
             f"to the {len(raw)} points of the page"
         )
     return out

@@ -199,13 +199,14 @@ def _na(iid: str, field: str, proof: bool) -> dict:
     )
 
 
-def test_a_does_not_apply_without_its_proof_is_a_question_for_the_engineer():
+def test_a_does_not_apply_without_its_proof_is_its_own_section_never_a_main_question():
     doc, _run_id, client = _paper([_na("R-21", "Design pressure", proof=False)])
     listing = points_of(client, doc)
     point = next(p for p in listing["points"] if p["source"] == "ai_review")
-    assert point["rank"] == 4 and point["tile"] == "questions"
+    assert point["rank"] == 9 and point["tile"] == "na_to_confirm"  # owner on PR #1872: not a main question
     assert point["action"].startswith("Engineer to check whether the rule applies")
     assert listing["counts"]["tiles"]["does_not_apply"]["total"] == 0
+    assert listing["counts"]["tiles"]["questions"]["total"] == 0
     wb = _book(_team(doc))
     assert rows_after(wb[crs_one.DNA_SHEET], "No on the sheet Evidence")[1] == []
 
@@ -304,6 +305,6 @@ def test_an_older_runs_stored_does_not_apply_without_proof_is_read_as_the_questi
     point = next(
         p for p in points_of(client, doc)["points"] if p["source"] == "ai_review"
     )
-    assert point["rank"] == 4 and point["action"].startswith(
+    assert point["rank"] == 9 and point["action"].startswith(
         "Engineer to check whether the rule applies"
     )
