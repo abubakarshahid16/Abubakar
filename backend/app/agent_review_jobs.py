@@ -683,7 +683,10 @@ def _cancelled(conn, job_id: str, run_id: str) -> str:
     return job_queue.CANCELLED
 
 
-def _done(conn, job_id: str, run_id: str, result: dict) -> str:
+def _done(conn, job_id: str, run_id: str, result: dict, heartbeat=None) -> str:
+    # off by default: public names of books not held; shown, never used. BEFORE "completed" (paid run of 17 Nov 2026: a driver that
+    # stopped the app on "completed" ended the search with its money holds open); its cost joins the run's usd
+    standards_web_search.after_run(run_id, heartbeat=heartbeat)
     outcome = {"agent_review": True, "partial": result["partial"], "stop_reason": result["stop_reason"],
                "counts": {k: v for k, v in result["counts"].items() if isinstance(v, int)}}  # fmt: skip
     outcome = _with_page_record(conn, run_id, outcome)
@@ -699,8 +702,6 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
         )
         job_queue.audit(conn, "job.done", job_id, detail=f"stage={STAGE} run={run_id}")
     crs_completeness.record_after_run(run_id)
-    # off by default: public names of books not held; shown, never used
-    standards_web_search.after_run(run_id)
     return "done"
 
 
@@ -767,7 +768,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             result = _rules_then_general(
                 conn, job_id, run_id, submittal, scope, kind, started, text, heartbeat
             )
-            return _done(conn, job_id, run_id, result)
+            return _done(conn, job_id, run_id, result, heartbeat)
         if general and not stops:
             _progress(conn, job_id, 2, heartbeat)
             result = general_job.run(run_id, submittal, scope, kind, started, folder=run_dir(run_id),
@@ -776,7 +777,7 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
                                      local=local_mod.engine_for(run_id, True))  # fmt: skip
             agent_review_text.record_general(conn, run_id, text, result)
             _progress(conn, job_id, 3, heartbeat)
-            return _done(conn, job_id, run_id, result)
+            return _done(conn, job_id, run_id, result, heartbeat)
         plan = (_nothing_asked(conn, submittal, text.sentence, text.stop) if stops
                 else _plan(conn, run_id, submittal, scope, kind, heartbeat))  # fmt: skip
         # a plan with nothing to ask always says why
@@ -794,4 +795,4 @@ def run(job_id: str, worker_id: str, heartbeat=None) -> str:
             "agent review failed: %s", type(exc).__name__
         )  # the class only, never a text
         return _fail(conn, job_id, run_id, submittal, exc)
-    return _done(conn, job_id, run_id, result)
+    return _done(conn, job_id, run_id, result, heartbeat)

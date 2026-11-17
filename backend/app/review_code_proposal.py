@@ -27,7 +27,8 @@ states only the recorded code.
 
 THE RECORDED CODE (`POST /api/reviews/runs/{id}/code`). The engineer may record any code (he signs), but an approving code while points
 are still to decide needs a typed reason (`open_code_refusal`, the route answers 422), and the files say so: the team file "<code>
-(recorded with N of M points still to decide: <reason>)", the contractor file "<code> (recorded by the engineer)" (`recorded_words`).
+(recorded with N of M points still to decide: <reason>)", the contractor file "<code> (recorded by COMPANY)" (`recorded_words`; FTU-16: contractor words, the side its column "COMPANY Comments"
+names).
 """
 
 from __future__ import annotations
@@ -37,6 +38,9 @@ from .db import connect
 
 #: The roles of the codes that let the paper proceed (`comparison.CODE_ROLES`).
 APPROVING_ROLES = frozenset({"approved", "approved_with_comments"})
+
+#: FTU-16: how the contractor file says who recorded the code (its own column names the reviewing side "COMPANY"; no internal word).
+RECORDED_FOR_CONTRACTOR = "recorded by COMPANY"
 
 #: What a path that sees one run, not the paper's list, shows in place of an approving code.
 RUN_LEVEL_NOTE = "No review code proposed: see the review page."
@@ -60,6 +64,16 @@ RULE_WORDS = (
 
 def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
+
+
+def still_open(points: list[dict]) -> list[dict]:
+    """THE open points of a paper's list: no decision yet (an added point is kept by definition). FTU-16: the ONE count of points still to
+    decide, read by the proposal on every path (Manual Review Required included) and by the listing's "x of M decided"."""
+    return [
+        p
+        for p in points
+        if not (p.get("decision") or {}).get("state") and p.get("source") != "added"
+    ]
 
 
 def still_to_decide_sentence(undecided: int, of: int, proven_fails: int) -> str:
@@ -105,12 +119,15 @@ def propose(
     """{code, reason, line, so_far, undecided, rule, proposed_by}. `points`: the list's points with their `decision` ({state}). A point
     of source "added" is kept by definition. `unread_pages`: pages not read (None: the review holds no page record: said, never 0).
     `resubmit_at`: the setting N (0 = off). `reviews_ran`: a review of this paper really ran (an empty list proposes Approved only then)."""
+    open_now = still_open(points)
     if unread_pages:
-        return _out(
-            comparison.CODE_MANUAL,
-            f"{_plural(unread_pages, 'page was', 'pages were')} not read.",
-            0,
+        # FTU-16: the open points are counted here too (the HAZOP said "0 of 85 decided" beside "undecided 0"): the same count the
+        # sheet states, said on the line
+        reason = f"{_plural(unread_pages, 'page was', 'pages were')} not read."
+        line = f"{comparison.CODE_MANUAL}: {reason}" + (
+            f" {len(open_now)} of {_plural(len(points), 'point', 'points')} still to decide." if open_now else ""
         )
+        return _out(comparison.CODE_MANUAL, reason, len(open_now), of=len(points), line=line)
     if not points:
         if reviews_ran:
             return _out(
@@ -123,12 +140,7 @@ def propose(
             "No review has run on this paper, so there are no points to decide.",
             0,
         )
-    still_open = [
-        p
-        for p in points
-        if not (p.get("decision") or {}).get("state") and p.get("source") != "added"
-    ]
-    undecided = len(still_open)
+    undecided = len(open_now)
     kept = [
         p
         for p in points
@@ -158,7 +170,7 @@ def propose(
     gone = removed_fail_sentence(points)
     if undecided and code != comparison.CODE_REJECTED:
         open_fails = sum(
-            1 for p in still_open if p["rank"] == 1 and p.get("shall", True)
+            1 for p in open_now if p["rank"] == 1 and p.get("shall", True)
         )
         line = still_to_decide_sentence(undecided, len(points), open_fails)
         return _out(None, f"{WAIT_REASON} {gone}".strip(), undecided, line=line)
@@ -283,4 +295,4 @@ def recorded_words(
             team = f"{code} (recorded with {at[0]} of {_plural(at[1], 'point', 'points')} still to decide{why})"
         elif undecided:
             team = f"{code} ({undecided} of {_plural(of, 'point', 'points')} still to decide{why})"
-    return {"team": team, "contractor": f"{code} (recorded by the engineer)"}
+    return {"team": team, "contractor": f"{code} ({RECORDED_FOR_CONTRACTOR})"}

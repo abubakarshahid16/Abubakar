@@ -605,9 +605,10 @@ def settle(reservation: Reservation, *, usage: dict | None, finish_reason: str,
     entry["settles"] = reservation.id
     if reservation.run:
         entry["run"] = reservation.run
-    with _ledger_lock():
-        _append(entry)
-    return entry
+    with _ledger_lock():  # a hold already SETTLED is not settled twice (a settle after a release is: it was billed after all)
+        if (done := next((e for e in _raw_lines() if e.get("settles") == reservation.id), None)) is None:  # fmt: skip
+            _append(entry)
+    return entry if done is None else {**done, "skipped": True, "cost_usd": 0.0, "charged_before_usd": done.get("cost_usd")}  # fmt: skip
 
 
 def _usage_reported(usage) -> bool:
@@ -619,8 +620,9 @@ def release(reservation: Reservation, reason: str) -> None:
     """Drop `reservation`: the call provably cost nothing (never sent, never
     connected, rejected with a 4xx). Only `settle_failure` should decide that."""
     with _ledger_lock():
-        _append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                 "releases": reservation.id, "step": reservation.step, "reason": reason})
+        if reservation.id not in {e.get("settles") or e.get("releases") for e in _raw_lines()}:  # fmt: skip
+            _append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                     "releases": reservation.id, "step": reservation.step, "reason": reason})  # fmt: skip
 
 
 #: #872: the one failure the owner must act on, as a closed word and in plain

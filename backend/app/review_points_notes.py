@@ -103,13 +103,12 @@ def missing_book_points(run_id: str, names: list[str]) -> list[dict]:
         if not clean:
             continue
         key = hashlib.sha1(clean.lower().encode("utf-8")).hexdigest()[:10]
-        out.append(
-            _point(
-                f"note:{run_id}:book:{key}",
-                f"Rule book not held: {clean}",
-                f"{clean} is not in the library, so its rules were not checked. Nothing is said to be met against it: add the book, or check the paper against it by hand.",
-            )
+        point = _point(
+            f"note:{run_id}:book:{key}",
+            f"Rule book not held: {clean}",
+            f"{clean} is not in the library, so its rules were not checked. Nothing is said to be met against it: add the book, or check the paper against it by hand.",
         )
+        out.append({**point, "_not_held_book": clean})  # FTU-16: the row marks this book not held (`review_points.not_held_rows`)
     return out
 
 

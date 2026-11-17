@@ -502,12 +502,103 @@ def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
     return out
 
 
-def read_now(lines: list[Mapping], missing: list[Mapping] = ()) -> list[dict]:
+#: The key `mark_clause_unconfirmed` sets on a line whose stored clause is not cited (the clause it carried, which the grouping keys on), the
+#: key it sets when code is NOT certain (the doubt: `agent_review_standards.CLAUSE_UNSURE` or `CLAUSE_BEFORE`), and the words each
+#: shows after the book's page.
+CLAUSE_UNCONFIRMED_KEY, CLAUSE_UNCHECKED_KEY = (
+    "clause_not_confirmed",
+    "clause_not_checked",
+)
+CLAUSE_NOT_CONFIRMED = "clause not confirmed: the rule's words are not in it"
+CLAUSE_NOT_CHECKED = "clause {clause} not checked: a heading that may end it stands before the rule's words"
+CLAUSE_NOT_CHECKED_BEFORE = (
+    "clause {clause} not checked: the rule's words stand before its own heading"
+)
+
+
+def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
+    """The lines as every CRS shows them when code does not confirm the clause a line cites in the book's own text (order 14, G4;
+    honesty rule 4: no claim without a resolving citation), by `holds(doc, clause, words, page)` (default
+    `agent_review_standards.clause_holds`), judged only where code verified the clause quote in the book and knows its page. False
+    (code is CERTAIN the words are outside the clause): no clause, the page instead, `CLAUSE_NOT_CONFIRMED`. `CLAUSE_UNSURE` (a heading
+    that may end the clause stands before the words) or `CLAUSE_BEFORE` (the words stand before the clause's own heading, under its
+    parent): no clause cited either, and the line says the clause was NOT CHECKED and why (`CLAUSE_UNCHECKED_KEY` holds the doubt;
+    `not_checked_words`), never that the words are not in it. True or None (cannot tell): nothing changes.
+    The clause carried is kept under `CLAUSE_UNCONFIRMED_KEY` (the grouping still keys on it). The verdict is untouched. Idempotent."""
+    from .agent_review_standards import CLAUSE_BEFORE, CLAUSE_UNSURE, clause_holds
+
+    if holds is None:
+        texts: dict = {}
+
+        def holds(
+            doc, clause, words, page
+        ):  # the default reader: each book read once per call
+            return clause_holds(doc, clause, words, page, texts)
+
+    out = []
+    for ln in lines:
+        book, checks = ln.get("clause_book"), ln.get("quotes_checked")
+        page = (
+            book.get("page")
+            if isinstance(book, Mapping) and book.get("found") is True
+            else None
+        )
+        judged = (
+            not ln.get(NOT_HELD_KEY)
+            and ln.get("standard_document_id")
+            and _clean(ln.get("clause"))
+            and _clean(ln.get("clause_quote"))
+            and isinstance(checks, Mapping)
+            and checks.get("clause") is True
+            and isinstance(page, int)
+            and not isinstance(page, bool)
+        )
+        got = (
+            holds(
+                ln["standard_document_id"],
+                _clean(ln["clause"]),
+                ln["clause_quote"],
+                page,
+            )
+            if judged
+            else None
+        )
+        doubt = got if got in (CLAUSE_UNSURE, CLAUSE_BEFORE) else None
+        if got is False or doubt:
+            moved = {
+                **ln,
+                CLAUSE_UNCONFIRMED_KEY: _clean(ln["clause"]),
+                "clause": "",
+                "clause_page": None,
+            }
+            out.append({**moved, CLAUSE_UNCHECKED_KEY: doubt} if doubt else moved)
+        else:
+            out.append(dict(ln))
+    return out
+
+
+def not_checked_words(line: Mapping) -> str:
+    """The words a line marked "not checked" (`mark_clause_unconfirmed`) shows after its book's page; "" for any other line."""
+    from .agent_review_standards import CLAUSE_BEFORE
+
+    doubt = line.get(CLAUSE_UNCHECKED_KEY)
+    if not doubt:
+        return ""
+    words = CLAUSE_NOT_CHECKED_BEFORE if doubt == CLAUSE_BEFORE else CLAUSE_NOT_CHECKED
+    return words.format(clause=line.get(CLAUSE_UNCONFIRMED_KEY) or "")
+
+
+def read_now(
+    lines: list[Mapping], missing: list[Mapping] = (), holds=None
+) -> list[dict]:
     """THE reading of stored AI lines for every reader (the run file `crs_ai_workbook.layout_view`, the page's points, the lines tab,
-    the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`)."""
+    the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`),
+    then the clauses that do not hold their rule's words (`mark_clause_unconfirmed`, `holds` as there)."""
     from .agent_review_wording import read_time
 
-    return mark_not_held([read_time(ln) for ln in lines], missing)
+    return mark_clause_unconfirmed(
+        mark_not_held([read_time(ln) for ln in lines], missing), holds
+    )
 
 
 def book_not_held(line: Mapping) -> bool:
@@ -640,6 +731,11 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 __all__ = [
     "BANNED",
     "BOOK_NOT_HELD",
+    "CLAUSE_NOT_CHECKED",
+    "CLAUSE_NOT_CHECKED_BEFORE",
+    "CLAUSE_NOT_CONFIRMED",
+    "CLAUSE_UNCHECKED_KEY",
+    "CLAUSE_UNCONFIRMED_KEY",
     "EDITION_WORDS",
     "GUARD_OBJECTIONS",
     "KIND_COVERAGE",
@@ -669,7 +765,9 @@ __all__ = [
     "generated_by",
     "guard_words",
     "has_banned",
+    "mark_clause_unconfirmed",
     "mark_not_held",
+    "not_checked_words",
     "plain",
     "priority",
     "priority_ai",

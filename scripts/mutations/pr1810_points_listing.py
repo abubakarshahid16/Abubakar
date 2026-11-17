@@ -17,7 +17,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1810-02", phase=1810,
              description="the decided count counts groups, not points (the sign gate would wait for fewer decisions than there are points)",
              path=APP / "review_points_service.py",
-             anchor='    decided = sum(1 for p in points if p["decision"]["state"])\n',
+             # FTU-16: the line now reads the one open count; the mutation is the same (groups counted, not points)
+             anchor='    decided = len(points) - len(review_code_proposal.still_open(points))  # FTU-16: the one open count, as the proposal reads it\n',
              replacement='    decided = len({p.get("group_key") or p["id"] for p in points if p["decision"]["state"]})\n',
              target=_T, keyword="decided_counts_points_not_groups", tags=("honesty", "critical")),
     Mutation(id="M1810-03", phase=1810,

@@ -816,9 +816,11 @@ def test_a_silent_line_with_a_verified_quote_never_says_the_paper_states_it():
     got = _line2(line)
     assert 'The paper states "Nameplate: steel"' not in got
     # the AI's own reading, said as its own
-    assert "the reader says the paper does not state it" in got.lower()
+    assert "the reader says the paper does not state this value" in got.lower()  # FTU-16: said once, by the reason
     # more than the field's label: it may state the value, so neutral words, never "not evidence"
-    assert '"Nameplate: steel", page 2 (found on the page by code), which may state it' in got
+    # FTU-16: the reader's sentence is said once, with the quote (`SilentRow.cell`), never the note and the reason side by side
+    assert 'quoted: "Nameplate: steel", page 2 (found on the page by code).' in got
+    assert got.lower().count("the reader says") == 1 and got.count("may state it") == 1
     assert actions.CONTRADICT_REASON in got and "not evidence" not in got
 
 
