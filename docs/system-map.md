@@ -273,6 +273,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `datasheet_coverage` | The reader-coverage line of a datasheet review: checklist fields read, and on the sheet but not read |
 | `datasheet_checks` | Datasheet self-checks (kind B): what a datasheet says against ITSELF |
 | `datasheet_sum` | Order 14 lane A: the checklist rule kind sum_percent_of (two datasheet fields added and compared with a percent of a third, e.g. SAES-J-600 5.1.1 back pressures vs 10% of set); a missing or marked part stops the check, never 0; pure |
+| `question_card` | Order 14 lane D (#1849 review): a checklist card whose limit no engineer confirmed (`limit_draft`) decides nothing on any switch (held, no kept Pass, never a draft pass); a condition value that rules nothing out (a placeholder, a `may_be_any` word) is asked, never "does not apply"; pure |
 | `datasheet_inputs` | Datasheet INPUTS other than a PDF text layer: Excel, Word, scanned pages |
 | `datasheets` | Read a contractor datasheet into facts |
 | `dual_unit_form` | Reads "24.8 (109) m3/h (USGPM)" as its first system, "24.8 m3/h", when both halves are one quantity |
@@ -511,6 +512,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `watch_api` | GET /api/watch/status - what the watched drop folder is doing |
 | `watcher` | Watched-folder auto-ingest |
 | `web_standards` | Owner order 2d-2: for a standard the submittal CITES but the library does NOT HOLD, an OPTIONAL check against |
+| `standards_web_search` | Online search for rule books we do not hold (owner, 17 Nov 2026, #1584; off by default): after an AI review, the public name of each rule book not held (rebuilt by code) to Claude's web search through `agent_claude`, metered with the search fee; the answer stored per run and shown as "not verified" on the page and the CRS sheet "Rule books not held", never a rule or verdict input |
 | `work_budget` | A hard work budget for a request that can grow with the library (#606) |
 | `workbook` | Read an xlsx into sheets for a read-only preview. Standard library only |
 | `word_flow` | #1473: a Word file read as `docx_reader` pages for the datasheet fact reader (PAGE_READ_BY_READING_ENABLED) |

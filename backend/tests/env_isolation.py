@@ -149,6 +149,9 @@ EGRESS_SAFE: dict[str, object] = {
     "reasoning_provider": "ollama",
     "standards_reader_enabled": False,
     "standards_reader_allow_public_egress": False,
+    # 17 Nov (#1584): online search for rule books not held (public names to Claude's web search), off; its own tests turn it on
+    "standards_web_search_enabled": False,
+    "standards_web_search_usd_per_run": 0.50,
     "anthropic_api_key": "",
     # Order 270.3: where the review reads the converter's draft files; empty = reads none.
     "standards_converter_dir": "",

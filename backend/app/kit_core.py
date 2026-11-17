@@ -231,21 +231,28 @@ def _with_bounds(item: dict, rules: dict) -> dict:
 
 
 def rows(checklist, roles, common, tag, rules, page_texts) -> list[dict]:
-    """The checklist's results for one tag, kit cards held (see `held`)."""
+    """The checklist's results for one tag, kit cards held (see `held`); a QUESTION ONLY card
+    decides nothing (`question_card.decide_nothing`, the one place every checklist result passes)."""
     from .datasheet_checks import evaluate_item
     from .draft_items import hold as hold_draft_item
+    from .question_card import decide_nothing
 
     return [
         held(
             hold_draft_item(
-                evaluate_item(
+                decide_nothing(
                     item,
+                    evaluate_item(
+                        item,
+                        roles,
+                        common,
+                        tag,
+                        _with_bounds(item, rules),
+                        draft=checklist["draft"],
+                        page_texts=page_texts,
+                    ),
                     roles,
                     common,
-                    tag,
-                    _with_bounds(item, rules),
-                    draft=checklist["draft"],
-                    page_texts=page_texts,
                 ),
                 item,
             ),

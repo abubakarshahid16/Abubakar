@@ -75,7 +75,7 @@ def is_placeholder(text) -> bool:
 
 def _head(text: str, words: int = 9) -> str:
     parts = clean(text).split()
-    return " ".join(parts[:words]) + (" ..." if len(parts) > words else "")
+    return " ".join(parts[:words]) + ("…" if len(parts) > words else "")  # FTU-1: the one cut mark (`crs_completeness.CUT_MARK`)
 
 
 HIDDEN_FIELD = "a requirement not shown: its rule book is not one you may read, or the point is not linked to a held rule book"
@@ -121,6 +121,11 @@ def paper_value(finding: dict | None) -> tuple[str, int | None]:
     page = f.get("contractor_page") or fact.get("page")
     page = page if isinstance(page, int) and not isinstance(page, bool) and page >= 1 else None
     return text, page
+
+
+def says_no_value(kind: str | None, finding: dict | None) -> bool:
+    """The rule-check point's OWN record says the paper gives no value: its kind or its stored status (never free words)."""
+    return kind == "missing_information" or str((finding or {}).get("compliance_status") or "") == "MISSING_INFORMATION"
 
 
 def rule_text(finding: dict | None) -> str:

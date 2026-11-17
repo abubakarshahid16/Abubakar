@@ -45,6 +45,7 @@ from .datasheet_coverage import (
 from .deferred_value import hold_results, note_of
 from .label_match import drop_unit_less_twins, unit_readings
 from .percent_kind import doubt as _kind_doubt
+from .question_card import not_matched as _not_matched
 from .same_value import key as _key
 from .stated_value import fact_value as _shown
 from .stated_value import said as _said
@@ -671,10 +672,7 @@ def evaluate_item(item: dict, roles: dict, common: dict, tag: str | None, rules:
             continue
         stated = _fold(_shown(cond_fact))
         if not any(_fold(word) in stated for word in condition["any"]):
-            return res(NOT_APPLICABLE,
-                       f"Does not apply: {_label(cond_fact, condition['role'])} is "
-                       f"'{_said(cond_fact)}' (page {cond_fact.get('page')}).",
-                       cond_fact, condition["role"])
+            return _not_matched(cond_fact, condition, res, held)
     kind = rule["kind"]
     if kind in ("calc", "sum_percent_of"):  # R13; a sum: datasheet_sum.sum_percent_of
         return getattr(datasheet_sum, kind, evaluate_calc)(item, field, get, res, rules)

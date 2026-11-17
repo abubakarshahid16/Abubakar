@@ -21,6 +21,7 @@ from pathlib import Path
 from . import agent_review_local as local_words
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
+from . import crs_ai_actions as actions
 from . import crs_ai_words as words
 from . import crs_comments, crs_export, crs_layout, kind_review_table
 from .agent_review_crs import (
@@ -46,7 +47,6 @@ from .agent_review_verdict import (
     FAIL,
     NO_VALUE_WHY,
     PASS,
-    SILENCE_CODES,
     met_unsafe_why,
     moved_by_guard,
 )
@@ -212,7 +212,7 @@ def _requires(line: Mapping, status: str) -> str:
         )
         head = f"{lead} {field or 'the value asked for'}{mark}; {ref or 'the rule'}"
         return head + (f' {verb}: "{ask}".' if ask else f" applies. {_no_quote(line)}")
-    if status == words.STATUS_QUERY:
+    if status == words.STATUS_QUERY and not actions.silent_row(line):
         head = f"Contractor to confirm {field + ' against' if field else 'compliance with'} {ref or 'the rule'}"
         return head + (f', which {verb}: "{ask}".' if ask else f". {_no_quote(line)}")
     if ask:
@@ -243,7 +243,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     ):
         return words.absence_cell(line, field_words(line) or _item_ask(line))
     code = line.get("reason_code")
-    silent = code in SILENCE_CODES or line.get("silence_query")
+    silent = actions.says_silent(line)
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
     if code == "value_deferred" or guard == DEFERRED_WHY:
         out = (
@@ -260,10 +260,9 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
             f" (pages searched: {searched})." if searched else "."
         )
     elif silent and not has:
-        searched = _searched(line)
-        out = f"The AI reviewer did not find {field} in the paper" + (
-            f" (pages searched: {searched})." if searched else "."
-        )
+        searched = f" (pages searched: {_searched(line)})." if _searched(line) else "."
+        found = actions.quote_words(line, where).strip()
+        out = found or f"The AI reviewer did not find {field} in the paper{searched}"
     elif guard == NO_VALUE_WHY:
         out = f"The quote from the paper holds only the label {field}, with nothing after it{where}."
     elif code == "needs_drawing_or_calc":
@@ -338,7 +337,9 @@ def _contractor_to(line: Mapping, status: str, order: int) -> str:
     what, ref = field_words(line) or "the item", against(line)
     if status == words.STATUS_FAIL:
         return f"Contractor to revise {what} to meet {ref or 'the requirement'} and resubmit the paper."
-    if status in (words.STATUS_AI, words.STATUS_AI_VERDICT):
+    # FTU-1: a silent "not met" asks what its case asks (state it, or the engineer checks)
+    opinion = status in (words.STATUS_AI, words.STATUS_AI_VERDICT)
+    if opinion and not actions.says_silent(line):
         return f"Contractor to check {what}{' against ' + ref if ref else ''} and confirm or correct it."
     return query_action(line, what, ref)
 

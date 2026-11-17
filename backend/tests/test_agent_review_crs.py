@@ -324,6 +324,8 @@ def test_a_query_is_worded_as_a_crs_comment_that_starts_contractor_to_confirm():
         "Query",
         why="the AI reviewer answered that it cannot decide this",
         reason_code="sheet_silent",
+        # FTU-1: a found quote makes it a silent row, worded by its one decision
+        quotes_checked={"paper": False, "clause": True},
     )
     assert WB.status_of(line) == ("Query", words.ORDER_QUERY)
     assert WB.layout_comment(line, *WB.status_of(line)).startswith(
@@ -800,7 +802,9 @@ def test_the_paper_does_not_state_is_printed_only_for_the_absence_proof():
     assert _line2(proven) == "The paper does not state Field R1 (pages searched: 1, 2)."
 
 
-def test_a_silent_line_with_a_verified_quote_does_not_say_the_paper_is_silent():
+def test_a_silent_line_with_a_verified_quote_never_says_the_paper_states_it():
+    """FTU-1 (retracts the earlier "a verified quote means the paper is not silent"): code found the quote on the page, not that it is
+    the value. The line's own reason (silent) is said as the AI's, and a quote that is more than the label is neutral."""
     line = mk(
         "R-1",
         "Query",
@@ -809,9 +813,13 @@ def test_a_silent_line_with_a_verified_quote_does_not_say_the_paper_is_silent():
         silence_query=True,
         why=V.SILENCE_WHY,
     )
-    assert "does not state" not in _line2(
-        line
-    ) and 'The paper states "Nameplate: steel"' in _line2(line)
+    got = _line2(line)
+    assert 'The paper states "Nameplate: steel"' not in got
+    # the AI's own reading, said as its own
+    assert "the reader says the paper does not state it" in got.lower()
+    # more than the field's label: it may state the value, so neutral words, never "not evidence"
+    assert '"Nameplate: steel", page 2 (found on the page by code), which may state it' in got
+    assert actions.CONTRADICT_REASON in got and "not evidence" not in got
 
 
 @pytest.mark.parametrize("verdict", ["Fail", "Query", "Pass"])
