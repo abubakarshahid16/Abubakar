@@ -620,8 +620,12 @@ def aside_line(aside: list[tuple[dict, str]]) -> str:
 
 
 def no_rule_words(points: list[dict]) -> str:
-    """What the rule-books cell says when no book is named: a rule book the reader may not read is counted and not named; otherwise the
-    comment rests on NO rule book and says so (a field check never looks like a rule-backed comment)."""
+    """What the rule-books cell says when no held book is named: a book the library does not hold is said as missing, with its clause
+    or "clause not named" (`review_points.book_missing_words`; order 14 lane C, C1); a rule book the reader may not read is counted and
+    not named; otherwise the comment rests on NO rule book and says so (a field check never looks like a rule-backed comment)."""
+    missing = list(dict.fromkeys(p["_book_missing_words"] for p in points if p.get("_book_missing_words")))
+    if missing:
+        return "; ".join(missing)
     held = any(p.get("_book_docs") or p.get("_book_doc") for p in points)
     return content.UNREADABLE_BOOK if held else content.NO_RULE_CITED
 
@@ -638,7 +642,8 @@ def comment_note(c: dict, ms: list[dict]) -> str:
 
 def comment_full_texts(c: dict, by_id: dict | None = None) -> dict[str, str]:
     """The whole text of each long cell of a comment (the strongest point's words, every clause and, with `by_id`, its Note): the source
-    of its Full text. FTU-1: the Note is a long cell like the others, so a shortened Note carries the mark and its whole text."""
+    of its Full text. FTU-1: the Note is a long cell like the others, so a shortened Note carries the mark and its whole text. With no
+    clause, the rule-books cell says what `no_rule_words` says of the comment's own points."""
     out = full_texts(c["strongest"])
     if by_id is not None:
         out["note"] = comment_note(c, [by_id[i] for i in c["member_ids"]])
@@ -649,7 +654,11 @@ def comment_full_texts(c: dict, by_id: dict | None = None) -> dict[str, str]:
             if x
         )
         for k in c["clauses"]
-    ) or (content.UNREADABLE_BOOK if c.get("book_held") else content.NO_RULE_CITED)
+    ) or (
+        no_rule_words(c["_members"])
+        if c.get("_members")
+        else (content.UNREADABLE_BOOK if c.get("book_held") else content.NO_RULE_CITED)
+    )
     return out
 
 
