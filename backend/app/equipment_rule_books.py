@@ -151,15 +151,23 @@ def pairing_gate(
     """None while `equipment_rule_books_enabled` is off (nothing changes). On: a function giving, for one requirement, the code
     why no field of this paper may be paired with it, or None (it may be paired). The decision is the AI reviewer's own
     (`agent_review_equipment.equipment_decision`, mode "type", the rule's approved label field): left out there = paired with
-    no field here, in any book. A book this run kept ONLY by this route (`tag_only_books`) pairs none of its rules."""
+    no field here, in any book. As in the AI reviewer, a paper of a kind with no main equipment (`kind_review_table`: a
+    procedure, a contract, a transmittal) is not filtered by equipment. A book this run kept ONLY by this route
+    (`tag_only_books`) pairs none of its rules."""
     from . import agent_review_equipment as are
-    from . import rule_equipment, rule_labels
+    from . import kind_review_table, rule_equipment, rule_labels
+    from .agent_review_kind import read_kind
     from .config import settings
 
     if not settings.equipment_rule_books_enabled:
         return None
     ctx = are.load_equipment(conn, document_id, "type")
     tag_only = tag_only_books(conn, run_id)
+    kind = read_kind(conn, document_id)
+    by_equipment = not (
+        kind.get("known")
+        and kind.get("kind") in kind_review_table.no_main_equipment_kinds()
+    )
 
     def why_not(requirement: Mapping) -> str | None:
         rid = str(requirement.get("id") or "")
@@ -168,7 +176,7 @@ def pairing_gate(
         keep, why, _family = are.equipment_decision(
             label, ctx.eq, ctx.tax, ctx.mode, field or None
         )
-        if not keep:
+        if by_equipment and not keep:
             return (
                 PAPER_EQUIPMENT_UNKNOWN
                 if why in are.PAPER_EQUIPMENT_REASONS

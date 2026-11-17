@@ -205,6 +205,28 @@ def test_a_tagged_rule_on_a_paper_whose_equipment_is_not_known_is_not_paired(wor
     assert marked[erb.NOT_PAIRED] == erb.PAPER_EQUIPMENT_UNKNOWN
 
 
+@pytest.mark.parametrize("kind", ["procedure", "contract"])
+def test_a_paper_with_no_main_equipment_is_not_filtered_by_equipment(world, kind):
+    """As in the AI reviewer (`no_main_equipment_kinds`): a procedure's rules are not left out for another equipment."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_kinds (document_id, kind, state, routed_at) VALUES (?, ?, 'confirmed', 't')",
+            (SUB, kind),
+        )
+    req = _rule(typ="motor", fam="rotating")
+    assert (
+        erb.NOT_PAIRED
+        not in erb.unpairable(db.connect(), SUB, _run("referenced"), [req])[0]
+    )
+    # a book kept only by tags still pairs nothing
+    assert (
+        erb.unpairable(db.connect(), SUB, _run("equipment_rules"), [req])[0][
+            erb.NOT_PAIRED
+        ]
+        == erb.BOOK_KEPT_BY_TAGS
+    )
+
+
 def test_switch_off_marks_nothing_and_returns_the_same_list(world, monkeypatch):
     monkeypatch.setattr(settings, "equipment_rule_books_enabled", False)
     req, run_id = _rule(typ="motor", fam="rotating"), _run("equipment_rules")
