@@ -176,9 +176,10 @@ def test_tick_only_still_ticks_only_a_met_whose_one_doubt_is_the_clause_quote():
     assert crs_comments.tick_only(point())
     assert not crs_comments.tick_only(point(second_opinion={"agree": False}))
     assert not crs_comments.tick_only(point(not_mentioned_hold=True))
-    assert not crs_comments.tick_only(
-        {"_line": _met_line()}
-    )  # a pass_ reason is never ticked (R94)
+    # order 14 lane D (gate G3): the guard's objection of code's own reach alone ("the rule's field is not known"), with both quotes
+    # verified, is ticked (nothing for the contractor to correct); a guard objection to the quote itself is never ticked
+    assert crs_comments.tick_only({"_line": _met_line()})
+    assert not crs_comments.tick_only({"_line": _met_line(reason_code="pass_field_not_quoted")})
 
 
 def test_g3_passes_a_pass_reason_question_whose_line_records_a_doubt_and_still_fails_one_without():

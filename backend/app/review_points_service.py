@@ -400,7 +400,7 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
         if d.get("by"):
             d["by"] = names.get(d["by"]) or d["by"]
         p["decision"] = d
-    decided = sum(1 for p in points if p["decision"]["state"])
+    decided = len(points) - len(review_code_proposal.still_open(points))  # FTU-16: the one open count, as the proposal reads it
     not_held = rp.books_not_held(not_held, points, library)  # with every row's "Book missing": one list for page and sheet
     counts = rp.counts(
         points, two_reader_possible=bool(ai_run), not_held=not_held, decided=decided
@@ -517,9 +517,7 @@ def _unread_pages(run_id: str | None, scope) -> int | None:
 def undecided(paper_id: str, scope) -> tuple[int, int]:
     """(points not decided, points in all) for the sign gate."""
     got = assemble(paper_id, scope)
-    return sum(1 for p in got["points"] if not p["decision"]["state"]), len(
-        got["points"]
-    )
+    return got["of"] - got["decided"], got["of"]  # FTU-16: the listing's one open count (`review_code_proposal.still_open`)
 
 
 def missing_books(conn, run_id: str) -> list[dict]:

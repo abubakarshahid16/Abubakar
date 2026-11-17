@@ -35,7 +35,12 @@ from openpyxl import Workbook
 from . import crs_ai_words as words
 from . import crs_comments as comments
 from . import crs_completeness as completeness
-from . import crs_export_quality, crs_layout, standards_web_search
+from . import (
+    crs_export_quality,
+    crs_layout,
+    standards_web_search,
+    standards_web_search_money,
+)
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
 from . import review_points_content as content
@@ -292,6 +297,7 @@ def _run_facts(extra: dict) -> list[dict]:
             "engine": "Claude" if any(str(m).startswith("claude") for m in models) else ("Local" if models else NOT_RECORDED),
             "models": models, "date": (r["finished_at"] or r["started_at"]) if r else None,
             "kind": r["paper_kind"] if r else None, "equipment": r["equipment_type"] if r else None, "usd": r["usd"] if r else None,
+            "search_in_cost": standards_web_search_money.added(r["counts_json"]) if r else None,
         })  # fmt: skip
     return out
 
@@ -581,7 +587,10 @@ def _how_rows(extra: dict, scope) -> list[list]:
         ]
     )
     if (online := standards_web_search.cost_of(extra.get("found_online"))) is not None:
-        rows.append([standards_web_search.COST_ROW, online])
+        # a run whose usd includes the search shows the figure ADDED to it (review R-1866, finding 3)
+        added = next((r["search_in_cost"] for r in _run_facts(extra) if r.get("search_in_cost") is not None), None)
+        rows.append([standards_web_search_money.COST_ROW_INCLUDED, added] if added is not None
+                    else [standards_web_search.COST_ROW, online])  # fmt: skip
     for r in _run_facts(extra):
         rows.append([f"{r['what']}: run id", r["run"]])
     return rows
@@ -715,22 +724,37 @@ HELD_MEANS = (
 )
 
 
-def held_table(held: list[str], found: list[dict] | None) -> tuple:
-    """The sheet "Rule books not held": (columns, rows, widths). With the online search
-    on (`found` a list), one more column says what it found, "not verified"; never a
-    rule quote, a clause or a point. Off (`found` None): exactly as before."""
+#: FTU-16: the two sources of a book not held, kept apart on the sheet (both are honest; they say different things)
+HELD_ON_ROWS = "{n} point(s) of this review mark it not held"
+HELD_SCOPE_ONLY = "found not held by the review's scope (the books that apply to this paper); no point of this review marks it not held"
+HELD_SOURCE_COLUMN = "Where it comes from"
+
+
+def held_table(held: list[str], found: list[dict] | None, rows_of: dict[str, int] | None = None) -> tuple:
+    """The sheet "Rule books not held": (columns, rows, widths). FTU-16: each book says where it comes from (`rows_of`, the points that
+    mark it, `review_points.not_held_rows`): the books points mark first, then the books only the review's scope found not held. With the
+    online search on (`found` a list), one more column says what it found, "not verified"; never a rule quote, a clause or a point."""
+    rows_of = rows_of if rows_of is not None else dict.fromkeys(held, 0)
+    order = [n for n in held if rows_of.get(n)] + [n for n in held if not rows_of.get(n)]
+    where = {n: HELD_ON_ROWS.format(n=rows_of[n]) if rows_of.get(n) else HELD_SCOPE_ONLY for n in order}
+    columns, widths = ("Rule book", "What it means", HELD_SOURCE_COLUMN), (48, 80, 56)
+    rows = [[_cell(n), HELD_MEANS, where[n]] for n in order]
     if found is None:
-        return (
-            ("Rule book", "What it means"),
-            [[_cell(n), HELD_MEANS] for n in held],
-            (48, 80),
-        )
+        return columns, rows, widths
     said = {f["name"]: f["words"] for f in found}
-    rows = [[_cell(n), HELD_MEANS, _cell(said.get(n) or "not searched")] for n in held]
     return (
-        ("Rule book", "What it means", standards_web_search.COLUMN),
-        rows,
-        (48, 80, 90),
+        (*columns, standards_web_search.COLUMN),
+        [[*r, _cell(said.get(n) or "not searched")] for r, n in zip(rows, order, strict=True)],
+        (*widths, 90),
+    )
+
+
+def held_note(held: list[str], rows_of: dict[str, int], marking: int) -> str:
+    """FTU-16: the count line of the sheet "Rule books not held": both sources, apart, adding up to the page's count of books not held."""
+    on = sum(1 for n in held if rows_of.get(n))
+    return (
+        f"{len(held)} rule book(s) not held: {on} marked not held by {marking} point(s) of this review; {len(held) - on} found not held "
+        "by the review's scope only, marked by no point. They are not points: nothing was checked against them."
     )
 
 
@@ -821,10 +845,10 @@ def build_team(
         (12, 48, 30, 8), note="These points are also rows of the sheet Evidence (they are counted on the page); listed here by themselves.",
     )  # fmt: skip
     held = extra.get("not_held") or []
-    columns, rows, widths = held_table(held, extra.get("found_online"))
+    rows_of = rp.not_held_rows(held, raw)
+    columns, rows, widths = held_table(held, extra.get("found_online"), rows_of)
     _sheet_table(
-        wb, HELD_SHEET, columns, rows, widths,
-        note=f"{len(held)} rule book(s) not held. They are not points: nothing was checked against them.",
+        wb, HELD_SHEET, columns, rows, widths, note=held_note(held, rows_of, rp.points_marking(held, raw)),
     )  # fmt: skip
     _sheet_table(
         wb,
@@ -905,17 +929,9 @@ def status_of(p: dict) -> str:
     )
 
 
-def why_none(raw: list[dict], withheld: int = 0) -> str:
-    """The sentence a contractor file with no row says in the file itself, with the counts."""
-    open_n = sum(
-        1 for p in raw if (p.get("decision") or {}).get("state") != decisions_mod.REMOVE
-    )
-    undecided = sum(1 for p in raw if not (p.get("decision") or {}).get("state"))
-    return (
-        "This copy holds only failures proven by code that the engineer kept, and the engineer's own words. This review has none: "
-        f"{withheld} kept point(s) not issued for lack of engineer wording; "
-        f"{open_n} points are open on the internal copy ({undecided} not decided yet; {len(raw)} points in all)."
-    )
+#: FTU-16: what a contractor file with no row says on its first sheet: contractor words only (no internal words), and no count of its
+#: own: the one count line (`crs_completeness.contractor_statement`) says how many points there are and why none is issued.
+NONE_ISSUED = "No comment is issued in this copy."
 
 
 def build_contractor(
@@ -932,7 +948,6 @@ def build_contractor(
     listing, raw, extra = listing_raw or svc.export_listing(paper_id, scope)
     exported = exported or datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     mine, reasons = completeness.contractor_split(raw)
-    withheld = reasons.get(completeness.REASON_NO_WORDING, 0)
     paper = (_paper_facts(paper_id, _run_facts(extra)))["name"]
     cells = []
     for n, p in enumerate(mine, start=1):
@@ -970,15 +985,16 @@ def build_contractor(
         ("Exported on:", exported),
         ("Recorded review code:", (listing.get("final_code_words") or {}).get("contractor") or NOT_RECORDED),
     ]
+    # FTU-16: the contractor's first sheet in contractor words, with ONE count line whose numbers add up (N reviewed = M in this file
+    # + K not issued, K split by reason, each point under one reason); the decided / open counts are the team copy's
     lines = [
-        f"{len(mine)} row(s) in this copy; {listing['of']} points in the review; {listing['decided']} of {listing['of']} decided",
         completeness.contractor_statement(listing["of"], len(mine), reasons),
-        "This copy is a working copy, not issued: it becomes the contractor's copy when the engineer signs."
+        "This copy is a working copy, not issued: it becomes the contractor's copy when it is signed."
         if not signed
         else "Issued to the contractor.",
     ]
     if not mine:
-        lines.insert(0, why_none(raw, withheld))
+        lines.insert(0, NONE_ISSUED)
     header_row = _put_block(ws, pairs, lines)
     _table(ws, header_row, CONTRACTOR_COLUMNS, cells, CONTRACTOR_WIDTHS)
     buf = BytesIO()

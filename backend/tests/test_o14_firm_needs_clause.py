@@ -59,7 +59,13 @@ def test_a_clause_review_not_met_is_unchanged():
         "row_kind": "clause_review",
         "standard_reference": "SAES-D-901 cl. 5.3.4 (p.7)",
     }
-    p = rp.rule_point(row, CTX, _finding(""), VERIFIED, proof=(True, True))
+    from app import agent_review_pass_guards as pass_guards
+
+    class _Book:  # order 14 lane D (G1): the stored words are shown as the book's only where the linked book holds them
+        def book(self, _doc):
+            return pass_guards.Book({1: "Intro. The limit shall be 10 %. More."})
+
+    p = rp.rule_point(row, {**CTX, "_book_pages": _Book()}, _finding(""), VERIFIED, proof=(True, True))
     assert p["rank"] == 3 and p["rule_text"] == "The limit shall be 10 %."
 
 

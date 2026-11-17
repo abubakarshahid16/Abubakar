@@ -295,6 +295,9 @@ def test_a_count_that_cannot_occur_is_nothing_not_zero_and_the_not_held_books_ar
         "more": 2,
         "total": 5,
         "note": "Not checked, rule book not held",
+        # FTU-16: the two sources apart: no point marks these five, so all come from the review's scope
+        "on_rows": 0,
+        "scope_only": 5,
     }
 
 

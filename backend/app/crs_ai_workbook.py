@@ -243,7 +243,7 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
     ):
         return words.absence_cell(line, field_words(line) or _item_ask(line))
     code = line.get("reason_code")
-    silent = actions.says_silent(line)
+    silent, one_cell = actions.says_silent(line), ""  # FTU-16: a silent row's one cell
     guard = met_unsafe_why(line) if moved_by_guard(line) else ""
     if code == "value_deferred" or guard == DEFERRED_WHY:
         out = (
@@ -261,8 +261,8 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         )
     elif silent and not has:
         searched = f" (pages searched: {_searched(line)})." if _searched(line) else "."
-        found = actions.quote_words(line, where).strip()
-        out = found or f"The AI reviewer did not find {field} in the paper{searched}"
+        one_cell = actions.quote_cell(line, where)  # reason said once
+        out = one_cell or f"The AI reviewer did not find {field} in the paper{searched}"
     elif guard == NO_VALUE_WHY:
         out = f"The quote from the paper holds only the label {field}, with nothing after it{where}."
     elif code == "needs_drawing_or_calc":
@@ -284,7 +284,8 @@ def _paper_shows(line: Mapping, status: str, order: int) -> str:
         out = f"{words.AI_VIEW_PREFIX}{view}. {out}"
     why = reason_for(line, words.why_phrase(guard or line.get("not_proven_reason")))
     if (
-        status in (words.STATUS_AI, words.STATUS_QUERY)
+        not one_cell
+        and status in (words.STATUS_AI, words.STATUS_QUERY)
         and why
         not in (
             "",
