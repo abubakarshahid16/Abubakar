@@ -192,7 +192,8 @@ def test_an_unconfirmed_ai_row_is_internal_with_its_waiting_sentence():
     assert internal["comment_missing"] is False
     assert (
         internal["rank_word"] == "Engineer to check"
-        and internal["status"] == "AI opinion"
+        # LPH (17 Nov 2026): its stored finding records no verdict (left to the engineer), so it is a Query, never an AI opinion
+        and internal["status"] == "Query"
     )
     issue = ce.build_crs_view(rows, {"copy": ce.COPY_ISSUE})
     assert issue["rows"] == [] and issue["rows_withheld_no_text"] == 0

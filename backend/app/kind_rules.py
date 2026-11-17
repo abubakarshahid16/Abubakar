@@ -7,8 +7,10 @@ standard never gets an equipment datasheet checklist or an equipment-type
 today's behaviour and are marked. A kind only NARROWS what is applied (rule 5):
 nothing here adds a standard or reads another document.
 
-Behind `settings.kind_chooses_rules_enabled`, OFF by default: off, every
-function here answers "not blocked" and the review is exactly as before.
+Behind `settings.kind_chooses_rules_enabled`, ON by default (the switch expires
+26 Nov 2026; removing it must keep the ON behaviour): off, every function here
+answers "not blocked" and the review is as it was before #1474. The books our
+rule sorting tagged for the equipment (LPB) are equipment-type books here too.
 """
 
 from __future__ import annotations
@@ -215,6 +217,8 @@ def profile(document_id: str, allowed) -> tuple[dict, tuple]:
         return profile, (None, unknown_mark(document_id))
     library = ap._library(allowed)
     would = ap._match_attribute(library, profile, "equipment_type", ap.METHOD_EQUIPMENT)
+    # LPB: the books our rule sorting tagged for the equipment are equipment-type books too: not chosen for this kind
+    would.update(ap.equipment_rule_candidates(document_id, library))
     token = _IGNORE.set(True)
     try:
         would.update(ap.governing_standards(document_id, library, allowed)[0])

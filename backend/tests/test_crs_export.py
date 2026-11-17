@@ -133,6 +133,7 @@ def test_rows_get_one_fill_per_status_not_per_kind():
                 "comment": "an AI draft",
                 "row_kind": "ai_engineering_check",
                 "priority": 3,
+                "stored_state": "NON_COMPLIANT",  # LPH: an AI row is a Query whatever its stored state
             },
             {"comment": "a tick", "row_kind": "safety_tick", "priority": 3},
         ]
@@ -140,11 +141,12 @@ def test_rows_get_one_fill_per_status_not_per_kind():
     fills = [
         ws.cell(row=FIRST_DATA_ROW + n, column=4).fill.fgColor.rgb for n in range(4)
     ]
-    assert len(set(fills)) == 4, f"rows did not get 4 distinct fills: {fills}"
+    # LPH (17 Nov 2026): the AI row is a Query whatever it stores, so it takes the Query fill: three Statuses, three fills
+    assert len(set(fills)) == 3 and fills[1] == fills[2], f"fills: {fills}"
     assert [ws.cell(row=FIRST_DATA_ROW + n, column=10).value for n in range(4)] == [
         "Fail",
         "Query",
-        "AI opinion",
+        "Query",
         "Pass",
     ]
 

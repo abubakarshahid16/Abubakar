@@ -50,6 +50,7 @@ METHOD_WORDS = {
     "service": "applies by service",
     "project": "applies by project",
     "scope": "applies by scope",
+    "equipment_rules": "holds rules tagged for the equipment type",
     "manual": "added by an engineer",
 }
 

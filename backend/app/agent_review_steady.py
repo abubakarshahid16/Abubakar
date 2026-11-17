@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable, Mapping
 
+from .firm_clause import HELD_KEY
+
 PROVEN = "Proven by code"
 OPINION = "AI opinion, engineer to confirm"
 OPTIONAL_STEPS = ("two_reader", "two_reader_absence", "two_reader_other")
@@ -24,6 +26,9 @@ def class_key(line: Mapping) -> tuple[str, str] | None:
     """(class, word) of the line BEFORE the optional steps; None when the line is left out of the comparison."""
     if not isinstance(line, Mapping) or line.get("error"):
         return None
+    # LP1: a line held as a question (`firm_clause.hold`) is that question, whatever the base said
+    if line.get(HELD_KEY):
+        return str(line.get("verdict_class") or ""), ""
     reread = line.get("reread")
     if isinstance(reread, Mapping) and reread.get("outcome") == "recovered":
         return None
@@ -91,6 +96,18 @@ def _lines_of(conn, run_id: str) -> dict[str, dict]:
     return out
 
 
+def _now(conn, run_id: str, lines: Mapping[str, Mapping]) -> dict[str, dict]:
+    """The lines as every reader reads them today (`crs_ai_words.read_now`: ONE pass with the run's books not held), by item id; a
+    line that is not a mapping is left out (it was never compared)."""
+    from . import crs_ai_words
+    from .review_points_service import missing_books
+
+    ids = [i for i, ln in lines.items() if isinstance(ln, Mapping)]
+    held = missing_books(conn, run_id)
+    read = crs_ai_words.read_now([{**lines[i], "item_id": i} for i in ids], held)
+    return dict(zip(ids, read, strict=True))
+
+
 def previous_run(conn, run_id: str, submittal: str) -> str | None:
     """The latest earlier run of this paper that finished whole (not partial)."""
     # by row order, not by clock second: a run row is written when the run starts and rewritten when it finishes, so a run that
@@ -112,7 +129,9 @@ def since_previous(
     if before_id is None:
         return None
     after = {str(ln.get("item_id")): ln for ln in lines}
-    out = compare(_lines_of(conn, before_id), after)
+    out = compare(
+        _now(conn, before_id, _lines_of(conn, before_id)), _now(conn, run_id, after)
+    )
     return {"previous_run_id": before_id, **out}
 
 

@@ -848,7 +848,10 @@ UNAVAILABLE_RUN_LOCAL = "RUN_LOCAL_ONLY"
 #: #501 (owner decision, 12 Oct 2026): REASONING_PROVIDER=per_task. The Claude
 #: lane may open ONLY for a step whose OWN engine setting says "claude"
 #: (the AI reader, the AI matcher, the AI engineering check); every other
-#: step stays on the local model. `claude` still means "every reasoning step",
+#: step stays on the local model. Two steps without a setting of their own follow another step's setting:
+#: in a Claude-lane review run, clause_check_proposal follows AI_CLAUSE_REVIEW_ENGINE and field naming
+#: (b4-naming2) follows MATCH_ENGINE; requirement_value_question stays local (LP3, 17 Nov 2026;
+#: `local_engine_bar.engine_value`). `claude` still means "every reasoning step",
 #: and `ollama` still means "nothing leaves": the provider switch stays the
 #: master switch, checked first.
 PER_TASK = "per_task"
@@ -864,7 +867,9 @@ def claude_unavailable() -> tuple[str | None, str]:
     Never the key itself, only whether one is present.
 
     This is the question of every step WITHOUT an engine setting of its own.
-    Under `per_task` the answer is no: such a step stays local."""
+    Under `per_task` the answer is no: such a step stays local. Except two (LP3, 17 Nov 2026): in a Claude-lane
+    review run, clause_check_proposal follows AI_CLAUSE_REVIEW_ENGINE and field naming (b4-naming2) follows
+    MATCH_ENGINE, through `claude_for_task`; requirement_value_question stays local."""
     if _provider_setting() != CLAUDE:
         return UNAVAILABLE_PROVIDER_OFF, f"REASONING_PROVIDER={settings.reasoning_provider!r}"
     return _lane_unavailable()

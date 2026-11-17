@@ -14,7 +14,9 @@ What holds:
   * `per_task` opens the lane only for a step whose own engine says claude -
     and still needs both egress flags and a key;
   * a step WITHOUT an engine setting of its own stays local under `per_task`
-    (`claude_unavailable`, `get_provider`, the three review routes);
+    (`claude_unavailable`, `get_provider`, the three review routes), except two in a
+    Claude-lane review run: the clause-check proposal follows AI_CLAUSE_REVIEW_ENGINE and
+    field naming follows MATCH_ENGINE (LP3, `tests/test_lp3_claude_lane_steps.py`);
   * `claude` means what it always meant.
 
 Every transport here is a fake: nothing leaves the machine.
