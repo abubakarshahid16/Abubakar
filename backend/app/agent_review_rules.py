@@ -23,7 +23,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from . import agent_review_rule_choice as rule_choice
-from . import kind_standards, rule_equipment, rule_labels, rule_subject_fit
+from . import kind_standards, rule_equipment, rule_labels
 from .agent_review_equipment import (  # noqa: F401  re-exported: the equipment filter lives in its own module
     ANOTHER_EQUIPMENT,
     EQUIPMENT_MODES,
@@ -53,9 +53,6 @@ QUOTE_NOT_FOUND = "quote_not_found"
 NOT_LABELLED = "not_labelled_yet"
 KIND_UNKNOWN = "paper_kind_unknown"
 NOT_ON_LIST = "rule_book_not_on_shown_list"
-#: order 14 LPV V1: the thing the rule's own words are about is not on the paper (`rule_subject_fit`)
-SUBJECT_NOT_ON_PAPER = rule_subject_fit.REASON
-RULE_BOOK_EXAMPLE = rule_subject_fit.EXAMPLE
 REASONS = (
     ANOTHER_PAPER,
     NEEDS_HUMAN,
@@ -70,12 +67,8 @@ REASONS = (
     rule_choice.PART_OUTSIDE,
     rule_choice.BELOW_LIMIT,
     rule_choice.LABEL_UNAGREED,
-    SUBJECT_NOT_ON_PAPER,
-    RULE_BOOK_EXAMPLE,
 )
 V2_REASONS = (rule_choice.PART_OUTSIDE, rule_choice.BELOW_LIMIT, rule_choice.LABEL_UNAGREED)
-#: reasons whose count appears only when it is used (off or unused, the counts are as they were)
-WHEN_USED = (*V2_REASONS, SUBJECT_NOT_ON_PAPER, RULE_BOOK_EXAMPLE)
 REASON_WORDS = {
     ANOTHER_PAPER: "needs another paper",
     NEEDS_HUMAN: "needs a human",
@@ -92,8 +85,6 @@ REASON_WORDS = {
     rule_choice.PART_OUTSIDE: rule_choice.WORDS[rule_choice.PART_OUTSIDE],
     rule_choice.BELOW_LIMIT: rule_choice.WORDS[rule_choice.BELOW_LIMIT],
     rule_choice.LABEL_UNAGREED: rule_choice.WORDS[rule_choice.LABEL_UNAGREED],
-    SUBJECT_NOT_ON_PAPER: rule_subject_fit.REASON_WORDS,
-    RULE_BOOK_EXAMPLE: rule_subject_fit.EXAMPLE_WORDS,
 }
 LABEL_KINDS = rule_labels.PAPER_KINDS
 ASK_UNAPPROVED_MODES = (
@@ -383,7 +374,7 @@ def count_left_out(left: Iterable[Mapping]) -> dict:
         for r in REASONS
         if r not in (ANOTHER_PAPER, ANOTHER_EQUIPMENT)
         and (
-            c.get(r) or r not in WHEN_USED
+            c.get(r) or r not in V2_REASONS
         )  # rule choice v2 words appear only when used: off, the counts are as they were
     }
     parts: Counter = (
@@ -474,13 +465,6 @@ def summary_lines(
             f"{counts[rule_choice.PART_OUTSIDE]} rules of a book that governs this equipment only in part were not asked: "
             f"{rule_choice.WORDS[rule_choice.PART_OUTSIDE]}"
         )
-    if counts.get(SUBJECT_NOT_ON_PAPER):
-        lines.append(
-            f"{counts[SUBJECT_NOT_ON_PAPER]} rules were not asked: {rule_subject_fit.REASON_WORDS} (a shared word with a field"
-            " never makes a rule fit; listed under Rules used)"
-        )
-    if counts.get(RULE_BOOK_EXAMPLE):
-        lines.append(f"{counts[RULE_BOOK_EXAMPLE]} rules were not asked: {rule_subject_fit.EXAMPLE_WORDS}")
     if counts.get(rule_choice.LABEL_UNAGREED):
         lines.append(
             f"{counts[rule_choice.LABEL_UNAGREED]} approved rules were not asked: their equipment label is not agreed; "

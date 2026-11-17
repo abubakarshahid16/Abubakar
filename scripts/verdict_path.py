@@ -37,6 +37,7 @@ APP = "backend/app/"
 VERDICT_PATH: tuple[tuple[str, str], ...] = (
     # --- CLAUDE.md rule 6, the danger zone ---
     (APP + "comparison.py", "rule 6: compares a value with a requirement"),
+    (APP + "rule_subject_fit.py", "order 14 LPV V1: moves a rule check or AI point to the engineer's tick section (a rule about what the paper lacks)"),
     (APP + "numparse.py", "rule 6: the one number and unit reader"),
     (APP + "claims.py", "rule 6: claims and their units"),
     (APP + "datasheet_checks.py", "rule 6: the approved datasheet checklist code"),

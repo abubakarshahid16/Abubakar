@@ -20,7 +20,6 @@ from . import (
     kind_review_table,
     requirement_split,
     rule_labels,
-    rule_subject_fit,
     table_gate,
 )
 from .agent_review_standards import (
@@ -720,9 +719,6 @@ def build_items(
     eq_ctx = rules_mod.load_equipment(conn, document_id, equipment_filter)
     names = dict(stds.held())
     reqs = [{**r, "standard": names.get(r["standard_document_id"])} for r in reqs]
-    # order 14 LPV V1: a rule whose own words are about a part or material the paper does not have is not asked (a shared word
-    # with a field never makes a rule fit); each is left out with its reason and listed
-    reqs, unfit = rule_subject_fit.split(conn, reqs, document_id)
     v2_left: list[dict] = []
     if rule_budget is not None:  # rule choice v2 (off: this branch never runs)
         reqs, v2_left = rule_choice.partial_gate_rows(
@@ -750,10 +746,6 @@ def build_items(
     lab_left += [
         rules_mod.left_out_record(r, {"reason": rules_mod.NOT_ON_LIST}, "id")
         for r in unlisted
-    ]
-    lab_left += [
-        rules_mod.left_out_record(u["requirement"], {"reason": u["code"]}, "id")
-        for u in unfit
     ]
     v2_facts: dict | None = None
     groups: list[dict] = []

@@ -1,7 +1,8 @@
-"""Order 14 LPV, V1: a rule is asked only when the thing its own words are about fits the paper, never by a shared word alone.
+"""Order 14 LPV, V1 (the lead's decision after review): a rule about something the paper does not have is never dropped by words;
+its point moves to the engineer's tick section "AI thinks these do not apply, tick to confirm" with the reason "the paper names no
+<thing> on any page". Never for a rule that REQUIRES the thing; any doubt keeps the point as it is.
 
-INVENTED texts only (no standard or paper text). The invented book has a part for "quartzite" windows (a material class the data file
-does not hold, so the tests pass their own catalogue) and the data file's own words are checked on invented sentences too."""
+INVENTED texts only: an invented book has a part for "quartzite" frames (a class the tests pass in their own catalogue)."""
 
 from __future__ import annotations
 
@@ -9,416 +10,309 @@ import sqlite3
 
 import pytest
 
-from app import agent_review_items as it
-from app import agent_review_rules as rules_mod
-from app import ai_task_runner, scope_ledger
-from app import rule_label_schema as schema
 from app import rule_subject_fit as fit
-from app.config import settings
-from tests import rule_label_support as s
-from tests.test_141_division_scope import temp_storage  # noqa: F401  (fixture)
-from tests.test_agent_review_items import _label
 
-CAT = (
-    ("a quartzite window", ("quartzite",)),
-    ("a peep hole", ("peep hole", "peep holes")),
-)
-
-#: an invented book passage: a lead-in that names the quartzite window, then a numbered list whose items do not name it
+CAT = (("quartzite", ("quartzite",)), ("a peep hole", ("peep hole", "peep holes")))
 PASSAGE = (
     "Z-1 SCOPE (a) This part covers frames with quartzite windows. (b) Frames built to this part shall be limited to the following"
     " limits for both the quartzite panes and all steel parts: (1) The inner design pressure shall equal the rated pressure."
     " (2) The outer design pressure shall not exceed 7 units. (3) The rated pressure shall not exceed 70 units."
     " (4) The service life of the quartzite pane shall be 4 years. Z-2 OTHER (a) Every frame shall carry a tag."
 )
-STEEL_PAPER = (
+STEEL = (
     "Invented frame data sheet. Design pressure 3 units. Outer design pressure 5 units. Service life 20 years. "
     * 3
 )
 
 
-def _req(source: str, chunk: str = "c1", rid: str = "r1") -> dict:
-    return {"id": rid, "source_text": source, "chunk_id": chunk}
+def _d(text: str, passage: str = "", paper: str | None = STEEL, heading: str = ""):
+    return fit.decide({"source_text": text}, passage, paper, CAT, heading)
 
 
-def test_a_list_item_inherits_the_thing_its_lead_in_names_and_is_not_asked_of_a_paper_without_it():
+# ---- what moves -----------------------------------------------------------------------------------------------------------------
+
+
+def test_a_list_item_inherits_its_own_lists_lead_in_and_moves_with_the_reason():
     item = "(3) The rated pressure shall not exceed 70 units."
     assert "quartzite panes" in fit.lead_in(item, PASSAGE)
-    got = fit.decide(_req(item), PASSAGE, STEEL_PAPER, CAT)
-    assert got == {
-        "thing": "a quartzite window",
-        "detail": "its own words are about a quartzite window; this paper names none on any page",
-    }
-
-
-def test_the_rule_sentence_subject_names_the_thing():
-    item = "(4) The service life of the quartzite pane shall be 4 years."
-    assert fit.decide(_req(item), "", STEEL_PAPER, CAT)["thing"] == "a quartzite window"
-
-
-def test_a_shared_field_word_alone_never_makes_a_rule_fit_but_an_unrelated_rule_is_asked():
-    """The steel paper has 'Outer design pressure' and 'Service life': the quartzite items are still not asked; a rule about
-    nothing on the list is asked."""
-    for item in (
-        "(2) The outer design pressure shall not exceed 7 units.",
-        "(4) The service life of the quartzite pane shall be 4 years.",
-    ):
-        assert fit.decide(_req(item), PASSAGE, STEEL_PAPER, CAT) is not None
     assert (
-        fit.decide(
-            _req("(a) Every frame shall carry a tag."), PASSAGE, STEEL_PAPER, CAT
-        )
-        is None
+        _d(item, PASSAGE)
+        == "its own words are about quartzite; the paper names no quartzite on any page"
     )
-
-
-def test_a_thing_the_rule_asks_for_after_its_verb_does_not_make_it_unfit():
-    """'... shall be installed: a peep hole' asks the paper to HAVE one: a paper without it is exactly what the rule checks."""
-    rule = "The following shall be installed on every housing: a level peep hole and a drain plug."
-    assert fit.decide(_req(rule), "", STEEL_PAPER, CAT) is None
-
-
-def test_a_paper_that_names_the_thing_asks_the_rule():
-    paper = STEEL_PAPER + " Window: quartzite, two panes."
     assert (
-        fit.decide(
-            _req("(3) The rated pressure shall not exceed 70 units."),
-            PASSAGE,
-            paper,
-            CAT,
-        )
-        is None
+        _d("(4) The service life of the quartzite pane shall be 4 years.") is not None
+    )  # its own subject
+
+
+def test_a_lead_in_is_never_inherited_across_lists():
+    other = (
+        PASSAGE
+        + " (c) Gaskets shall be listed: (1) The list shall be dated. (3) The rated pressure shall be 9 units."
     )
-
-
-def test_a_negated_thing_does_not_count():
-    rule = "Frames other than quartzite frames shall carry a tag."
-    assert fit.decide(_req(rule), "", STEEL_PAPER, CAT) is None
     assert (
-        fit.decide(_req("Non-quartzite panes shall be marked."), "", STEEL_PAPER, CAT)
-        is None
-    )
-
-
-def test_an_unreadable_paper_leaves_nothing_out():
+        fit.lead_in("(3) The rated pressure shall be 9 units.", other) == ""
+    )  # items 1, 3: not this list's 1 .. 2
     assert (
-        fit.decide(
-            _req("(4) The service life of the quartzite pane shall be 4 years."),
-            "",
-            None,
-            CAT,
-        )
-        is None
-    )
+        fit.lead_in("(a) Every frame shall carry a tag.", PASSAGE) == ""
+    )  # another style
 
 
-def test_a_section_title_names_the_thing_but_a_sentence_stored_as_the_section_does_not():
+def test_a_section_title_counts_only_with_the_thing_as_its_head_and_no_second_group():
     rule = "If the flow is not given, it shall be taken as 5 units."
     assert (
-        fit.decide(
-            _req(rule),
-            "",
-            STEEL_PAPER,
-            CAT,
-            heading="6.7 Extra tests for quartzite frames",
-        )["thing"]
-        == "a quartzite window"
-    )
+        _d(rule, heading="6.7 Extra tests for quartzite frames and quartzite") is None
+    )  # joins a second group
     assert (
-        fit.decide(
-            _req(rule),
-            "",
-            STEEL_PAPER,
-            CAT,
-            heading="6.7 Quartzite frames shall be tested twice",
-        )
-        is None
-    )
+        _d(rule, heading="6.7 Extra tests for main quartzite") is not None
+    )  # the thing is the title's head
+    assert (
+        _d(rule, heading="6.7 Seal core with quartzite liner gaskets") is None
+    )  # a part of something else
+    assert _d(rule, heading="6.7 Nozzles, manways and quartzite") is None
+    assert (
+        _d(rule, heading="6.7 Quartzite frames shall be tested twice") is None
+    )  # a sentence stored as a heading
 
 
-def test_an_exception_a_few_words_before_the_thing_or_a_subject_joining_another_group_keeps_the_rule():
-    assert (
-        fit.decide(
-            _req(
-                "For all frames except main quartzite frames, the rated pressure shall be 3 units."
-            ),
-            "",
-            STEEL_PAPER,
-            CAT,
-        )
-        is None
-    )
-    assert (
-        fit.decide(
-            _req(
-                "With the exception of main quartzite frames, frames shall carry a tag."
-            ),
-            "",
-            STEEL_PAPER,
-            CAT,
-        )
-        is None
-    )
-    assert (
-        fit.decide(
-            _req(
-                "For heavy frames and for quartzite frames, all tests shall be witnessed."
-            ),
-            "",
-            STEEL_PAPER,
-            CAT,
-        )
-        is None
-    )
+# ---- what never moves -----------------------------------------------------------------------------------------------------------
 
 
-def test_a_sentence_that_carries_on_a_worked_example_is_not_a_requirement():
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "A peep hole shall be provided on every housing.",  # requires the thing
+        "Peep holes shall be fitted at each end of the frame.",
+        "One peep hole shall be located at each end of the frame.",
+        "The following shall be installed on every housing: a level peep hole and a drain plug.",  # named after the verb
+        "Every housing shall have a peep hole.",
+    ],
+)
+def test_a_rule_that_requires_the_thing_never_moves(rule):
+    assert _d(rule) is None  # a paper without it is exactly the finding
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "Frames without quartzite panes shall carry a tag.",
+        "Frames not fitted with quartzite panes shall carry a tag.",
+        "Unless quartzite is used, the frame shall carry a tag.",
+        "Frames other than quartzite frames shall carry a tag.",
+        "For all frames except main quartzite frames, the rated pressure shall be 3 units.",
+        "Non-quartzite panes shall be marked.",
+        "Steel instead of quartzite frames shall be marked.",
+    ],
+)
+def test_a_negation_keeps_the_rule(rule):
+    assert _d(rule) is None
+
+
+def test_a_subject_joining_another_group_or_two_glued_sentences_keep_the_rule():
+    assert (
+        _d("For heavy frames and for quartzite frames, all tests shall be witnessed.")
+        is None
+    )
+    assert _d("Heavy frames, quartzite frames shall be witnessed.") is None
+    assert (
+        _d(
+            "Quartzite frames are not allowed 5.2.17 Steel frames shall be painted twice."
+        )
+        is None
+    )  # split at the clause number
+    assert (
+        _d("Quartzite frames rated 5 units 5.2.17 Steel frames shall be painted twice.")
+        is None
+    )  # two rules, one stored
+    assert (
+        _d(
+            "Quartzite frame work does not require a rail Posts shall be set at 45 degrees."
+        )
+        is None
+    )  # a verb in the subject
+    assert (
+        _d("The quartzite pane shall be clean. Every frame shall carry a tag.") is None
+    )  # one sentence is general
+
+
+def test_the_paper_naming_the_thing_or_an_unreadable_paper_keeps_the_rule():
+    rule = "(4) The service life of the quartzite pane shall be 4 years."
+    assert _d(rule, paper=STEEL + " Window: quartzite.") is None
+    assert _d(rule, paper=None) is None
+
+
+# ---- the worked example ---------------------------------------------------------------------------------------------------------
+
+
+def test_a_worked_example_moves_but_a_list_or_clause_number_is_no_figure():
     passage = (
-        "The valve must reclose above the operating pressure. For example, if the valve is set at 100 units with a 7% margin,"
-        " it will close at 93 units. The operating pressure must be kept below 93 units to avoid a leak. Other text."
+        "The valve must reclose above the operating pressure. For example, if the valve is set at 100 psig with a 7% blowdown,"
+        " it will close at 93 psig. The operating pressure must be kept below 93 psig to avoid a leak. Other text."
     )
     assert fit.is_example(
-        _req("The operating pressure must be kept below 93 units to avoid a leak."),
+        {
+            "source_text": "The operating pressure must be kept below 93 psig to avoid a leak."
+        },
         passage,
     )
     assert not fit.is_example(
-        _req("The valve must reclose above the operating pressure."), passage
-    )  # no figure of the example
+        {"source_text": "The valve must reclose above the operating pressure."}, passage
+    )
+    numbers = "For example, see item (3) of clause 4.2. (3) The frame shall be marked as in 4.2."
     assert not fit.is_example(
-        _req("The operating pressure must be kept below 80 units."),
-        passage.replace("below 93", "below 80"),
+        {"source_text": "(3) The frame shall be marked as in 4.2."}, numbers
     )
-
-
-def test_no_lead_in_for_a_sentence_that_is_not_a_list_item_or_of_another_marker_style():
-    assert fit.lead_in("The rated pressure shall not exceed 70 units.", PASSAGE) == ""
     assert (
-        fit.lead_in("(c) The rated pressure shall not exceed 70 units.", PASSAGE) == ""
-    )  # letters: the list counts in digits
-
-
-def test_the_data_file_names_non_metal_windows_and_the_reason_is_a_ledger_reason():
-    names = dict(fit.things())
-    assert any(
-        "acrylic" in w for w in names[next(n for n in names if n.startswith("acrylic"))]
-    )
-    assert fit.named_things("The design life of the acrylic window") == [
-        next(n for n in names if n.startswith("acrylic"))
-    ]
-    state, words = scope_ledger.REASONS[fit.REASON]
-    assert state == scope_ledger.DOES_NOT_APPLY and words == fit.REASON_WORDS
-    assert rules_mod.REASON_WORDS[rules_mod.SUBJECT_NOT_ON_PAPER] == fit.REASON_WORDS
-
-
-# ---- the AI reviewer's rule choice ----------------------------------------------------------------------------------------
-
-PAPER, STD = "doc_paper", "doc_std"
-
-
-@pytest.fixture()
-def con(monkeypatch):
-    s.switch(monkeypatch)
-    monkeypatch.setattr(fit, "things", lambda path=None: CAT)
-    c = sqlite3.connect(":memory:")
-    c.executescript(
-        """
-        CREATE TABLE documents (id TEXT PRIMARY KEY, filename TEXT);
-        CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT);
-        CREATE TABLE chunks (id TEXT PRIMARY KEY, text TEXT);
-        CREATE TABLE standard_requirements (id TEXT PRIMARY KEY, standard_document_id TEXT, clause TEXT, page INTEGER,
-            requirement_text TEXT, source_text TEXT, requirement_type TEXT, field TEXT, operator TEXT, value REAL, unit TEXT,
-            value_low REAL, value_high REAL, table_row INTEGER, chunk_id TEXT);
-        CREATE TABLE review_runs (id TEXT PRIMARY KEY, submittal_document_id TEXT, status TEXT, created_at TEXT);
-        CREATE TABLE review_scope_decisions (review_run_id TEXT, requirement_id TEXT, state TEXT, reason_code TEXT,
-            PRIMARY KEY (review_run_id, requirement_id));
-        """
-    )
-    c.execute(
-        "INSERT INTO documents VALUES (?, 'INV-STD-9.pdf'), (?, 'paper.pdf')",
-        (STD, PAPER),
-    )
-    c.execute("INSERT INTO pages VALUES (?, 1, ?)", (STD, PASSAGE))
-    c.execute("INSERT INTO pages VALUES (?, 1, ?)", (PAPER, STEEL_PAPER))
-    c.execute("INSERT INTO chunks VALUES ('c1', ?)", (PASSAGE,))
-    for rid, text in (
-        ("r-rated", "(3) The rated pressure shall not exceed 70 units."),
-        ("r-tag", "(a) Every frame shall carry a tag."),
-    ):
-        c.execute(
-            "INSERT INTO standard_requirements (id, standard_document_id, clause, page, requirement_text, source_text,"
-            " requirement_type, chunk_id) VALUES (?, ?, 'Z-1', 1, ?, ?, 'statement', 'c1')",
-            (rid, STD, text, text),
+        _d(
+            "The operating pressure must be kept below 93 psig to avoid a leak.",
+            passage,
         )
-    c.execute(
-        "INSERT INTO review_runs VALUES ('run-1', ?, 'completed', '2026-01-01')",
-        (PAPER,),
+        == fit.EXAMPLE_WORDS
     )
-    for rid in ("r-rated", "r-tag"):
-        c.execute(
-            "INSERT INTO review_scope_decisions VALUES ('run-1', ?, 'applies_not_checked', 'needs_engineer')",
-            (rid,),
-        )
-    schema.create_tables(c)
-    for rid in ("r-rated", "r-tag"):
-        _label(c, rid)
-    c.commit()
-    return c
 
 
-KIND = {"kind": "datasheet", "known": True, "method": "test", "guess": False}
+# ---- the data list and the page guard -------------------------------------------------------------------------------------------
 
 
-def _asked(doc) -> set[str]:
-    return {i["rule_version_id"] for i in doc["items"] if i["source"] == "rule"}
+def test_the_data_list_holds_the_spellings():
+    names = {w: n for n, ws in fit.things() for w in ws}
+    for spelling, thing in (("perspex", "acrylic"), ("sightglass", "a viewport or sight glass"), ("gauge glass", "a viewport or sight glass"),
+                            ("gre", "fibre-reinforced plastic"), ("fiberglass", "fibre-reinforced plastic"),
+                            ("fire fighting pump", "a fire-water pump"), ("firewater pumps", "a fire-water pump")):  # fmt: skip
+        assert names[spelling] == thing
 
 
-def test_the_ai_reviewer_leaves_the_unfit_rule_out_with_its_reason_and_says_so(con):
-    rows = [
-        dict(zip([d[0] for d in cur.description], r, strict=True))
-        for cur in [con.execute("SELECT * FROM standard_requirements")]
-        for r in cur
-    ]
-    doc = it.build_items(con, PAPER, KIND, skills=[], cache={}, requirement_rows=rows)
-    assert _asked(doc) == {"r-tag"}
-    left = [
-        r
-        for r in doc["rule_labels"]["left_out"]
-        if r["reason"] == rules_mod.SUBJECT_NOT_ON_PAPER
-    ]
-    assert [r["rule_version_id"] for r in left] == ["r-rated"]
-    assert doc["rule_labels"]["counts"][rules_mod.SUBJECT_NOT_ON_PAPER] == 1
-    assert any(fit.REASON_WORDS in line for line in doc["rule_labels"]["summary_lines"])
-
-
-def test_the_ai_reviewer_asks_it_when_the_paper_names_the_thing(con):
+def _paper_db(
+    texts: dict[int, str], ledger: dict[int, tuple] | None = None
+) -> sqlite3.Connection:
+    con = sqlite3.connect(":memory:")
     con.execute(
-        "UPDATE pages SET text = ? WHERE document_id = ?",
-        (STEEL_PAPER + " Window: quartzite.", PAPER),
+        "CREATE TABLE pages (document_id TEXT, page_no INTEGER, text TEXT, needs_ocr INTEGER)"
     )
-    rows = [
-        dict(zip([d[0] for d in cur.description], r, strict=True))
-        for cur in [con.execute("SELECT * FROM standard_requirements")]
-        for r in cur
-    ]
-    doc = it.build_items(con, PAPER, KIND, skills=[], cache={}, requirement_rows=rows)
-    assert _asked(doc) == {"r-tag", "r-rated"}
+    con.executemany(
+        "INSERT INTO pages VALUES ('p', ?, ?, ?)", [(n, t, 0) for n, t in texts.items()]
+    )
+    if ledger is not None:
+        con.execute(
+            "CREATE TABLE page_ledger (document_id TEXT, page_no INTEGER, native_status TEXT, ocr_status TEXT)"
+        )
+        con.executemany(
+            "INSERT INTO page_ledger VALUES ('p', ?, ?, ?)",
+            [(n, *v) for n, v in ledger.items()],
+        )
+    return con
+
+
+def test_the_unreadable_page_guard():
+    assert fit.paper_text(_paper_db({1: STEEL, 2: STEEL}), "p") is not None
     assert (
-        rules_mod.SUBJECT_NOT_ON_PAPER not in doc["rule_labels"]["counts"]
-    )  # unused: the counts are as they were
-
-
-# ---- the rule check --------------------------------------------------------------------------------------------------------
-
-
-def test_the_rule_check_gate_says_does_not_apply_with_the_ledger_reason(
-    monkeypatch, con
-):
-    import app.db as db_mod
-
-    monkeypatch.setattr(db_mod, "connect", lambda: con)
-    reqs = [{"id": "r-rated", "source_text": "(3) The rated pressure shall not exceed 70 units.", "chunk_id": "c1"},
-            {"id": "r-tag", "source_text": "(a) Every frame shall carry a tag.", "chunk_id": "c1"}]  # fmt: skip
-    kept, items = fit.gate_for_run(reqs, PAPER)
-    assert [r["id"] for r in kept] == ["r-tag"]
-    (item,) = items
-    assert item["code"] == fit.REASON and item["requirement"]["id"] == "r-rated"
+        fit.paper_text(_paper_db({1: STEEL, 2: "short"}), "p") is None
+    )  # a page with no real text
     assert (
-        scope_ledger.decision(item["requirement"], item["code"], item["detail"])[
-            "state"
-        ]
-        == scope_ledger.DOES_NOT_APPLY
+        fit.paper_text(_paper_db({1: STEEL, 3: STEEL}), "p") is None
+    )  # page 2 missing
+    assert (
+        fit.paper_text(_paper_db({1: STEEL}, {1: ("scan", None)}), "p") is None
+    )  # not a text page by the ledger
+    assert fit.paper_text(_paper_db({1: STEEL}, {1: ("text", "pending")}), "p") is None
+    assert fit.paper_text(_paper_db({}), "p") is None
+
+
+# ---- the points: moved to the tick section, never removed ------------------------------------------------------------------------
+
+
+def _points_db() -> sqlite3.Connection:
+    con = _paper_db({1: STEEL})
+    con.executescript(
+        "CREATE TABLE standard_requirements (id TEXT, source_text TEXT, requirement_text TEXT, chunk_id TEXT);"
+        "CREATE TABLE chunks (id TEXT, text TEXT, section TEXT);"
     )
+    con.execute("INSERT INTO chunks VALUES ('c1', ?, 'Z-1 Scope')", (PASSAGE,))
+    con.executemany(
+        "INSERT INTO standard_requirements VALUES (?, ?, ?, 'c1')",
+        [("r-rated", "(3) The rated pressure shall not exceed 70 units.", None),
+         ("r-tag", "(a) Every frame shall carry a tag.", None),
+         ("r-peep", "A peep hole shall be provided on every housing.", None)],
+    )  # fmt: skip
+    return con
 
 
-def test_a_rule_check_review_does_not_apply_the_unfit_rule_and_records_why(
-    temp_storage,  # noqa: F811 - the fixture, imported above
-    monkeypatch,
-):
-    """End to end on the rule check (`comparison.run_comparison`): the quartzite list item is recorded as does-not-apply with this
-    reason and gets no finding; the general rule of the same passage is still compared. Removing the gate in `comparison` fails."""
-    import uuid
-
-    from app import comparison, datasheets, db, standards
-    from tests.test_141_division_scope import (  # noqa: F401  (_review: the same set-up shape)
-        NOW,
-        FakeModel,
-        _doc,
-        _review,
-    )
-
+def test_to_confirm_moves_the_point_with_its_reason_and_keeps_the_rest(monkeypatch):
     monkeypatch.setattr(fit, "things", lambda path=None: CAT)
-    monkeypatch.setattr(settings, "ai_division_scope_enabled", False)
+    points = [
+        {
+            "id": "rc:1",
+            "rank": 4,
+            "tile": "questions",
+            "_finding": {"requirement_id": "r-rated"},
+            "action": "Clarify.",
+        },
+        {"id": "ai:1", "rank": 5, "tile": "met", "_line": {"item_id": "R-r-rated"}},
+        {"id": "ai:2", "rank": 4, "tile": "questions", "_line": {"item_id": "R-r-tag"}},
+        {
+            "id": "ai:3",
+            "rank": 3,
+            "tile": "not_met",
+            "_line": {"item_id": "R-r-peep"},
+        },  # requires the thing: a finding
+        {"id": "added:1", "rank": 4, "tile": "questions"},  # an engineer's own point
+        {
+            "id": "rc:2",
+            "rank": 8,
+            "tile": "does_not_apply",
+            "_finding": {"requirement_id": "r-rated"},
+        },  # not reviewed
+    ]
+    assert fit.to_confirm(_points_db(), points, "p") == 2
+    moved = [p for p in points if p["rank"] == 9]
+    assert [p["id"] for p in moved] == ["rc:1", "ai:1"]
+    for p in moved:
+        assert p["tile"] == "na_to_confirm" and p["firm"] is None
+        assert (
+            p["action"]
+            == "Engineer to check whether the rule applies to this paper: its own words are about quartzite; the paper names no quartzite on any page."
+        )
+        assert p["ai_reasoning"].startswith("Code, not the AI:")
+    assert [p["rank"] for p in points if p["rank"] != 9] == [4, 3, 4, 8]
+
+
+def test_to_confirm_moves_nothing_on_an_unreadable_paper(monkeypatch):
+    monkeypatch.setattr(fit, "things", lambda path=None: CAT)
+    con = _points_db()
+    con.execute("UPDATE pages SET text = 'short'")
+    points = [
+        {
+            "id": "rc:1",
+            "rank": 4,
+            "tile": "questions",
+            "_finding": {"requirement_id": "r-rated"},
+        }
+    ]
+    assert fit.to_confirm(con, points, "p") == 0 and points[0]["rank"] == 4
+
+
+def test_the_points_assembly_runs_it(monkeypatch):
+    """`review_points_service._assemble` hands every rule check and AI point to `to_confirm` before the list is built."""
+    from app import review_points_service as svc
+
+    seen = []
     monkeypatch.setattr(
-        ai_task_runner, "make_provider", lambda model_name=None: FakeModel()
+        fit, "to_confirm", lambda conn, pts, paper: seen.append((len(pts), paper)) or 0
     )
-    _doc(
-        "std",
-        "XYZ-code.pdf",
-        "COMPANY_STANDARD",
-        [(1, PASSAGE)],
-        document_number="XYZ-9",
+    monkeypatch.setattr(svc, "runs_of_paper", lambda conn, paper: ("rc", "ai"))
+    monkeypatch.setattr(svc.rp, "ai_points_of_run", lambda *a: ([{"id": "ai:x"}], []))
+    monkeypatch.setattr(svc, "_rule_points", lambda *a: [{"id": "rc:x"}])
+    monkeypatch.setattr(
+        svc.rp, "build", lambda ai, rc, add: (_ for _ in ()).throw(StopIteration)
     )
-    _doc(
-        "sub",
-        "sheet.pdf",
-        "CONTRACTOR_SUBMITTAL",
-        [(1, STEEL_PAPER)],
-        equipment_type="Pressure vessel",
-    )
-    ids = {}
-    for key, text in (
-        ("rated", "(3) The rated pressure shall not exceed 70 units."),
-        ("tag", "(a) Every frame shall carry a tag."),
-    ):
-        ids[key] = standards.create_requirement(
-            standard_document_id="std",
-            chunk_id="std-1",
-            clause=None,
-            page=1,
-            requirement_text=text,
-            source_text=text,
-            structured={"requirement_type": "statement"},
-        )["id"]
-    datasheets.create_fact(
-        submittal_document_id="sub",
-        chunk_id="sub-1",
-        field_label="Design pressure",
-        raw_value="3 units",
-        page=1,
-    )
-    run = str(uuid.uuid4())
-    with db.connect() as conn:
-        conn.execute(
-            "INSERT INTO review_runs (id,submittal_document_id,status,created_at,updated_at) VALUES (?,?,'pending',?,?)",
-            (run, "sub", NOW, NOW),
-        )
-        conn.execute(
-            "INSERT INTO review_applicable_standards (id,review_run_id,standard_document_id,selection_method,included,created_at)"
-            " VALUES (?,?,?,'manual',1,?)",
-            (str(uuid.uuid4()), run, "std", NOW),
-        )
-    result = comparison.run_comparison(
-        run, allowed_document_ids=frozenset({"std", "sub"})
-    )
-    stored = {d["requirement_id"]: d for d in scope_ledger.decisions_for(run)}
-    assert stored[ids["rated"]]["state"] == scope_ledger.DOES_NOT_APPLY
-    assert stored[ids["rated"]]["reason_code"] == fit.REASON
-    assert "a quartzite window" in stored[ids["rated"]]["reason"]
-    assert stored[ids["tag"]]["state"] != scope_ledger.DOES_NOT_APPLY
-    assert not [
-        f for f in result["findings"] if f.get("requirement_id") == ids["rated"]
-    ]
+    monkeypatch.setattr(svc.decisions_mod, "people", lambda paper: [])
+    monkeypatch.setattr(svc.decisions_mod, "added", lambda paper: [])
+    monkeypatch.setattr(svc.rp, "library_of", lambda conn: [])
+    monkeypatch.setattr(svc.rp, "books_not_held", lambda *a: [])
+    monkeypatch.setattr(svc, "connect", lambda: None)
 
+    class Scope:
+        allowed_document_ids = frozenset()
 
-def test_split_leaves_a_worked_example_out_with_its_own_reason(con):
-    passage = "For example, if it is set at 100 units, it will close at 93 units. The pressure must be kept below 93 units."
-    con.execute("INSERT INTO chunks VALUES ('c2', ?)", (passage,))
-    rows = [{"id": "r-ex", "source_text": "The pressure must be kept below 93 units.", "chunk_id": "c2"},
-            {"id": "r-tag", "source_text": "(a) Every frame shall carry a tag.", "chunk_id": "c1"}]  # fmt: skip
-    kept, left = fit.split(con, rows, PAPER)
-    assert [r["id"] for r in kept] == ["r-tag"]
-    assert [(i["requirement"]["id"], i["code"]) for i in left] == [
-        ("r-ex", fit.EXAMPLE)
-    ]
-    assert scope_ledger.REASONS[fit.EXAMPLE][0] == scope_ledger.DOES_NOT_APPLY
-    assert rules_mod.REASON_WORDS[rules_mod.RULE_BOOK_EXAMPLE] == fit.EXAMPLE_WORDS
+    with pytest.raises(StopIteration):
+        svc._assemble("paper-1", Scope())
+    assert seen == [(2, "paper-1")]
