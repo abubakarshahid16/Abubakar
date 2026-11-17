@@ -455,8 +455,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="ASK THE MODEL EVEN WHERE CONTAINMENT ALREADY DECIDED, "
                     "replacing evidence with a guess",
         path=APP / "comparison.py",
-        anchor='        if (fact is None and match["reason"] != AMBIGUOUS_MATCH',
-        replacement='        if (match["reason"] != AMBIGUOUS_MATCH',
+        # re-anchored by LPE: the condition is in ruff's shape (one operand per line)
+        anchor='        if (\n            fact is None\n            and match["reason"] != AMBIGUOUS_MATCH\n',
+        replacement='        if (\n            match["reason"] != AMBIGUOUS_MATCH\n',
         target="tests/test_model_matching.py",
         keyword="containment_takes_precedence",
         tags=("honesty", "critical"),

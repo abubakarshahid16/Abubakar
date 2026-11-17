@@ -24,6 +24,7 @@ from pathlib import Path
 from . import equipment_scope, kind_rules, local_engine_bar, page_not_read
 from .claude_auto_approve import run_lines
 from .config import settings
+from .equipment_rule_books import NOT_PAIRED_WORDS
 
 _log = logging.getLogger(__name__)
 
@@ -105,7 +106,9 @@ _MODEL_FAILURES = frozenset({
     "model_unavailable", "model_malformed", "model_out_of_range",
     "model_unstable", "model_budget",
     # #882 technique 2: the local model's question did not complete
-    "question_refused_by_code", "question_not_read"})
+    "question_refused_by_code", "question_not_read",
+    # LPE: no tier pairs a rule whose equipment tag does not fit the paper
+    *NOT_PAIRED_WORDS})
 
 _MODEL_FAILURE_WORDS = {
     "model_unavailable": "the model that pairs fields was not available",
@@ -116,6 +119,7 @@ _MODEL_FAILURE_WORDS = {
     "question_refused_by_code": ("the local model said the value is on the sheet and code "
                                  "could not verify it on the page"),
     "question_not_read": "the local model's question about this value could not be read",
+    **NOT_PAIRED_WORDS,
 }
 
 

@@ -55,6 +55,7 @@ from pathlib import Path
 from . import (absence, claims, closing_noun, conditions, datasheets, errors, field_copies, field_links, match_rules, method_notes, numparse,
                 page_ledger, recommendations, requirements_3b, required_values, review, schemas, standard_labels as standard_labels_mod, stated_value, submittal_review)
 from . import equipment_scope as eqs, intake, kind_rules, page_not_read, procedure_text
+from . import equipment_rule_books as erb
 from .claude_auto_approve import notes_after
 from .match_claude import ask_claude_for_a_pair as _ask_claude_for_a_pair
 from . import job_progress, presence_check
@@ -2394,10 +2395,9 @@ def _run_comparison(
     facts = datasheets.list_facts(
         submittal_id, allowed_document_ids=allowed_document_ids)
     facts, purchaser_facts = required_values.split(facts)
-    # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT
-    # ANSWERS IT. The rest are counted, one grouped line per standard, in the
-    # run's outcome; a definition or unconfirmed garbled text is never a check.
-    # See `table_gate`.
+    # #598 A TABLE CELL IS A CHECK ONLY WHEN THE SUBMITTAL HAS A FIELD THAT ANSWERS IT.
+    # The rest are counted, one grouped line per standard, in the run's outcome; a
+    # definition or unconfirmed garbled text is never a check. See `table_gate`.
     from . import table_gate
     names = standard_labels_mod.filenames(standard_ids)
     # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;
@@ -2498,6 +2498,7 @@ def _run_comparison(
                 governing, covered_ids, requirements, gated)
     # #288: advice that still applies becomes an engineer's query, not a comparison
     requirements = recommendations.hold_for_query(requirements, held_items)
+    requirements = erb.unpairable(connect(), submittal_id, review_run_id, requirements)
     applicability_summary = scoped["summary"]
     findings: list[dict] = []
     # The run's findings, prepared and gated but NOT yet written: they go in
@@ -2548,8 +2549,9 @@ def _run_comparison(
         # matched 0 of 77; containment matched the pairs an engineer picked.
         if is_matchable(requirement):
             matches_attempted += 1
-        match = None
-        if field_names is not None:
+        # LPE: a rule whose equipment tag does not fit the paper is paired by no tier (`erb.NOT_PAIRED`, its code)
+        match, model_reason = None, requirement.get(erb.NOT_PAIRED)
+        if field_names is not None and model_reason is None:
             # FIELD-NAME EQUALITY FIRST (B4 5.3), then containment as before.
             match = match_by_field_name(requirement, facts, field_names, sheet_kind=sheet)
         if match is None:
@@ -2571,10 +2573,13 @@ def _run_comparison(
         # nothing to say. A tie is deliberately excluded: AMBIGUOUS_MATCH means
         # two fields are equally named inside the requirement, which is a
         # question for a person - handing it to a model would replace "we could
-        # not tell" with an answer nobody checked.
-        model_reason: str | None = None
-        if (fact is None and match["reason"] != AMBIGUOUS_MATCH
-                and is_matchable(requirement)):
+        # not tell" with an answer nobody checked. Nor a rule no tier may pair (LPE).
+        if (
+            fact is None
+            and match["reason"] != AMBIGUOUS_MATCH
+            and is_matchable(requirement)
+            and model_reason is None
+        ):
             if not settings.match_enabled:
                 model_reason = MODEL_DISABLED
             else:
@@ -2695,38 +2700,35 @@ def _run_comparison(
             if rule_verdict is None and rule_unread and verdict.get("status") == NEEDS_ENGINEER_REVIEW:
                 verdict = {**verdict, "rationale": f"{verdict.get('rationale') or ''}; {rule_unread}"}
             # THE TABLE-ROW REFUSAL OUTRANKS THE UNIT GUARD. Both end in
-            # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the
-            # number is not a limit. Reporting "unit_mismatch" against a table row
-            # tells a reviewer to go and reconcile kPa with bar, which would leave
-            # them comparing a design pressure against a lookup boundary once the
-            # units agreed.
-            # A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a blank
-            # can now be paired by field name); `compare` has already said what
-            # it is - left to be provided.
-            # A STATEMENT HAS NO NUMBER AND NO UNIT TO GUARD either (CRS quick
-            # wins, `match_statement`): `compare` has already said what it is -
-            # a categorical verdict or an engineer's question - and "the
-            # requirement is in no unit" would overwrite that with a reason
-            # that is not the real one.
+            # NEEDS_ENGINEER_REVIEW, but only one of them is the real reason: the number
+            # is not a limit. Reporting "unit_mismatch" against a table row tells a
+            # reviewer to go and reconcile kPa with bar, which would leave them
+            # comparing a design pressure against a lookup boundary once the units
+            # agreed. A BLANK FIELD HAS NO NUMBER AND NO UNIT TO GUARD (B4 item 2: a
+            # blank can now be paired by field name); `compare` has already said what it
+            # is - left to be provided. A STATEMENT HAS NO NUMBER AND NO UNIT TO GUARD
+            # either (CRS quick wins, `match_statement`): `compare` has already said
+            # what it is - a categorical verdict or an engineer's question - and "the
+            # requirement is in no unit" would overwrite that with a reason that is not
+            # the real one.
             if (fact is not None and not fact.get("is_blank") and rule_verdict is None
                     and requirement.get("requirement_type") not in (
                         requirements_3b.TABLE_ROW, requirements_3b.STATEMENT)):
-                # THE UNIT GUARD. A match says the two are ABOUT the same thing; it
-                # says nothing about whether their numbers can be compared. A
-                # length against a pressure is not a breach and not a pass - it is
-                # a question for a person, and the finding carries both raw units
-                # so they can see what was compared with what.
-                # `same_unit` compares MEASUREMENTS, and it compares the raw
-                # spellings rather than the normalised ones on purpose - `dB(A)`
-                # and `dB` are different units. The base unit is passed as the raw
-                # spelling here so that a gauge pressure and a plain one still meet
-                # (`bar` both sides); the gauge reference itself is carried on the
-                # fact and is a separate question from whether the units match.
-                # THE RAW SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit`
-                # holds the NORMALISED unit, which is NULL for every unit the table
-                # recognises but does not convert - dB(A) among them - so comparing
-                # those columns reported a unit mismatch between two dB(A) values.
-                # `same_unit` is a comparison of spellings and wants the spellings.
+                # THE UNIT GUARD. A match says the two are ABOUT the same thing; it says
+                # nothing about whether their numbers can be compared. A length against
+                # a pressure is not a breach and not a pass - it is a question for a
+                # person, and the finding carries both raw units so they can see what
+                # was compared with what. `same_unit` compares MEASUREMENTS, and it
+                # compares the raw spellings rather than the normalised ones on purpose
+                # - `dB(A)` and `dB` are different units. The base unit is passed as the
+                # raw spelling here so that a gauge pressure and a plain one still meet
+                # (`bar` both sides); the gauge reference itself is carried on the fact
+                # and is a separate question from whether the units match. THE RAW
+                # SPELLINGS, WITH ANY GAUGE REFERENCE STRIPPED. `unit` holds the
+                # NORMALISED unit, which is NULL for every unit the table recognises but
+                # does not convert - dB(A) among them - so comparing those columns
+                # reported a unit mismatch between two dB(A) values. `same_unit` is a
+                # comparison of spellings and wants the spellings.
                 requirement_unit = _unit_measure(requirement)
                 fact_unit = _unit_measure(fact)
                 if not _units_comparable(requirement, fact, requirement_unit, fact_unit):
@@ -2907,9 +2909,8 @@ def _run_comparison(
     rulebook = run_parts.rulebook(
         run, stored, facts, prepared_rows, findings, allowed_document_ids
     )
-    # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the
-    # datasheet self-checks below, which add their own rows to this run and
-    # must not be deleted by it.
+    # ONE TRANSACTION FOR THE RUN (and the re-run's delete). Before the datasheet
+    # self-checks below, which add their own rows to this run and must not be deleted by it.
     _write_run_findings(review_run_id, prepared_rows, replace=replace)
 
     # #677: a requirement's finding status decides its state; none is an engineer's question.
@@ -3403,10 +3404,9 @@ def _resolve_hits(requirement: dict, facts: list[dict], hits: list[dict], *,
     # THE RULES, BEFORE THE TIE. See the docstring: rule 3 is what lets the
     # constrained quantity win over the table's input.
     sheet = sheet_kind if sheet_kind is not None else match_rules.sheet_kind(facts)
-    refused: list[dict] = []
-    allowed: list[dict] = []
+    refused, allowed, gated = [], [], requirement.get(erb.NOT_PAIRED)  # LPE: tag first
     for hit in hits:
-        reason = match_rules.refusal(requirement, hit["fact"], sheet=sheet)
+        reason = gated or match_rules.refusal(requirement, hit["fact"], sheet=sheet)
         if reason is None:
             allowed.append(hit)
         else:

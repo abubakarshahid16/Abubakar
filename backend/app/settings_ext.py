@@ -543,8 +543,10 @@ class SettingsExt(BaseModel):
     #: Hotfix 19c (17 Nov 2026): book selection by our own rule sorting (`equipment_rule_books`, PR #1877). ON: a rule book is kept
     #: for a paper when it holds agreed rules our rule sorting tagged for the paper's equipment (selection method "equipment_rules").
     #: OFF (default): that route keeps and orders no book; every other route, and the rest of #1877, is unchanged. Off because the
-    #: older field-name matcher matched single field words to unrelated rules of those books (live update 19a). Env:
-    #: EQUIPMENT_RULE_BOOKS_ENABLED.
+    #: older field-name matcher matched single field words to unrelated rules of those books (live update 19a). LPE: ON also makes
+    #: the rule check pair a rule with a field only when its equipment tag fits (`equipment_rule_books.pairing_gate`): a rule the
+    #: AI reviewer's equipment filter leaves out pairs with no field in any book, and a book kept only by this route pairs none.
+    #: Env: EQUIPMENT_RULE_BOOKS_ENABLED.
     equipment_rule_books_enabled: bool = False
     #: Owner order 13, 12 Nov 2026 (point 10): the class "AI verdict, two readers agree" for the AI reviewer. After the first reader
     #: answers, a second reader of a different model family answers the SAME question independently (it never sees the first
