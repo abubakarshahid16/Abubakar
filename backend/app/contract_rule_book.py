@@ -2,11 +2,11 @@
 GENERAL TERMS paper of its own package serves as its contract rule book, together with the contract checklist CT-01 to CT-08
 (`reference/contract_checks.json`, an AI draft that no engineer has signed). Behind `contract_rule_book_enabled` (default off).
 
-  * `package_papers(conn, doc_id, viewer)`: the other papers of the SAME contract package. THE INTERFACE ONLY: the package finder of
-    order 14 LPC (P1, another branch) is the one home of this rule; until it is merged, this small one stands in (role contract,
-    the same labelled contract number in the heading lines of page 1). At the merge the two are unified into ONE finder.
-  * `rule_book_of`: the package paper whose OWN title or page-1 heading says "general terms" or "general conditions", role contract.
-    Exactly one, or none (and why). Never a document id, a file name or a layout of one paper (CLAUDE.md rule 13).
+  * `package_papers(conn, doc_id, viewer)`: the other papers of the SAME contract package, by THE one finder of order 14 LPC
+    (`contract_package.package_papers`: the same labelled cover number, role or kind contract, only papers the viewer may read).
+  * `rule_book_of`: the package paper whose OWN title (else page-1 heading) says "general terms" or "general conditions" and never
+    special, particular, supplementary or additional terms. Exactly one, or none (and why). Never a document id, a file name or a
+    layout of one paper (CLAUDE.md rule 13).
   * `checklist_items`: CT-01 to CT-08 as items of the general review's part 2 (the path a procedure's checklist takes).
   * `code_lines`: what code decides of CT-01 to CT-03 (`contract_checks.run_all`) as lines of part 2, each a Query for the engineer.
   * `mark`: every line that comes from the rule book or the checklist says "AI draft, engineer to confirm" and is internal only. The
@@ -28,7 +28,6 @@ from . import contract_checks
 from .agent_general_review import CLASS_QUERY
 
 DRAFT = contract_checks.RULE_STATE  # "AI draft, engineer to confirm"
-CONTRACT_ROLE = "CONTRACT_DOCUMENT"
 CONTRACT_KIND = "contract"
 SOURCE_BOOK = "contract rule book"
 SOURCE_CHECKLIST = "contract checklist"
@@ -41,10 +40,9 @@ NO_YES = "the general terms paper is a contract: it goes to Claude only on an ex
 HEAD_LINES = 6  # the heading lines of page 1: a title, a header and a number; never the body, which may cite another paper
 
 _GENERAL_TERMS = re.compile(r"\bgeneral\s+(?:terms|conditions)\b", re.I)
-#: A contract number as a heading labels it: "Contract No. X", "Agreement Number: X", "Package # X". At least one digit.
-_PACKAGE_NO = re.compile(
-    r"\b(?:contract|agreement|package)\s*(?:no\b\.?|number\b|#)\s*[:.]?\s*(?P<no>[A-Z0-9][A-Z0-9/._-]*\d[A-Z0-9/._-]*)",
-    re.I,
+#: The words of the OTHER terms of a package: a paper that says it holds them is never the general terms, even when it names them.
+_OTHER_TERMS = re.compile(
+    r"\b(?:special|particular|supplementa\w*|additional)\s+(?:terms|conditions)\b", re.I
 )
 
 
@@ -54,7 +52,7 @@ def enabled() -> bool:
     return bool(getattr(settings, "contract_rule_book_enabled", False))
 
 
-# ------------------------------------------------------------------------------------------------ the package (interface)
+# ------------------------------------------------------------------------------------------------ the package (the one finder)
 
 
 def _head(conn: sqlite3.Connection, doc: str) -> str:
@@ -69,47 +67,17 @@ def _head(conn: sqlite3.Connection, doc: str) -> str:
     return "\n".join(lines[:HEAD_LINES])
 
 
-def package_numbers(conn: sqlite3.Connection, doc: str) -> frozenset[str]:
-    """The labelled contract numbers in the heading lines of page 1, upper case, end punctuation taken off."""
-    return frozenset(
-        m.group("no").upper().rstrip("._-/")
-        for m in _PACKAGE_NO.finditer(_head(conn, doc))
-    )
-
-
-def _role(conn: sqlite3.Connection, doc: str) -> str:
-    try:
-        row = conn.execute(
-            "SELECT document_role FROM document_classification WHERE document_id = ?",
-            (doc,),
-        ).fetchone()
-    except sqlite3.Error:
-        return ""
-    return str((row[0] if row else "") or "")
-
-
 def package_papers(
     conn: sqlite3.Connection, doc_id: str, viewer: Iterable[str]
 ) -> list[str]:
-    """The other papers of the same contract package that `viewer` (the caller's readable ids) may read: role contract, and a
-    contract number in common in the heading lines of page 1. A filter only narrows (rule 5). INTERFACE: to be unified with the
-    order 14 LPC package finder at the merge (one finder only)."""
-    numbers = package_numbers(conn, doc_id)
-    if not numbers:
-        return []
-    allowed = frozenset(str(d) for d in viewer)
-    try:
-        rows = conn.execute(
-            "SELECT document_id FROM document_classification WHERE document_role = ? AND document_id != ?",
-            (CONTRACT_ROLE, doc_id),
-        ).fetchall()
-    except sqlite3.Error:
-        return []
-    return sorted(
-        str(r[0])
-        for r in rows
-        if str(r[0]) in allowed and package_numbers(conn, str(r[0])) & numbers
-    )
+    """The ids of the other papers of the paper's contract package that `viewer` may read: `contract_package.package_papers`, the
+    ONE package finder (a filter only narrows, rule 5)."""
+    from . import contract_package
+
+    return [
+        str(p["document_id"])
+        for p in contract_package.package_papers(conn, doc_id, frozenset(viewer))
+    ]
 
 
 # ------------------------------------------------------------------------------------------------ the rule book
@@ -130,24 +98,23 @@ def _title_words(conn: sqlite3.Connection, doc: str) -> str:
 
 
 def says_general_terms(conn: sqlite3.Connection, doc: str) -> tuple[bool, bool]:
-    """(by its own title or file name, by its page-1 heading): does the paper say it is the general terms or conditions?"""
-    return bool(_GENERAL_TERMS.search(_title_words(conn, doc))), bool(
-        _GENERAL_TERMS.search(_head(conn, doc))
-    )
+    """(by its own title or file name, by its page-1 heading): does the paper say it is the general terms or conditions? A paper
+    whose title or heading says special, particular, supplementary or additional terms is neither, whatever else it names."""
+    title, head = _title_words(conn, doc), _head(conn, doc)
+    if _OTHER_TERMS.search(title) or _OTHER_TERMS.search(head):
+        return False, False
+    return bool(_GENERAL_TERMS.search(title)), bool(_GENERAL_TERMS.search(head))
 
 
 def rule_book_of(
     conn: sqlite3.Connection, paper: str, viewer: Iterable[str], kind: str | None
 ) -> dict:
     """`{"id": doc id or None, "why": words}`. The general terms paper of the paper's package when the switch is on and the paper is
-    a contract: role contract, its own title says general terms (a heading only when no title does), exactly one."""
+    a contract: a paper of its package (the one finder), its own title says general terms (a heading only when no title does),
+    exactly one."""
     if not enabled() or str(kind or "") != CONTRACT_KIND:
         return {"id": None, "why": "not used"}
-    found = [
-        d
-        for d in package_papers(conn, paper, viewer)
-        if _role(conn, d) == CONTRACT_ROLE
-    ]
+    found = package_papers(conn, paper, viewer)
     says = {d: says_general_terms(conn, d) for d in found}
     pick = [d for d in found if says[d][0]] or [d for d in found if says[d][1]]
     if len(pick) == 1:

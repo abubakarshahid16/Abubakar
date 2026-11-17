@@ -568,3 +568,47 @@ def test_a_blocked_rule_book_is_held_under_an_explicit_claude_start(pkg, monkeyp
     assert GT not in {d["id"] for d in docs["leaving"]}
     held = {d.get("id"): d for d in docs["not_sent"]}
     assert held[GT]["reason"] == review_leaving.BLOCKED_WORDS
+
+
+# ---------------------------------------------------------------- with the one LPC finder (`contract_package`)
+
+
+def test_a_same_package_paper_with_no_role_but_the_contract_kind_is_found(pkg):
+    with db.connect() as conn:
+        _contract(
+            conn,
+            "doc_norole",
+            "General Terms and Conditions.pdf",
+            NO_A,
+            "GENERAL TERMS AND CONDITIONS",
+        )
+        conn.execute(
+            "DELETE FROM document_classification WHERE document_id = 'doc_norole'"
+        )
+        conn.execute(
+            "INSERT INTO document_kinds (document_id, kind, state, routed_at) VALUES ('doc_norole', 'contract', 'decided', '2026-11-17')"
+        )
+        conn.commit()
+    assert "doc_norole" in contract_rule_book.package_papers(
+        db.connect(), g.PAPER, ALL | {"doc_norole"}
+    )
+    assert _book(scope=(ALL - {GT}) | {"doc_norole"})["id"] == "doc_norole"
+
+
+def test_the_heading_fallback_never_picks_a_special_terms_paper(pkg):
+    with (
+        db.connect() as conn
+    ):  # its title says nothing; its heading names the general conditions it supplements
+        _contract(
+            conn,
+            "doc_sp2",
+            "Schedule H.pdf",
+            NO_A,
+            "SCHEDULE H - Special Conditions, read with the General Conditions",
+        )
+        conn.commit()
+    assert _book(scope=(ALL - {GT}) | {"doc_sp2"}) == {
+        "id": None,
+        "why": contract_rule_book.NONE_HELD,
+    }
+    assert _book(scope=ALL | {"doc_sp2"})["id"] == GT
