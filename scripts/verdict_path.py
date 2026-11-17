@@ -175,6 +175,10 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         "plans a general review, declares what may be sent, stores its lines and run row",
     ),
     (
+        APP + "contract_rule_book.py",
+        "a contract's rule book and checklist: what the general review may carry and the draft label of their lines",
+    ),
+    (
         APP + "page_reading.py",
         "the one unread-pages definition: the sign gate, the Pass hold, the page lines",
     ),

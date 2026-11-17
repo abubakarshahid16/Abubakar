@@ -200,8 +200,9 @@ class GeneralRun(FindingsMixin):
         return agent_claude.parse_json_object(text)
 
     def add(self, line: Mapping) -> dict:
-        out = core.finalize_line(
-            contract_rule_book.mark(line, self.draft_books, self.draft_items)
+        # the exit first, on the line as written: the draft label is added after, so it can never hide a verdict word from the guard
+        out = contract_rule_book.mark(
+            core.finalize_line(line), self.draft_books, self.draft_items
         )
         model_text = out["part"] in (3, 4, 5) or out.get("subkind") in (
             core.SUB_CHECKLIST,
@@ -462,11 +463,14 @@ class GeneralRun(FindingsMixin):
         self.part2()
         self.part3()
         self.part4()
+        # rule 1: a contract check by code is worded from EVERY held package paper, also the ones not on the list shown before
+        # the start, so on this Claude path its words never enter a prompt (it stays on the sheet)
         known = [
             ln["text"]
             for ln in self.lines
             if ln["part"] in (2, 3, 4)
             and ln["verdict_class"] in (CLASS_NOTE, CLASS_QUERY)
+            and ln.get("subkind") != contract_rule_book.SUB_CODE
         ]
         self.part5(known)
 

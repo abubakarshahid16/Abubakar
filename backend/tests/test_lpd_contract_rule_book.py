@@ -396,8 +396,8 @@ def test_a_code_result_is_a_query_with_its_verified_quote_never_a_pass_or_fail(p
     assert (
         ct01[0]["quotes_verified_by_code"] is True and ct01[0]["quote_a"]["page"] == 2
     )
-    out = core.finalize_line(
-        contract_rule_book.mark(ct01[0], [], contract_rule_book.checklist_ids())
+    out = contract_rule_book.mark(
+        core.finalize_line(ct01[0]), [], contract_rule_book.checklist_ids()
     )
     assert (
         out["word"] == "Query"
@@ -502,3 +502,69 @@ def test_no_line_from_them_reaches_the_contractor_copy(pkg, monkeypatch):
     head = next(i for i, r in enumerate(cells) if r[0] == "Item No")
     assert cells[head + 1 :] == []
     assert agent_general_job  # the job module is the one that wires it
+
+
+# ---------------------------------------------------------------- review of #1880: the exit order, the part-5 prompt, the real gate
+
+
+def test_the_draft_label_never_hides_a_verdict_word_from_the_exit(pkg):
+    gr, _runner = g.build(
+        pkg,
+        g.full_fake(),
+        project=(g.PROJ,),
+        items=contract_rule_book.checklist_items()[:1],
+    )
+    gr.draft_items = frozenset({"CT-01"})
+    with pytest.raises(core.GeneralModeViolation):
+        gr.add({"part": 2, "verdict_class": core.CLASS_QUERY, "subkind": core.SUB_CHECKLIST, "document": g.PAPER,
+                "item_id": "CT-01", "checklist_item": "CT-01", "text": "Fail: the stages do not add up"})  # fmt: skip
+
+
+SENTINEL = "SENTINEL-WORDS-FROM-AN-UNLISTED-PACKAGE-PAPER"
+
+
+def test_on_a_claude_run_no_prompt_holds_the_words_of_a_code_check(pkg):
+    code = {"part": 2, "document": g.PAPER, "item_id": "CT-02", "checklist_item": "CT-02", "topic": f"CT-02 x ({DRAFT})",
+            "verdict_class": core.CLASS_QUERY, "subkind": contract_rule_book.SUB_CODE, "text": f"CT-02 x: {SENTINEL}"}  # fmt: skip
+    fake = g.full_fake()
+    gr, runner = g.build(pkg, fake, project=(g.PROJ,))
+    gr.code_lines = [code]
+    with claude_approved.carrying([g.PAPER, g.PROJ]), g.claude_spend.for_run("gr-test"):
+        runner.gate = g.request_mod.AppStepGate(g.request_mod.app_cap(), 0.0)
+        gr.run_all()
+    assert any(SENTINEL in ln["text"] for ln in gr.lines)  # on the sheet
+    assert fake.calls_of("experienced engineer commenting") >= 1
+    assert SENTINEL not in fake.texts()  # never in any request
+
+
+def test_automatic_with_text_leaving_holds_the_contract_rule_book_with_the_contract_words(
+    pkg, monkeypatch
+):
+    from app import review_leaving
+    from tests.test_b1_review_engine import open_facts
+
+    # the paper's own facts let Automatic send text; the rule book is a contract, so the real gate holds it
+    monkeypatch.setattr(
+        review_engine, "read_facts", lambda *a, **k: (open_facts(kind="contract"), None)
+    )
+    docs = review_engine.plan_for(db.connect(), g.PAPER, ALL, "automatic")["documents"]
+    assert docs["leaving"] and GT not in {d["id"] for d in docs["leaving"]}
+    held = {d.get("id"): d for d in docs["not_sent"]}
+    assert (
+        held[GT]["reason"] == review_leaving.CONTRACT_WORDS
+        and held[GT]["why"] == contract_rule_book.WHY_LISTED
+    )
+
+
+def test_a_blocked_rule_book_is_held_under_an_explicit_claude_start(pkg, monkeypatch):
+    from app import review_leaving
+
+    monkeypatch.setattr(
+        claude_approved,
+        "name_is_blocked",
+        lambda name, *_a: "General Terms" in str(name),
+    )
+    docs = _plan("claude", monkeypatch)
+    assert GT not in {d["id"] for d in docs["leaving"]}
+    held = {d.get("id"): d for d in docs["not_sent"]}
+    assert held[GT]["reason"] == review_leaving.BLOCKED_WORDS
