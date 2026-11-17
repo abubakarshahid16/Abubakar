@@ -312,7 +312,9 @@ def test_naming_skipped_is_stated_and_a_requirement_left_unpaired_never_passes(
     lines = _lines(json.loads(outcome))
     # LP3: the line names the setting that kept it off Claude (the matcher's), not only "skipped"
     assert any(
-        ln.startswith("AI field naming: not checked: its own engine setting MATCH_ENGINE")
+        ln.startswith(
+            "AI field naming: not checked: its own engine setting MATCH_ENGINE"
+        )
         for ln in lines
     )
 
