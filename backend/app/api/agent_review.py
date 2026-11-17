@@ -328,9 +328,10 @@ def agent_summary(
     )
 
 
-def _line_now(row, missing) -> dict | None:
+def _line_now(row, missing, stated=None) -> dict | None:
     """A stored line as the page and every CRS read it today (order 14): the stored class (`stored_class_wins`), then `read_time`
-    (a "not met" today's rule makes a Query), then the books not held (`mark_not_held`). None when its json cannot be read."""
+    (a "not met" today's rule makes a Query), then the books not held (`mark_not_held`). None when its json cannot be read.
+    `stated`: the run's `review_points_service.stated_inputs` (LPV V2), so the lines tab says what the files say."""
     from ..review_points import stored_class_wins
 
     try:
@@ -340,7 +341,8 @@ def _line_now(row, missing) -> dict | None:
     if not isinstance(line, dict):
         return None
     line = stored_class_wins({**line, "item_id": row["item_id"]}, row)
-    (now,) = crs_ai_words.read_now([line], missing)
+    got = stated or {}
+    (now,) = crs_ai_words.read_now([line], missing, paper=got.get("paper"), context=got.get("context"))
     return now
 
 
@@ -352,7 +354,8 @@ def _query_groups(conn, run_id: str) -> tuple[contract.AgentQueryGroups, int]:
         "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ?",
         (run_id,),
     )
-    now = (_line_now(r, missing) for r in rows)
+    stated = review_points_service.stated_inputs(conn, run_id)
+    now = (_line_now(r, missing, stated) for r in rows)
     lines = [
         ln
         for ln in now
@@ -404,20 +407,21 @@ def agent_lines(
     )
     page = rows[:limit]
     missing = review_points_service.missing_books(connect(), review_run_id)
-    lines = [_read_line(dict(r), missing) for r in page]
+    stated = review_points_service.stated_inputs(connect(), review_run_id)
+    lines = [_read_line(dict(r), missing, stated) for r in page]
     more = len(rows) > limit
     return contract.AgentLineList(
         lines=lines, next=str(page[-1]["rid"]) if more and page else None
     )
 
 
-def _read_line(row: dict, missing=()) -> contract.AgentLine:
+def _read_line(row: dict, missing=(), stated=None) -> contract.AgentLine:
     """One stored line as the contract's line. A pair the contract refuses but that maps by its own one table
     (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that
     still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
     row = {k: v for k, v in row.items() if k != "rid"}
     raw = row.pop("line_json", None)
-    now = _line_now({**row, "line_json": raw}, missing)
+    now = _line_now({**row, "line_json": raw}, missing, stated)
     shown = json.dumps(now, default=str) if now else raw
     row["reason"] = crs_ai_workbook.screen_text(shown) or row.get(
         "reason"

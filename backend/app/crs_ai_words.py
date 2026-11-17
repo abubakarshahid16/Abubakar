@@ -608,14 +608,14 @@ def not_checked_words(line: Mapping) -> str:
     return words.format(clause=line.get(CLAUSE_UNCONFIRMED_KEY) or "")
 
 
-def read_now(
-    lines: list[Mapping], missing: list[Mapping] = (), holds=None
-) -> list[dict]:
-    """THE reading of stored AI lines for every reader (the run file `crs_ai_workbook.layout_view`, the page's points, the lines tab,
-    the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`),
-    then the clauses that do not hold their rule's words (`mark_clause_unconfirmed`, `holds` as there)."""
+def read_now(lines, missing=(), holds=None, paper=None, context=None) -> list[dict]:
+    """THE reading of stored AI lines for every reader (the run file, the page's points, the lines tab, the completeness count, the
+    gates): values the page states that a line says are not (LPV V2, `crs_ai_actions.mark_stated`: `paper`, `context` all lines),
+    today's rule (`read_time`), books not held (`mark_not_held`), clauses without their rule's words (`mark_clause_unconfirmed`)."""
     from .agent_review_wording import read_time
+    from .crs_ai_actions import mark_stated, paper_reading
 
+    lines = mark_stated([dict(ln) for ln in lines], paper_reading(paper), context)
     return mark_clause_unconfirmed(
         mark_not_held([read_time(ln) for ln in lines], missing), holds
     )

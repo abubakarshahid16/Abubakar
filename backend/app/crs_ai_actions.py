@@ -256,6 +256,213 @@ def silent_row_words(
     )
 
 
+# ---- order 14 LPV V2: a value the paper states is never asked for -------------------------------------------------------------
+
+#: the key a line carries when code found, on the row's own page, the value its own record says is not stated:
+#: {"quote" (the page's own words), "page", "from"}
+STATED_KEY = "stated_on_paper"
+#: where the stated value was found: another point of the same review on the same page whose verified quote holds this row's
+#: label and a value, or the page itself (the label and the value together, agreed by the paper's stored reading)
+FROM_LINE, FROM_READING = (
+    "another point of this review",
+    "the page, agreed by the paper's stored reading",
+)
+STATED_REASON = (
+    "the reader says the paper does not state this value, but code found the field's label and a value together on the page; "
+    "the engineer checks the rule against the stated value"
+)
+#: the separators between a label and its value on one line ("Label : value", "Label | value", "Label = value")
+_SEP = " :|=-"
+
+
+def stated_row_words(field: str, stated: Mapping, where: str = "") -> SilentRow:
+    """V2: every wording cell of a row whose own record says "not stated" while code found the field's label and a value together
+    on the row's own page (`STATED_KEY`). The neutral kind (`CONTRADICTS`: the engineer checks, the contractor copy never asks to
+    state it); the page's own words are cited, never "Contractor to state"."""
+    what = field or "the value asked for"
+    page = stated.get("page")
+    on = f", page {page}" if page not in (None, "") else ""
+    found = f'"{stated.get("quote")}"{on}{where} (label and value found together on the page by code; from {stated.get("from")})'
+    return SilentRow(
+        CONTRADICTS,
+        STATED_REASON,
+        f"Engineer to check {what} against the value the paper states: {found}.",
+        f"Stated on the paper: {found}.",
+        "stated on the paper; the engineer checks",
+        f"Not confirmed: {STATED_REASON}; stated: {found}.",
+    )
+
+
+def _would_ask_to_state(line: Mapping, quote: str, labels) -> bool:
+    """The row would ask the contractor to STATE the value: no quote at all (and none code failed to find), or a found quote that
+    is the field's label alone. A quote that defers the value (the paper marks it to be given) or may state it (the paper's own
+    words, already the engineer's check) keeps its own row."""
+    if not quote:
+        return not unverified_quote(line)
+    return (
+        not quote_defers(quote)
+        and not quote_is_placeholder(quote, labels)
+        and whole_label(quote, labels)
+    )
+
+
+def _labels_of(line: Mapping) -> list[str]:
+    """The row's OWN label: its rule's approved label field when it has one (the row is named by it), else the paper's label the
+    line names; never another field's label the reader quoted."""
+    rule = line.get("rule_label") if isinstance(line.get("rule_label"), Mapping) else {}
+    own = (rule or {}).get("field") or line.get("field")
+    return [x for x in (own, *(line.get("field_roles") or [])) if x]
+
+
+def _own_page(line: Mapping) -> int | None:
+    """The row's own page: the page of its quote, else its one page hint; None when it has none or several (keeps asking)."""
+    page = line.get("paper_page")
+    if isinstance(page, int) and not isinstance(page, bool):
+        return page
+    hints = {p for p in line.get("page_hint") or [] if isinstance(p, int)}
+    return hints.pop() if len(hints) == 1 else None
+
+
+def _words(text: object) -> list[str]:
+    return re.findall(r"[a-z0-9]+", str(text or "").replace("_", " ").lower())
+
+
+def holds_a_value(text: str, labels) -> bool:
+    """The text is more than the field's label and is no placeholder or deferral: it can hold the value."""
+    q = " ".join(str(text or "").split())
+    return (
+        bool(_words(q))
+        and not whole_label(q, labels)
+        and not quote_is_placeholder(q, labels)
+        and not quote_defers(q)
+    )
+
+
+def label_cells(text: str, labels) -> list[tuple[str, str]]:
+    """[(the page's own words, the value cell)] for every line of `text` that STARTS with one of the row's labels, whole: the rest
+    of that line after the label and its separators, else the next non-empty line (the label's own cell). Pure."""
+    rows = [" ".join(ln.split()) for ln in str(text or "").splitlines()]
+    heads = [
+        re.compile(r"^\W*" + r"\W+".join(map(re.escape, w)) + r"(?![a-z0-9])", re.I)
+        for w in map(_words, labels)
+        if w
+    ]
+    out = []
+    for n, row in enumerate(rows):
+        m = next((h.match(row) for h in heads if h.match(row)), None)
+        if m is None:
+            continue
+        rest = row[m.end() :].strip(_SEP + "()")
+        nxt = "" if _words(rest) else next((r for r in rows[n + 1 :] if r), "")
+        out.append((f"{row} {nxt}".strip(), rest if _words(rest) else nxt))
+    return out
+
+
+def _agrees(cell: str, value: object) -> bool:
+    """The page's cell and the stored value are the same value: one's words hold all of the other's (in any order)."""
+    a, b = set(_words(cell)), set(_words(value))
+    return bool(a) and bool(b) and (a <= b or b <= a)
+
+
+def _from_reading(line: Mapping, reading: Mapping) -> dict | None:
+    """The row's OWN page holds the field's label and a value TOGETHER (`label_cells`), every place it does so says the same
+    value (several tags on one page saying different values: keeps asking), and the paper's stored reading on that page agrees
+    with it under the field's own label. The page's own words are cited."""
+    page, labels = _own_page(line), _labels_of(line)
+    if page is None or not labels:
+        return None
+    cells = [
+        (w, c)
+        for w, c in label_cells(reading.get("pages", {}).get(page, ""), labels)
+        if holds_a_value(c, labels)
+    ]
+    if not cells or len({" ".join(_words(c)) for _w, c in cells}) != 1:
+        return None
+    words, cell = cells[0]
+    facts = [
+        f
+        for f in reading.get("facts", ())
+        if f.get("page") == page and not f.get("is_blank")
+    ]
+    if not any(
+        whole_label(f.get("field_label"), labels)
+        and _agrees(cell, f.get("field_value"))
+        for f in facts
+    ):
+        return None
+    return {"quote": words, "page": page, "from": FROM_READING}
+
+
+def _from_lines(line: Mapping, siblings: list[Mapping]) -> dict | None:
+    """Another point of the same review, on the row's own page, that READ a value (decided by code, or met / not met by the
+    reader, its own record not "not stated") and whose quote, verified on the page, holds THIS row's label and a value."""
+    page, labels = _own_page(line), _labels_of(line)
+    for other in siblings:
+        if (
+            other is line
+            or other.get("paper_page") != page
+            or str(other.get("ai_verdict") or other.get("verdict"))
+            not in ("Pass", "Fail")
+            or says_silent(other)
+        ):
+            continue
+        quote = verified_quote(other)
+        cells = [
+            (w, c) for w, c in label_cells(quote, labels) if holds_a_value(c, labels)
+        ]
+        if cells:
+            return {"quote": quote, "page": page, "from": FROM_LINE}
+    return None
+
+
+def mark_stated(
+    lines: list[dict],
+    reading: Mapping | None = None,
+    context: list[Mapping] | None = None,
+) -> list[dict]:
+    """V2, THE one place that decides it: on each line whose own record says the paper does not state the value
+    (`says_silent`), the value code found on the row's own page (`_from_lines` over `context`, every line of the run, default
+    `lines`; then `_from_reading`) under `STATED_KEY`; every other line is returned as it is. Deterministic: lines in their
+    stored order, the reading in page and row order."""
+    reading = reading or {}
+    every = list(context) if context is not None else lines
+    out = []
+    for ln in lines:
+        if not says_silent(ln) or proven(ln):
+            out.append(ln)
+            continue
+        got = _from_lines(ln, every) or _from_reading(ln, reading)
+        out.append({**ln, STATED_KEY: got} if got else ln)
+    return out
+
+
+def paper_reading(paper_id: str | None) -> dict:
+    """{"pages": {page: its text}, "facts": the paper's live stored reading, ordered by page and row}; {} when none can be read
+    (then only the review's own points can show a stated value)."""
+    if not paper_id:
+        return {}
+    import sqlite3
+
+    from .db import connect
+
+    try:
+        conn = connect()
+        pages = {int(r[0]): str(r[1] or "") for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no", (paper_id,))}  # fmt: skip
+        rows = conn.execute(
+            "SELECT field_label, field_value, page, is_blank FROM submittal_facts WHERE submittal_document_id = ?"
+            " AND superseded_at IS NULL ORDER BY page, rowid",
+            (paper_id,),
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    facts = [
+        {"field_label": r[0], "field_value": r[1], "page": r[2], "is_blank": r[3]}
+        for r in rows
+    ]
+    return {"pages": pages, "facts": facts}
+
+
 @lru_cache(maxsize=1)
 def _field_rules() -> tuple[dict, tuple[tuple[str, tuple], ...]]:
     """The approved checklist's rules and (role, the ways a sheet prints its label) of every field of its fixed field list
@@ -337,21 +544,29 @@ def silent_row(line: Mapping, what: str = "", where: str = "") -> SilentRow | No
     A two-reader "not stated" (`agent_review_two_reader.absence_agrees`) keeps its verdict only on a label-alone quote, said so."""
     from .agent_review_crs import field_words
 
-    quote = verified_quote(line)
-    if not quote or not says_silent(line) or quote_defers(quote) or proven(line):
-        return None
+    quote, name = verified_quote(line), what or field_words(line)
     labels = (
         line.get("field_label_ai"),
         line.get("field"),
         *(line.get("field_roles") or []),
     )
+    stated = line.get(STATED_KEY)
+    if (
+        stated
+        and says_silent(line)
+        and not proven(line)
+        and _would_ask_to_state(line, quote, [name, *labels])
+    ):
+        return stated_row_words(
+            name, stated, where
+        )  # order 14 LPV V2: never ask for a value the paper states
+    if not quote or not says_silent(line) or quote_defers(quote) or proven(line):
+        return None
     agreed = two.absence_agrees(line)
     value_field = bool(line.get("raw_unit")) or asks_a_value(
         line.get("clause_quote"), line.get("requirement")
     )
-    return silent_row_words(
-        what or field_words(line), quote, labels, where, agreed, value_field
-    )
+    return silent_row_words(name, quote, labels, where, agreed, value_field)
 
 
 def unverified_row(line: Mapping, what: str = "") -> SilentRow | None:

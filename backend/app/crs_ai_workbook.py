@@ -729,7 +729,7 @@ def layout_view(lines: list[Mapping], meta: Mapping, copy: str) -> dict:
     paper = str(meta.get("paper") or "")
     contractor = copy == "contractor"
     missing = list((meta.get("rule_labels") or {}).get("missing_rule_books") or [])
-    lines = words.read_now(lines, missing)
+    lines = words.read_now(lines, missing, paper=paper or None)
     items, others = _split(lines)
     discipline = meta.get("discipline") or (meta.get("header") or {}).get("discipline")
     by = "" if contractor else words.comment_by(discipline)

@@ -4,6 +4,7 @@ proposed review code (owner, 12 Nov 2026, the redesigned page). Reads only; the 
 from __future__ import annotations
 
 import logging
+import sqlite3
 from pathlib import Path
 
 from . import agent_review_not_applicable as not_applicable
@@ -532,18 +533,27 @@ def missing_books(conn, run_id: str) -> list[dict]:
 def stored_lines(conn, run_id: str) -> list[dict]:
     """A run's stored lines as every CRS reads them (`crs_ai_words.read_now` with the run's books not held): the decided copy, the
     completeness count of the stored files (`crs_completeness._older_expected`) and the gates."""
-    import json
-
     from . import crs_ai_words
+
+    got = stated_inputs(conn, run_id)
+    return crs_ai_words.read_now(got["context"], missing_books(conn, run_id), paper=got["paper"])
+
+
+def stated_inputs(conn, run_id: str) -> dict:
+    """LPV V2: what `crs_ai_actions.mark_stated` reads for ONE run, the same for every reader (the files, the gates, the lines
+    tab): {"paper": the run's paper (None when the run table is missing), "context": every stored line in stored order}."""
+    import json
 
     rows = conn.execute(
         "SELECT item_id, line_json FROM agent_review_line WHERE run_id = ? ORDER BY rowid",
         (run_id,),
     )
-    return crs_ai_words.read_now(
-        [{**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]} for r in rows],
-        missing_books(conn, run_id),
-    )
+    context = [{**json.loads(r["line_json"] or "{}"), "item_id": r["item_id"]} for r in rows]
+    try:
+        paper = conn.execute("SELECT submittal_document_id FROM agent_review_run WHERE run_id = ?", (run_id,)).fetchone()
+    except sqlite3.Error:
+        paper = None
+    return {"paper": paper[0] if paper else None, "context": context}
 
 
 def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
