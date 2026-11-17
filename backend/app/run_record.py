@@ -237,6 +237,12 @@ def _models(conn, review_run_id: str, run: dict, outcome: dict) -> list[str]:
     return sorted(n for n in names if n)
 
 
+def models_used(conn, review_run_id: str, run: dict) -> list[str]:
+    """The models a rule-check run's own stored rows name as used (`_models`: the Claude ledger's names, the AI check, the matcher,
+    the LOCAL models the worker noted per call, the wording step). The one home the CRS header reads too (order 14 LPV V4)."""
+    return _models(conn, review_run_id, run, _loads(run.get("outcome_json")))
+
+
 def _rulebook_line(book: dict, allowed: frozenset[str]) -> str:
     if not set(book.get("standards") or ()) <= allowed:
         return f"Version {book['used_version']}. {RULES_WITHHELD}"

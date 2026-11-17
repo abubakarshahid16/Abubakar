@@ -1,0 +1,156 @@
+"""Order 14 LPV, V4: a datasheet run records its equipment type (or "type unsure: <reason>", never empty); the CRS names the local
+model a rule check ran on when the run stored it; a discipline is never an equipment type; "decided by" says nobody decided yet
+instead of "not recorded". Invented data only."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+
+from app import agent_review_kind as K
+from app import crs_ai_header, crs_one, run_record, subject_scope
+
+
+def _reading(kind="datasheet", equipment=None, unsure=None, known=True):
+    return K.PaperReading(
+        kind, known, "read by code", "title", False, equipment, None, None, (), unsure
+    )
+
+
+def test_a_datasheet_run_records_its_type_or_why_it_is_unsure_never_empty():
+    assert _reading(equipment="pump").equipment_record == "pump"
+    assert _reading(
+        unsure="read as one type, the sheet states a code of another"
+    ).equipment_record == (
+        "type unsure: read as one type, the sheet states a code of another"
+    )
+    assert _reading().equipment_record == K.UNSURE_PREFIX + K.NO_TYPE_REASON
+    assert (
+        _reading(kind="procedure").equipment_record is None
+    )  # a procedure names no equipment type: as before
+    assert _reading(known=False).equipment_record is None
+    assert (
+        _reading().equipment_type is None
+    )  # every rule decision still reads None when the type is unsure
+
+
+def test_the_reason_is_the_readers_own_doubt_without_its_lead(monkeypatch):
+    from app import classification, datasheets
+
+    monkeypatch.setattr(datasheets, "list_facts", lambda *_a, **_k: [])
+    monkeypatch.setattr(
+        classification, "of_document", lambda _d: {"equipment_type": "Widget"}
+    )
+    monkeypatch.setattr(
+        subject_scope,
+        "read_equipment",
+        lambda *_a: (
+            set(),
+            "unsure",
+            {"reason": "equipment type unsure: read as a widget, but X"},
+        ),
+    )
+    assert K.equipment_reading("d", frozenset()) == (
+        None,
+        "unsure",
+        "read as a widget, but X",
+    )
+    monkeypatch.setattr(
+        subject_scope, "read_equipment", lambda *_a: ({"pump"}, "title", None)
+    )
+    assert K.equipment_reading("d", frozenset()) == ("pump", "title", None)
+
+
+def test_the_ai_run_row_stores_the_record(monkeypatch, tmp_path):
+    from app import agent_review_jobs
+
+    con = sqlite3.connect(tmp_path / "x.sqlite")
+    con.execute(
+        "CREATE TABLE agent_review_run (run_id TEXT PRIMARY KEY, submittal_document_id TEXT, paper_kind TEXT, kind_source TEXT,"
+        " equipment_type TEXT, started_at TEXT)"
+    )
+    monkeypatch.setattr(agent_review_jobs, "connect", lambda: con)
+    agent_review_jobs._write_run_start(
+        "r1", "d", _reading(unsure="why"), "2026-01-01T00:00:00Z"
+    )
+    assert (
+        con.execute("SELECT equipment_type FROM agent_review_run").fetchone()[0]
+        == "type unsure: why"
+    )
+
+
+def test_the_rule_checks_equipment_record_from_its_outcome():
+    assert (
+        crs_one.rule_check_equipment(
+            json.dumps({"applicability": {"submittal_equipment": ["pump"]}})
+        )
+        == "pump"
+    )
+    unsure = {
+        "applicability": {
+            "submittal_equipment": [],
+            "equipment_unsure": "equipment type unsure: read as A, but B",
+        }
+    }
+    assert (
+        crs_one.rule_check_equipment(json.dumps(unsure))
+        == "type unsure: read as A, but B"
+    )
+    assert (
+        crs_one.rule_check_equipment(json.dumps({})) is None
+        and crs_one.rule_check_equipment(None) is None
+    )
+
+
+def _engine_db():
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.execute("CREATE TABLE review_engine_choice (run_id TEXT, plan_json TEXT)")
+    con.execute(
+        "INSERT INTO review_engine_choice VALUES ('rc', ?)",
+        (json.dumps({"parts": [{"name": "rule_check", "engine": "local"}]}),),
+    )
+    con.execute(
+        "CREATE TABLE model_call_metrics (review_run_id TEXT, model TEXT, day TEXT, calls INTEGER, errors INTEGER,"
+        " seconds_total REAL, seconds_longest REAL, error_kinds TEXT, gold_score REAL, created_at TEXT)"
+    )
+    return con
+
+
+def test_the_rule_checks_engine_names_the_local_model_it_stored():
+    con = _engine_db()
+    assert (
+        crs_one._engine_of(con, "rc", "", "rule_check")
+        == "Local (model name not recorded)"
+    )  # an old run: said so
+    con.execute(
+        "INSERT INTO model_call_metrics VALUES ('rc', 'invented-local-7b', 'd', 3, 0, 1, 1, '{}', NULL, 'x')"
+    )
+    names = run_record.models_used(
+        con, "rc", {"model_name": None, "outcome_json": "{}"}
+    )
+    assert names == ["invented-local-7b"]
+    assert (
+        crs_one._engine_of(con, "rc", "", "rule_check", names)
+        == "Local (invented-local-7b)"
+    )
+
+
+def test_a_discipline_is_never_an_equipment_type():
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.execute(
+        "CREATE TABLE document_classification (document_id TEXT, project TEXT, document_number TEXT, title TEXT, revision TEXT,"
+        " effective_date TEXT, discipline TEXT, discipline_canonical TEXT, equipment_type TEXT)"
+    )
+    con.execute(
+        "INSERT INTO document_classification (document_id, equipment_type) VALUES ('d', 'Widget pump')"
+    )
+    assert crs_ai_header.document_header(con, "d", "pump")["discipline"] == ""
+
+
+def test_decided_by_says_nobody_decided_yet(monkeypatch):
+    monkeypatch.setattr(crs_one.decisions_mod, "people", lambda _p: [])
+    assert crs_one._people("d", {}) == crs_one.NO_DECISION_YET
+    monkeypatch.setattr(crs_one.decisions_mod, "people", lambda _p: ["u1"])
+    assert crs_one._people("d", {"u1": "Engineer A"}) == "Engineer A"
