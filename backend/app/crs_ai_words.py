@@ -503,7 +503,10 @@ def mark_not_held(lines: list[Mapping], missing: list[Mapping]) -> list[dict]:
 
 
 #: The key `mark_clause_unconfirmed` sets on a line whose stored clause code finds does not hold its rule's words: the clause it carried.
-CLAUSE_UNCONFIRMED_KEY, CLAUSE_NOT_CONFIRMED = "clause_not_confirmed", "clause not confirmed: the rule's words are not in it"
+CLAUSE_UNCONFIRMED_KEY, CLAUSE_NOT_CONFIRMED = (
+    "clause_not_confirmed",
+    "clause not confirmed: the rule's words are not in it",
+)
 
 
 def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
@@ -518,13 +521,19 @@ def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
 
         texts: dict = {}
 
-        def holds(doc, clause, words, page):  # noqa: F811 - the default reader, each book read once per call
+        def holds(
+            doc, clause, words, page
+        ):  # the default reader: each book read once per call
             return clause_holds(doc, clause, words, page, texts)
 
     out = []
     for ln in lines:
         book, checks = ln.get("clause_book"), ln.get("quotes_checked")
-        page = book.get("page") if isinstance(book, Mapping) and book.get("found") is True else None
+        page = (
+            book.get("page")
+            if isinstance(book, Mapping) and book.get("found") is True
+            else None
+        )
         judged = (
             not ln.get(NOT_HELD_KEY)
             and ln.get("standard_document_id")
@@ -535,20 +544,40 @@ def mark_clause_unconfirmed(lines: list[Mapping], holds=None) -> list[dict]:
             and isinstance(page, int)
             and not isinstance(page, bool)
         )
-        if judged and holds(ln["standard_document_id"], _clean(ln["clause"]), ln["clause_quote"], page) is False:
-            out.append({**ln, CLAUSE_UNCONFIRMED_KEY: _clean(ln["clause"]), "clause": "", "clause_page": None})
+        if (
+            judged
+            and holds(
+                ln["standard_document_id"],
+                _clean(ln["clause"]),
+                ln["clause_quote"],
+                page,
+            )
+            is False
+        ):
+            out.append(
+                {
+                    **ln,
+                    CLAUSE_UNCONFIRMED_KEY: _clean(ln["clause"]),
+                    "clause": "",
+                    "clause_page": None,
+                }
+            )
         else:
             out.append(dict(ln))
     return out
 
 
-def read_now(lines: list[Mapping], missing: list[Mapping] = (), holds=None) -> list[dict]:
+def read_now(
+    lines: list[Mapping], missing: list[Mapping] = (), holds=None
+) -> list[dict]:
     """THE reading of stored AI lines for every reader (the run file `crs_ai_workbook.layout_view`, the page's points, the lines tab,
     the completeness count, the gates): today's rule (`agent_review_wording.read_time`), then the books not held (`mark_not_held`),
     then the clauses that do not hold their rule's words (`mark_clause_unconfirmed`, `holds` as there)."""
     from .agent_review_wording import read_time
 
-    return mark_clause_unconfirmed(mark_not_held([read_time(ln) for ln in lines], missing), holds)
+    return mark_clause_unconfirmed(
+        mark_not_held([read_time(ln) for ln in lines], missing), holds
+    )
 
 
 def book_not_held(line: Mapping) -> bool:
@@ -681,9 +710,9 @@ def priority_ai(status: str, line: Mapping, order: int | None = None) -> str:
 __all__ = [
     "BANNED",
     "BOOK_NOT_HELD",
-    "EDITION_WORDS",
     "CLAUSE_NOT_CONFIRMED",
     "CLAUSE_UNCONFIRMED_KEY",
+    "EDITION_WORDS",
     "GUARD_OBJECTIONS",
     "KIND_COVERAGE",
     "KIND_IN_COMMENT",
