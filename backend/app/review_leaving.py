@@ -276,6 +276,19 @@ def _fill(
         }
     )
 
+    # order 14 LPD: a contract's package general terms, its contract rule book (switch off or not a contract: none). Listed here,
+    # before the start, so a run with a stored list may carry it; the gate below decides whether it leaves (a contract: an explicit
+    # Claude start only).
+    from . import contract_rule_book
+
+    book = contract_rule_book.rule_book_of(
+        conn, document_id, allowed, getattr(facts, "kind", None)
+    )["id"]
+    if book:
+        row = _doc_rows(conn, [book]).get(book)
+        if row is not None:
+            put(row, CONTRACT, contract_rule_book.WHY_LISTED)
+
     # THE RULE BOOKS: the review's own selection (`applicability.select`, the function the run calls), read-only and without the
     # step that asks a model. Every standard it would apply is listed, whatever method chose it. What only the model step would
     # add (a scope clause) is found during the run: it is held and the result says so (`claude_auto_approve.SHOWN_KEY`).

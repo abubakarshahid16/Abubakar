@@ -372,7 +372,7 @@ def check_project_papers(
         elif _is_rule_book(conn, d):
             why = "a rule book is not a project paper"
         elif claude_approved.blocked_by_name(row[0]):
-            why = "this document is blocked by its file name or checksum, so it is not sent"
+            why = "this document is blocked by its file name, so it is not sent (its checksum is checked again when it would be sent)"
         elif not conn.execute(
             "SELECT 1 FROM pages WHERE document_id = ? AND TRIM(text) <> '' LIMIT 1",
             (d,),

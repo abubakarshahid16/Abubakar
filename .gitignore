@@ -118,6 +118,8 @@ Claude outputs/
 
 # Per-machine local config (e.g. backend/client_profile.local.json) - never shared
 *.local.json
+# the recorded contract rule book of each contract package (real document ids; docs/contract-rule-book.md): never shared
+backend/app/reference/contract_rule_book.local.json
 
 # Filled gold sheets describe client standards - template only (gold/README.md)
 gold/*.csv
