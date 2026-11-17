@@ -571,24 +571,42 @@ def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
     return meta
 
 
-def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | None:
-    """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in), or None
-    when nothing was decided or added for this paper (the stored file stands). The run's own meta: `run_meta`."""
+def decided_ai_sheet(
+    run_id: str, paper_id: str, copy: str, folder, readable: frozenset[str]
+) -> Path | None:
+    """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in) and for
+    THIS viewer (`readable`: the documents he may read): every line through the one guard (`review_points.for_viewer`; CLAUDE.md rule
+    5), and a file with a hidden line under a name of its own (the hidden lines' digest), so one viewer's file is never served to
+    another. None when nothing was decided or added and nothing is hidden from him (the stored file stands). Meta: `run_meta`."""
+    import hashlib
     from pathlib import Path
 
     from . import agent_review_crs, crs_ai_workbook
 
-    if not decisions_mod.latest(paper_id) and not decisions_mod.added(paper_id):
-        return None
     conn = connect()
     lines = stored_lines(conn, run_id)
+    decided = bool(decisions_mod.latest(paper_id) or decisions_mod.added(paper_id))
+    kept = (
+        decisions_mod.apply_to_lines(
+            paper_id, run_id, lines, _names(decisions_mod.people(paper_id))
+        )
+        if decided
+        else lines
+    )
+    ctx = rp.viewer_ctx(conn, paper_id, readable, run_id)
+    guarded = [rp.for_viewer(ln, ctx) for ln in kept]  # the one guard (rule 5)
+    hidden = sorted(
+        str(a.get("item_id")) for a, b in zip(kept, guarded, strict=True) if a is not b
+    )
+    if not decided and not hidden:
+        return None
     folder = Path(folder)
     meta = run_meta(conn, run_id, paper_id, folder)
-    kept = decisions_mod.apply_to_lines(
-        paper_id, run_id, lines, _names(decisions_mod.people(paper_id))
-    )
+    kept = guarded
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
-    return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
+    digest = hashlib.sha256("\n".join(hidden).encode()).hexdigest()[:16]
+    name = f"crs-{copy}-decided{'-viewer-' + digest if hidden else ''}.xlsx"
+    return crs_ai_workbook.write(kept, folder / name, meta, copy)
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:
