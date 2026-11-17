@@ -84,9 +84,7 @@ TABLE = "standards_web_search"
 COLUMN = "Found online (not verified, book not held)"
 NOT_VERIFIED = "found online, not verified; the book is not held"
 #: The row of the CRS file's "How it was reviewed" that states the search's cost apart from the AI review's (finding 6).
-COST_ROW = (
-    "Online search for rule books not held: cost (USD, not in the AI review's cost)"
-)
+COST_ROW = "Online search for rule books not held: cost (USD, not in the AI review's cost)"  # fmt: skip
 
 #: Publisher families whose standards are public and sold by their publisher; the first word of a name that may leave.
 FAMILIES = frozenset(
@@ -738,8 +736,10 @@ def after_run(run_id: str, heartbeat=None) -> None:
     if not enabled():
         return
     try:
-        search_run(run_id, heartbeat=heartbeat)
-        money.add_to_run(run_id, STEP)
+        try:
+            search_run(run_id, heartbeat=heartbeat)
+        finally:  # names already paid count on the run even when the search stopped with an error
+            money.add_to_run(run_id, STEP)
     except Exception as exc:  # noqa: BLE001 - shown, never used: the review stands whatever happens here
         log.warning("standards web search skipped: %s", type(exc).__name__)
 

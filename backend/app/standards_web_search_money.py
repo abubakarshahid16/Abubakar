@@ -116,9 +116,10 @@ def add_to_run(run_id: str, step: str) -> float | None:
     return cost
 
 
-def included(counts_json: str | None) -> bool:
-    """True when the run's `usd` includes its search cost (a run recorded before this change does not)."""
+def added(counts_json: str | None) -> float | None:
+    """The search cost added to the run's `usd` (`COST_KEY`), or None when none was (a run recorded before this change)."""
     try:
-        return COST_KEY in (json.loads(counts_json or "{}") or {})
-    except (TypeError, ValueError):
-        return False
+        value = (json.loads(counts_json or "{}") or {}).get(COST_KEY)
+        return None if value is None else round(float(value), 6)
+    except (TypeError, ValueError, AttributeError):
+        return None

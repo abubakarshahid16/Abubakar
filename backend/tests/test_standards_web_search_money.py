@@ -232,3 +232,110 @@ def test_the_crs_says_the_search_is_included_only_when_it_is(monkeypatch):
     ]
     labels = [r[0] for r in how]
     assert money.COST_ROW_INCLUDED in labels and sws.COST_ROW not in labels
+
+
+# --- review R-1866 (Fable, FULL; invented values only)
+
+
+def test_two_sweeps_at_the_same_time_close_a_hold_exactly_once(monkeypatch):
+    """Finding 1: both sweeps read the ledger before either writes; only the ledger lock keeps the second from closing it too."""
+    import threading
+
+    held = _held_and_abandoned("sh-run-race", 0.25, hours_ago=3)
+    real, gate = claude_spend.entries, threading.Barrier(2, timeout=1.0)
+
+    def slow_entries():
+        lines = real()
+        try:  # holds the reader until the other sweep has read too; with the lock the other cannot, so it times out
+            gate.wait()
+        except threading.BrokenBarrierError:
+            pass
+        return lines
+
+    monkeypatch.setattr(claude_spend, "entries", slow_entries)
+    sweeps = [
+        threading.Thread(target=money.close_stale, args=(sws.STEP,)) for _ in range(2)
+    ]
+    for t in sweeps:
+        t.start()
+    for t in sweeps:
+        t.join(10)
+    monkeypatch.setattr(claude_spend, "entries", real)
+    assert len(_settlements(held)) == 1
+    assert claude_spend.spent(sws.STEP) == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize("late", ["settle", "release"])
+def test_a_caller_that_returns_after_the_sweep_closed_its_hold_never_closes_it_again(
+    late,
+):
+    """Finding 2: the Mac slept over an hour, the sweep closed the hold, then the request came back: one closing, not two."""
+    with claude_spend.for_run("sh-run-asleep"):
+        held = claude_spend.reserve(
+            sws.STEP, 0.25, model=sws.MODEL, prompt_sha256="sh-digest"
+        )
+    _redate(held.id, 2)
+    assert money.close_stale(sws.STEP) == 1
+    if late == "settle":
+        claude_spend.settle(
+            held,
+            usage=None,
+            finish_reason="web_search_fee",
+            model=sws.MODEL,
+            estimated_usd=0.02,
+        )
+    else:
+        claude_spend.release(held, "unbilled:test")
+    assert len(_settlements(held.id)) == 1
+    assert claude_spend.spent(sws.STEP) == pytest.approx(0.25)
+
+
+def test_a_normal_settle_is_still_written_once():
+    held = claude_spend.reserve(
+        sws.STEP, 0.25, model=sws.MODEL, prompt_sha256="sh-digest"
+    )
+    claude_spend.settle(
+        held,
+        usage=None,
+        finish_reason="web_search_fee",
+        model=sws.MODEL,
+        estimated_usd=0.02,
+    )
+    assert len(_settlements(held.id)) == 1
+    assert claude_spend.spent(sws.STEP) == pytest.approx(0.02)
+
+
+def test_the_included_cost_row_shows_the_figure_added_to_the_run():
+    """Finding 3: the run's added part also holds a closed stale hold of the run, which no found row carries."""
+    doc, _rc, ai, _client = world_with_both()
+    _held_and_abandoned(ai, 0.123456, hours_ago=2)
+    missing(ai, "API 521")
+    sws.search_run(ai, send=Sender(), env=ENV)
+    added = money.add_to_run(ai, sws.STEP)
+    found_sum = sum(float(r["usd"] or 0) for r in db.connect().execute(
+        "SELECT usd FROM standards_web_search WHERE run_id = ?", (ai,)))  # fmt: skip
+    assert added == pytest.approx(found_sum + 0.123456)
+    how = cells(crs_one.build_team(doc, scope_all(), exported=EXPORTED))[
+        crs_one.HOW_SHEET
+    ]
+    row = next(r for r in how if r[0] == money.COST_ROW_INCLUDED)
+    assert row[1] == pytest.approx(_usd(ai)[1][money.COST_KEY]) == pytest.approx(added)
+
+
+def test_names_already_paid_are_added_to_the_run_even_when_the_search_then_fails(
+    monkeypatch,
+):
+    """Finding 4: the search raised after paying for one name; its fee is still in the run's usd."""
+    _doc, _rc, ai, _client = world_with_both()
+    own, _ = _usd(ai)
+    missing(ai, "API 521")
+    real = sws.search_run
+
+    def pays_then_fails(run_id, **kw):
+        real(run_id, send=Sender(), env=ENV, **kw)
+        raise RuntimeError("sh-invented failure after the search paid")
+
+    monkeypatch.setattr(sws, "search_run", pays_then_fails)
+    sws.after_run(ai)  # never fails the review
+    paid = money.run_cost(ai, sws.STEP)
+    assert paid > 0 and _usd(ai)[0] == pytest.approx(own + paid)

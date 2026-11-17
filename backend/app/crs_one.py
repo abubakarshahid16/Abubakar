@@ -297,7 +297,7 @@ def _run_facts(extra: dict) -> list[dict]:
             "engine": "Claude" if any(str(m).startswith("claude") for m in models) else ("Local" if models else NOT_RECORDED),
             "models": models, "date": (r["finished_at"] or r["started_at"]) if r else None,
             "kind": r["paper_kind"] if r else None, "equipment": r["equipment_type"] if r else None, "usd": r["usd"] if r else None,
-            "search_in_cost": bool(r) and standards_web_search_money.included(r["counts_json"]),
+            "search_in_cost": standards_web_search_money.added(r["counts_json"]) if r else None,
         })  # fmt: skip
     return out
 
@@ -587,8 +587,10 @@ def _how_rows(extra: dict, scope) -> list[list]:
         ]
     )
     if (online := standards_web_search.cost_of(extra.get("found_online"))) is not None:
-        inside = any(r.get("search_in_cost") for r in _run_facts(extra))
-        rows.append([standards_web_search_money.COST_ROW_INCLUDED if inside else standards_web_search.COST_ROW, online])
+        # a run whose usd includes the search shows the figure ADDED to it (review R-1866, finding 3)
+        added = next((r["search_in_cost"] for r in _run_facts(extra) if r.get("search_in_cost") is not None), None)
+        rows.append([standards_web_search_money.COST_ROW_INCLUDED, added] if added is not None
+                    else [standards_web_search.COST_ROW, online])  # fmt: skip
     for r in _run_facts(extra):
         rows.append([f"{r['what']}: run id", r["run"]])
     return rows
