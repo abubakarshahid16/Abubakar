@@ -547,7 +547,7 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
     from .db import connect
 
     asked = proposed = unread = no_limit = 0
-    model = None
+    model = engine = None
     refused: dict[str, int] = {}
     drafts = []
     # #645 live run (12 Oct): the cap goes first to the sentences that print
@@ -564,6 +564,7 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
         # the model that answered, whatever it answered (live run: 20 answers,
         # none passed, and the run recorded no model)
         model = model or result.model
+        engine = engine or result.engine  # LP3: where it ran, from the provider that answered
         check, why = verify_proposal(result.data, sentence)
         if why == NO_LIMIT:
             # the model's answer, not a refusal: it read no limit in the sentence
@@ -591,7 +592,7 @@ def propose_checks(requirements: list[dict], *, review_run_id: str | None = None
             "no_limit": no_limit, "refused": refused, "could_not_read": unread,
             "not_asked_budget": max(len(requirements) - max(limit, 0), 0),
             # the model that answered (`ai_task_runner`: local, or Claude under AI_CLAUSE_REVIEW_ENGINE); None when none answered
-            "model": model}
+            "model": model, "engine": engine}
     report["by_standard"] = clause_check_rank.by_standard(ordered, asked)
     return report
 

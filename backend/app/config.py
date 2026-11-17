@@ -435,8 +435,8 @@ class Settings(SettingsExt, BaseSettings):
     ai_division_scope_max_per_run: int = 120
     scope_type_words_rule_enabled: bool = False  # order 210 draft, off
     #: #645 clause to check: for a clause sentence with no stored limit that
-    #: the review could not decide, the local model PROPOSES a check (field,
-    #: limit, unit, condition, quote); code verifies every part and keeps what
+    #: the review could not decide, the model PROPOSES a check (the local runner; in a Claude-lane run Claude when
+    #: AI_CLAUSE_REVIEW_ENGINE says claude, LP3) (field, limit, unit, condition, quote); code verifies every part and keeps what
     #: passes as a DRAFT for the engineer, never a verdict. ON by default
     #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True

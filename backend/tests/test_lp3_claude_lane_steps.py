@@ -333,14 +333,16 @@ def test_a_setting_the_steps_cannot_be_governed_by_stays_closed(declared, engine
 
 
 @pytest.mark.parametrize(
-    ("model", "said"),
+    ("engine", "said"),
     [
-        ("claude-invented-5", "cloud model"),
-        ("local-invented:2b", "local model"),
+        ("claude", "cloud model"),
+        ("ollama", "local model"),
         (None, None),
+        ("invented", None),
     ],
 )
-def test_the_clause_checks_say_where_they_ran(model, said):
+def test_the_clause_checks_say_where_they_ran_from_the_stored_engine_only(engine, said):
+    """Where comes from the provider the run stored, never from a model's name: an older record says nothing."""
     from app import ai_numbers
 
     counts = {
@@ -349,6 +351,31 @@ def test_the_clause_checks_say_where_they_ran(model, said):
         "proposed": 1,
         "could_not_read": 0,
         "not_asked_budget": 0,
-        "model": model,
     }
+    counts["model"] = (
+        "claude-invented-5"  # a name that would say "cloud" if it were read
+    )
+    if engine is not None:
+        counts["engine"] = engine
     assert ai_numbers.clause_checks(counts)["where"] == said
+
+
+def test_the_clause_check_report_stores_the_engine_that_answered(
+    declared, engine_calls, world
+):
+    declared.setattr(settings, "ai_clause_review_engine", "claude")
+    declared.setattr(reader_transport, "transport", lambda: _claude(PROPOSAL))
+    requirement = {
+        "id": "lp3-r2",
+        "requirement_type": "statement",
+        "source_text": SENTENCE,
+    }
+    with local_engine_bar.bar():
+        report = ai_requirements.propose_checks([requirement], limit=5)
+    assert report["engine"] == "claude"
+    declared.setattr(settings, "ai_clause_review_engine", "ollama")
+    with local_engine_bar.bar():
+        report = ai_requirements.propose_checks([requirement], limit=5)
+    assert (
+        report["engine"] is None and report["model"] is None
+    )  # no model answered: where is not said

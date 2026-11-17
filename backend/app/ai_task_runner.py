@@ -120,6 +120,8 @@ class TaskResult:
     attempts: int = 0
     #: What code rejected along the way, on the Claude provider: fixed wording, no text.
     rejected: tuple = ()
+    #: The provider that answered ("claude" / "ollama", its `name`); None when none answered (LP3: where it ran).
+    engine: str | None = None
 
 
 TASKS: dict[str, TaskSpec] = {}
@@ -498,7 +500,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
         hit = _cache_get(key)
         if hit is not None:
             ai_call_ledger.reused(f"ai_task:{spec.name}", model)  # #1525
-            return TaskResult(spec.name, STATE_OK, hit, None, model, True, 0)
+            return TaskResult(spec.name, STATE_OK, hit, None, model, True, 0, engine=getattr(provider, "name", None))
 
     problems: list[str] = []
     rejected: list[str] = []
@@ -531,7 +533,7 @@ def run_task(spec: TaskSpec, text: str, *, provider=None, use_cache: bool = True
             if use_cache:
                 _cache_put(key, spec, model, data)
             done = TaskResult(spec.name, STATE_OK, data, None, model, False, attempt)
-            return replace(done, rejected=tuple(rejected))
+            return replace(done, rejected=tuple(rejected), engine=getattr(provider, "name", None))
         if on_claude:
             # Only code's rejection earns a second ask.
             if _shape_problems(spec, response):
