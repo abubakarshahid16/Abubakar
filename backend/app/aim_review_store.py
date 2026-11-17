@@ -15,6 +15,7 @@ the general run is invisible to it. Ids and counts only: this module holds no ru
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 from .db import connect
@@ -129,9 +130,6 @@ def is_general(conn, run_id: str) -> bool:
     )
 
 
-# ---- stand-ins below: piece D replaces them ------------------------------------------------------------------------------
-
-
 def start_run(conn, run_id: str, paper_id: str, now: str) -> None:
     """The run's row, WITHOUT committing (it joins the transaction that makes the `review_runs` row and the job)."""
     _create(conn)
@@ -141,26 +139,194 @@ def start_run(conn, run_id: str, paper_id: str, now: str) -> None:
     )
 
 
+# ---- the run and its lines -------------------------------------------------------------------------------------------------
+
+#: A run's stored status. `done` is the only one the page and the next plan treat as a finished review.
+STATUSES = ("queued", "running", "done", "stopped", "failed", "cancelled")
+
+# shown_label: what a PERSON sees as a line's verdict. ONE home (CONTRACT section 4). The stored `label` keeps the method's five
+# words for the score; code's own comparison is the only thing that earns "compared by code".
+FAIL_BY_CODE = "Fail, compared by code"
+PASS_BY_CODE = "Pass, compared by code"
+_SHOWN = {
+    "Not met": "AI opinion: not met",
+    "Met": "AI opinion: met",
+    "Does not apply": "AI opinion: does not apply",
+    "AI opinion": "AI opinion",
+    "Question": "Question",
+}
+
+
+def _json_of(value):
+    """A column's value as a python value: a json string is parsed, a python value is kept, anything unreadable is None."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def shown_label(label: str, code_compare=None, deferred: bool = False) -> str:
+    """The words a person sees for a line. `Fail, compared by code` / `Pass, compared by code` ONLY when code compared a value
+    (`code_compare.result` is fail / pass) AND the line's label agrees with that result; a vendor-deferred value is always a
+    `Question`; everything else is an AI opinion or a question. An unknown label is a `Question` (never a verdict)."""
+    if deferred:
+        return "Question"
+    compare = _json_of(code_compare)
+    result = (
+        str(compare.get("result") or "").casefold() if isinstance(compare, dict) else ""
+    )
+    if result == "fail" and label == "Not met":
+        return FAIL_BY_CODE
+    if result == "pass" and label == "Met":
+        return PASS_BY_CODE
+    return _SHOWN.get(label, "Question")
+
+
+def _dump(value) -> str | None:
+    return (
+        None if value is None else json.dumps(value, ensure_ascii=False, sort_keys=True)
+    )
+
+
+def _line_row(run_id: str, n: int, line: dict) -> tuple:
+    """One `aim_lines` row. The stored `label` must be one of the method's five words, so a bad line fails the whole finish."""
+    label = line.get("label")
+    if label not in _SHOWN:
+        raise ValueError(f"line {n}: not one of the method's labels")
+    compare = line.get("code_compare", line.get("code_compare_json"))
+    numbers = _json_of(line.get("numbers", line.get("numbers_json")))
+    deferred = bool(line.get("deferred")) or (
+        isinstance(numbers, dict) and bool(numbers.get("deferred"))
+    )
+    page = line.get("page")
+    return (
+        run_id,
+        n,
+        line.get("item_id"),
+        label,
+        shown_label(label, compare, deferred),
+        line.get("field") or "",
+        page if isinstance(page, int) and not isinstance(page, bool) else None,
+        line.get("quote") or "",
+        1 if line.get("quote_unverified") else 0,
+        line.get("comment") or "",
+        line.get("standard") or "",
+        line.get("book_document_id"),
+        line.get("clause") or "",
+        line.get("source") or "",
+        line.get("topic") or "",
+        line.get("code_note", line.get("code")) or "",
+        _dump(numbers),
+        _dump(_json_of(compare)),
+    )
+
+
 def finish_run(conn, run_id: str, result: dict, now: str) -> None:
-    raise NotImplementedError("piece D: finish_run")
+    """Store a finished run: its lines AND its row, in ONE transaction. All or nothing: any failure (an unknown run, a line without
+    a method label) leaves the database as it was and raises. Lines get `line_no` 1, 2, 3 ... in the order given."""
+    status = str(result.get("status") or "")
+    if status not in STATUSES:
+        raise ValueError("unknown run status")
+    rows = [
+        _line_row(run_id, n, dict(line))
+        for n, line in enumerate(result.get("lines") or [], start=1)
+    ]
+    conn.execute("SAVEPOINT aim_finish_run")
+    try:
+        conn.execute(f"DELETE FROM {LINES} WHERE run_id = ?", (run_id,))
+        conn.executemany(f"INSERT INTO {LINES} VALUES ({','.join('?' * 18)})", rows)
+        cur = conn.execute(
+            f"UPDATE {RUNS} SET status = ?, method_version = ?, identity_json = ?, checklist_key = ?, checklist_sha256 = ?,"
+            " checklist_reused = ?, books_json = ?, not_held_json = ?, unlisted_json = ?, usd = ?, seconds = ?, calls_json = ?,"
+            " stop_reason = ?, finished_at = ? WHERE run_id = ?",
+            (
+                status,
+                result.get("method_version") or _method_version(),
+                _dump(result.get("identity")),
+                result.get("checklist_key"),
+                result.get("checklist_sha256"),
+                1 if result.get("checklist_reused") else 0,
+                _dump(list(result.get("books") or [])),
+                _dump(list(result.get("not_held") or [])),
+                _dump(list(result.get("unlisted_books") or [])),
+                result.get("usd"),
+                result.get("seconds"),
+                _dump(list(result.get("calls") or [])),
+                result.get("stop_reason") or "",
+                now,
+                run_id,
+            ),
+        )
+        if cur.rowcount != 1:
+            raise LookupError("no such general run")
+        conn.execute("RELEASE SAVEPOINT aim_finish_run")
+    except BaseException:
+        conn.execute("ROLLBACK TO SAVEPOINT aim_finish_run")
+        conn.execute("RELEASE SAVEPOINT aim_finish_run")
+        conn.commit()
+        raise
+    conn.commit()
+
+
+def _method_version() -> str:
+    from .aim_review import METHOD_VERSION
+
+    return METHOD_VERSION
+
+
+def set_completeness(conn, run_id: str, report: dict) -> None:
+    """Piece C's completeness report (`aim_review_completeness.record_after_run`) is kept with the run."""
+    conn.execute(
+        f"UPDATE {RUNS} SET completeness_json = ? WHERE run_id = ?",
+        (_dump(report), run_id),
+    )
+    conn.commit()
+
+
+_RUN_JSON = {
+    "identity": "identity_json",
+    "books": "books_json",
+    "not_held": "not_held_json",
+    "unlisted": "unlisted_json",
+    "calls": "calls_json",
+    "completeness": "completeness_json",
+}
+
+
+def _run_dict(row) -> dict:
+    """The stored row as is, plus each `*_json` column read as a python value under its plain name."""
+    out = dict(row)
+    for plain, column in _RUN_JSON.items():
+        out[plain] = _json_of(out.get(column))
+    out["checklist_reused"] = bool(out.get("checklist_reused"))
+    return out
 
 
 def run(conn, run_id: str) -> dict | None:
     if not has_tables(conn):
         return None
     row = conn.execute(f"SELECT * FROM {RUNS} WHERE run_id = ?", (run_id,)).fetchone()
-    return dict(row) if row else None
+    return _run_dict(row) if row else None
 
 
 def lines(conn, run_id: str) -> list[dict]:
+    """Every line of the run, in order, as stored; `numbers` and `code_compare` are also given read back (None when absent)."""
     if not has_tables(conn):
         return []
-    return [
-        dict(r)
-        for r in conn.execute(
-            f"SELECT * FROM {LINES} WHERE run_id = ? ORDER BY line_no", (run_id,)
-        )
-    ]
+    out = []
+    for r in conn.execute(
+        f"SELECT * FROM {LINES} WHERE run_id = ? ORDER BY line_no", (run_id,)
+    ):
+        d = dict(r)
+        d["numbers"] = _json_of(d.get("numbers_json"))
+        d["code_compare"] = _json_of(d.get("code_compare_json"))
+        d["quote_unverified"] = bool(d.get("quote_unverified"))
+        out.append(d)
+    return out
 
 
 def latest_run(conn, paper_id: str, done_only: bool = True) -> dict | None:
@@ -171,31 +337,156 @@ def latest_run(conn, paper_id: str, done_only: bool = True) -> dict | None:
         f"SELECT * FROM {RUNS} WHERE paper_document_id = ?{where} ORDER BY created_at DESC, run_id DESC LIMIT 1",
         (paper_id,),
     ).fetchone()
-    return dict(row) if row else None
+    return _run_dict(row) if row else None
 
 
 def unlisted_of_last(conn, paper_id: str) -> frozenset[str]:
+    """The ids of the held rule books the paper's last finished general review wanted but were not on the list shown."""
     last = latest_run(conn, paper_id)
-    if not last or not last.get("unlisted_json"):
+    if not last or not isinstance(last.get("unlisted"), list):
         return frozenset()
-    try:
-        return frozenset(str(d) for d in json.loads(last["unlisted_json"]) or [])
-    except ValueError:
-        return frozenset()
+    return frozenset(str(d) for d in last["unlisted"])
+
+
+# ---- saved checklists ----------------------------------------------------------------------------------------------------
+
+
+def checklist_sha256(checklist: dict) -> str:
+    """The checklist's fingerprint: sha256 of its canonical json (sorted keys, no spaces)."""
+    body = json.dumps(
+        checklist, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _book_ids(books) -> list[str]:
+    ids = []
+    for b in books or []:
+        got = (
+            b
+            if isinstance(b, str)
+            else (b.get("id") or b.get("document_id"))
+            if isinstance(b, dict)
+            else None
+        )
+        if got:
+            ids.append(str(got))
+    return ids
+
+
+def _now() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 class DbChecklistStore:
-    """Implements `aim_review.ChecklistStore` on `aim_checklists`."""
+    """Implements `aim_review.ChecklistStore` on `aim_checklists`. A new build never overwrites: the older row stays, `current = 0`."""
 
     def __init__(self, conn=None):
         self.conn = conn
 
+    def _conn(self):
+        if self.conn is None:
+            self.conn = connect()
+        return self.conn
+
     def get(self, key: str) -> dict | None:
-        raise NotImplementedError("piece D: DbChecklistStore.get")
+        """The current checklist for the key, or None (also when the stored body cannot be read, or was not built from the
+        standards alone)."""
+        conn = self._conn()
+        if not has_tables(conn):
+            return None
+        row = conn.execute(
+            f"SELECT body_json, built_from FROM {CHECKLISTS} WHERE key = ? AND current = 1",
+            (key,),
+        ).fetchone()
+        if row is None or row["built_from"] != BUILT_FROM:
+            return None
+        body = _json_of(row["body_json"])
+        return body if isinstance(body, dict) else None
 
     def put(self, key: str, checklist: dict, *, run_id: str, usd: float) -> str:
-        raise NotImplementedError("piece D: DbChecklistStore.put")
+        """Save a checklist as the current one for the key; returns its sha256. Refused (ValueError) unless it was built from the
+        standards alone: `built_from` must be exactly "standards only, no paper"."""
+        if not isinstance(checklist, dict) or checklist.get("built_from") != BUILT_FROM:
+            raise ValueError(
+                'a saved checklist must be built from "' + BUILT_FROM + '"'
+            )
+        digest = checklist_sha256(checklist)
+        conn = self._conn()
+        _create(conn)
+        ident = (
+            checklist.get("identity")
+            if isinstance(checklist.get("identity"), dict)
+            else {}
+        )
+        items = checklist.get("items")
+        conn.execute("SAVEPOINT aim_put_checklist")
+        try:
+            conn.execute(
+                f"UPDATE {CHECKLISTS} SET current = 0 WHERE key = ? AND sha256 != ?",
+                (key, digest),
+            )
+            if conn.execute(
+                f"SELECT 1 FROM {CHECKLISTS} WHERE key = ? AND sha256 = ?",
+                (key, digest),
+            ).fetchone():
+                conn.execute(
+                    f"UPDATE {CHECKLISTS} SET current = 1 WHERE key = ? AND sha256 = ?",
+                    (key, digest),
+                )
+            else:
+                conn.execute(
+                    f"INSERT INTO {CHECKLISTS} (key, sha256, current, kind, equipment_type, subject_key, built_from, body_json,"
+                    " books_json, items, made_at, made_by_run, usd) VALUES (?,?,1,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        key,
+                        digest,
+                        ident.get("kind") or checklist.get("kind"),
+                        ident.get("equipment_type") or checklist.get("equipment_type"),
+                        ident.get("subject_key") or checklist.get("subject_key"),
+                        BUILT_FROM,
+                        json.dumps(checklist, ensure_ascii=False, sort_keys=True),
+                        _dump(_book_ids(checklist.get("books"))),
+                        len(items) if isinstance(items, list) else None,
+                        _now(),
+                        run_id,
+                        usd,
+                    ),
+                )
+            conn.execute("RELEASE SAVEPOINT aim_put_checklist")
+        except BaseException:
+            conn.execute("ROLLBACK TO SAVEPOINT aim_put_checklist")
+            conn.execute("RELEASE SAVEPOINT aim_put_checklist")
+            conn.commit()
+            raise
+        conn.commit()
+        return digest
 
 
 def checklists(conn) -> list[dict]:
-    raise NotImplementedError("piece D: checklists")
+    """The saved checklists, the current ones first then the older ones, newest first: key, kind, type, items, books (ids), built
+    from, made at, sha256, current. No body (the body is the rule books' own text)."""
+    if not has_tables(conn):
+        return []
+    out = []
+    for r in conn.execute(
+        f"SELECT * FROM {CHECKLISTS} ORDER BY current DESC, made_at DESC, key"
+    ):
+        out.append(
+            {
+                "key": r["key"],
+                "kind": r["kind"],
+                "equipment_type": r["equipment_type"],
+                "items": r["items"],
+                "books": _json_of(r["books_json"]) or [],
+                "built_from": r["built_from"],
+                "made_at": r["made_at"],
+                "made_by_run": r["made_by_run"],
+                "usd": r["usd"],
+                "sha256": r["sha256"],
+                "current": bool(r["current"]),
+            }
+        )
+    return out
