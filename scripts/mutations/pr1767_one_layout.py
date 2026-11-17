@@ -44,8 +44,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         "03",
         "an AI engineering check is shown as a Fail (an AI draft read as proven)",
         _N,
-        "    if row_kind in _AI_ROW_KINDS:\n        return STATUS_AI\n",
-        "    if row_kind in _AI_ROW_KINDS:\n        return STATUS_FAIL\n",
+        # re-anchored by LPH (order 14): the AI kinds' line now also reads the stored state
+        "    if row_kind in _AI_ROW_KINDS:\n        return STATUS_AI if settled(",
+        "    if row_kind in _AI_ROW_KINDS:\n        return STATUS_FAIL if settled(",
         _T,
         "every_row_kind or stated_rule",
     ),
