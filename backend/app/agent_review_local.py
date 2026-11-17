@@ -726,7 +726,8 @@ class LocalEngine:
             with self._lock:  # it thinks although told not to: later requests of this reader get room for it
                 self.thinking_replies[role] += 1
         if not isinstance(text, str) or not text.strip():
-            # an empty reply that stopped at its limit was CUT OFF (the runner retries it once with a larger limit), not a bad shape
+            # an empty reply that stopped at its limit was CUT OFF, not a bad shape: the runner retries it once with a larger limit when
+            # that still fits the window (else: not asked, too long), and plans the item's windows again when the reader showed it thinks
             cut = isinstance(answer, dict) and answer.get("done_reason") == "length"
             exc = agent_claude.AgentBadReply("stop_max_tokens" if cut else "bad_shape")
             exc.usd = 0.0
