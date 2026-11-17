@@ -715,9 +715,22 @@ def comment_note(c: dict, ms: list[dict]) -> str:
     many = f"{c['n_points']} points on this field" if c["n_points"] > 1 else ""
     note = comments.DISAGREE if c["disagree"] else many
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
-    # R91: each other point, its class and ask
-    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])
+    # R91: each other point, its class and ask; rule 5: a point whose rule this viewer may not see is counted, never listed, so the
+    # Note stays a whole cell (a list of hundreds of them overran the cell and the file was refused)
+    others = [p for p in ms if p is not c["strongest"]]
+    note += "".join(f"\n{member_words(p)}" for p in others if not _rule_not_shown(p))
+    away = sum(1 for p in others if _rule_not_shown(p))
+    note += (
+        f"\nAlso: {away} more point(s) whose rule is not shown to you (counted, not listed)."
+        if away
+        else ""
+    )
     return _clean(note.strip(" ;"))
+
+
+def _rule_not_shown(p: dict) -> bool:
+    """A point whose rule this viewer may not see: its words hidden (`_words_hidden`) or its name a fixed phrase (`_name_hidden`)."""
+    return bool(p.get("_words_hidden") or p.get("_name_hidden"))
 
 
 def comment_full_texts(

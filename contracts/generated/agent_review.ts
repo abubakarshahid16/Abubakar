@@ -121,6 +121,8 @@ export interface AgentRunSummary {
   mode: AgentMode;
   /** the project papers a general review was checked against (empty for a rule review, or when none was named). */
   project_papers_used: AgentProjectPaper[];
+  /** how many project papers it used that the caller may not read (counted, never named; null when none). */
+  project_papers_hidden?: number | null;
   /** the second-reader step of this run (counts and one code, no text); null when the step was off or the run was stored before it. */
   two_reader_step?: AgentTwoReaderStep | null;
   /** the same for the absence word ("AI verdict: not stated"); null when that step was off or the run was stored before it. */

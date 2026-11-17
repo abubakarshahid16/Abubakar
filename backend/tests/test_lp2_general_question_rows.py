@@ -579,7 +579,7 @@ def test_a_datasheet_line_whose_rule_book_is_hidden_keeps_the_engineers_edit_fro
     monkeypatch,
 ):
     # the same guard on a datasheet review: an edit on a line whose book the viewer may not read is never shown to him; the reader
-    # of the book sees the run file under the same name as before (`crs-internal-decided.xlsx`) and his own words
+    # of the book sees the run file with nothing hidden in it and his own words
     from app import review_points_service as svc
     from app.config import settings
     from tests.test_agent_review_crs import mk
@@ -619,7 +619,8 @@ def test_a_datasheet_line_whose_rule_book_is_hidden_keeps_the_engineers_edit_fro
     own = svc.decided_ai_sheet(
         ai, doc, "internal", agent_review_jobs.run_dir(ai), frozenset({doc, "doc_std"})
     )
-    assert own.name == "crs-internal-decided.xlsx" and ENGINEER in sheet_text(
+    # PR #1883: the drawn file is named by its content; the reader of the book's has nothing hidden in it (no "-viewer" mark)
+    assert not own.name.endswith("-viewer.xlsx") and ENGINEER in sheet_text(
         own.read_bytes()
     )
 

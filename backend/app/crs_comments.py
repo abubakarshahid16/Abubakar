@@ -27,6 +27,7 @@ the name the page gives a point with no field. A topic is the rule book's key (`
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from . import agent_review_ai_answer as ai_answer
@@ -166,6 +167,10 @@ def key_of(point: dict) -> str:
     if field:
         return f"field|{field}"
     if rule := _rule_of(point):
+        if point.get(
+            "_group_rule"
+        ):  # rule 5: the same comment as for a reader of the book, under a key that names nothing
+            return "clause|" + hashlib.sha256("|".join(rule).encode()).hexdigest()[:16]
         return "clause|" + "|".join(rule)
     return f"point|{point.get('id')}"
 
@@ -181,7 +186,10 @@ def _requirement_of(p: dict) -> str:
 
 
 def _rule_of(p: dict) -> tuple[str, str, str] | None:
-    """(book key, clause, requirement): ONE rule; None unless all three are known."""
+    """(book key, clause, requirement): ONE rule; None unless all three are known. A point whose rule this viewer may not see carries
+    the rule its full line names as an internal key (`_group_rule`, `review_points.ai_point`): grouped as for a reader of the book."""
+    if group := p.get("_group_rule"):
+        return tuple(group)
     book = p.get("rule_book") or (p.get("rule_ref") or {}).get("name")
     req = _requirement_of(p)
     # a clause not shown because it does not hold the rule's words (`crs_ai_words.mark_clause_unconfirmed`) still names ONE rule
@@ -407,7 +415,14 @@ def _evidence(ms: list[dict]) -> set[tuple]:
 
     out = set()
     for p in ms:
-        q = _norm(p.get("paper_quote") or _line_of(p).get("paper_quote"))
+        line = _line_of(
+            p
+        )  # rule 5: a hidden point's unverified quote is kept apart, for this grouping only (`crs_ai_viewer`)
+        q = _norm(
+            p.get("paper_quote")
+            or line.get("paper_quote")
+            or line.get("_paper_quote_stored")
+        )
         # FTU-1: a found quote on a line that says "not stated" is not evidence of a value, so it never joins two fields
         looked = p.get("paper_looked") or silent_quote(_line_of(p)) or silent_quote(p)
         if q and not looked:
@@ -415,6 +430,10 @@ def _evidence(ms: list[dict]) -> set[tuple]:
         book, clause = p.get("rule_book") or (p.get("rule_ref") or {}).get("name"), p.get("clause")
         if _norm(book) and _norm(clause):
             out.add(("rule", _book_key(book), _clause_key(clause)))
+        elif group := p.get(
+            "_group_rule"
+        ):  # rule 5: the internal key, as a reader of the book has it
+            out.add(("rule", group[0], group[1]))
     return out
 
 

@@ -531,12 +531,14 @@ def test_a_removed_point_never_reaches_an_ai_sheet_an_edited_one_does_with_the_e
 def test_with_nothing_decided_the_stored_ai_sheet_is_served_as_it_was_written():
     doc, rc, ai, client = world_with_both()
     stored = (agent_review_jobs.run_dir(ai) / "crs-internal.xlsx").read_bytes()
-    assert (
-        client.get(
-            f"/api/reviews/runs/{ai}/agent/crs", params={"copy": "internal"}
-        ).content
-        == stored
-    )
+    # PR #1883: every viewer is served a sheet drawn now (the same way for every viewer); with nothing decided it holds exactly what
+    # the stored file holds (its cells; the file's own save time is not a cell), and the same download gives the same bytes
+    url = f"/api/reviews/runs/{ai}/agent/crs"
+    got = client.get(url, params={"copy": "internal"}).content
+    from tests.test_lpr_datasheet_viewer import cells
+
+    assert cells(got) == cells(stored)  # every cell: sheet, row, column, value
+    assert client.get(url, params={"copy": "internal"}).content == got
 
 
 def test_a_removed_rule_check_point_leaves_both_rule_check_copies_and_an_added_one_joins_them():

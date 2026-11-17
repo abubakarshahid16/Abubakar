@@ -595,13 +595,17 @@ def decided_ai_sheet(
     run_id: str, paper_id: str, copy: str, folder, readable: frozenset[str]
 ) -> Path | None:
     """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in) and for
-    THIS viewer (`readable`: the documents he may read): every line through the one guard (`review_points.for_viewer`; CLAUDE.md rule
-    5), and a file with a hidden line under a name of its own (the hidden lines' digest), so one viewer's file is never served to
-    another. None when nothing was decided or added and nothing is hidden from him (the stored file stands). Meta: `run_meta`."""
+    THIS viewer (`readable`: the documents he may read), through the one guard (`review_points.for_viewer`; CLAUDE.md rule 5): a
+    general line he may not read is its viewed line; a datasheet line he may not read keeps its place, its grouping and its Status
+    (drawn from the full line) and only its cells come from its shown line (`crs_ai_viewer.view_for`). A file with a hidden line has
+    a name of its own (the hidden lines' digest), so one viewer's file is never served to another. Every viewer is served a sheet
+    drawn now from the lines read as today, so the rows of a restricted viewer's file and of a reader of every book's are the same
+    (the stored file is the run's record, checked for completeness first). Meta: `run_meta`."""
     import hashlib
     from pathlib import Path
 
-    from . import agent_review_crs, crs_ai_workbook
+    from . import agent_general_crs as general
+    from . import agent_review_crs, crs_ai_viewer, crs_layout
 
     conn = connect()
     lines = stored_lines(conn, run_id)
@@ -614,19 +618,40 @@ def decided_ai_sheet(
         else lines
     )
     ctx = rp.viewer_ctx(conn, paper_id, readable, run_id)
-    guarded = [rp.for_viewer(ln, ctx) for ln in kept]  # the one guard (rule 5)
+
+    def hidden_rule(
+        ln,
+    ) -> (
+        bool
+    ):  # a datasheet line he may not read (read after `read_now`, as the file reads it)
+        return not general.is_general(ln) and rp.words_hidden(ln, ctx)
+
+    kept = [rp.for_viewer(ln, ctx) if general.is_general(ln) else ln for ln in kept]
     hidden = sorted(
-        str(a.get("item_id")) for a, b in zip(kept, guarded, strict=True) if a is not b
+        str(ln.get("item_id"))
+        for ln in kept
+        if general.HIDE_KEY in ln or hidden_rule(ln)
     )
-    if not decided and not hidden:
-        return None
+    # every viewer is served the SAME way: a sheet drawn now from the lines read as today (never the stored file for one viewer and a
+    # redraw for another, whose rows could differ); a reader of every book gets exactly `crs_ai_workbook.layout_view`
     folder = Path(folder)
     meta = run_meta(conn, run_id, paper_id, folder)
-    kept = guarded
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
-    digest = hashlib.sha256("\n".join(hidden).encode()).hexdigest()[:16]
-    name = f"crs-{copy}-decided{'-viewer-' + digest if hidden else ''}.xlsx"
-    return crs_ai_workbook.write(kept, folder / name, meta, copy)
+    # ONE file per drawn content (the lines as drawn, the meta, the copy and what is hidden from this viewer): the same download gives
+    # the same bytes every time, and one viewer's file is never another's (what is hidden is part of its name)
+    import json
+
+    said = json.dumps(
+        [crs_ai_viewer.code_version(), kept, meta, copy, hidden],
+        sort_keys=True,
+        default=str,
+    )
+    digest = hashlib.sha256(said.encode()).hexdigest()[:24]
+    path = folder / f"crs-{copy}-drawn-{digest}{'-viewer' if hidden else ''}.xlsx"
+    if not path.is_file():  # the app's code is in the key: a live update draws again, never serves an older drawing
+        view = crs_ai_viewer.view_for(kept, meta, copy, hidden_rule)
+        crs_ai_viewer.write_atomic(path, crs_layout.build_layout_crs(view))
+    return path
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:

@@ -1590,7 +1590,12 @@ def test_a_rule_review_run_still_says_rule_review_with_no_project_papers(
         )
     from app.api import agent_review as route
 
-    assert route._mode_of(db.connect(), "r") == {
+    # PR #1883: the mode reads the caller's view (rule 5); a rule review names no project paper for anyone
+    assert route._mode_of(
+        db.connect(),
+        "r",
+        {"readable": frozenset(), "documents": frozenset(), "library": []},
+    ) == {
         "mode": "rule review",
         "project_papers_used": [],
     }
@@ -1747,9 +1752,15 @@ def test_a_run_made_a_general_review_by_the_decided_kind_alone_still_says_genera
     agent_review_jobs.run(job_id, "w")
     from app.api import agent_review as route
 
-    assert route._mode_of(db.connect(), run_id) == {
+    # PR #1883: the mode reads the caller's view (rule 5); no project paper, so none is hidden either (null, never 0)
+    assert route._mode_of(
+        db.connect(),
+        run_id,
+        {"readable": frozenset(), "documents": frozenset(), "library": []},
+    ) == {
         "mode": "general review",
         "project_papers_used": [],
+        "project_papers_hidden": None,
     }
     assert [
         ln["reason"]
