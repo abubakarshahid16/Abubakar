@@ -88,20 +88,18 @@ PROVISIONAL_FAILS = "provisional_fails"
 #: ... code could not compare it: a sent Question with the AI's comment as written.
 PROVISIONAL_UNCHECKED = "provisional_unchecked"
 #: The code notes of a line that stays in "All points" and is never a comment.
-#: Two values of the PAPER compared by code with the AI's operator (no rule gives one) and they PASSED: an AI opinion that
-#: is no finding, kept in "All points", never sent (fewer false alarms). A failed compare stays a sent AI opinion.
+#: Two values of the PAPER compared by code and they PASSED, with the rule's operator (or the AI's, when the AI itself did not say
+#: Not met): an AI opinion that is no finding, kept in "All points", never sent. Appended to the line's other notes.
 PAPER_COMPARE_PASSED = "paper_compare_passed"
 NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED)
 
 
 def sendable(line: dict) -> bool:
-    """Does this line go on the comment sheet? Its label is one of SENDABLE, and its code note is not one of NOT_SENT_NOTES: a
-    Question whose only content is "not judged" (RISKS 2), a provisional figure that code compared and that passed, or two paper values compared with the AI's operator that passed. Such a line
-    stays in "All points" and is counted there, never sent to the vendor."""
-    return (
-        line.get("label") in SENDABLE
-        and str(line.get("code_note") or "") not in NOT_SENT_NOTES
-    )
+    """Does this line go on the comment sheet? Its label is one of SENDABLE, and no part of its code note ("; "-joined) is one of
+    NOT_SENT_NOTES: a Question whose only content is "not judged" (RISKS 2), a provisional figure that code compared and that
+    passed, or a passed compare of two paper values. Such a line stays in "All points" and is counted there, never sent."""
+    parts = {p.strip() for p in str(line.get("code_note") or "").split(";")}
+    return line.get("label") in SENDABLE and not parts & set(NOT_SENT_NOTES)
 
 
 def candidates(
