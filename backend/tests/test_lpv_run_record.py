@@ -247,9 +247,8 @@ def test_a_general_review_run_records_why_it_has_no_type():
 
     from app import agent_general_job
 
-    assert 'getattr(kind, "equipment_record", None)' in inspect.getsource(
-        agent_general_job
-    )
+    src = " ".join(inspect.getsource(agent_general_job).split())
+    assert 'kind, "equipment_record", None' in src
 
 
 def test_a_discipline_is_never_an_equipment_type():
