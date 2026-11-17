@@ -152,6 +152,8 @@ EGRESS_SAFE: dict[str, object] = {
     # 17 Nov (#1584): online search for rule books not held (public names to Claude's web search), off; its own tests turn it on
     "standards_web_search_enabled": False,
     "standards_web_search_usd_per_run": 0.50,
+    # order 14 LPD: a contract's package general terms as its rule book (a listed contract may leave on an explicit Claude start), off
+    "contract_rule_book_enabled": False,
     "anthropic_api_key": "",
     # Order 270.3: where the review reads the converter's draft files; empty = reads none.
     "standards_converter_dir": "",
