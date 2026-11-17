@@ -13,8 +13,10 @@ from app import agent_review_wording as W
 from app import review_points as rp
 
 CTX = {"run_id": "r", "paper_document_id": "p", "readable": frozenset({"p", "doc-book"}), "_library": []}  # fmt: skip
+# LPH (17 Nov 2026): an AI row is a "not met" only when its stored finding records that verdict (`crs_normal.settled`); these rows stand
+# for one, so they carry it (a row with no recorded verdict is a question: `test_o14_lph_unsettled_not_firm`)
 ROW = {"row_kind": "ai_engineering_check", "finding_id": "f1", "page_section": "p.3 - Back pressure", "comment": "Value looks low.",
-       "standard_reference": "BOOK-9.pdf", "priority": "3"}  # fmt: skip
+       "standard_reference": "BOOK-9.pdf", "priority": "3", "stored_state": "NON_COMPLIANT"}  # fmt: skip
 VERIFIED = {"submittal": {"verified": True}, "standard": {"verified": True}}
 UNSEEN = {"submittal": {"verified": True}, "standard": {"verified": False}}
 ITEM = {"item_id": "S-1", "source": "skill", "rule_version_id": None}
