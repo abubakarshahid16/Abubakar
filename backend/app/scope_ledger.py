@@ -83,6 +83,12 @@ REASONS: dict[str, tuple[str, str]] = {
                               "the equipment type takes this standard only in part, and not this rule"),
     "not_material_field": (DOES_NOT_APPLY,
                            "a materials standard applies only to the material fields this datasheet states"),
+    # order 14 LPV V1: the rule's own words (or its list's lead-in) name a part or material the paper names on no page
+    "rule_subject_not_on_paper": (
+        DOES_NOT_APPLY,
+        "its own words are about a part or material this paper does not have",
+    ),
+    "rule_book_example": (DOES_NOT_APPLY, "a worked example in the rule book, not a requirement"),
     # #141: a division ("This Part applies to vessels constructed of ...")
     # limited by its own scope sentence to a construction this equipment is not
     "outside_division_scope": (

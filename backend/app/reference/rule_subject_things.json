@@ -1,0 +1,34 @@
+{
+  "_about": [
+    "Order 14 LPV, V1 (owner, 17 Nov 2026): a rule is asked of a paper only when the thing its own words are about fits the paper's equipment, never because it shares a word with a field. Read by app/rule_subject_fit.py.",
+    "Each entry is a construction, a material class or a part that only SOME equipment has. A rule whose OWN SCOPE (its sentence, plus the sentence that introduces its list when it is a list item) names one of an entry's words is about that thing; it is not asked of a paper that names none of the entry's words on any page (every page must be readable as text, or the rule is asked).",
+    "Generic: no standard, clause, document or layout is named. A word here must name the thing itself, never a property or a field ('design life', 'pressure'). Engineer-editable data: add a line, no code change.",
+    "A thing named only after a negation ('other than', 'except', 'excluding', 'non-') does not count; any doubt asks the rule."
+  ],
+  "things": [
+    {
+      "name": "acrylic (a non-metal shell or window)",
+      "words": ["acrylic", "acrylics", "polymethyl methacrylate", "pmma"]
+    },
+    {
+      "name": "a viewport or sight glass",
+      "words": ["viewport", "viewports", "view port", "view ports", "sight glass", "sight glasses", "viewing window", "viewing windows"]
+    },
+    {
+      "name": "a glass lining",
+      "words": ["glass lined", "glass lining", "glass linings", "glass-lined"]
+    },
+    {
+      "name": "fibre-reinforced plastic",
+      "words": ["fiber reinforced plastic", "fibre reinforced plastic", "glass reinforced plastic", "frp", "grp"]
+    },
+    {
+      "name": "a fire-water pump",
+      "words": ["firewater pump", "firewater pumps", "fire water pump", "fire water pumps", "fire pump", "fire pumps"]
+    },
+    {
+      "name": "impregnated graphite",
+      "words": ["impregnated graphite"]
+    }
+  ]
+}

@@ -2403,7 +2403,7 @@ def _run_comparison(
     # #139 A CODE CITED FOR ONE ITEM applies through the cited clauses only;
     # the rest does not apply, with the reason (`subject_scope.citation_gate`).
     from . import applicability as applicability_mod
-    from . import subject_scope
+    from . import rule_subject_fit, subject_scope
 
     cited_scope = subject_scope.citation_gate_for_run(
         requirements, submittal_id, applicable, names, allowed_document_ids
@@ -2451,14 +2451,14 @@ def _run_comparison(
     extra_not_applied.extend(serviced["items"])
     held_items.extend(serviced["held"])
     service_declarations = serviced["declarations"]
-    # #725 F5 A MATERIALS STANDARD applies only to material fields: NACE's
-    # alloy-composition table rows are not checks for a datasheet that states
-    # no such material (6,702 of them were on one PSV review).
+    # #725 F5 A MATERIALS STANDARD applies only to material fields (`subject_scope.materials_gate`).
     materials = subject_scope.materials_gate(
         requirements, facts=facts, standard_labels=standard_labels,
         is_materials_standard=applicability_mod.is_materials_standard)
     requirements = materials["kept"]
     extra_not_applied.extend(materials["items"])
+    requirements, unfit = rule_subject_fit.gate_for_run(requirements, submittal_id)  # LPV V1: a rule about what the paper lacks
+    extra_not_applied.extend(unfit)
     # A STANDARD THE EQUIPMENT TYPE TAKES ONLY IN PART (ASME VIII Div 1 for a relief valve: its
     # relief-device rules only), the rules-by-equipment-scope gate. See `eqs.gate_for_run`.
     requirements, es = eqs.gate_for_run(

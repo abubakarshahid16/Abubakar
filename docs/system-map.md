@@ -467,6 +467,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `page_reason_words` | Plain words for why a datasheet page gave no value (the stored page reason); the engine counts kept apart as detail (order 124 item 9) |
 | `rule_trust` | Decide when an AI-compiled rule may be used: tier, family proof, second check, audit sample, trust labels |
 | `rule_eval` | Table and formula rules, evaluated in code (owner order 2026-09-26, 2a + 2b) |
+| `rule_subject_fit` | Does the thing a rule is about (its subject, its list's lead-in, its section title) fit the paper: a rule about a part or material the paper names on no page, or a worked example of the rule book, is not asked (order 14 LPV V1) |
 | `schemas` | Typed response models |
 | `scope_ledger` | Every requirement in a review's scope ends in exactly ONE state, with a reason (#677) |
 | `scope_quote` | A division's scope reading counts only when its quote is one real sentence (order 242.2) |
