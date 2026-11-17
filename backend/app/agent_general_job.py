@@ -27,6 +27,7 @@ from . import (
     agent_review_schema,
     claude_approved,
     claude_spend,
+    contract_rule_book,
     job_queue,
 )
 from . import agent_general_crs as crs
@@ -352,11 +353,36 @@ def _approval_stop(runner) -> None:
         runner._halt(agent_claude.AgentGateClosed(refusal[0]))
 
 
-def _build(conn, run_id, submittal, kind, decision, accepted, folder, lane, local=None):
-    """The run object, its runner and the carrier (the paper and the named project papers, nothing else)."""
+def _build(
+    conn,
+    run_id,
+    submittal,
+    kind,
+    decision,
+    accepted,
+    folder,
+    lane,
+    local=None,
+    scope=frozenset(),
+):
+    """The run object, its runner and the carrier (the paper, the named project papers and, for a contract with the switch on, the
+    general terms paper of its package that the run may carry; nothing else)."""
     _write_missing(conn, run_id, decision["not_held"])
     items, info = core.checklist_items(conn, decision["kind"], submittal)
     ids = [p["document_id"] for p in accepted]
+    # order 14 LPD: a contract's package general terms as its rule book (a project paper) and the contract checklist CT-01..CT-08
+    book = contract_rule_book.for_run(
+        conn, run_id, submittal, decision["kind"], scope, ids, local is not None
+    )
+    for a in book["accepted"]:
+        ids.append(a["document_id"])
+        accepted.append(a)
+    if book["items"]:
+        items = [*items, *book["items"]]
+        info = {
+            **{k: v for k, v in info.items() if k != "none"},
+            "contract_checklist_items": len(book["items"]),
+        }
     carrier = [submittal, *ids]
     docs = core.load_documents(conn, submittal, ids, carrier)
     send, env = lane()
@@ -367,7 +393,10 @@ def _build(conn, run_id, submittal, kind, decision, accepted, folder, lane, loca
     g = parts.GeneralRun(
         paper=submittal, docs=docs, kind=decision["kind"], books=decision, items=items, items_info=info, project=ids,
         run_dir=folder, runner=runner, unread=core.unread_pages(conn, submittal), local=local,
+        draft_books=[book["book"]] if book["book"] else [], code_lines=book["code_lines"],
     )  # fmt: skip
+    for ln in book["lines"]:  # the rule book was not used: said, never silent
+        g.add(ln)
     return g, runner, carrier
 
 
@@ -416,7 +445,7 @@ def run(
             combined=combined,
         )
     g, runner, carrier = _build(
-        conn, run_id, submittal, kind, decision, accepted, folder, lane, local
+        conn, run_id, submittal, kind, decision, accepted, folder, lane, local, scope
     )
     try:
         _run_parts(g, runner, carrier, local, run_id, heartbeat)
