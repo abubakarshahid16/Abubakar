@@ -15,6 +15,7 @@
  *   any other status                -> shown as itself, never Ready
  */
 import type { ReviewRunSummary } from "../../../types/api";
+import type { PaperFound } from "../../../api/reviewPoints";
 import { whenLabel } from "../reviewFormat";
 
 export type InboxState =
@@ -78,6 +79,19 @@ export interface ReadyCounts {
   findings: number;
   /** Of those, the ones that need the engineer's judgement. */
   needs_you: number;
+  /** Order 14 LPS S2: with the redesigned page on, the paper's page numbers (the one home, `found_of`); the line then says these,
+   *  never the run's own finding count. */
+  page?: PaperFound;
+}
+
+const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+
+/** "Found by the review: 1 not met, 72 questions for you (169 points on its review page, 169 not decided yet)": the page's own tile
+ *  totals with their boundary (rule 4). Never "0 findings" while the page holds open points: the not-decided count says them. */
+export function pageFoundLine(f: PaperFound): string {
+  const open = f.undecided > 0 ? `, ${f.undecided.toLocaleString("en-US")} not decided yet` : ", all decided";
+  return `Found by the review: ${plural(f.not_met, "not met", "not met")}, ${plural(f.questions, "question for you", "questions for you")} `
+    + `(${plural(f.points, "point", "points")} on its review page${open})`;
 }
 
 /** "Found by the review: 12 findings, 3 needing your judgement": the
@@ -86,6 +100,7 @@ export interface ReadyCounts {
  *  lines). Nothing when not known. The inbox and the landing both use it. */
 export function foundLine(counts: ReadyCounts | null | undefined): string {
   if (!counts) return "";
+  if (counts.page) return pageFoundLine(counts.page);
   const n = counts.findings;
   const m = counts.needs_you;
   return `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `

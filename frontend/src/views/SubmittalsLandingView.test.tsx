@@ -34,7 +34,9 @@ vi.mock("../api/client", () => ({
 /** THE ONE START: a review starts through `reviewPlan.start` (POST /reviews/start) from the pre-start step; "Review all" runs Local only. */
 const planFor = vi.fn();
 vi.mock("../api/reviewPlan", () => ({
-  reviewPlan: { plan: (...args: unknown[]) => planFor(...args), start: (...args: unknown[]) => startReviewRun(...args) },
+  reviewPlan: { plan: (...args: unknown[]) => planFor(...args), start: (...args: unknown[]) => startReviewRun(...args),
+    // LPS S1: the picker also asks for the contract papers; none here
+    contractPapers: async () => ({ ok: true, data: { boundary: "0 contract papers you may read", papers: [], packages: [] } }) },
 }));
 
 // Order 132 item 3: the drop zone is told who the reader is (its own behaviour is NewReviewDropZone.test.tsx's).
