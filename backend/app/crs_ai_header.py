@@ -61,13 +61,27 @@ def with_cover(conn, document_id: str, head: dict[str, str]) -> dict[str, str]:
     from . import contract_package
 
     try:
-        cover = contract_package.cover_id(contract_package.load_pages(conn, document_id, contract_package.COVER_PAGES))
-    except sqlite3.Error:  # no page text to read: the value the app holds, else "not found"
+        cover = contract_package.cover_id(
+            contract_package.load_pages(conn, document_id, contract_package.COVER_PAGES)
+        )
+    except (
+        sqlite3.Error
+    ):  # no page text to read: the value the app holds, else "not found"
         cover = contract_package.CoverId()
-    label = "" if re.match(r"doc(?:ument)?\b", str(cover.number_label or ""), re.I) else f" ({cover.number_label})"
-    number = f"{cover.number}{label}" if cover.number else head.get("document_number")  # a contract's number says it is one
+    label = (
+        ""
+        if re.match(r"doc(?:ument)?\b", str(cover.number_label or ""), re.I)
+        else f" ({cover.number_label})"
+    )
+    number = (
+        f"{cover.number}{label}" if cover.number else head.get("document_number")
+    )  # a contract's number says it is one
     revision = cover.revision or head.get("revision")
-    return {**head, "document_number": number or NOT_ON_COVER, "revision": revision or NOT_ON_COVER}
+    return {
+        **head,
+        "document_number": number or NOT_ON_COVER,
+        "revision": revision or NOT_ON_COVER,
+    }
 
 
 def header_for_run(conn, review_run_id: str) -> dict[str, str]:

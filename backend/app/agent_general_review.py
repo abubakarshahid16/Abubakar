@@ -471,7 +471,9 @@ def blank_lines(paper: str, kind: str | None, pages: Mapping[int, str]) -> list[
     return out
 
 
-def _not_held_parts(conn: sqlite3.Connection, paper: str, not_held: list[dict]) -> list[dict]:
+def _not_held_parts(
+    conn: sqlite3.Connection, paper: str, not_held: list[dict]
+) -> list[dict]:
     """LPC (C2, P2): a cited name that is the paper's own part or a held part of its contract package is never a book not held; a
     labelled part not held is named by its label (`contract_package`, the one home of that decision)."""
     from . import contract_package

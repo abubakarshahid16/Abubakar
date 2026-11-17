@@ -626,10 +626,16 @@ def rule_point(
     ref = content.rule_ref(row, finding)
     # a viewer for whom the reference is hidden (rule 5) gets the hidden point unchanged: a book name is never shown to him
     missing = book_missing(book_doc, ref["name"], ctx) if kind != ROW_KIND_ENGINEER_COMMENT and not ref_hidden else ""
-    own = None if missing or ref_hidden or kind == ROW_KIND_ENGINEER_COMMENT else paper_part(book_doc, ref["name"], ctx)
-    if own is not None:  # LPC: a part of the paper itself (or a held paper of its package) is never cited as a rule book
+    own = (
+        None
+        if missing or ref_hidden or kind == ROW_KIND_ENGINEER_COMMENT
+        else paper_part(book_doc, ref["name"], ctx)
+    )
+    # LPC: a part of the paper itself (or a held paper of its package) is never cited as a rule book
+    if own is not None:
         ref = {"name": "", "clause": "", "page": None}
-        if action_source == "ai_suggestion":  # the check's "source not held" label is false for it: the AI's own finding stays
+        # the check's "source not held" label is false for it: the AI's own finding stays
+        if action_source == "ai_suggestion":
             from .ai_engineering_check import UNVERIFIED_LABEL
 
             action = _clean(action.replace(UNVERIFIED_LABEL, "").lstrip(" ."))
@@ -727,8 +733,15 @@ def rule_point(
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,
                      clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)  # fmt: skip
-    if own is not None:  # LPC: the reason says what the name is; nothing is shown as a book's words
-        point.update(reason_words=point["_paper_part"], rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)
+    # LPC: the reason says what the name is; nothing is shown as a book's words
+    if own is not None:
+        point.update(
+            reason_words=point["_paper_part"],
+            rule_text=None,
+            clause_quote=None,
+            clause_quote_note=NO_CLAUSE_QUOTE,
+            _rule_stored=None,
+        )
     if unproven_ai:  # its "rule" words were written by the AI check, not found in the book: never shown as the book's words (G1)
         point.update(rule_text=None, clause_quote=None, clause_quote_note=NO_CLAUSE_QUOTE, _rule_stored=None)
     return point
@@ -870,7 +883,9 @@ def paper_parts(ctx: dict):
         from . import contract_package
         from .db import connect
 
-        ctx["_paper_parts"] = contract_package.PaperParts(connect(), ctx.get("paper_document_id"), ctx.get("readable") or ())
+        ctx["_paper_parts"] = contract_package.PaperParts(
+            connect(), ctx.get("paper_document_id"), ctx.get("readable") or ()
+        )
     return ctx["_paper_parts"]
 
 
@@ -1172,7 +1187,8 @@ def ai_points_of_run(
         )
     ]
     parts = paper_parts({"paper_document_id": paper_document_id, "readable": readable})
-    held = list(dict.fromkeys(n for n in (parts.not_held_name(x) for x in held) if n))  # LPC: never the paper's own part
+    # LPC: never the paper's own part
+    held = list(dict.fromkeys(n for n in (parts.not_held_name(x) for x in held) if n))
     lines = words.read_now(
         stored, [{"rule_book": n} for n in held]
     )  # the one reading of every CRS (order 14)

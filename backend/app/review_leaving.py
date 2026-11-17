@@ -33,7 +33,9 @@ WHY_PAPER = "paper under review"
 WHY_CITED = "cited by the paper"
 WHY_GOVERNS = "governs the equipment type"
 WHY_CHOSEN = "chosen by you for this review"
-WHY_PACKAGE = "a paper of the same contract package that this paper names (given automatically)"
+WHY_PACKAGE = (
+    "a paper of the same contract package that this paper names (given automatically)"
+)
 WHY_EARLIER_SCOPE = "applied by scope in the last review of this paper"
 CONTRACT_WORDS = "a contract goes to Claude only when you choose Claude for the review"
 NOT_HELD = "not held in the library"
@@ -216,7 +218,15 @@ def _finish(out: dict) -> dict:
 
 
 def _fill(
-    conn, document_id, allowed, facts, equipment_type, project_ids, out, explicit=False, package_ids=frozenset()
+    conn,
+    document_id,
+    allowed,
+    facts,
+    equipment_type,
+    project_ids,
+    out,
+    explicit=False,
+    package_ids=frozenset(),
 ) -> None:
     from . import applicability
 

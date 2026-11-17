@@ -71,7 +71,9 @@ def start(
         raise StartRefused("LIST_NOT_SHOWN", LIST_NOT_SHOWN_WORDS)
     parts = {p["name"]: p for p in plan["parts"]}
     # the plan's own list: the papers chosen, then (a contract) the papers of its package it names (`contract_package`, P1)
-    plan["project_document_ids"] = list(plan.get("project_document_ids") or project_document_ids)
+    plan["project_document_ids"] = list(
+        plan.get("project_document_ids") or project_document_ids
+    )
     plan["fresh"] = bool(fresh)
     then_ai = parts[review_engine.AI_REVIEW]["engine"] in (
         review_engine.ON_CLAUDE,

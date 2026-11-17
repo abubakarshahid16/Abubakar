@@ -873,12 +873,31 @@ _BLANK = re.compile(
     r"_{4,}|(?:[.\u2026]\s?){5,}|\[\s*\]|\[\s*(?:insert|enter|fill\s+in|state|specify)\b[^\]]{0,60}\]",
     re.I,
 )
-_LEADER_END = re.compile(r"^\s*\d{1,4}\s*$")  # a contents leader: dots, then a page number at the line's end
+_LEADER_END = re.compile(
+    r"^\s*\d{1,4}\s*$"
+)  # a contents leader: dots, then a page number at the line's end
 _BLANK_KINDS = (
-    ("date", re.compile(r"\b(?:day|date|dated|month|year|(?:19|20)\d\d|january|february|march|april|may|june|july|august|september"
-                        r"|october|november|december)\b", re.I)),
-    ("price", re.compile(r"[$\u20ac\u00a3]|\b(?:price|amount|sum|cost|fee|value|dollars?|usd|eur|gbp)\b", re.I)),
-    ("signature", re.compile(r"\b(?:sign(?:ed|ature)?|witness|name|title|designation|stamp|seal)\b", re.I)),
+    (
+        "date",
+        re.compile(
+            r"\b(?:day|date|dated|month|year|(?:19|20)\d\d|january|february|march|april|may|june|july|august|september"
+            r"|october|november|december)\b",
+            re.I,
+        ),
+    ),
+    (
+        "price",
+        re.compile(
+            r"[$\u20ac\u00a3]|\b(?:price|amount|sum|cost|fee|value|dollars?|usd|eur|gbp)\b",
+            re.I,
+        ),
+    ),
+    (
+        "signature",
+        re.compile(
+            r"\b(?:sign(?:ed|ature)?|witness|name|title|designation|stamp|seal)\b", re.I
+        ),
+    ),
 )
 
 

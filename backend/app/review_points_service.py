@@ -613,7 +613,10 @@ def sentence_quotes(points: list[dict], kind: str | None) -> None:
             if p.get(key) and not quote_sentence.is_full_sentence(p[key]):
                 p[key], refused = None, True
         if refused and not p.get("paper_quote"):
-            p["paper_quote_note"], p["paper_quote_refused"] = quote_sentence.NO_SENTENCE, True
+            p["paper_quote_note"], p["paper_quote_refused"] = (
+                quote_sentence.NO_SENTENCE,
+                True,
+            )
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:

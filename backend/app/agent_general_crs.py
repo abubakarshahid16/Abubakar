@@ -95,7 +95,11 @@ def _verified(ln: Mapping, q: Mapping | None) -> Mapping | None:
     sentence (`quote_sentence`, LPC C4: "(herein referred" or "4." is on the page but is no evidence)."""
     from . import quote_sentence
 
-    ok = ln.get("quotes_verified_by_code") is True and q and quote_sentence.is_full_sentence(q.get("text"))
+    ok = (
+        ln.get("quotes_verified_by_code") is True
+        and q
+        and quote_sentence.is_full_sentence(q.get("text"))
+    )
     return q if ok else None
 
 
