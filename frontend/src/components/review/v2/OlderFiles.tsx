@@ -40,6 +40,14 @@ export function usePaperHistory(documentId: string | null | undefined): PaperHis
   return history;
 }
 
+/** Order 14: the paper's newest GENERAL review run (any state), or null (none, or the history could not be read). The old run list
+ *  does not hold general runs, so a screen that opens a paper by its runs asks here before it offers a new start. */
+export async function latestGeneralRun(documentId: string): Promise<string | null> {
+  const r = await request<PaperHistory>(`/reviews/papers/${encodeURIComponent(documentId)}/history`, undefined, isHistory);
+  if (!r.ok) return null;
+  return r.data.runs.find((run) => run.version === "general")?.run_id ?? null;
+}
+
 /** The download an earlier review's file link stands for: its own, unchanged route, with the session (a link cannot send the header). */
 function earlierDownload(run: HistoryRun, url: string): (() => Promise<string | null>) | null {
   if (run.version !== "earlier version") return null;

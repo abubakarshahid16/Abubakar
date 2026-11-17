@@ -46,9 +46,6 @@ ENTRY_POINTS = (
     # order 14 lane E: the contract checks, reached from scripts/contract_checks.py until lane B's "Contract checks" sheet
     # imports them (then this line goes)
     "contract_checks",
-    # order 14: the general review's package (walked through its __init__.py), reached from scripts and tests until piece B's
-    # `aim_review_jobs` imports `app.aim_review` (then this line goes)
-    "aim_review",
 )
 
 

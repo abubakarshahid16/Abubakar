@@ -81,17 +81,22 @@ class ReviewDrain:
 
     def _drain_review_jobs(self) -> bool:
         """Run one queued review, if any. True when one was run."""
-        from . import agent_review_jobs, job_queue, review_jobs
+        from . import agent_review_jobs, aim_review_jobs, job_queue, review_jobs
 
         try:
             review_jobs.recover_stale()
             agent_review_jobs.recover_stale()  # the AI reviewer's own stage; nothing at all with its switch off
+            aim_review_jobs.recover_stale()  # the general review's stage (order 14); nothing with the old engine on
             job_id = review_jobs.claim_next(job_queue.worker_id())
             job_run = review_jobs.run
             if job_id is None:
                 # None with the switch off
                 job_id = agent_review_jobs.claim_next(job_queue.worker_id())
                 job_run = agent_review_jobs.run
+            if job_id is None:
+                # after the two old stages (a review queued before the switch still finishes); None with the old engine on
+                job_id = aim_review_jobs.claim_next(job_queue.worker_id())
+                job_run = aim_review_jobs.run
             if job_id is None:
                 return False
             self.reviewing = True
