@@ -11,15 +11,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from . import aim_review, aim_review_gate, aim_review_store
+from . import aim_review, aim_review_gate, aim_review_store, review_shown
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
 #: The sentence when rule books apply that were not on the list the person saw (the same words the older reviews use).
-UNLISTED_SENTENCE = (
-    "{n} more rule book(s) apply to this paper. They were not sent because they were not on the list you saw. "
-    "Review again to include them."
-)
+#: The sentence's one home is `review_shown` (the rule check's notes say it too).
+UNLISTED_SENTENCE = review_shown.FOUND_DURING_REVIEW_WORDS
 NOT_FINISHED_WORDS = "This general review has not finished, so it has no file yet."
 #: Run states that have lines to show: "done" (finished) and "stopped" (ended early; the lines so far are kept).
 _SHOWN_STATUS = {"done": "completed", "completed": "completed", "stopped": "stopped"}

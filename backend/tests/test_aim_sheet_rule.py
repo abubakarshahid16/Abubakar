@@ -586,3 +586,19 @@ def test_the_routes_serve_stored_runs_even_when_the_old_engine_is_on(
         client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general").status_code
         == 200
     )
+
+
+def test_the_found_during_review_sentence_has_one_home_in_the_backend():
+    """The rule check's notes and the general review say the same sentence from `review_shown` only (join of C, ASK C)."""
+    from pathlib import Path
+
+    from app import aim_review_view, review_shown
+
+    assert aim_review_view.UNLISTED_SENTENCE is review_shown.FOUND_DURING_REVIEW_WORDS
+    app = Path(review_shown.__file__).parent
+    homes = [
+        p.name
+        for p in app.rglob("*.py")
+        if "were not sent because they were not on" in p.read_text(encoding="utf-8")
+    ]
+    assert homes == ["review_shown.py"]

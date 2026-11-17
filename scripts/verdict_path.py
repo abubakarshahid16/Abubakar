@@ -194,6 +194,16 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         APP + "agent_review_ai_answer.py",
         "LP0: words the AI's own answer on a line code did not prove (label, Class cell, answer line)",
     ),
+    # --- order 14: the general review behind the ONE Review button (CONTRACT section 7) ---
+    (
+        APP + "aim_review/",
+        "the general review method: decides and words every line, what leaves, its cost",
+    ),
+    (APP + "aim_review_gate.py", "which review method the Review button runs (the way back)"),
+    (APP + "aim_review_store.py", "the general review's stored lines and the label a person sees"),
+    (APP + "aim_review_view.py", "what the general review's page says"),
+    (APP + "aim_review_sheet.py", "what the general review's file says"),
+    (APP + "aim_review_completeness.py", "page = database = file for the general review, or no file"),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be

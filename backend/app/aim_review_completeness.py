@@ -15,7 +15,6 @@ pages only: no document text is logged or put in a sentence. No model, no networ
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, datetime
 from io import BytesIO
@@ -227,16 +226,8 @@ def record_after_run(run_id: str) -> dict | None:
     try:
         report = verify(run_id, access.unrestricted_scope())
         conn = connect()
-        if hasattr(
-            aim_review_store, "set_completeness"
-        ):  # piece D's writer, once it is in the tree
-            aim_review_store.set_completeness(conn, run_id, report)
-        else:
-            with conn:
-                conn.execute(
-                    f"UPDATE {aim_review_store.RUNS} SET completeness_json = ? WHERE run_id = ?",
-                    (json.dumps(report), run_id),
-                )
+        # the one writer (piece D)
+        aim_review_store.set_completeness(conn, run_id, report)
         if not report["ok"]:
             log.error(
                 "general review completeness: run %s differs (page %s, database %s)",
