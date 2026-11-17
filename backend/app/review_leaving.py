@@ -346,7 +346,8 @@ def last_rule_check_run(conn, document_id) -> str | None:
         "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.status IN ("
         + marks
         + ")"
-        + aim_review_store.exclude(conn)  # a general review run (order 14) is not a rule check
+        # a general review run (order 14) is not a rule check
+        + aim_review_store.exclude(conn)
         + " AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
         " OR EXISTS (SELECT 1 FROM review_applicable_standards s WHERE s.review_run_id = r.id))"
         " ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
