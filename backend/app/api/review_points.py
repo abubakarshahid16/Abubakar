@@ -108,6 +108,8 @@ class PointsListingOut(BaseModel):
     comments: list[dict[str, Any]] = []
     comment_count: int = 0
     completeness: dict[str, Any] | None = None
+    #: Owner's section (PR #1872): how many of the ticked lines were already confirmed (no second record was written)
+    already_confirmed: int | None = None
 
 
 class PageV2Status(BaseModel):
@@ -326,6 +328,7 @@ def decide_point(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     listing = svc.assemble(document_id, scope)
+    _not_in_section(listing, body.point_id)
     _decide(listing, document_id, body, actor)
     return svc.assemble(document_id, scope)
 
@@ -347,7 +350,7 @@ def keep_points(
     require_document(document_id, scope)
     listing = svc.assemble(document_id, scope)
     for pid in body.point_ids:  # all-or-nothing on the ids: an unknown one refuses the whole click before anything is written
-        _point(listing, pid)
+        _not_in_section(listing, pid)
     for pid in body.point_ids:
         _decide(
             listing,
@@ -357,6 +360,19 @@ def keep_points(
             bulk=True,
         )
     return svc.assemble(document_id, scope)
+
+
+def _not_in_section(listing: dict, point_id: str) -> dict:
+    """A point the generic decision routes may decide: never one of the section "AI thinks these do not apply" (its tick only)."""
+    point = _point(listing, point_id)
+    if point.get("tile") == na.TILE:
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(
+                errors.INVALID_PARAMETER, "this line is in the section the AI thinks does not apply: use the section's tick"
+            ),
+        )
+    return point
 
 
 def _to_confirm(listing: dict, point_id: str) -> dict:
@@ -388,11 +404,15 @@ def confirm_not_applicable(
     reject_unknown_params(request, set())
     require_document(document_id, scope)
     listing = svc.assemble(document_id, scope)
+    already = 0
     for pid in body.point_ids:
         _to_confirm(listing, pid)
     for pid in dict.fromkeys(body.point_ids):
+        if _point(listing, pid)["decision"].get("state") == dec.KEEP:
+            already += 1  # a replayed tick writes no second row
+            continue
         _decide(listing, document_id, DecisionRequest(point_id=pid, state="keep", reason=na.CONFIRMED), actor)
-    return svc.assemble(document_id, scope)
+    return {**svc.assemble(document_id, scope), "already_confirmed": already}
 
 
 @router.post(

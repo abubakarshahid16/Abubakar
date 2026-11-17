@@ -186,3 +186,36 @@ def test_the_completeness_check_counts_the_section():
     _listing, raw, _facts = review_points_service.export_listing(doc, scope_all())
     missing = crs_completeness._comment_accounting(buf.getvalue(), raw)
     assert any(crs_one.NA_SHEET in m for m in missing), missing
+
+
+def test_the_generic_decision_routes_refuse_the_sections_lines():
+    doc, client, ids = _world()
+    for body in (
+        {"point_id": ids[0], "state": "remove", "reason": "an invented reason of ten"},
+        {"point_id": ids[0], "state": "edit", "text": "invented words"},
+        {"point_id": ids[0], "state": "keep"},
+    ):
+        r = client.post(f"/api/reviews/papers/{doc}/points/decision", json=body)
+        assert r.status_code == 422 and "use the section's tick" in r.text, body
+    assert (
+        client.post(
+            f"/api/reviews/papers/{doc}/points/decisions", json={"point_ids": ids}
+        ).status_code
+        == 422
+    )
+    assert (
+        points_of(client, doc)["counts"]["not_applicable_to_confirm"]["confirmed"] == 0
+    )
+
+
+def test_a_replayed_tick_writes_no_second_record_and_says_so():
+    from app import review_point_decisions
+
+    doc, client, ids = _world()
+    assert _confirm(client, doc, ids[:1]).json()["already_confirmed"] == 0
+    again = _confirm(client, doc, ids)
+    assert again.status_code == 200 and again.json()["already_confirmed"] == 1
+    assert (
+        len(review_point_decisions.history(doc, ids[0])) == 1
+        and len(review_point_decisions.history(doc, ids[1])) == 1
+    )
