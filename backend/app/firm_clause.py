@@ -80,6 +80,11 @@ def held_class(line: Mapping) -> dict | None:
     }
 
 
+def held_count(lines: Iterable[Mapping]) -> int:
+    """How many of the lines are held as a question by `hold` (the run summary's own group, LP1)."""
+    return sum(1 for ln in lines if ln.get(HELD_KEY))
+
+
 def hold(lines: Iterable[Mapping]) -> list[dict]:
     """The lines with every firm "not met" that shows no clause made a question (`HELD_KEY` holds the reason; a proven Fail's verdict
     becomes Query, decided by the engineer, as `crs_ai_words._proven_not_held` does). Every other line unchanged. Idempotent."""

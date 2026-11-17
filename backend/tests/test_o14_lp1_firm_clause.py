@@ -263,7 +263,102 @@ def test_the_summary_and_the_trace_count_a_held_line_as_a_question(client):  # n
     assert now.get(W.CLASS_QUERY, 0) == was.get(W.CLASS_QUERY, 0) + (
         old != W.CLASS_QUERY
     )
+    groups = body[
+        "query_groups"
+    ]  # round 2: the held line is in its own group, apart from the reader's own Query
+    assert (
+        groups["clause_not_checked"]
+        == before["query_groups"]["clause_not_checked"] + 1
+        == 1
+    )
     trace = client.get(f"/api/reviews/runs/{run_id}/agent/lines/{item}/trace").json()
     assert (
         firm_clause.NO_CLAUSE in trace["reason"]
     )  # the held reason, as the page and the files say it
+
+
+def _store(run_id: str, item: str, line: dict) -> None:
+    """Replace one stored line of the run, stored as the exit wrote it (its class and word)."""
+    import json
+
+    from app.db import connect
+
+    with connect() as conn:
+        conn.execute(
+            "UPDATE agent_review_line SET verdict_class = ?, word = ?, line_json = ? WHERE run_id = ? AND item_id = ?",
+            (
+                line["verdict_class"],
+                line["verdict_label"],
+                json.dumps({**line, "item_id": item}),
+                run_id,
+                item,
+            ),
+        )
+
+
+def _items(run_id: str) -> list[str]:
+    from app.db import connect
+
+    sql = "SELECT item_id FROM agent_review_line WHERE run_id = ? ORDER BY rowid"
+    return [r[0] for r in connect().execute(sql, (run_id,))]
+
+
+def test_the_summary_reads_the_runs_lines_in_one_pass_not_one_per_line(
+    client,  # noqa: F811
+    monkeypatch,
+):
+    from app.api import agent_review as api
+
+    run_id = finished_run(client)
+    calls: list[int] = []
+    real = words.read_now
+
+    def counted(lines, *a, **k):
+        calls.append(len(lines))
+        return real(lines, *a, **k)
+
+    monkeypatch.setattr(api.crs_ai_words, "read_now", counted)
+    assert client.get(f"/api/reviews/runs/{run_id}/agent/summary").status_code == 200
+    assert (
+        calls == [len(_items(run_id))] and calls[0] > 1
+    )  # one pass over every line: one book cache for the run
+
+
+def _proven_fail(clause: str) -> dict:
+    return _not_met(clause=clause, verdict="Fail", decided_by="decided by code",
+                    compare={"decided": True, "verdict": "does_not_meet"}, tier="owner")  # fmt: skip
+
+
+def test_the_steadiness_number_reads_a_held_line_as_a_question_not_a_decision(client):  # noqa: F811
+    from app import agent_review_steady as steady
+    from app.db import connect
+    from tests import agent_review_support as support
+
+    first = finished_run(client)
+    item = _items(first)[0]
+    _store(
+        first, item, _proven_fail("6.7.4")
+    )  # the previous run: a proven Fail with its clause
+    second = finished_run(client)
+    now = [
+        {**_proven_fail(""), "item_id": item}
+    ]  # this run: the same Fail, no clause: held as a question
+    got = steady.since_previous(connect(), second, support.PAPER, now)
+    assert got["previous_run_id"] == first
+    (changed,) = got["items"]
+    assert (
+        changed["to"] == [W.CLASS_QUERY, ""] and changed["decision"] is True
+    )  # a decision lost, said as one
+
+
+def test_a_held_line_is_compared_as_its_question_not_as_its_base_class():
+    from app import agent_review_steady as steady
+
+    base = {
+        "verdict_class": "AI verdict, two readers agree",
+        "verdict_label": "AI verdict: not met",
+    }
+    (held,) = words.read_now(
+        [_not_met(clause="", two_reader={"base": base})], [], holds=NONE
+    )
+    assert steady.class_key(held) == (W.CLASS_QUERY, "")  # never the base's decision
