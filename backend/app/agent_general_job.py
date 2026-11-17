@@ -85,10 +85,12 @@ def preflight(
 
 def store_lines(conn, run_id: str, lines: list[dict]) -> None:
     """The lines of the run REPLACE what an earlier attempt stored (one transaction): a resumed run never leaves a stale line."""
+    # THE page of a line: the stored column and every CRS read it from one place
+    from .agent_review_crs import line_page
+
     rows = []
     for ln in lines:
-        q = ln.get("quote_a") or ln.get("quote_paper") or {}
-        page = q.get("page")
+        page = line_page(ln)
         trace = {
             "prompt_version": prompts.PROMPT_VERSION,
             "part": core.PART_WORDS[ln["part"]],
@@ -103,7 +105,7 @@ def store_lines(conn, run_id: str, lines: list[dict]) -> None:
                 ln["item_id"],
                 ln["verdict_class"],
                 ln["word"],
-                page if isinstance(page, int) and page >= 1 else None,
+                page,
                 "",
                 ln.get("rule_book") or ", ".join(ln.get("held_rule_books") or []),
                 ln["text"],

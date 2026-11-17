@@ -31,6 +31,7 @@ from .agent_general_review import (
     CLASS_NOTE,
     CLASS_QUERY,
 )
+from .agent_review_crs import line_page
 from .agent_run_crs import _cell, _page_cell
 
 COPY_NAMES = ("crs-contractor.xlsx", "crs-scoring-comment-only.xlsx")
@@ -95,7 +96,8 @@ def _verified(ln: Mapping, q: Mapping | None) -> Mapping | None:
 
 
 def _page_text(ln: Mapping) -> str | None:
-    return _page_cell(_quote(_verified(ln, _paper_quote(ln)))[1])
+    # the one page of a line (`agent_review_crs.line_page`): the page, the team file and this file agree
+    return _page_cell(line_page(ln))
 
 
 def _what(ln: Mapping) -> str:

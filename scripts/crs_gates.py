@@ -22,8 +22,9 @@ Item No n of the file. G3 to G6 judge the comment rows (C / R on the sheet CRS);
 the page; every R line of the run file).
 
 THE GATES, EXACTLY.
-  A book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1"), is read as that book and
-  that clause (`split_fused`; an edition year such as "API 526 2009" is never a clause) in every gate; a book a row names but did not
+  A book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1", "STD-A-100 (edition not
+  recorded) cl. 5.2 (p.23)"), is read as that book and that clause (`split_fused`; an edition year such as "API 526 2009" is never a
+  clause; the book's page bracket is not part of the clause) in every gate; a book a row names but did not
   link is found in the library by `applicability.find_standard`.
   G1 Every quote shown as a standard's words is found word for word in the stored pages of the cited book
      (`agent_review_standards.verify`: the review's own matcher, the book's stored pages, never the checklist or the stored
@@ -768,22 +769,25 @@ def _cells(row) -> tuple[str, ...]:
 
 
 _FUSED = re.compile(
-    r"^(?P<book>.+?)[\s,]+(?:(?:clause|section|para(?:graph)?)\.?\s+)?(?P<clause>(?:[A-Z]{1,4}-)?\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*)$",
+    r"^(?P<book>.+?)[\s,]+(?:(?:clause|section|para(?:graph)?|cl)\.?\s+)?(?P<clause>(?:[A-Z]{1,4}-)?\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*)$",
     re.IGNORECASE,
 )
+#: The book's page the rule check adds after the clause ("STD-A-100 (edition not recorded) cl. 5.2 (p.23)", `spec_kit`): not the clause.
+_PAGE_TAIL = re.compile(r"\s*\((?:p\.?|page)\s*\d+\)$", re.IGNORECASE)
 
 
 EDITION_YEAR = re.compile(r"(?:19|20)\d\d")
 
 
 def split_fused(name, clause="") -> tuple[str, str]:
-    """(book, clause) of a book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1").
-    Split only when the row has no clause of its own, the tail is not an edition year ("API 526 2009"), and the name without its tail
-    is still the SAME standard (`standard_ids.key`): "API 521" and "API RP 520 Pt-2" stay whole."""
+    """(book, clause) of a book name that carries its clause, as the old rule check writes it ("SAES-J-600 8", "API 520-I 5.3.4.1",
+    "STD-A-100 (edition not recorded) cl. 5.2 (p.23)": the book's page bracket is dropped first). Split only when the row has no clause
+    of its own, the tail is not an edition year ("API 526 2009"), and the name without its tail is still the SAME standard
+    (`standard_ids.key`): "API 521" and "API RP 520 Pt-2" stay whole."""
     from app import standard_ids
 
     name, clause = str(name or "").strip(), str(clause or "").strip()
-    m = None if clause else _FUSED.match(name)
+    m = None if clause else _FUSED.match(_PAGE_TAIL.sub("", name))
     if (
         m
         and not EDITION_YEAR.fullmatch(m["clause"])

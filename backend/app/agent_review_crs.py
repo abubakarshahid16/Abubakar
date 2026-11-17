@@ -111,15 +111,22 @@ def field_words(line: Mapping) -> str:
 
 
 def line_page(line: Mapping) -> int | None:
-    page = line.get("paper_page")
-    if isinstance(page, int) and not isinstance(page, bool) and page >= 1:
-        return page
-    hints = [
-        p
-        for p in line.get("page_hint") or []
-        if isinstance(p, int) and not isinstance(p, bool) and p >= 1
+    """The line's page of the paper: its own `paper_page`; a general review line's paper quote that code verified on its page (the
+    page `agent_general_job.store_lines` stores; order 14 lane C); else the first page hint. None when none is stored (never guessed)."""
+    q = (
+        (line.get("quote_a") or line.get("quote_paper") or {})
+        if line.get("quotes_verified_by_code") is True
+        else {}
+    )
+    pages = [
+        line.get("paper_page"),
+        q.get("page") if isinstance(q, Mapping) else None,
+        *(line.get("page_hint") or []),
     ]
-    return hints[0] if hints else None
+    return next(
+        (p for p in pages if isinstance(p, int) and not isinstance(p, bool) and p >= 1),
+        None,
+    )
 
 
 def against(line: Mapping) -> str:
