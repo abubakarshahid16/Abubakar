@@ -226,18 +226,38 @@ def defers_value(text: str | None) -> bool:
 
 # ---------------------------------------------------------------- FTU-16: a whole quote that only marks a value to be given
 
-_UNIT_TAIL = r"(?:\s+" + _UNIT + r")?"
+#: The one word that may follow a whole deferral form ("TBA kW", "* m3/h"): kept apart and checked by `_real_unit` (review R3 of
+#: PR #1867: "Pump type: * HP" and "Grade: * M" are not a value to be given).
+_UNIT_TAIL = r"(?:\s+(?P<unit>\S+))?"
 #: The WHOLE forms (after the field's own label is taken out) that mean "the value is still to be given": a to-be-given abbreviation,
-#: placeholder ink (stars, a run of "_" or of "."), or "later", optionally followed by a unit. Nothing else: no word is dropped to
-#: reach one, so a quote that holds anything more is never one (FTU-16 review: the safe side).
+#: placeholder ink (stars, a run of "_" or of "."), or "later", optionally followed by a unit ON A FIELD THAT ASKS FOR A VALUE. Nothing
+#: else: no word is dropped to reach one, so a quote that holds anything more is never one (FTU-16 review: the safe side).
 _WHOLE_DEFERRAL = re.compile(r"^(?:tba|tbd|tbc|[_*]+|\.{2,}|later)" + _UNIT_TAIL + r"$", re.IGNORECASE)
 #: "By vendor" / "by contractor" as the whole quote: a value left to someone ONLY on a field that asks for a value (otherwise it may be
 #: a scope answer: "Painting: By Contractor").
 _WHOLE_WHO = re.compile(r"^by\s+(?:the\s+)?(?:vendor|contractor)" + _UNIT_TAIL + r"$", re.IGNORECASE)
 
 
+def _real_unit(token: str) -> bool:
+    """The word after a deferral form is a unit the app's one number reader knows (`claims.is_unit`; a bracketed one, "(barg)", too)
+    and holds no figure of its own ("TBA 10" is not "TBA" with a unit)."""
+    from .claims import is_unit
+
+    bare = token.strip("()[]")
+    return bool(bare) and not bare[0].isdigit() and is_unit(bare)
+
+
+def _whole(form: re.Pattern, text: str, value_field: bool) -> bool:
+    found = form.match(text)
+    if not found:
+        return False
+    unit = found.group("unit")
+    return not unit or (value_field and _real_unit(unit))
+
+
 def is_whole_deferral(text: str | None, *, value_field: bool = False) -> bool:
     """FTU-16: the WHOLE `text` (the caller has taken out the field's own label) is one fixed deferral form (`_WHOLE_DEFERRAL`), or "by
-    vendor" / "by contractor" on a field that asks for a value. Pure."""
+    vendor" / "by contractor" on a field that asks for a value. A word after the form counts only on a field that asks for a value
+    and only when it is a real unit (`_real_unit`); otherwise the quote is not a deferral and the caller decides it neutrally. Pure."""
     t = " ".join(str(text or "").split())
-    return bool(t) and bool(_WHOLE_DEFERRAL.match(t) or (value_field and _WHOLE_WHO.match(t)))
+    return bool(t) and (_whole(_WHOLE_DEFERRAL, t, value_field) or (value_field and _whole(_WHOLE_WHO, t, value_field)))

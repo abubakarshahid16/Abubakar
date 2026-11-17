@@ -837,8 +837,9 @@ def with_groups(points: list[dict]) -> list[dict]:
     return points
 
 
+#: A clause number, with its clause / section / paragraph word when one is printed ("Sec. 5.3", "Sec.5.3": the dot needs no space).
 _CLAUSE_TOKEN = re.compile(
-    r"(?:\b(?:cl(?:ause)?|section|sec|para(?:graph)?)\.?\s*)?(?<![\w.])(\d+(?:\.\d+)*[A-Za-z]?|[A-Z]{1,3}-\d+(?:\.\d+)*[A-Za-z]?)(?![\w.])",
+    r"(?:\b(?:cl(?:ause)?|section|sec|para(?:graph)?)(?:\.\s*|\s+)|(?<![\w.]))(\d+(?:\.\d+)*[A-Za-z]?|[A-Z]{1,3}-\d+(?:\.\d+)*[A-Za-z]?)(?![\w.])",
     re.I,
 )
 #: A number after one of these words is part of the BOOK's name, never its clause ("Section 6.1" IS a clause) ("Part 2", "Table 5", "Class 300", "type 3.1").

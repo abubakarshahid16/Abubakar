@@ -545,9 +545,53 @@ LABELS = [
 def test_every_probe_that_is_not_one_whole_marker_form_is_neutral(quote):
     """A quote is a placeholder only when the WHOLE of it, after the field's own label, is one fixed marker form; nothing is dropped
     to reach one. "Painting: By Contractor" is neutral on a field that asks no value (a scope answer)."""
-    assert not review_points.actions.quote_is_placeholder(
-        quote, LABELS, value_field=quote.startswith("Painting") is False
-    )
+    actions = review_points.actions
+    value_field = quote.startswith("Painting") is False
+    assert not actions.quote_is_placeholder(quote, LABELS, value_field=value_field)
+    row = actions.silent_row_words("", quote, LABELS, "", False, value_field)
+    assert row.kind == actions.CONTRADICTS, (quote, row.kind)
+
+
+#: Review R3 of PR #1867: a marker followed by a word that is a unit only on a field that asks for a value; on any other field (or
+#: with a word that is no unit) the quote is not a deferral. The field's own label in the wrong order or with another word is not the
+#: label alone ("Grade: Steel" for "Steel grade": "Steel" may be the value).
+FALSE_DEFERRAL_PROBES = [
+    ("Pump type: * HP", "Pump type"),
+    ("Driver: TBA HP", "Driver"),
+    ("Material: * CP", "Material"),
+    ("Grade: * M", "Grade"),
+    ("Thickness: * M", "Thickness"),
+    ("Voltage: later kV", "Voltage"),
+    ("Grade: Steel", "Steel grade"),
+    ("Grade: Steel *", "Steel grade"),
+    ("Steel grade Steel", "Steel grade"),
+    ("Set pressure (barg)", "Set pressure"),
+]
+
+
+@pytest.mark.parametrize(("quote", "field"), FALSE_DEFERRAL_PROBES)
+def test_a_marker_with_a_word_on_a_field_that_asks_no_value_and_a_label_out_of_order_are_neutral(quote, field):
+    actions = review_points.actions
+    row = actions.silent_row_words(field, quote, (), "", False, False)
+    assert row.kind == actions.CONTRADICTS, (quote, row.kind)
+
+
+@pytest.mark.parametrize(
+    ("quote", "value_field", "kind"),
+    [
+        ("Rated flow: * m3/h", True, "deferred"),
+        ("Rated flow: TBA (barg)", True, "deferred"),
+        ("Rated flow: TBA 10", True, "contradicts"),
+        ("Rated flow: TBA Steel", True, "contradicts"),
+        ("Rated flow: * m3/h", False, "contradicts"),
+        ("Rated flow: TBA", False, "deferred"),
+        ("Rated flows", False, "looked"),
+        ("RATED  FLOW:", False, "looked"),
+    ],
+)
+def test_a_unit_after_a_marker_counts_only_on_a_value_field_and_only_when_it_is_a_unit(quote, value_field, kind):
+    row = review_points.actions.silent_row_words("Rated flow", quote, (), "", False, value_field)
+    assert row.kind == kind, (quote, row.kind)
 
 
 @pytest.mark.parametrize(
@@ -555,7 +599,7 @@ def test_every_probe_that_is_not_one_whole_marker_form_is_neutral(quote):
     [
         ("TBA", ["Set pressure"], False),
         ("Set pressure: TBA", ["Set pressure"], False),
-        ("* m3/h", ["Rated flow"], False),
+        ("* m3/h", ["Rated flow"], True),
         ("___", ["Rated flow"], False),
         ("By Contractor", ["Set pressure"], True),
         ("Set pressure: By Contractor", ["Set pressure"], True),
@@ -581,6 +625,8 @@ def test_by_contractor_alone_on_a_field_that_asks_no_value_is_neutral():
         ("IEC 61882 Section 6.1", "IEC 61882", "6.1"),
         ("ZZ-SPEC-001 Sec. 7", "ZZ-SPEC-001", "7"),
         ("ASME Section VIII Div 1", "ASME Section VIII Div 1", None),
+        ("API 520 Part 1 Sec.5.3", "API 520 Part 1", "5.3"),
+        ("API 520 Part 1 Sec. 5.3", "API 520 Part 1", "5.3"),
     ],
 )
 def test_section_is_a_clause_prefix_and_a_section_with_no_number_stays_in_the_name(

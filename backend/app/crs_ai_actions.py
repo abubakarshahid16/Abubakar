@@ -109,22 +109,16 @@ class SilentRow(NamedTuple):
 
 
 def whole_label(quote: str, labels) -> bool:
-    """The quote is exactly one of the field's labels: ALL of that label's words and nothing else, and no figure (stemmed words, the
-    same stemmer as `agent_review_verdict.quote_is_label_only`, which stays the met guard's wider test)."""
-    from .agent_bind import _stem
+    """The quote is exactly one of the field's labels: that label's words IN ORDER and nothing else, once the separators " :|=" and
+    "_" are taken out (case, spacing and a plural ending do not count: `agent_subject._stem`). Any other word or mark, however small
+    ("Grade: Steel" for "Steel grade", "Set pressure (barg)"), is not the label alone (review R3 of PR #1867)."""
+    from .agent_subject import _stem
 
-    def stems(text: object) -> set[str]:
-        return {
-            _stem(w)
-            for w in re.findall(r"[a-z]+", str(text or "").replace("_", " ").lower())
-        }
+    def words(text: object) -> list[str]:
+        return [_stem(w) for w in re.split(r"[\s:|=_]+", str(text or "").lower()) if w]
 
-    have = stems(quote)
-    return (
-        bool(have)
-        and not re.search(r"\d", quote)
-        and any(have == stems(lab) for lab in labels if lab)
-    )
+    have = words(quote)
+    return bool(have) and any(have == words(lab) for lab in labels if lab)
 
 
 def found_quote_kind(quote: str, labels) -> str:
