@@ -15,6 +15,8 @@ from . import standard_ids
 EDITION_PAGES = 3  # a standard prints its issue date on its first pages
 QUOTE_CHARS = 80
 NOT_CONFIRMED = "edition not confirmed"
+#: the source of an issue date read from the book's FILE NAME, not printed in the book: a guess until an engineer checks it
+FROM_FILE_NAME = "edition year in the file name"
 
 
 def _edition_fold(text: str) -> str:
@@ -258,7 +260,7 @@ def issue_date(conn, document_id: str) -> dict:
             "date": year,
             "page": None,
             "quote": None,
-            "source": "edition year in the file name",
+            "source": FROM_FILE_NAME,
         }
     return {
         "date": None,

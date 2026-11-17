@@ -249,7 +249,8 @@ def row_of(
             cut_any += 1
             full.append(f"{key.replace('_', ' ')}: {long_cells[key]}")
     books = ", ".join(
-        crs_editions.mark(b["name"], editions) for b in point.get("books") or []
+        crs_editions.mark(b["name"], editions, b["id"])
+        for b in point.get("books") or []
     ) or (point.get("rule_book") or "")
     cells = [
         n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""), point.get("priority") or None,
@@ -822,7 +823,7 @@ def build_team(
             if cut
             else "; no cell shortened"
         ),
-        "Rule books used (points): " + _books_line(raw, editions),
+        "Rule books used (points): " + _books_line(raw, crs_editions.by_name(editions)),
     ]
     header_row = _put_block(
         ws,

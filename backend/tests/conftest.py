@@ -177,6 +177,21 @@ def _a_test_cannot_leave_the_process_settings_changed():
 
 
 @pytest.fixture(autouse=True)
+def _no_test_reads_the_local_edition_cutoff(tmp_path, monkeypatch):
+    """Order 14 lane G: a contract's real edition cutoff lives in a git-ignored local file (`standard_editions.LOCAL_POLICY_FILE`,
+    or the file EDITION_CUTOFF_FILE names). No test may read it: its contract names would print in an assertion diff. Every test
+    sees no local file and no such variable; a test that needs a cutoff writes an invented one itself."""
+    from app import standard_editions
+
+    monkeypatch.setattr(
+        standard_editions,
+        "LOCAL_POLICY_FILE",
+        tmp_path / "no-edition-cutoff.local.json",
+    )
+    monkeypatch.delenv("EDITION_CUTOFF_FILE", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _fresh_ollama_probe_state():
     """The Ollama probe answer is cached for 30 s and its HTTP client is shared
     (#626). Neither may leak from one test into the next."""
