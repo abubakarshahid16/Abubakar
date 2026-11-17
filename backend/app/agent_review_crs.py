@@ -25,12 +25,13 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from . import agent_review_ai_answer as ai_answer
 from . import agent_review_two_reader as two
 from . import agent_review_wording as wording
 from . import ai_text_whole
 from . import crs_ai_words as words
 from .agent_review_local import LOCAL_TOO_LONG, NOT_ASKED_WORDS
-from . import numparse
+from . import firm_clause, numparse
 from .agent_review_verdict import (
     BY_ABSENCE,
     BY_AI,
@@ -154,7 +155,7 @@ def against(line: Mapping) -> str:
         return f"{std} ({words.BOOK_NOT_HELD})" if std else ""
     if std and line.get(words.CLAUSE_UNCONFIRMED_KEY):  # order 14 G4: the page where code found the rule's words, never the clause
         book = line.get("clause_book") if isinstance(line.get("clause_book"), Mapping) else {}
-        why = words.not_checked_words(line) or words.CLAUSE_NOT_CONFIRMED
+        why = firm_clause.not_checked_words(line) or words.CLAUSE_NOT_CONFIRMED
         return f"{std} page {book['page']} ({why})" if book.get("page") else f"{std} ({why})"
     return " ".join(x for x in (std, f"clause {clause}" if clause else "") if x)
 
@@ -725,7 +726,7 @@ def _independent_cells(line: Mapping) -> list:
         else {}
     )
     return [
-        indep.get("verdict"),
+        ai_answer.marked(indep.get("verdict"), ai_answer.is_ai_row(line)),  # LP0: on an AI row, marked as the AI's
         _clean(indep.get("paper_quote")) or None,
         indep.get("paper_page"),
         _clean(indep.get("clause_quote")) or None,
@@ -761,7 +762,7 @@ def _evidence_row(n: int, line: Mapping, status: str) -> list:
         _check_word(bool(q.get("clause"))),
         _second_reader(line),
         _calls(line),
-        _clean(line.get("reason_code")) or None,
+        ai_answer.marked(_clean(line.get("reason_code")), ai_answer.is_ai_row(line)) or None,  # LP0: an AI row's met / not met is marked
         line.get("item_id"),
         label.get("label_key") if isinstance(label, Mapping) else None,
         *_independent_cells(line),
@@ -813,15 +814,19 @@ def _other_reason(line: Mapping, kind: str) -> str:
             words.plain(line.get("why"))
             or "Rules of a rule book could not be matched to a field: an engineer checks them."
         )
+    answer = ai_answer.label(line)  # LP0 (owner, 17 Nov 2026): the AI's own answer, labelled
     if kind == words.KIND_NOTHING_TO_CHANGE:
         got = _status_of(line)
+        if answer and got and got[0] == words.STATUS_AI:
+            return f"{answer}. No comment: nothing to change."
         said = {words.STATUS_PASS: "Met, proven by code", words.STATUS_AI_VERDICT: "Met, two AI readers agree; engineer to confirm",
                 words.STATUS_AI: "Met in the AI reviewer's view, not proven by code; engineer to confirm"}.get(got[0] if got else "", "Met")  # fmt: skip
         return f"{said}. No comment: nothing to change."
     if kind == words.KIND_MET_NOT_CONFIRMED:
         why = words.guard_words(line) or words.why_phrase(met_unsafe_why(line))
         return (
-            "The AI reader judged it met; code could not confirm it"
+            (f"{answer}. " if answer else "")
+            + "The AI reader judged it met; code could not confirm it"
             + (f" ({why})" if why and why != words.UNKNOWN_WHY else "")
             + ". The engineer ticks it."
         )
@@ -835,6 +840,9 @@ def _other_reason(line: Mapping, kind: str) -> str:
     if kind == words.KIND_NOT_CHECKED_HERE:
         return two.OTHER_WHY + "."
     if kind == words.KIND_UNAPPROVED:
+        said = ai_answer.line_sentence(line)
+        if said and not said.startswith(ai_answer.NOT_APPLICABLE_LABEL):  # that label is said only in its own section
+            return f"The rule has not been approved yet. {said}"
         view = {wording.THINKS_MET: "met", wording.THINKS_NOT_MET: "not met"}.get(
             str(line.get("verdict_label"))
         )

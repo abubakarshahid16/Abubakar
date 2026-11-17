@@ -289,6 +289,9 @@ def test_the_stored_class_wins_over_the_line_json_label():
         "verdict_class": "Proven by code",
         "verdict_label": "Pass",
         "verdict": "Query",
+        # LP0: an AI answer is shown only beside a paper quote code verified; this one has one, so the stored class decides the rank
+        "paper_quote": "Rating: 300",
+        "quotes_checked": {"paper": True, "clause": True},
     }
     row = {"verdict_class": "AI opinion, engineer to confirm", "word": "AI thinks: met"}
     got = review_points.stored_class_wins(line, row)

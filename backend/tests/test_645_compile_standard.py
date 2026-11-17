@@ -59,7 +59,7 @@ def test_a_standard_the_caller_may_not_read_yields_nothing(monkeypatch):
 
     assert report.pop("by_standard") == {}
     assert report == {"sentences": 0, "asked": 0, "proposed": 0, "no_limit": 0, "refused": {},
-                      "could_not_read": 0, "not_asked_budget": 0, "model": None,
+                      "could_not_read": 0, "not_asked_budget": 0, "model": None, "engine": None,
                       "standard_document_id": "spec"}
     assert air.list_drafts(allowed_document_ids=frozenset({"spec"})) == []
 

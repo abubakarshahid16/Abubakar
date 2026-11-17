@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 
+from . import agent_review_ai_answer as ai_answer
 from . import crs_ai_words as words
 from . import review_point_decisions as decisions_mod
 from . import review_points as rp
@@ -541,7 +542,8 @@ def _line_point(pos: int, line: dict, status: str, order: int) -> dict:
     from . import agent_review_crs as arc
     from . import crs_ai_workbook as wb
 
-    rank = rp.rank_of_ai_line(dict(line))[0]
+    # LP1: a "does not apply" to confirm is its own section here too, as on the page
+    rank = rp.shown_rank(dict(line))
     return {
         "id": pos, "name": wb.field_name(line) or arc.against(line), "rule_book": _norm_keep(line.get("standard")),
         "clause": _norm_keep(line.get("clause")), "page": arc.line_page(line), "page_note": arc.page_note(line), "rank": rank, "tile": rp.TILE_OF_RANK[rank],
@@ -572,6 +574,10 @@ def group_lines(items: list) -> tuple[list, dict[int, str]]:
         kind_of.update({id(m): words.KIND_IN_COMMENT.format(n=len(rows)) for m in others})
     for c, kind in set_aside(points):
         kind_of.update({id(p["_line"]): kind for p in points if p["id"] in c["member_ids"]})
+    # LP1: the lines the AI thinks do not apply are not comments (as in the team file's own sheet): listed apart, one row each
+    kind_of.update(
+        {id(p["_line"]): words.KIND_NA_TO_CONFIRM for p in points if p["rank"] == 9}
+    )
     return rows, kind_of
 
 
@@ -582,6 +588,8 @@ def _status_words(line: dict) -> str:
     got = wb.status_of(line)
     if got is None:
         return "not a comment"
+    if (answer := ai_answer.label(line)) and got[0] in (words.STATUS_AI, words.STATUS_QUERY):
+        return answer  # LP0: the AI's own answer, labelled (`agent_review_ai_answer`)
     st, order = got
     met = order in (words.ORDER_PASS, words.ORDER_AI_MET, words.ORDER_AI_VERDICT_MET)
     return {

@@ -50,6 +50,8 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
         <p data-testid="agent-query-groups" className="text-sm text-slateish-100">
           The AI reviewer's own questions, counted apart: for the contractor (the sheet does not state it) {summary.query_groups.contractor_silent};
           for the engineer (needs a drawing or a calculation) {summary.query_groups.engineer_drawing}; the AI could not decide {summary.query_groups.could_not_decide}
+          {summary.query_groups.clause_not_checked > 0 &&
+            `. Firm findings held as questions (the clause was not checked or the rule book is not held): ${summary.query_groups.clause_not_checked}`}
           {summary.not_reviewed > 0 && `. Not reviewed (the AI gave no answer): ${summary.not_reviewed}`}
         </p>
       )}

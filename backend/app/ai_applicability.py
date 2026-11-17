@@ -271,15 +271,28 @@ def _division_decision(
     return "contradicted", None  # a stated line the model says is NOT that construction
 
 
+def for_run(requirements, classification, facts, standard_labels, run_id) -> dict:
+    """`division_gate_for_run` for one stored review run: the books its selection kept ONLY by our rule sorting's equipment
+    tags (`equipment_rule_books.tag_only_books`) are read last under the run's limit (LPB)."""
+    from . import db, equipment_rule_books
+
+    last = equipment_rule_books.tag_only_books(db.connect(), run_id)
+    return division_gate_for_run(
+        requirements, classification, facts, standard_labels, last
+    )
+
+
 def division_gate_for_run(
     requirements: list[dict],
     classification: dict | None,
     facts: list[dict],
     standard_labels: dict[str, str],
+    last_ids: frozenset[str] = frozenset(),
 ) -> dict:
     """`division_gate` for one review run, with the run's settings: with
     `ai_division_scope_enabled` off every requirement stays a check and the
-    summary is None."""
+    summary is None. `last_ids`: the books read last under the run's limit
+    (LPB: kept only by our rule sorting's equipment tags)."""
     settings = ai_task_runner.settings
     if not settings.ai_division_scope_enabled:
         return {"kept": list(requirements), "items": [], "held": [], "summary": None}
@@ -290,6 +303,7 @@ def division_gate_for_run(
         standard_labels=standard_labels,
         provider=division_text.claude_reader(),
         limit=settings.ai_division_scope_max_per_run,
+        last_ids=last_ids,
     )
 
 
@@ -302,6 +316,7 @@ def division_gate(
     provider=None,
     limit: int | None = None,
     pages_of=None,
+    last_ids: frozenset[str] = frozenset(),
 ) -> dict:
     """#141: requirements of a standard's division whose own scope limits it
     to a construction code finds this equipment is not do not apply; what
@@ -321,6 +336,7 @@ def division_gate(
             provider=provider,
             limit=limit,
             pages_of=pages_of or subject_scope.standard_pages,
+            last_ids=last_ids,
         )
     except Exception as exc:  # noqa: BLE001 - logged by type; must never fail the review
         name = type(exc).__name__
@@ -432,6 +448,22 @@ def _subparts(unit: dict, wanted: set, ctx: dict) -> tuple[list[dict], list | No
 
 
 def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
+    """`_read_group` for every book, then (LPB) for the books in `ctx["last"]`: a book kept only by our rule sorting's
+    equipment tags never takes a read of the run's limit from a book chosen otherwise. With no such book: one group, as
+    before."""
+    ctx["screen_failed"], ctx["by_page"] = set(), set()
+    last = ctx.get("last") or frozenset()
+    recs: dict[tuple, dict] = {}
+    subs_of: dict = {}
+    for group in (False, True):
+        mine = {k: u for k, u in units.items() if (k[0] in last) == group}
+        got, of = _read_group(mine, where, ctx)
+        recs.update(got)
+        subs_of.update(of)
+    return recs, subs_of
+
+
+def _read_group(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
     """Read the divisions and candidate starts the largest first, then the
     flagged sub-parts (also those holding no requirement of their own but an
     inner sub-part's) the largest first, all within the run's budget.
@@ -442,7 +474,6 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
     candidate start (never screened)."""
     recs: dict[tuple, dict] = {}
     subs: list[dict] = []
-    ctx["screen_failed"], ctx["by_page"] = set(), set()
     todo = sorted(
         (u for u in units.values() if u["weight"]), key=lambda u: -u["weight"]
     )
@@ -463,7 +494,8 @@ def _read_all(units: dict, where: dict, ctx: dict) -> tuple[dict, dict]:
         if sub["count"]:
             recs[sub["key"]] = _decide_unit(sub, ctx)
     if subs:
-        ctx["summary"]["subparts_flagged"] = len(subs)
+        summary = ctx["summary"]
+        summary["subparts_flagged"] = summary.get("subparts_flagged", 0) + len(subs)
     return recs, subs_of
 
 
@@ -582,7 +614,15 @@ def _sort_out(requirements, where, marks, sub_map, recs, units, labels, model):
 
 
 def _division_gate(
-    requirements, *, classification, facts, standard_labels, provider, limit, pages_of
+    requirements,
+    *,
+    classification,
+    facts,
+    standard_labels,
+    provider,
+    limit,
+    pages_of,
+    last_ids=frozenset(),
 ) -> dict:
     # one provider for the whole run: the model recorded is the model that read
     provider = provider or ai_task_runner.make_provider()
@@ -601,6 +641,7 @@ def _division_gate(
         "classification": classification,
         "facts": facts,
         "stated": stated_construction(classification, facts),
+        "last": frozenset(last_ids),
     }
     recs, subs_of = _read_all(units, where, ctx)
     if stopped := ctx["run"].get("stopped"):

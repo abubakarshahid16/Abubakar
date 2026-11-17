@@ -40,6 +40,7 @@ from .. import (
     crs_ai_words,
     crs_ai_workbook,
     errors,
+    firm_clause,
     review_points_service,
     review_jobs,
     schemas,
@@ -278,21 +279,13 @@ def agent_summary(
     reject_unknown_params(request, set())
     run = _run_or_404(review_run_id, scope)
     conn = connect()
-    counts = {
-        r["verdict_class"]: r["n"]
-        for r in conn.execute(
-            "SELECT verdict_class, COUNT(*) AS n FROM agent_review_line WHERE run_id = ? GROUP BY verdict_class",
-            (review_run_id,),
-        )
-    }
-    pairs = [
-        (r["verdict_class"], r["word"])
-        for r in conn.execute(
-            "SELECT verdict_class, word FROM agent_review_line WHERE run_id = ?",
-            (review_run_id,),
-        )
-    ]
-    groups, no_answer = _query_groups(conn, review_run_id)
+    # ONE reading of the run's lines for the counts and the groups (one book cache)
+    read = _run_now(conn, review_run_id)
+    pairs = _pairs_now(read)
+    counts: dict[str, int] = {}
+    for cls, _word in pairs:
+        counts[cls] = counts.get(cls, 0) + 1
+    groups, no_answer = _query_groups(conn, review_run_id, read)
     if no_answer:  # earlier runs stored a line with no verdict as a Query: read as "Not reviewed", never rewritten
         counts["Not reviewed"] = counts.get("Not reviewed", 0) + no_answer
         counts[agent_review_wording.CLASS_QUERY] = max(0, counts.get(agent_review_wording.CLASS_QUERY, 0) - no_answer)
@@ -328,9 +321,8 @@ def agent_summary(
     )
 
 
-def _line_now(row, missing) -> dict | None:
-    """A stored line as the page and every CRS read it today (order 14): the stored class (`stored_class_wins`), then `read_time`
-    (a "not met" today's rule makes a Query), then the books not held (`mark_not_held`). None when its json cannot be read."""
+def _stored_line(row) -> dict | None:
+    """A stored row's line with the class the run stored (`stored_class_wins`); None when its json cannot be read."""
     from ..review_points import stored_class_wins
 
     try:
@@ -339,20 +331,52 @@ def _line_now(row, missing) -> dict | None:
         return None
     if not isinstance(line, dict):
         return None
-    line = stored_class_wins({**line, "item_id": row["item_id"]}, row)
-    (now,) = crs_ai_words.read_now([line], missing)
-    return now
+    return stored_class_wins({**line, "item_id": row["item_id"]}, row)
 
 
-def _query_groups(conn, run_id: str) -> tuple[contract.AgentQueryGroups, int]:
-    """(the reader's own Query by group, the lines of this run that carry no verdict at all), from the stored lines as read today
-    (`_line_now`, so the counts agree with the page and the CRS), read only."""
+def _line_now(row, missing) -> dict | None:
+    """A stored line as the page and every CRS read it today (order 14): the stored class (`stored_class_wins`), then
+    `crs_ai_words.read_now` (today's rule, the books not held, the clauses, LP1's hold). None when its json cannot be read."""
+    line = _stored_line(row)
+    return None if line is None else crs_ai_words.read_now([line], missing)[0]
+
+
+def _run_now(conn, run_id: str) -> list[tuple]:
+    """(row, the line as read today or None) for every stored line of the run, in ONE `read_now` pass, so each rule book is read
+    once for the whole run (LP1 round 2: one call per line read the book once per line)."""
     missing = review_points_service.missing_books(conn, run_id)
     rows = conn.execute(
         "SELECT item_id, verdict_class, word, line_json FROM agent_review_line WHERE run_id = ?",
         (run_id,),
-    )
-    now = (_line_now(r, missing) for r in rows)
+    ).fetchall()
+    stored = [_stored_line(r) for r in rows]
+    read = iter(crs_ai_words.read_now([ln for ln in stored if ln is not None], missing))
+    return [
+        (r, None if ln is None else next(read))
+        for r, ln in zip(rows, stored, strict=True)
+    ]
+
+
+def _pairs_now(read: list[tuple]) -> list[tuple[str, str]]:
+    """(class, word) of every stored line of the run as the page and every CRS read it today (`_run_now`, LP1: a held firm line is a
+    question here too); the stored pair when the line reads the same, or its json cannot be read."""
+    out = []
+    for r, now in read:
+        same = now is None or now.get("verdict_class") == r["verdict_class"]
+        out.append(
+            (r["verdict_class"], r["word"])
+            if same
+            else (now["verdict_class"], now.get("verdict_label"))
+        )
+    return out
+
+
+def _query_groups(
+    conn, run_id: str, read: list[tuple] | None = None
+) -> tuple[contract.AgentQueryGroups, int]:
+    """(the reader's own Query by group, and LP1's held firm lines apart; the lines of this run that carry no verdict at all), from
+    the stored lines as read today (`_run_now`, so the counts agree with the page and the CRS), read only."""
+    now = (ln for _r, ln in (_run_now(conn, run_id) if read is None else read))
     lines = [
         ln
         for ln in now
@@ -364,6 +388,7 @@ def _query_groups(conn, run_id: str) -> tuple[contract.AgentQueryGroups, int]:
             contractor_silent=got[agent_review_wording.GROUP_SILENT],
             engineer_drawing=got[agent_review_wording.GROUP_DRAWING],
             could_not_decide=got[agent_review_wording.GROUP_COULD_NOT],
+            clause_not_checked=firm_clause.held_count(lines),
         ),
         sum(1 for ln in lines if agent_review_wording.no_verdict(ln)),
     )
@@ -606,17 +631,17 @@ def agent_trace(
 ):
     reject_unknown_params(request, set())
     _run_or_404(review_run_id, scope)
-    row = (
-        connect()
-        .execute(
-            "SELECT line_json, reason FROM agent_review_line WHERE run_id = ? AND item_id = ?",
-            (review_run_id, item_id),
-        )
-        .fetchone()
-    )
+    conn = connect()
+    row = conn.execute(
+        "SELECT item_id, verdict_class, word, line_json, reason FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+        (review_run_id, item_id),
+    ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="no such line")
-    line = agent_review_wording.read_time(json.loads(row["line_json"]))  # read time: the same words as a new line
+    line = _line_now(row, review_points_service.missing_books(conn, review_run_id))
+    if line is None:  # json that cannot be read: as before, the reader's error
+        line = agent_review_wording.read_time(json.loads(row["line_json"]))
+    # read now (`_line_now`): the same words as the page and every CRS (LP1: a held line's reason)
     if line.get("general"):
         return _general_trace(item_id, line, str(row["reason"] or ""))
     page = line.get("paper_page")
