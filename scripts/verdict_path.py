@@ -186,12 +186,15 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
         APP + "agent_review_open_points.py",
         "decides whether a sign is refused while the AI review has open points",
     ),
+    (
+        APP + "agent_review_ai_answer.py",
+        "LP0: words the AI's own answer on a line code did not prove (label, Class cell, answer line)",
+    ),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be
 #: here with a reason (a test enforces it, so a new verdict file cannot slip by).
 OFF_ON_PURPOSE: dict[str, str] = {
-    "agent_review_ai_answer.py": "LP0: the words of the AI's own answer on a line code did not prove (a label and its line); it decides no class, rank, count or row: those stay in agent_review_wording, which is listed (a FULL review still applies: rule 14b)",
     "agent_review_not_applicable.py": "FTU-17: whether a \"does not apply\" carries its proof, and the section's words; the class is decided in agent_review_wording.classify, which is listed (a FULL review still applies: rule 14b)",
     "agent_review_excerpt.py": "pure line and window selection for the local engine; every quote is still verified against the whole page by the gate",
     "agent_review_local_run.py": "the local first-reader loop over windows; the verdict is decided by the same decide() (a FULL review still applies: rule 14b)",

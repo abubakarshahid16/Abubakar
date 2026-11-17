@@ -55,7 +55,7 @@ def test_comments_are_worst_first_then_by_priority():
     pill = head.index("Pill")
     cls = head.index("Class")
     # LP0: a pill holding the AI's own answer (`agent_review_ai_answer`) is a one-reader row: its rank is read from its Class
-    ai_rank = {"Not met": 3, "Questions for you": 4, "Met": 5}
+    ai_rank = {"Not met (AI, engineer to confirm)": 3, "Questions for you": 4, "Met (AI, engineer to confirm)": 5, "Rule not yet approved": 8}
     ranks = [ai_rank[r[cls]] if agent_review_ai_answer.is_label(str(r[pill]).split(" · ")[0])
              else next((i for i, (what, _f) in review_points.RANKS.items() if str(r[pill]).startswith(what)), 9) for r in rows]  # fmt: skip
     assert ranks == sorted(ranks) or all(a <= b for a, b in zip(ranks, ranks[1:], strict=False))

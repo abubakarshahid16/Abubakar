@@ -21,10 +21,12 @@ without its proof (`agent_review_wording.not_applicable_question`) is "Does not 
 The rule check's own AI step (AI clause review, AI engineering check: a one-reader "not met" on the page, or a question when it names no
 clause) is `RULE_CHECK_LABEL`, "Fail (AI, not proven by code, engineer to confirm)": its rule's tier is not on its row.
 
-HONESTY (CLAUDE.md rule 4). The middle words say truly why the answer is not a plain Pass or Fail: "rule not approved" (the owner's
-words) when the rule is not approved by a person (not AI approved, AI approved only, or its tier not established); "not proven by code"
-when the rule is approved by the owner or an engineer, or the item is on the app's own approved checklist, where "rule not approved"
-would be false. The quote is shown only when code found it on the page; otherwise the line says "quote not found by code".
+HONESTY (CLAUDE.md rule 4). The middle words say truly why the answer is not a plain Pass or Fail, read from the line's STORED tier
+only (`final_cap` writes it), never from a default that claims a fact: "rule not approved" (not AI approved), "rule approved by AI only"
+(AI approved), "not proven by code" (approved by the owner or an engineer, or an item of the app's approved checklist), "rule approval
+not recorded" (no tier stored, and the rule check's own AI rows, whose tier is not on the row). When the second AI reader DISAGREED, no
+reader's answer is shown as the answer: "AI readers disagree (first: Pass, second: Fail), engineer to decide". The page is printed with
+`agent_review_crs.page_words` (a page hint says so); the quote only when code found it on the page, else "quote not found by code".
 """
 
 from __future__ import annotations
@@ -32,16 +34,24 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from .agent_review_verdict import (
+    AI_TIER,
     ENGINEER_TIER,
     FAIL,
     OWNER_TIER,
     PASS,
     RULE_NOT_APPROVED,
+    TIER_NOT_APPROVED,
 )
 
 #: The owner's words, one constant each (a test reads them).
 WHY_NOT_APPROVED = "rule not approved"
+WHY_AI_ONLY = "rule approved by AI only"
 WHY_NOT_PROVEN = "not proven by code"
+WHY_NOT_RECORDED = "rule approval not recorded"
+WHYS = (WHY_NOT_APPROVED, WHY_AI_ONLY, WHY_NOT_PROVEN, WHY_NOT_RECORDED)
+DISAGREE_LABEL = (
+    "AI readers disagree (first: {first}, second: {second}), engineer to decide"
+)
 LABEL = "{answer} (AI, {why}, engineer to confirm)"
 NOT_APPLICABLE_LABEL = "Does not apply (AI, engineer to confirm)"
 QUOTE_FOUND = "found on the page by code"
@@ -51,27 +61,46 @@ QUOTE_LOOKED = (
 QUOTE_NOT_FOUND = "quote not found by code"
 NO_BOOK = "no held rule book linked"
 BOOK_HIDDEN = "rule book not shown (not one you may read)"
+BOOK_NO_NAME = "rule book name not recorded"
 NO_CLAUSE = "clause not named"
 NO_PAGE = "page not recorded"
 #: The rule check's own AI step (`crs_normal`: AI clause review, AI engineering check, ...) wrote a "not met" (rank 3), or one that names
-#: no clause (a question): its tier is not on the row, so the true middle words are "not proven by code".
-RULE_CHECK_LABEL = LABEL.format(answer=FAIL, why=WHY_NOT_PROVEN)
+#: no clause (a question): its tier is not on the row, so the middle words say it is not recorded.
+RULE_CHECK_LABEL = LABEL.format(answer=FAIL, why=WHY_NOT_RECORDED)
 #: The answers this module can give, as they open a label (the scorer reads them back: `is_label`).
 ANSWERS = (PASS, FAIL)
 
 
 def _why(line: Mapping) -> str:
-    """Why the answer is the AI's and not a plain Pass / Fail, said truly (see the module words)."""
+    """Why the answer is the AI's and not a plain Pass / Fail, from the line's STORED tier only (see the module words)."""
     tier = line.get("tier")
-    if line.get("rule_tier") == RULE_NOT_APPROVED:
+    if line.get("rule_tier") == RULE_NOT_APPROVED or tier == TIER_NOT_APPROVED:
         return WHY_NOT_APPROVED
-    if tier in (OWNER_TIER, ENGINEER_TIER):
-        return WHY_NOT_PROVEN
-    if line.get("checklist") is True or (
-        line.get("source") == "skill" and line.get("checklist") is not False
-    ):
-        return WHY_NOT_PROVEN  # the app's own approved checklist: "rule not approved" would be false
-    return WHY_NOT_APPROVED
+    if tier == AI_TIER:
+        return WHY_AI_ONLY
+    if tier in (OWNER_TIER, ENGINEER_TIER) or line.get("checklist") is True:
+        return (
+            WHY_NOT_PROVEN  # approved by a person, or the app's own approved checklist
+        )
+    return WHY_NOT_RECORDED
+
+
+def disagreement(line: Mapping) -> tuple[str, str] | None:
+    """(first, second): the answers of two AI readers who DISAGREED on the line, else None. The second reader said no to the first
+    (`agent_run_second.disagreed`), or the independent second reader reached the opposite verdict (`agent_review_two_reader.stored`). A
+    second answer cut off by its token limit is not a disagreement in words: it never said the opposite."""
+    from . import agent_review_two_reader as two
+    from . import agent_run_second
+
+    first = line.get("ai_verdict")
+    if first not in ANSWERS:
+        return None
+    other = FAIL if first == PASS else PASS
+    if agent_run_second.disagreed(line.get("second_opinion")):
+        return first, other
+    second = two.stored(line)
+    said = {two.V_MET: PASS, two.V_NOT_MET: FAIL}.get((second or {}).get("verdict"))
+    return (first, other) if said == other else None
 
 
 def label(line: Mapping) -> str | None:
@@ -104,6 +133,8 @@ def label(line: Mapping) -> str | None:
         or wording.is_not_reviewed(line)
     ):
         return None
+    if got := disagreement(line):  # one reader's answer is never shown as THE answer
+        return DISAGREE_LABEL.format(first=got[0], second=got[1])
     return LABEL.format(answer=answer, why=_why(line))
 
 
@@ -139,21 +170,25 @@ def sentence(
     *,
     book: str | None,
     clause: str,
-    page: object,
+    page: str | None,
     evidence: str | None,
     looked: str | None = None,
     hidden: bool = False,
+    linked: bool = False,
 ) -> str:
-    """THE answer line: the label, then the standard, the clause (`clause_words`), the page and the quote (each said, never left out). A
-    rule book the viewer may not read is neither named nor its clause shown (CLAUDE.md rule 5): `hidden`."""
+    """THE answer line: the label, then the standard, the clause (`clause_words`), the page as printed (`agent_review_crs.page_words`: a
+    page hint says so) and the quote (each said, never left out). `hidden`: the viewer may not read the linked rule book (CLAUDE.md rule
+    5), so it is neither named nor its clause shown; decided from the viewer's readable books only. `linked`: a held book is linked, so a
+    blank name is "rule book name not recorded", never "not shown"."""
+    name = " ".join(str(book or "").split())
     book_words = (
-        BOOK_HIDDEN if hidden else (" ".join(str(book or "").split()) or NO_BOOK)
+        BOOK_HIDDEN if hidden else (name or (BOOK_NO_NAME if linked else NO_BOOK))
     )
     where = ", ".join(
         (
             book_words,
             NO_CLAUSE if hidden else clause,
-            f"page {page}" if page not in (None, "") else NO_PAGE,
+            f"page {page}" if page else NO_PAGE,
         )
     )
     return f"{answer_label}: {where}; {quote_words(evidence, looked)}."
@@ -179,7 +214,7 @@ def line_quotes(line: Mapping) -> tuple[str | None, str | None]:
 
 def line_sentence(line: Mapping) -> str | None:
     """The answer line of a stored line (the AI run's own file), or None when the line has no AI answer to show."""
-    from .agent_review_crs import line_page
+    from .agent_review_crs import line_page_words
 
     got = label(line)
     if got is None:
@@ -189,9 +224,10 @@ def line_sentence(line: Mapping) -> str | None:
         got,
         book=line.get("standard"),
         clause=clause_words(line),
-        page=line_page(line),
+        page=line_page_words(line),
         evidence=evidence,
         looked=looked,
+        linked=bool(line.get("standard_document_id")),
     )
 
 
@@ -216,13 +252,45 @@ def lead(line: Mapping, out: str, status: str, met: bool) -> str:
     return out
 
 
+#: The class words of a point with an AI answer (the team file's column "Class"): never the plain "Not met" / "Met" of a decision.
+AI_CLASS = "{tile} (AI, engineer to confirm)"
+
+
+def class_words(tile_words: str, point: Mapping) -> str:
+    """THE "Class" cell of a point (`crs_one`): the tile's own words for a point code proved, two readers agreed, a question or a point
+    with no AI answer; for a point that shows the AI's own answer (`ai_label`) on the Not met / Met tiles, those words marked as the
+    AI's ("Not met (AI, engineer to confirm)"); on a rule not yet approved, its kind ("Rule not yet approved"), never "Does not apply"."""
+    if not point.get("ai_label"):
+        return tile_words
+    if point.get("tile") in ("not_met", "met"):
+        return AI_CLASS.format(tile=tile_words)
+    if point.get("rank") == 8 and point.get("other_kind"):
+        return str(point["other_kind"])
+    return tile_words
+
+
+def plain_class(text: object) -> str:
+    """The tile words a "Class" cell stands for (the scorer's one reading of it): the AI mark taken off."""
+    from . import crs_ai_words as words
+
+    t = " ".join(str(text or "").split())
+    for tile in ("Not met", "Met"):
+        if t == AI_CLASS.format(tile=tile):
+            return tile
+    return (
+        "Does not apply" if t == words.KIND_UNAPPROVED else t
+    )  # the tile of a rule not yet approved
+
+
 def is_label(text: object) -> bool:
     """Is `text` (a pill or a cell) one of this module's labels? The scorer reads an AI row back with it, never as a decision."""
     t = " ".join(str(text or "").split())
-    return t == NOT_APPLICABLE_LABEL or any(
-        t.startswith(LABEL.format(answer=a, why=w))
-        for a in ANSWERS
-        for w in (WHY_NOT_APPROVED, WHY_NOT_PROVEN)
+    return (
+        t == NOT_APPLICABLE_LABEL
+        or t.startswith("AI readers disagree (first: ")
+        or any(
+            t.startswith(LABEL.format(answer=a, why=w)) for a in ANSWERS for w in WHYS
+        )
     )
 
 
@@ -238,7 +306,4 @@ def answer_of(text: object) -> str | None:
 def says_met(text: object) -> bool:
     """Does a run-file comment cell carry the AI's own "met" label (the scorer's test of an AI met row: no comment, no pass)?"""
     t = " ".join(str(text or "").split())
-    return any(
-        LABEL.format(answer=PASS, why=w) in t
-        for w in (WHY_NOT_APPROVED, WHY_NOT_PROVEN)
-    )
+    return any(LABEL.format(answer=PASS, why=w) in t for w in WHYS)

@@ -530,10 +530,10 @@ def _team_kind(cls, pill, comment) -> tuple[str, str, str] | None:
     no comment and no pass (the AI's own met, does not apply). kind "unknown": a class this scorer does not know."""
     from app import agent_review_ai_answer as ai_answer
 
-    cls = fold(cls)
+    cls = fold(ai_answer.plain_class(cls))  # LP0: an AI row's Class carries the AI mark; the tile it stands for is read
     pill = str(pill or "")
     firm = fold(pill.split("\u00b7", 1)[1]) if "\u00b7" in pill else None
-    if ai_answer.answer_of(pill.split("\u00b7", 1)[0]):  # LP0: the AI's own answer, labelled: one reader, never a decision
+    if ai_answer.is_label(pill.split("\u00b7", 1)[0]):  # LP0: the AI's own answer, labelled: one reader, never a decision
         firm = "one reader"
     if " ".join(pill.split()) == ai_answer.NOT_APPLICABLE_LABEL:
         return None  # LP0: the AI thinks it does not apply (its own section): no comment and no pass

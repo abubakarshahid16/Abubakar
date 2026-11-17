@@ -500,8 +500,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "added_by": None,
         # LP0 (owner, 17 Nov 2026): the AI's own answer and its line (standard, clause, page, quote); words only, never a decision
         "ai_label": answer_label,
-        "ai_answer": ai_answer.sentence(answer_label, book=book_name, clause=ai_answer.clause_words(line) if book_name else ai_answer.NO_CLAUSE, page=page, evidence=paper_q,
-                                        looked=looked, hidden=bool(book_doc) and not book_name) if answer_label else None,
+        # hidden: from the viewer's readable books only (rule 5); a readable book with a blank name is "name not recorded"
+        "ai_answer": ai_answer.sentence(answer_label, book=book_name, clause=ai_answer.clause_words(line) if book_doc else ai_answer.NO_CLAUSE,
+                                        page=arc.line_page_words(line), evidence=paper_q, looked=looked, linked=bool(book_doc),
+                                        hidden=rule_book_hidden(book_doc, ctx)) if answer_label else None,
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
         "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
@@ -736,7 +738,7 @@ def rule_point(
         point["ai_label"] = ai_answer.RULE_CHECK_LABEL
         point["ai_answer"] = ai_answer.sentence(
             ai_answer.RULE_CHECK_LABEL, book=book_name, clause=f"clause {point['clause']}" if point["clause"] else ai_answer.NO_CLAUSE,
-            page=page, evidence=paper_q or None, looked=looked or None, hidden=bool(book_doc) and not book_name,
+            page=str(page) if page is not None else None, evidence=paper_q or None, looked=looked or None, hidden=hidden, linked=bool(book_doc),
         )  # fmt: skip
     if missing:
         point.update(clause=None, rule_text=None, check_text=None, clause_quote=None, rule_ref=None, firm=None, reason_words=missing_words,

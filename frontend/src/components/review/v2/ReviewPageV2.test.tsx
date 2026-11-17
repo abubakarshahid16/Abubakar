@@ -273,11 +273,11 @@ describe("4 the four tiles", () => {
   it("each is a big number with one small line; a count the review cannot have is not shown", async () => {
     mount(); await loaded();
     expect(screen.getByTestId("v2-tile-not_met")).toHaveTextContent("3");
-    expect(screen.getByTestId("v2-tile-not_met")).toHaveTextContent("1 two readers · 1 one reader · 1 proven by code");
+    expect(screen.getByTestId("v2-tile-not_met")).toHaveTextContent("1 two readers · 1 AI, engineer to confirm · 1 proven by code");
     expect(screen.getByTestId("v2-tile-questions")).toHaveTextContent("in 2 groups");
     expect(screen.getByTestId("v2-tile-does_not_apply")).toHaveTextContent("0");
     expect(tileLine("does_not_apply", { label: "x", total: 0, proven_by_code: null })).toBe("");
-    expect(tileLine("not_met", { label: "x", total: 2, two_readers: null, one_reader: 2, proven_by_code: 0 })).toBe("2 one reader");
+    expect(tileLine("not_met", { label: "x", total: 2, two_readers: null, one_reader: 2, proven_by_code: 0 })).toBe("2 AI, engineer to confirm");
   });
   it("a tile filters the list, is outlined, and the page says what it shows", async () => {
     mount(); await loaded();
@@ -291,7 +291,7 @@ describe("4 the four tiles", () => {
   });
   it("one line says how firm the result is", async () => {
     mount(); await loaded();
-    expect(screen.getByTestId("v2-firm")).toHaveTextContent("2 proven by code, 1 agreed by two readers, 1 one reader's view. A person decides each point.");
+    expect(screen.getByTestId("v2-firm")).toHaveTextContent("2 proven by code, 1 agreed by two readers, 1 AI answers, engineer to confirm. A person decides each point.");
   });
 });
 

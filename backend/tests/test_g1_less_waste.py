@@ -104,7 +104,9 @@ def test_the_list_is_short_enough_to_be_honest():
     # decides that a card whose limit no engineer confirmed gives no verdict and when a condition says 'does not apply'
     # raised to 65 on 17 Nov (lead's decision, paid run: search holds left open): standards_web_search_money.py writes the
     # ledger (closes holds an ended process left open) and the run's usd; standards_web_search.py is at its 800-line limit
-    assert len(vp.VERDICT_PATH) <= 65
+    # raised to 66 on 17 Nov (LP0, lead's review of PR #1878, rule 14d): agent_review_ai_answer.py words the AI's own answer on a
+    # line code did not prove (a CRS cell and the page's pill); agent_review_wording.py, where it would belong, is at its limit
+    assert len(vp.VERDICT_PATH) <= 66
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

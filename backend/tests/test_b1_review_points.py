@@ -161,8 +161,8 @@ def test_each_ai_class_gets_its_rank_and_pill():
     review_points.with_groups(list(got.values()))
     assert (
         # LP0 (owner, 17 Nov 2026): a one-reader answer shows the AI's own answer in the owner's label, never "· one reader" alone
-        got["R-3"]["pill"] == "Fail (AI, rule not approved, engineer to confirm)"
-        and got["R-4"]["pill"] == "Pass (AI, rule not approved, engineer to confirm)"
+        got["R-3"]["pill"] == "Fail (AI, rule approved by AI only, engineer to confirm)"  # its stored tier
+        and got["R-4"]["pill"] == "Pass (AI, rule approved by AI only, engineer to confirm)"
         and (got["R-3"]["firm"], got["R-4"]["firm"]) == ("one reader", "one reader")
     )
     assert got["R-2"]["pill"] == "Met · proven by code" and got["R-7"][

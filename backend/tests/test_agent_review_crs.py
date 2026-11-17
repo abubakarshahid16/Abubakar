@@ -168,7 +168,7 @@ def test_the_item_rows_run_fail_ai_not_met_query_ai_met_pass(tmp_path):
     assert fields(path) == ["Field R1", "Field S1", "Field R6", "Field R3", "Field R8"]
     assert [r["Item No"] for r in rows] == list(range(1, 6))
     # LP0 (owner, 17 Nov 2026): the AI's own answer is said in the owner's label, no longer "the requirement is not met"
-    assert "Fail (AI, rule not approved, engineer to confirm)." in rows[3]["COMPANY Comments"]
+    assert "Fail (AI, rule approved by AI only, engineer to confirm)." in rows[3]["COMPANY Comments"]  # its stored tier
     met = [r for r in rows_of(path, "Not a comment") if r["What it is"] == "Checked, nothing to change"]
     assert [r["Item No"] for r in met] == [6, 7]
 
@@ -311,7 +311,7 @@ def test_an_ai_opinion_is_the_ai_reviewers_view_never_pass_or_fail():
     assert WB.status_of(line) == ("AI opinion", words.ORDER_AI_NOT_MET)
     comment = WB.layout_comment(line, *WB.status_of(line))
     # LP0 (owner, 17 Nov 2026): the AI's own answer in the owner's label replaces "The AI reviewer's view, not proven: ..."
-    assert "Fail (AI, rule not approved, engineer to confirm)." in comment
+    assert "Fail (AI, rule approved by AI only, engineer to confirm)." in comment  # its stored tier
     assert (
         "no second AI reader confirmed it" in comment
     )  # the stored reason, in plain words

@@ -32,6 +32,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
+from . import agent_review_ai_answer as ai_answer
 from . import agent_review_not_applicable as not_applicable
 from . import (
     crs_ai_header,
@@ -258,7 +259,7 @@ def row_of(
         for b in point.get("books") or []
     ) or (point.get("rule_book") or "")
     cells = [
-        n, comment, point.get("source_words"), point.get("pill"), rp.TILE_WORDS.get(point.get("tile"), ""), point.get("priority") or None,
+        n, comment, point.get("source_words"), point.get("pill"), ai_answer.class_words(rp.TILE_WORDS.get(point.get("tile"), ""), point), point.get("priority") or None,
         point.get("name"), point_page_words(point) or NOT_RECORDED, books or no_rule_words([point]), point.get("clause"), shown["action"] or None,
         shown["paper_shows"], point.get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, point.get("checked_by") or None, decision_words(point), group_words(point) or None,
         first, second, agreed, "\n".join(full) or None,
@@ -776,7 +777,7 @@ def comment_cells(
             full.append(f"{key.replace('_', ' ')}: {text}")
     decided = sum(1 for p in ms if (p.get("decision") or {}).get("state"))
     cells = [
-        c["number"], c["pill"], rp.TILE_WORDS.get(c["tile"], ""), highest_priority(ms) or None, c["name"], c["n_points"],
+        c["number"], c["pill"], ai_answer.class_words(rp.TILE_WORDS.get(c["tile"], ""), {**c["strongest"], "tile": c["tile"], "rank": c["rank"]}), highest_priority(ms) or None, c["name"], c["n_points"],
         comment_page_words(c) or NOT_RECORDED, shown["clauses"] or None, shown["action"] or None,
         shown["paper_shows"], c["strongest"].get("ai_reasoning") or None, shown["requires"], shown["reason"] or None, c["strongest"].get("checked_by") or None, f"{decided} of {len(ms)} decided",
         shown["note"] or None, "\n".join(full) or None,
