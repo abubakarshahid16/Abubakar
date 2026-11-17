@@ -243,6 +243,7 @@ def _points_db() -> sqlite3.Connection:
 def test_to_confirm_moves_the_point_with_one_label_and_keeps_the_rest(monkeypatch):
     monkeypatch.setattr(fit, "things", lambda path=None: CAT)
     monkeypatch.setattr(eqmod, "load_equipment", lambda conn, paper, mode: "ctx")
+    monkeypatch.setattr(fit, "type_confirmed", lambda paper: True)
     monkeypatch.setattr(
         fit,
         "tag_against",
@@ -333,3 +334,45 @@ def test_the_points_assembly_runs_it(monkeypatch):
     with pytest.raises(StopIteration):
         svc._assemble("paper-1", Scope())
     assert seen == [(2, "paper-1")]
+
+
+def test_a_paper_whose_equipment_type_is_not_confirmed_moves_nothing(monkeypatch):
+    from app import classification, datasheets, subject_scope
+
+    monkeypatch.setattr(fit, "things", lambda path=None: CAT)
+    monkeypatch.setattr(eqmod, "load_equipment", lambda conn, paper, mode: "ctx")
+    monkeypatch.setattr(fit, "tag_against", lambda conn, rid, ctx: OTHER)
+    monkeypatch.setattr(datasheets, "list_facts", lambda *a, **k: [])
+    monkeypatch.setattr(
+        classification, "of_document", lambda paper: {"equipment_type": "Widget"}
+    )
+    unsure = (
+        set(),
+        "unsure",
+        {
+            "reason": "equipment type unsure: read as one type, but the sheet states a code of another"
+        },
+    )
+    monkeypatch.setattr(subject_scope, "read_equipment", lambda *a: unsure)
+    points = [
+        {
+            "id": "rc:1",
+            "rank": 4,
+            "tile": "questions",
+            "_finding": {"requirement_id": "r-rated"},
+        }
+    ]
+    assert fit.to_confirm(_points_db(), points, "p") == 0
+    assert (
+        points[0]["rank"] == 4
+        and points[0]["_subject_fit_held"] == fit.TYPE_NOT_CONFIRMED
+    )
+    monkeypatch.setattr(
+        subject_scope, "read_equipment", lambda *a: (set(), None, None)
+    )  # not recorded
+    assert fit.type_confirmed("p") is False
+    monkeypatch.setattr(
+        subject_scope, "read_equipment", lambda *a: ({"pump"}, "title", None)
+    )
+    assert fit.type_confirmed("p") is True
+    assert fit.to_confirm(_points_db(), points, "p") == 1 and points[0]["rank"] == 9

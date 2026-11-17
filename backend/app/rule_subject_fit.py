@@ -9,7 +9,8 @@ only when BOTH hold:
   2. the rule's AGREED equipment tag (`rule_equipment_label`, decided by `agent_review_equipment.equipment_decision`, the ONE
      function the AI reviewer's own filter uses) names ANOTHER equipment type than the paper's. A rule tagged for this paper's
      equipment stays asked even when the paper lacks the part (that is the finding); an untagged, not agreed or general rule
-     never moves; a paper whose equipment is not known moves nothing.
+     never moves; a paper whose equipment type is not known, or read with doubt ("type unsure", the same reading a run
+     records), moves nothing: every point stays asked (`TYPE_NOT_CONFIRMED`).
 A sentence that only carries on a worked example of the book ("For example, ... 93 psig. The operating pressure must be kept below
 93 psig ...", every measured figure of the rule in the example: `claims.extract_measurements`) moves with its own reason. The
 engineer confirms each moved point; it is counted and listed, never removed. No standard, clause or layout is named in code (rule
@@ -298,6 +299,31 @@ def tag_against(conn, rule_id: str, ctx) -> dict | None:
     }
 
 
+#: why nothing moved on a paper: a move rests on the paper's equipment type, which must be read with no doubt (LPV V4's record)
+TYPE_NOT_CONFIRMED = "paper's equipment type not confirmed"
+
+
+def type_confirmed(paper_id: str) -> bool:
+    """The paper's equipment type is read with no doubt by the app's one reader (`subject_scope.read_equipment` over its
+    classification and its stated facts: the same reading a run records as its type or as "type unsure: <reason>"). Unsure (the
+    paper's own codes say another type), or not recorded: False, and no point moves."""
+    from . import classification, datasheets
+
+    try:
+        facts = datasheets.list_facts(
+            paper_id, allowed_document_ids=frozenset({paper_id})
+        )
+        record = classification.of_document(paper_id) or {}
+        found, _source, _doubt = subject_scope.read_equipment(
+            record, facts, subject_scope.vocabulary()
+        )
+    except Exception:  # noqa: BLE001 - a reading that cannot be made is not a confirmed type: nothing moves
+        return False
+    return bool(
+        found
+    )  # an unsure reading gives no type (`read_equipment`: "the equipment is read as UNKNOWN")
+
+
 def _rule_id(point: Mapping) -> str | None:
     finding = point.get("_finding") or {}
     if finding.get("requirement_id"):
@@ -318,6 +344,12 @@ def to_confirm(conn, points: list[dict], paper_id: str) -> int:
     ]
     text = paper_text(conn, paper_id) if movable else None
     if text is None:
+        return 0
+    if not type_confirmed(
+        paper_id
+    ):  # the paper's equipment type is unsure or not recorded: nothing moves, all stay asked
+        for p in movable:
+            p["_subject_fit_held"] = TYPE_NOT_CONFIRMED
         return 0
     ctx = eqmod.load_equipment(conn, paper_id, "type")
     catalogue, rules = things(), _rules(conn, (_rule_id(p) for p in movable))
