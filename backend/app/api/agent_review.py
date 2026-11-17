@@ -392,7 +392,7 @@ def agent_lines(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, {"cursor", "limit"})
-    _run_or_404(review_run_id, scope)
+    run = _run_or_404(review_run_id, scope)
     rows = (
         connect()
         .execute(
@@ -404,18 +404,52 @@ def agent_lines(
     )
     page = rows[:limit]
     missing = review_points_service.missing_books(connect(), review_run_id)
-    lines = [_read_line(dict(r), missing) for r in page]
+    seen = _viewer(review_run_id, run, scope)  # rule 5: what THIS caller may read
+    lines = [_read_line(dict(r), missing, seen) for r in page]
     more = len(rows) > limit
     return contract.AgentLineList(
         lines=lines, next=str(page[-1]["rid"]) if more and page else None
     )
 
 
-def _read_line(row: dict, missing=()) -> contract.AgentLine:
-    """One stored line as the contract's line. A pair the contract refuses but that maps by its own one table
-    (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten. A row that
-    still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list down."""
+def _viewer(run_id: str, run: dict, scope: access.AccessScope) -> dict:
+    """The one viewer context of `review_points.for_viewer` for this caller and run."""
+    from .. import review_points
+
+    return review_points.viewer_ctx(
+        connect(),
+        run["submittal_document_id"],
+        frozenset(scope.allowed_document_ids),
+        run_id,
+    )
+
+
+def _guarded(row: dict, seen: dict) -> dict:
+    """A stored row read through the one guard (`review_points.for_viewer`, rule 5): a line whose words are hidden from this caller
+    keeps none of them, in its stored JSON, its reason or its rule book column."""
+    from .. import review_points
+
+    try:
+        line = json.loads(row.get("line_json") or "")
+    except ValueError:
+        return row
+    if not isinstance(line, dict):
+        return row
+    full = {**line, "item_id": row.get("item_id")}
+    shown = review_points.for_viewer(full, seen)
+    if shown is full:
+        return row
+    return {**row, "line_json": json.dumps(shown, default=str), "reason": shown.get("text") or "",
+            "rule_book": shown.get("rule_book") or ""}  # fmt: skip
+
+
+def _read_line(row: dict, missing=(), seen: dict | None = None) -> contract.AgentLine:
+    """One stored line as the contract's line, through the one guard for the caller (`seen`). A pair the contract refuses but that maps
+    by its own one table (`contract.legal_word`: a row stored before the fix) is read through that map; stored rows are never rewritten.
+    A row that still fails the contract's checks is shown as a "Not reviewed" stand-in saying so, so one bad row never takes the list
+    down."""
     row = {k: v for k, v in row.items() if k != "rid"}
+    row = _guarded(row, seen) if seen is not None else row
     raw = row.pop("line_json", None)
     now = _line_now({**row, "line_json": raw}, missing)
     shown = json.dumps(now, default=str) if now else raw
@@ -605,18 +639,20 @@ def agent_trace(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, set())
-    _run_or_404(review_run_id, scope)
+    run = _run_or_404(review_run_id, scope)
     row = (
         connect()
         .execute(
-            "SELECT line_json, reason FROM agent_review_line WHERE run_id = ? AND item_id = ?",
+            "SELECT item_id, line_json, reason FROM agent_review_line WHERE run_id = ? AND item_id = ?",
             (review_run_id, item_id),
         )
         .fetchone()
     )
     if row is None:
         raise HTTPException(status_code=404, detail="no such line")
-    line = agent_review_wording.read_time(json.loads(row["line_json"]))  # read time: the same words as a new line
+    # rule 5: the stored row through the one guard for this caller, then read time (the same words as a new line)
+    row = _guarded(dict(row), _viewer(review_run_id, run, scope))
+    line = agent_review_wording.read_time(json.loads(row["line_json"]))
     if line.get("general"):
         return _general_trace(item_id, line, str(row["reason"] or ""))
     page = line.get("paper_page")

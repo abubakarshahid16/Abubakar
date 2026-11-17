@@ -361,10 +361,49 @@ def general_hidden(line: dict, ctx: dict) -> bool:
     return not ai_free_text_ok({"reasoning": general.free_words(line)}, None, ctx)
 
 
-def viewer_ctx(conn, paper_document_id: str, readable: frozenset[str]) -> dict:
-    """What `general_hidden` needs to know of one viewer: the documents he may read, the held books, whether he may read them all."""
+def book_doc_of(line: dict, ctx: dict) -> str | None:
+    """The held rule book (document id) of an AI line: its asked rule's book, else (a checklist line) the held book it stored."""
+    book_doc, _name = (ctx.get("book_of") or {}).get(
+        str(line.get("item_id") or ""), (None, None)
+    )
+    if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):
+        book_doc = line["standard_document_id"]
+    return book_doc
+
+
+def words_hidden(line: dict, ctx: dict) -> bool:
+    """Are the words on an AI line (the AI's, an engineer's edit or reason) hidden from this viewer? A general line: `general_hidden`;
+    any other line: its held rule book is one he may not read (`rule_book_hidden`)."""
+    from . import agent_general_crs as general
+
+    if general.is_general(line):
+        return general_hidden(line, ctx)
+    return rule_book_hidden(book_doc_of(line, ctx), ctx)
+
+
+def for_viewer(line: dict, ctx: dict) -> dict:
+    """THE one guard every surface reads an AI line through for one viewer (CLAUDE.md rule 5): the page's points, the run file, the
+    lines tab and the trace. A hidden general line comes back through `agent_general_crs.viewed`; another line whose rule book he may
+    not read loses its engineer's edit (his words may quote the book); any other line comes back as the same object."""
+    from . import agent_general_crs as general
+
+    if not words_hidden(line, ctx):
+        return line
+    if general.is_general(line):
+        return general.viewed({**line, general.HIDE_KEY: True})
+    if line.get("engineer_text"):
+        return {**line, "engineer_text": general.ENGINEER_HIDDEN}
+    return line
+
+
+def viewer_ctx(
+    conn, paper_document_id: str, readable: frozenset[str], run_id: str | None = None
+) -> dict:
+    """What `for_viewer` needs to know of one viewer: the documents he may read, the held books, whether he may read them all, and
+    (with a run) the book of each asked rule."""
     documents = frozenset(r[0] for r in conn.execute("SELECT id FROM documents"))
     return {
+        **({"book_of": _book_of(conn, run_id)} if run_id else {}),
         "paper_document_id": paper_document_id,
         "readable": readable,
         "library": library_of(conn),  # the held books: the AI's free text is tested against the ones the viewer may not read
@@ -386,13 +425,10 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         return None
     if rank == 4 and wording_mod.not_applicable_question(line):
         rank = 9  # owner on PR #1872: an unproven "does not apply" is its own section, never a main question
-    if general.is_general(line):  # LP2, rule 5: every reader below sees its guard
-        line = general.viewed({**line, general.HIDE_KEY: general_hidden(line, ctx)})
+    hidden = words_hidden(line, ctx)  # rule 5: his words on it are hidden too
+    line = for_viewer(line, ctx)  # LP2, rule 5: every reader sees the one guard
     item = str(line.get("item_id") or "")
-    book_doc, _name = ctx["book_of"].get(item, (None, None))
-    if not book_doc and line.get("standard_document_id") in ctx.get("documents", ()):
-        # order 14 lane B: a checklist line has no asked-rule row; its book is the held document the line itself stored
-        book_doc = line["standard_document_id"]
+    book_doc = book_doc_of(line, ctx)
     book_name = (
         _plain(line.get("standard"))
         if book_doc and not rule_book_hidden(book_doc, ctx)
@@ -518,6 +554,7 @@ def ai_point(line: dict, ctx: dict) -> dict | None:
         "added_by": None,
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
+        "_words_hidden": hidden,
         "_line": shown,  # the stored line (the rule book's words already left out for a caller who may not read the book): the one-CRS export reads it
     }
 
@@ -739,6 +776,7 @@ def rule_point(
         ),
         "_book_doc": book_doc,
         "_book_docs": [book_doc] if book_doc else [],
+        "_words_hidden": ref_hidden,  # rule 5: an engineer's words on it are hidden too
         "_book_missing": missing or None,
         "_book_missing_words": missing_words or None,
         "_clause_unconfirmed": unconfirmed or None,
@@ -1212,5 +1250,6 @@ def removed_stub(finding: dict, ctx: dict, *, strength: str = "unknown") -> dict
         "paper_quote": None, "clause_quote": None, "paper_quote_note": NO_PAPER_QUOTE, "clause_quote_note": NO_CLAUSE_QUOTE,
         "route_note": None, "view_page": _view_page(ctx.get("paper_document_id"), page), "shall": strength != "should", "strength_unknown": strength == "unknown", "group_key": None, "tags": [],
         "added_by": None, "finding_ids": [finding["id"]], "_book_doc": finding.get("standard_document_id"),
+        "_words_hidden": bool(finding.get("standard_document_id")) and not book_ok,
         "_book_docs": [finding["standard_document_id"]] if finding.get("standard_document_id") else [],
     }  # fmt: skip

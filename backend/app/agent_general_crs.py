@@ -104,6 +104,10 @@ NO_REASON = "no reason was recorded with this point"
 HIDDEN = "its words are not shown here: they may name a document you may not read"
 UNNAMED_BOOKS = "a rule book (not named here)"
 HIDDEN_DOCUMENT = "a document you may not read"
+#: what a viewer who may not read the document sees of an engineer's edit or reason on a hidden line (his words may quote it)
+ENGINEER_HIDDEN = (
+    "an engineer edited this line (details not shown: a document you may not read)"
+)
 #: no document of this name exists: a quote of another paper that does not say whose it is can never be shown (fail closed)
 UNKNOWN_DOCUMENT = "\x00a quote that names no document"
 #: every key of a general line that may name a document other than the paper, or hold free words (the AI's, or a sentence code
@@ -199,6 +203,10 @@ def viewed(line: Mapping) -> Mapping:
     out = {**line, **dict.fromkeys(SCRUBBED), "held_rule_books": [], "text": HIDDEN}
     out["rule_book"] = UNNAMED_BOOKS if _books(line) else None
     out["other_document"] = HIDDEN_DOCUMENT if _other(line) else None
+    if line.get(
+        "engineer_text"
+    ):  # the engineer's words on the line are hidden like the AI's
+        out["engineer_text"] = ENGINEER_HIDDEN
     out["subkind"] = (
         sub
         if sub is None or sub in FIXED_SUBKINDS
@@ -249,7 +257,12 @@ def field_label(line: Mapping) -> str:
     if line.get("part") == 1 and _books(line):
         return _books(line)
     kind = sub or core.PART_WORDS.get(line.get("part")) or "general review"
-    return kind + (f" against {other}" if other and other not in kind else "")
+    word = (
+        _c(line.get("word")) or core.WORD_OF.get(line.get("verdict_class")) or "Point"
+    )
+    return f"{word}: {kind}" + (
+        f" against {other}" if other and other not in kind else ""
+    )
 
 
 def page_words(line: Mapping) -> str:

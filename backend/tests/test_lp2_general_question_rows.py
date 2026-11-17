@@ -429,12 +429,214 @@ def test_the_field_column_names_the_lines_own_topic_never_the_fixed_phrase_and_g
     points = [rp.ai_point(dict(ln), viewer(PAPER)) for ln in (*lines(), topic, part4())]
     names = [p["name"] for p in points]
     assert FIXED not in names
-    assert "hold time" in names and core.SUB_ENGINEERING in names
     assert (
-        f"{core.SUB_SILENT} against {PROJ}" not in names
+        "hold time" in names and f"AI note: {core.SUB_ENGINEERING}" in names
+    )  # a kind is a sentence, never bare (round 2)
+    assert (
+        f"Query: {core.SUB_SILENT} against {PROJ}" not in names
     )  # the project paper he may not read is not named
-    assert f"{core.SUB_SILENT} against {question.HIDDEN_DOCUMENT}" in names
+    assert f"Query: {core.SUB_SILENT} against {question.HIDDEN_DOCUMENT}" in names
     groups = crs_comments.group(
         [{**p, "id": f"p{n}"} for n, p in enumerate(points)], findings_only=False
     )
     assert len(groups) == len(points)  # each general line its own comment, as before
+
+    assert core.SUB_ENGINEERING not in names  # no bare sub-kind
+
+
+# ------------------------------------------------------------------------------------------------ review round 2: every other surface
+def restricted_world(monkeypatch, decide=None):
+    """The run of `test_the_ai_run_file...` with a part-4 line against PROJ and (optionally) an engineer's decision on it."""
+    from app import agent_review_jobs
+    from app.config import settings
+    from tests.test_crs_endpoint import _submittal
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "old_crs_download_enabled", True)
+    monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    _submittal(PAPER, "paper-z.pdf")
+    _submittal(PROJ, "project-q.pdf")
+    line = part4(core.CLASS_NOTE, text=PROJ_WHAT, subkind=core.SUB_DISAGREES.format(document=PROJ),
+                 second_model_reason=f"both quotes speak of {PROJ_QUOTE}")  # fmt: skip
+    run_id = run_world(PAPER, [line])
+    if decide:
+        point = next(
+            p
+            for p in full().get(f"/api/reviews/papers/{PAPER}/points").json()["points"]
+            if p["id"].endswith(":G-007")
+        )
+        r = full().post(
+            f"/api/reviews/papers/{PAPER}/points/decision",
+            json={"point_id": point["id"], **decide},
+        )
+        assert r.status_code == 200, r.text
+    return run_id, agent_review_jobs.run_dir(run_id)
+
+
+def full():
+    """A client of the reader of both papers (the scope override is global: made again before each use)."""
+    from tests.test_crs_endpoint import _client
+
+    return _client(PAPER, PROJ)
+
+
+def restricted():
+    """A client of a viewer who may read the paper, not the project paper."""
+    from tests.test_crs_endpoint import _client
+
+    return _client(PAPER)
+
+
+SECRETS = (PROJ, PROJ_QUOTE, PROJ_WHAT)
+
+
+@pytest.mark.usefixtures("temp_db")
+def test_the_lines_tab_and_the_trace_never_give_a_restricted_viewer_the_hidden_words(
+    monkeypatch,
+):
+    run_id, _f = restricted_world(monkeypatch)
+    lines_url = f"/api/reviews/runs/{run_id}/agent/lines"
+    trace_url = f"/api/reviews/runs/{run_id}/agent/lines/G-007/trace"
+    for url in (lines_url, trace_url):
+        hidden = restricted().get(url)
+        assert hidden.status_code == 200, hidden.text
+        assert not any(x in hidden.text for x in SECRETS), url
+        assert any(x in full().get(url).text for x in SECRETS), (
+            url
+        )  # the reader of both papers sees them
+
+
+ENGINEER = "Engineer: per the project paper, flush for ten minutes"
+
+
+@pytest.mark.parametrize(
+    "decide",
+    [{"state": "edit", "text": ENGINEER}, {"state": "remove", "reason": ENGINEER}],
+)
+@pytest.mark.usefixtures("temp_db")
+def test_an_engineers_edit_or_reason_on_a_hidden_line_never_reaches_a_restricted_viewer(
+    monkeypatch, decide
+):
+    from tests.test_b1_review_points import sheet_text
+
+    run_id, _f = restricted_world(monkeypatch, decide)
+    words = ENGINEER
+    page = restricted().get(f"/api/reviews/papers/{PAPER}/points").text
+    team = sheet_text(
+        restricted()
+        .get(f"/api/reviews/papers/{PAPER}/crs", params={"copy": "team"})
+        .content
+    )
+    contractor = sheet_text(
+        restricted()
+        .get(f"/api/reviews/papers/{PAPER}/crs", params={"copy": "contractor"})
+        .content
+    )
+    run_file = sheet_text(
+        restricted().get(f"/api/reviews/runs/{run_id}/agent/crs?copy=internal").content
+    )
+    for name, text in (
+        ("page", page),
+        ("team", team),
+        ("contractor", contractor),
+        ("run file", run_file),
+    ):
+        assert words not in text and not any(x in text for x in SECRETS), name
+    assert question.ENGINEER_HIDDEN in page
+    assert (
+        words in full().get(f"/api/reviews/papers/{PAPER}/points").text
+    )  # his own words are his
+
+
+@pytest.mark.usefixtures("temp_db")
+def test_two_viewers_of_one_run_file_never_share_a_file(monkeypatch):
+    from app import review_points_service as svc
+
+    run_id, folder = restricted_world(monkeypatch, {"state": "keep"})
+    mine = svc.decided_ai_sheet(
+        run_id, PAPER, "internal", folder, frozenset({PAPER, PROJ})
+    )
+    theirs = svc.decided_ai_sheet(run_id, PAPER, "internal", folder, frozenset({PAPER}))
+    assert (
+        mine.name != theirs.name
+    )  # a restricted file never overwrites, or is served as, the full one
+    from tests.test_b1_review_points import sheet_text
+
+    assert not any(x in sheet_text(theirs.read_bytes()) for x in SECRETS)
+    assert any(x in sheet_text(mine.read_bytes()) for x in SECRETS)
+
+
+@pytest.mark.usefixtures("temp_db")
+def test_a_datasheet_line_whose_rule_book_is_hidden_keeps_the_engineers_edit_from_a_restricted_viewer(
+    monkeypatch,
+):
+    # the same guard on a datasheet review: an edit on a line whose book the viewer may not read is never shown to him; the reader
+    # of the book sees the run file under the same name as before (`crs-internal-decided.xlsx`) and his own words
+    from app import review_points_service as svc
+    from app.config import settings
+    from tests.test_agent_review_crs import mk
+    from tests.test_b1_review_points import ai_run, sheet_text
+    from tests.test_crs_endpoint import _client, _submittal
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    monkeypatch.setattr(settings, "old_crs_download_enabled", True)
+    doc = _submittal()
+    _submittal("doc_std", "STD-A-001.pdf")
+    ai = ai_run(doc, [mk("R-8", "Query", None, why="x y")])
+    points = (
+        _client(doc, "doc_std")
+        .get(f"/api/reviews/papers/{doc}/points")
+        .json()["points"]
+    )
+    pid = next(p["id"] for p in points if p["id"].endswith(":R-8"))
+    assert _client(doc, "doc_std").post(f"/api/reviews/papers/{doc}/points/decision",
+                                        json={"point_id": pid, "state": "edit", "text": ENGINEER}).status_code == 200  # fmt: skip
+    page = _client(doc).get(f"/api/reviews/papers/{doc}/points").text
+    team = sheet_text(
+        _client(doc)
+        .get(f"/api/reviews/papers/{doc}/crs", params={"copy": "team"})
+        .content
+    )
+    run_file = sheet_text(
+        _client(doc).get(f"/api/reviews/runs/{ai}/agent/crs?copy=internal").content
+    )
+    assert not any(ENGINEER in t for t in (page, team, run_file))
+    assert (
+        ENGINEER
+        in _client(doc, "doc_std").get(f"/api/reviews/papers/{doc}/points").text
+    )
+    from app import agent_review_jobs
+
+    own = svc.decided_ai_sheet(
+        ai, doc, "internal", agent_review_jobs.run_dir(ai), frozenset({doc, "doc_std"})
+    )
+    assert own.name == "crs-internal-decided.xlsx" and ENGINEER in sheet_text(
+        own.read_bytes()
+    )
+
+
+@pytest.mark.usefixtures("temp_db")
+def test_a_rule_check_point_whose_rule_book_is_hidden_keeps_the_engineers_edit_from_a_restricted_viewer(
+    monkeypatch,
+):
+    from app.config import settings
+    from tests.test_b1_review_points import world_with_both
+    from tests.test_crs_endpoint import _client
+
+    monkeypatch.setattr(settings, "agent_review_enabled", True)
+    monkeypatch.setattr(settings, "review_page_v2_enabled", True)
+    doc, _rc, _ai, _c = world_with_both()
+    points = (
+        _client(doc, "doc_std")
+        .get(f"/api/reviews/papers/{doc}/points")
+        .json()["points"]
+    )
+    pid = next(p["id"] for p in points if p["id"].startswith("rc:"))
+    assert _client(doc, "doc_std").post(f"/api/reviews/papers/{doc}/points/decision",
+                                        json={"point_id": pid, "state": "edit", "text": ENGINEER}).status_code == 200  # fmt: skip
+    assert ENGINEER not in _client(doc).get(f"/api/reviews/papers/{doc}/points").text
+    assert (
+        ENGINEER
+        in _client(doc, "doc_std").get(f"/api/reviews/papers/{doc}/points").text
+    )

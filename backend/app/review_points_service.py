@@ -365,6 +365,14 @@ def _names(ids) -> dict[str, str]:
     }
 
 
+def hidden_decision(d: dict) -> dict:
+    """A decision on a point whose words are hidden from this viewer (`review_points.for_viewer`): the engineer's edited text and his
+    reason are said as `agent_general_crs.ENGINEER_HIDDEN`, never shown (the state, who and when stay)."""
+    from .agent_general_crs import ENGINEER_HIDDEN
+
+    return {**d, **{k: ENGINEER_HIDDEN for k in ("text", "reason") if d.get(k)}}
+
+
 def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     """(the listing, the RAW points with their private keys, the facts the one-CRS export needs). `assemble` is the listing alone."""
     conn = connect()
@@ -402,6 +410,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             d["by"] = names.get(d["by"]) or d["by"]
         if p.get("tile") == not_applicable.TILE:  # owner on PR #1872: a tick confirms the AI's "does not apply"
             d = {**d, "words": not_applicable.CONFIRMED if d.get("state") == decisions_mod.KEEP else d.get("words") or not_applicable.OPEN}
+        if p.get("_words_hidden"):  # rule 5: his words may quote a hidden document
+            d = hidden_decision(d)
         p["decision"] = d
     decided = len(points) - len(review_code_proposal.still_open(points))  # FTU-16: the one open count, as the proposal reads it
     not_held = rp.books_not_held(not_held, points, library)  # with every row's "Book missing": one list for page and sheet
@@ -575,29 +585,17 @@ def decided_ai_sheet(
     run_id: str, paper_id: str, copy: str, folder, readable: frozenset[str]
 ) -> Path | None:
     """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in) and for
-    THIS viewer (`readable`: the documents he may read): a general review's line that may name or quote a document he may not read is
-    drawn through its one guard (`review_points.general_hidden`, `agent_general_crs.viewed`; CLAUDE.md rule 5), in a file of its own
-    name, so one viewer's file is never served to another. None when nothing was decided or added and nothing is hidden from him (the
-    stored file stands). The run's own meta: `run_meta`."""
+    THIS viewer (`readable`: the documents he may read): every line through the one guard (`review_points.for_viewer`; CLAUDE.md rule
+    5), and a file with a hidden line under a name of its own (the hidden lines' digest), so one viewer's file is never served to
+    another. None when nothing was decided or added and nothing is hidden from him (the stored file stands). Meta: `run_meta`."""
     import hashlib
     from pathlib import Path
 
-    from . import agent_general_crs as general
     from . import agent_review_crs, crs_ai_workbook
 
     conn = connect()
     lines = stored_lines(conn, run_id)
-    ctx = rp.viewer_ctx(conn, paper_id, readable)
-    hidden = sorted(
-        str(ln.get("item_id"))
-        for ln in lines
-        if general.is_general(ln) and rp.general_hidden(ln, ctx)
-    )
     decided = bool(decisions_mod.latest(paper_id) or decisions_mod.added(paper_id))
-    if not decided and not hidden:
-        return None
-    folder = Path(folder)
-    meta = run_meta(conn, run_id, paper_id, folder)
     kept = (
         decisions_mod.apply_to_lines(
             paper_id, run_id, lines, _names(decisions_mod.people(paper_id))
@@ -605,12 +603,16 @@ def decided_ai_sheet(
         if decided
         else lines
     )
-    kept = [
-        general.viewed({**ln, general.HIDE_KEY: True})
-        if str(ln.get("item_id")) in hidden and general.is_general(ln)
-        else ln
-        for ln in kept
-    ]
+    ctx = rp.viewer_ctx(conn, paper_id, readable, run_id)
+    guarded = [rp.for_viewer(ln, ctx) for ln in kept]  # the one guard (rule 5)
+    hidden = sorted(
+        str(a.get("item_id")) for a, b in zip(kept, guarded, strict=True) if a is not b
+    )
+    if not decided and not hidden:
+        return None
+    folder = Path(folder)
+    meta = run_meta(conn, run_id, paper_id, folder)
+    kept = guarded
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
     digest = hashlib.sha256("\n".join(hidden).encode()).hexdigest()[:16]
     name = f"crs-{copy}-decided{'-viewer-' + digest if hidden else ''}.xlsx"
