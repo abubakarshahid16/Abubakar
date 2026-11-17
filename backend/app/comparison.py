@@ -2932,9 +2932,8 @@ def _run_comparison(
     clause_cov = clause_coverage.summarise(decisions)
 
     # #645 CLAUSE TO CHECK: a clause sentence stored with no limit that this
-    # run could not decide is offered to the model (local; Claude in a Claude-lane run when
-    # AI_CLAUSE_REVIEW_ENGINE says claude, LP3), which proposes a
-    # check; code verifies it against the sentence and keeps it as a DRAFT for
+    # run could not decide is offered to the model (local; Claude under AI_CLAUSE_REVIEW_ENGINE in a
+    # Claude-lane run, LP3), which proposes a check; code verifies it and keeps it as a DRAFT for
     # the engineer. After the findings are written: nothing here changes a
     # verdict of this run or any other. See `ai_requirements.propose_checks`.
     clause_checks = None
