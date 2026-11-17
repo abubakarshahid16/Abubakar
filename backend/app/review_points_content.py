@@ -181,3 +181,74 @@ def reason_words(kind: str | None, finding: dict | None) -> str:
     if base and status and kind in ("datasheet_check", "needs_engineer_review", "missing_information", "clause_review"):
         return f"{base} Status on record: {status}."
     return base
+
+
+# ------------------------------------------------------------------------------------------------ W-H4, W-H5: not a requirement to check
+
+#: The other kind (rank 8, "Does not apply" tile) of a rule-check point that is not a requirement of the paper (order 14, W-H4/W-H5):
+#: kept as a point (counted on the page, a row of the sheet Evidence, listed with its reason), never a comment or a question.
+NOT_A_REQUIREMENT = "Not a requirement to check"
+_NUMBER = re.compile(r"^\s*(?:\d+(?:\.\d+)*\.?\s+)?")
+#: A rule book's section TITLE (the whole title, its clause number aside) that holds no requirement on a paper: its scope or
+#: purpose, its terms, its conflicts and deviations, its exceptions. "Scope of supply" or "Deviation alarms" are not whole titles.
+_HOUSEKEEPING = re.compile(
+    r"(?:(?:purpose\s+(?:and|&)\s+)?scope(?:\s+(?:and|&)\s+purpose)?|purpose|applicability"
+    r"|terms?(?:\s*(?:,|and|&)\s*(?:abbreviations?|acronyms?|symbols?))*"
+    r"|conflicts?(?:\s+(?:and|&)\s+deviations?)?|deviations?(?:\s+(?:and|&)\s+(?:waivers?|exceptions?))?|exceptions?|waivers?)\s*:?",
+    re.IGNORECASE,
+)
+_OBLIGES = re.compile(r"\b(?:shall|must|is required|are required|is to be|are to be)\b", re.IGNORECASE)
+_KIND_OF_TITLE = (
+    (re.compile(r"(?:purpose\s+(?:and|&)\s+)?scope|purpose|applicability", re.I), "the rule book's scope statement"),
+    (re.compile(r"terms?\b", re.I), "a definition of the rule book's terms"),
+    (re.compile(r"conflicts?|deviations?|exceptions?|waivers?", re.I), "the rule book's own conflicts and deviations rule"),
+)
+
+
+def not_a_requirement(text: str | None, section: str | None) -> str:
+    """W-H4 (order 14): why a stored rule is not a requirement to check against a paper, or "". From the stored clause's own heading
+    (the section title the book prints: scope, terms or definitions, conflicts and deviations, references) or from its own sentence
+    (it only defines a word, `requirement_quality.is_defining_sentence`). General: no word list of any one book; a definition sits in
+    the book, never on the paper."""
+    from . import requirement_quality as rq
+
+    title, sentence = " ".join(str(section or "").split()), str(text or "")
+    defines = rq.is_defining_sentence(sentence)
+    # in a section of terms or definitions, a sentence that still OBLIGES something ("X must be independent", "the drawing shall be
+    # scaled") stays a requirement: only a sentence that defines a word or obliges nothing is set apart (no real requirement is lost)
+    obliges = bool(_OBLIGES.search(sentence)) and not defines
+    if title:
+        bare = _NUMBER.sub("", title, count=1)
+        terms = rq.is_definitions_heading(title) or (_HOUSEKEEPING.fullmatch(bare) and _KIND_OF_TITLE[1][0].match(bare))
+        if terms:
+            return "" if obliges else f'a definition in the rule book\'s section "{title}", not a requirement'
+        if rq.is_references_heading(title):
+            return f'a reference list of the rule book (section "{title}"), not a requirement'
+        if _HOUSEKEEPING.fullmatch(bare):
+            what = next(w for rx, w in _KIND_OF_TITLE if rx.match(bare))
+            return f'{what} (section "{title}"), not a requirement on the paper'
+    if defines:
+        return "its own sentence only defines a word: a definition, not a requirement"
+    return ""
+
+
+#: W-H5 (order 14): the reason of the AI check's own note on the paper that no rule asks (see `ai_note_on_paper`).
+AI_NOTE_REASON = (
+    "An AI engineering note on the paper's own values, not a rule's question: it names no clause, and the rule book it names ({book}) "
+    "is not held. Engineer to decide whether to raise it."
+)
+
+
+def ai_note_on_paper(kind: str | None, finding: dict | None, clause_named: bool) -> bool:
+    """W-H5 (order 14): the rule check's AI step wrote this point about a value of the paper's OWN table or sheet (its row label is the
+    paper's), naming no clause of a rule, from a rule book we do not hold. No rule asks it, so it is never worded as that book's
+    question ("Book missing ... cannot be checked until the book is held", with a bare number as its evidence): it is the AI's own
+    note, in its own words, its value shown with the paper's label."""
+    f = finding or {}
+    if kind not in ("ai_engineering_check", "web_standard_check") or clause_named or _clean_text(f.get("standard_clause")):
+        return False
+    return bool(_clean_text(f.get("contractor_section")))
+
+
+def _clean_text(value) -> str:
+    return " ".join(str(value or "").split())

@@ -55,7 +55,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import agent_claude, claude_spend
+from . import agent_claude, claude_spend, crs_reference
 from . import standards_web_search_money as money
 from .config import settings
 from .db import connect
@@ -747,42 +747,15 @@ def after_run(run_id: str, heartbeat=None) -> None:
 # ------------------------------------------------------------------------------------------------ what is shown
 
 
-EDITION_NOT_FOUND = "edition not found"
-
-
-def edition_words(row: dict) -> str:
-    """W-H10 (order 14, rule 4): a found-online edition is shown only with its source (the publisher's page) and its date (the year the
-    reply gives, earlier than the year of the search); otherwise "edition not found", with why. A reply that dates the edition in the
-    year of the search itself or later (a sheet showed an edition dated the very year it was searched) is not taken."""
-    edition, year, searched = row.get("latest_edition"), row.get("year"), _year_of(row.get("searched_at"))
-    if not (edition or year):
-        return EDITION_NOT_FOUND
-    if not row.get("url"):
-        return f"{EDITION_NOT_FOUND} (no source on the publisher's site)"
-    if not year:
-        return f"{EDITION_NOT_FOUND} (no date given)"
-    if searched is None or year >= searched:
-        return f"{EDITION_NOT_FOUND} (the date given, {year}, is not before the search)"
-    return f"{edition}; ({year})" if edition else f"({year})"
-
-
-def _year_of(when) -> int | None:
-    try:
-        return datetime.fromisoformat(str(when)).year
-    except (ValueError, TypeError):
-        return None
-
-
 def words(row: dict | None) -> str:
-    """The one plain sentence for one book, on the page and in the CRS file's column: a found entry always says when it was searched
-    (W-H10)."""
+    """The one plain sentence for one book, on the page and in the CRS file's column; a found one says when it was searched (W-H10)."""
     if not row:
         return "not searched yet"
     hit, when = row.get("why") == STORED_WORDS, str(row.get("searched_at"))[:10]
     stored = f"; {STORED_WORDS}, searched on {when}" if hit else ""
     if row["outcome"] == FOUND:
-        bits = [row.get("title"), edition_words(row), row.get("publisher"), row.get("url")]
-        dated = "" if hit else f"; searched on {when}" if _year_of(row.get("searched_at")) else ""
+        bits = [row.get("title"), crs_reference.found_online_edition(row), row.get("publisher"), row.get("url")]  # fmt: skip
+        dated = "" if hit or not crs_reference.year_of(row.get("searched_at")) else f"; searched on {when}"  # fmt: skip
         return "; ".join(b for b in bits if b) + f" ({NOT_VERIFIED}{dated})" + stored
     if row["outcome"] == NOTHING:
         return "searched online, nothing found on the publisher's site" + stored

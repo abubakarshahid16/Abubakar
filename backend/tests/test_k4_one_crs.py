@@ -966,3 +966,25 @@ def test_a_file_missing_a_whole_sheet_is_refused_with_a_sentence_never_a_crash(
     with pytest.raises(cc.Incomplete) as e:
         cc.file_or_refuse(doc, scope_all(), copy)
     assert f"the sheet {name} is missing" in e.value.report["missing"]
+
+
+def test_a_rule_whose_clause_sits_under_the_books_deviations_heading_is_set_apart_on_the_page_and_in_the_file():
+    """W-H4 (order 14), through the listing and the file: the clause's own heading (read from the book's stored section title) makes
+    it not a requirement: set apart with its reason, still counted (page = database = file)."""
+    from app import crs_completeness as cc
+
+    doc, rc, ai, client = world_with_both()
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,text,token_count,content_hash,retrievable)"
+            " VALUES ('c-dev','doc_std','STD-A-001.pdf',1,2,2,'2 Conflicts and Deviations','prose','x',1,'h-dev',1)"
+        )
+        conn.execute(
+            "INSERT INTO standard_requirements (id,standard_document_id,clause,requirement_text,chunk_id,created_at,updated_at)"
+            " VALUES ('req-dev','doc_std','2','Any deviation shall follow the invented procedure.','c-dev','2026-09-19','2026-09-19')"
+        )
+        conn.execute("UPDATE review_findings SET requirement_id = 'req-dev' WHERE review_run_id = ?", (rc,))
+    listing = points_of(client, doc)
+    rule = next(p for p in listing["points"] if p["source"] == "rule_check")
+    assert rule["rank"] == 8 and rule["other_kind"] == "Not a requirement to check"
+    assert listing["completeness"]["ok"] and cc.checked_files(doc, scope_all())["team"][1]["ok"]

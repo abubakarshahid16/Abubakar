@@ -38,6 +38,7 @@ from . import (
     crs_editions,
     crs_export_quality,
     crs_layout,
+    procedure_playbook_rows,
     standards_web_search,
     standards_web_search_money,
 )
@@ -155,11 +156,13 @@ def paper_shows(point: dict) -> str:
     # a code-proved absence: its proof, as on the page
     if point.get("paper_looked") or point.get("paper_proof"):
         return point["paper_quote_note"]
+    # W-H5: a value of the paper's own table is shown with the paper's label for it, never as a bare number
+    label = f'the paper\'s "{point["paper_label"]}": ' if point.get("paper_label") else ""
     if point.get("paper_quote"):
-        return f'"{point["paper_quote"]}" ({point["paper_quote_note"]})'
+        return f'{label}"{point["paper_quote"]}" ({point["paper_quote_note"]})'
     if point.get("paper_value"):  # stored, but code did not verify it: shown as stored, never as verified
         page = point.get("paper_value_page")
-        return f'"{point["paper_value"]}" (as stored{f", page {page}" if page else ""}; {content.NOT_VERIFIED})'
+        return f'{label}"{point["paper_value"]}" (as stored{f", page {page}" if page else ""}; {content.NOT_VERIFIED})'
     return content.NOTHING
 
 
@@ -730,6 +733,8 @@ def apart_proof(p: dict) -> str | None:
     for any other point. A rule book the reader may not read gives no words of its condition (rule 5)."""
     from .agent_review_not_applicable import proof as not_applicable_proof
 
+    if p.get("_not_a_requirement"):  # W-H4: the stored clause's own heading or sentence, read by code
+        return f"{p['_not_a_requirement'][0].upper()}{p['_not_a_requirement'][1:]} (read by code from the rule book's stored clause)."
     proof = not_applicable_proof(p.get("_line") or {})
     if not proof or p.get("other_kind") != words.KIND_NOT_APPLICABLE:
         return None
@@ -970,6 +975,8 @@ def build_team(
             else "; no cell shortened"
         ),
         "Rule books used (points): " + _books_line(raw, crs_editions.by_name(editions)),
+        # W-H6: the playbook rows' draft notice, said once for the sheet (never repeated in each row)
+        *([pb_line] if (pb_line := procedure_playbook_rows.notice_line((p.get("_row") or {}).get("playbook_notice") for p in raw)) else []),
     ]
     header_row = _put_block(
         ws,

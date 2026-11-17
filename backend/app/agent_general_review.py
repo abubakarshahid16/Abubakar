@@ -107,6 +107,13 @@ HELD_FIT_LINE_BEFORE = "rule books we hold that fit this paper were not used: ru
 UNREAD_QUERY = "could not be checked: the page holds pictures that were not read"
 
 
+def stored_words_now(line) -> dict:
+    """W-H7: a general line whose whole text is an older sentence that is not true beside the rule check's points is read in today's
+    sentence (`agent_review_wording.read_time`); the stored row is never rewritten."""
+    now = {HELD_FIT_LINE_BEFORE: HELD_FIT_LINE}
+    return {**line, **{k: now[line[k]] for k in ("text", "reason") if isinstance(line.get(k), str) and line[k] in now}}  # fmt: skip
+
+
 class GeneralModeViolation(ValueError):
     """A line (or a call) that this mode must never produce."""
 

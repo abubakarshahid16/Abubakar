@@ -244,6 +244,15 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
     from .agent_review_rules import library_of
 
     conn = connect()
+    # W-H4: the section title each stored requirement of this run sits under in its book (scope, terms, deviations: not a requirement)
+    ctx["req_sections"] = {
+        r[0]: r[1]
+        for r in conn.execute(
+            "SELECT r.id, c.section FROM review_findings f JOIN standard_requirements r ON r.id = f.requirement_id"
+            " LEFT JOIN chunks c ON c.id = r.chunk_id WHERE f.review_run_id = ?",
+            (run_id,),
+        )
+    }
     library = library_of(conn)
     everything = {r[0] for r in conn.execute("SELECT id FROM documents")} <= ctx["readable"]
     out = []

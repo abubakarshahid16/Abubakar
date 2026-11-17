@@ -624,8 +624,8 @@ def _all_evidence(doc):
     seen = []
     orig = playbooks._match
 
-    def spy(element, body):
-        result = orig(element, body)
+    def spy(element, body, others=()):  # W-H6: `_match` also takes the playbook's other elements' subjects
+        result = orig(element, body, others)
         for key in ("evidence", "candidates"):
             seen.extend(result.get(key) or [])
         return result

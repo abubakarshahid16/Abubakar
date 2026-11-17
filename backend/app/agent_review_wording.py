@@ -457,15 +457,6 @@ def not_applicable_question(line: Mapping) -> bool:
     )
 
 
-def _stored_words_now(line: Mapping) -> dict:
-    """W-H7: a general line whose whole text is an older sentence that is not true on a sheet beside the rule check's points is read in
-    today's sentence; the stored row is never rewritten."""
-    from .agent_general_review import HELD_FIT_LINE, HELD_FIT_LINE_BEFORE
-
-    now = {HELD_FIT_LINE_BEFORE: HELD_FIT_LINE}
-    return {**line, **{k: now[line[k]] for k in ("text", "reason") if isinstance(line.get(k), str) and line[k] in now}}
-
-
 def read_time(line: Mapping) -> dict:
     """A stored line of ANY run as every reader of it sees it: an item row (rule or checklist) gets the reason sentence the SAME rule gives a
     new line (`classify`), so an earlier run's stored reason (the gate's old sentence for a reader's own Query) is worded truly on the page,
@@ -473,9 +464,11 @@ def read_time(line: Mapping) -> dict:
     defences that read the stored class keep working); never rewritten in the table. TWO exceptions, narrowing only: a stored AI opinion
     "not met" (`_NARROWED_AT_READ`, order 14 G5) and a stored "not applicable" without its proof (FTU-17) that today's rule makes a Query
     are read as that Query (its label, class and reason), so an older run's CRS never shows what today's rule would not give. Any other
-    line is returned as it is, except a general line stored in words that are no longer true (`_stored_words_now`, W-H7)."""
+    line is returned as it is, except a general line stored in words no longer true (`agent_general_review.stored_words_now`, W-H7)."""
     if line.get("source") not in ("rule", "skill"):
-        return _stored_words_now(line)
+        from .agent_general_review import stored_words_now
+
+        return stored_words_now(line)
     got = classify(line)
     narrowed = (
         line.get("verdict_class") in _NARROWED_AT_READ
