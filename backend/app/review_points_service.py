@@ -621,7 +621,11 @@ def sentence_quotes(points: list[dict], kind: str | None) -> None:
             p["paper_quote"] = None
         # a rule-check row also shows its stored passage ("as stored, not verified"): the same test; a value in it stays as evidence
         v = p.get("paper_value") if rule else None
-        if v and not quote_sentence.is_evidence(v) and not quote_sentence.holds_value(v):
+        if (
+            v
+            and not quote_sentence.is_evidence(v)
+            and not quote_sentence.holds_value(v)
+        ):
             refused.append((v, p.get("paper_value_page")))
             p["paper_value"] = None
         if refused and not p.get("paper_quote"):
