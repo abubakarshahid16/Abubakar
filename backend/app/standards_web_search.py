@@ -771,10 +771,7 @@ def shown(conn, run_id: str | None, names: list[str]) -> list[dict] | None:
         from .review_points import book_name_of
 
         # FTU-16: the list names the book alone; the search stored the run's own name
-        rows = {
-            book_name_of(r["name"]): dict(r)
-            for r in conn.execute(f"SELECT * FROM {TABLE} WHERE run_id = ?", (run_id,))
-        }
+        rows = {book_name_of(r["name"]): dict(r) for r in conn.execute(f"SELECT * FROM {TABLE} WHERE run_id = ?", (run_id,))}  # fmt: skip
     keep = ("outcome", *FIELDS, "searched_at", "usd")
     return [
         {
