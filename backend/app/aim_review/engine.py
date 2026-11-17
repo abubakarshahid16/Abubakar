@@ -546,6 +546,15 @@ def _steps(
     lead, strong = _models()
     say(0, "read the paper")
     paper = load_paper(conn, state.paper_id)
+    # The trace says where each page's text came from (counts only, no text): a row of the run's calls, no model, no cost.
+    mdl.meter.calls.append(
+        CallRecord(
+            step="aim_read_pages",
+            model="code",
+            prompt_chars=0,
+            code=paper.source_note(),
+        )
+    )
     if not paper.pages:
         raise StepFailed("no_pages: the paper has no stored page text")
     say(5, "name the paper")
