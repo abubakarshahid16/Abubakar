@@ -33,8 +33,9 @@ most `TIME_LIMIT_SECONDS` of wall time a run. The web search tool has its own pr
 tokens that the prompt does not show, so `claude_spend.metered`'s worst case (the prompt and `max_tokens`) is not enough: before each
 request a second reservation under the same step holds the rest (`extra_worst_usd`, its formula there). It is settled to the searches
 the answer reports, released when the API provably did no work, and charged at its worst case on any other path, never left open.
-So the run, step, day and month caps in `claude_spend` hold; the run's spend record (`claude_spend_report.record_run`, written after
-the job) includes the search, and the CRS file states its cost apart from the AI review's. A 4xx costs nothing.
+So the run, step, day and month caps in `claude_spend` hold; the run's spend record (`claude_spend_report.record_run`) and its `usd`
+include the search, its part stated in the CRS file (`standards_web_search_money`, which also closes holds a process that ended
+left open). A 4xx costs nothing.
 
 OFF (`settings.standards_web_search_enabled`, default False): nothing is asked, nothing is created, the page, the plan and the CRS
 file are byte for byte as before. No document text, no answer text and no key is logged; the log says counts and outcomes only.
@@ -55,6 +56,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import agent_claude, claude_spend
+from . import standards_web_search_money as money
 from .config import settings
 from .db import connect
 
@@ -82,9 +84,7 @@ TABLE = "standards_web_search"
 COLUMN = "Found online (not verified, book not held)"
 NOT_VERIFIED = "found online, not verified; the book is not held"
 #: The row of the CRS file's "How it was reviewed" that states the search's cost apart from the AI review's (finding 6).
-COST_ROW = (
-    "Online search for rule books not held: cost (USD, not in the AI review's cost)"
-)
+COST_ROW = "Online search for rule books not held: cost (USD, not in the AI review's cost)"  # fmt: skip
 
 #: Publisher families whose standards are public and sold by their publisher; the first word of a name that may leave.
 FAMILIES = frozenset(
@@ -663,18 +663,20 @@ class _Budget:
         return max(1.0, min(REQUEST_TIMEOUT_SECONDS, self.until - time.monotonic()))
 
 
-def search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
+def search_run(run_id: str, *, send=None, env=None, conn=None, heartbeat=None) -> dict:
     """Search every rule book the run listed as not held. Switch off: does nothing at all (no table, no request).
 
     Counts only in the result and the log, never a name or an answer. Its spend is always booked to the run (review R2-1856: the
-    run cap and the run's spend record hold even when it is called outside the job wrapper)."""
+    run cap and the run's spend record hold even when it is called outside the job wrapper). Holds of this step left open by a
+    process that ended are closed first (`standards_web_search_money.close_stale`)."""
     if not enabled() or not run_id:
         return {"ran": False}
+    money.close_stale(STEP)
     with claude_spend.for_run(run_id):
-        return _search_run(run_id, send=send, env=env, conn=conn)
+        return _search_run(run_id, send=send, env=env, conn=conn, beat=heartbeat or (lambda: None))  # fmt: skip
 
 
-def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
+def _search_run(run_id: str, *, send=None, env=None, conn=None, beat) -> dict:
     from . import claude_approved
 
     conn = conn or connect()
@@ -699,6 +701,7 @@ def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
         for name in names:
             if name in done:
                 continue
+            beat()  # the job's worker stays alive on the page while each request runs
             searched = known_public_name(name)
             parts = body_parts(searched) if searched else None
             why = NOT_PUBLIC if parts is None else (stop or budget.refuses(parts))
@@ -721,23 +724,22 @@ def _search_run(run_id: str, *, send=None, env=None, conn=None) -> dict:
             if sent:
                 sent_names.add(searched)
             _write(conn, run_id, name, searched if sent else None, row)
-    log.info(
-        "standards web search: run %s, %d book(s) not held, %d asked, USD %.4f",
-        run_id,
-        len(names),
-        budget.asked,
-        budget.spent,
-    )
+    log.info("standards web search: run %s, %d book(s) not held, %d asked, USD %.4f", run_id, len(names), budget.asked,
+             budget.spent)  # fmt: skip
     return {"ran": True, "asked": budget.asked, "usd": round(budget.spent, 6)}
 
 
-def after_run(run_id: str) -> None:
-    """The AI review job's hook, after the job is marked done and before the run's spend record is written (so it includes the
-    search): never fails the review (a failure is logged by kind only); at most `TIME_LIMIT_SECONDS`."""
+def after_run(run_id: str, heartbeat=None) -> None:
+    """The AI review job's hook, BEFORE the run is marked completed (a driver that stops the app on "completed" no longer ends a
+    search with its hold open; paid run of 17 Nov 2026), then its cost is added to the run's own `usd` (`money.add_to_run`):
+    never fails the review (a failure is logged by kind only); at most `TIME_LIMIT_SECONDS`."""
     if not enabled():
         return
     try:
-        search_run(run_id)
+        try:
+            search_run(run_id, heartbeat=heartbeat)
+        finally:  # names already paid count on the run even when the search stopped with an error
+            money.add_to_run(run_id, STEP)
     except Exception as exc:  # noqa: BLE001 - shown, never used: the review stands whatever happens here
         log.warning("standards web search skipped: %s", type(exc).__name__)
 
@@ -791,7 +793,8 @@ def into(counts: dict, conn, run_id: str | None, names: list[str]) -> dict:
 
 
 def cost_of(found: list[dict] | None) -> float | None:
-    """The search's own cost for the CRS file's "How it was reviewed" (it is not in the AI review's cost), or None while off."""
+    """The search's own cost for the CRS file's "How it was reviewed" (a run recorded before 17 Nov 2026 has it outside the AI
+    review's cost; a later one inside it, `money.COST_ROW_INCLUDED`), or None while off."""
     if found is None:
         return None
     return round(sum(float(f.get("usd") or 0.0) for f in found), 6)
