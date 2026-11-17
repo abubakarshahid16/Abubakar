@@ -151,9 +151,11 @@ def _paper_numbers(
     nums: dict, paper: dict, quote: str, rule_quote: str, notes: list[str], paper_doc
 ) -> tuple[str, dict | None]:
     """PAPER vs PAPER (the lead, 18 Nov 2026): the rule's words hold no value, the paper states both the value and its limit. Code
-    reads both from verified paper quotes and compares them by the app's unit code. The operator comes from the rule's verified
-    words (`rule_operator`): then the label follows the result ("compared by code"). When no rule gives it, the AI's operator is
-    used and the line is an AI opinion, the comparison in its code note: never a code verdict."""
+    reads both from verified paper quotes and compares them by the app's unit code, with the operator of the rule's verified words
+    (`rule_operator`), else the AI's. It is NEVER a code verdict: the model chose which paper number is the limit, so code did
+    not prove the pairing. The line is an AI opinion (a Question when provisional), the comparison in its code note; a failed
+    compare is sent with both numbers, a passed one is held back (`_code_note`). "Compared by code" stays for a paper value
+    against a number of the VERIFIED RULE quote only (review R1, B1)."""
     limit, limit_page = _paper_limit(nums, paper, quote, paper_doc)
     if limit is None:
         notes.append(
@@ -171,12 +173,22 @@ def _paper_numbers(
         read_from="verified paper quotes", op=op, op_from=op_from, limit_page=limit_page
     )
     notes.append("code compared two values of the paper: " + code_cmp["why"])
-    if op_from == "the AI's answer":
-        notes.append(
-            "no rule gives the comparison: an AI opinion, never a code verdict"
-        )
-        return "AI opinion", code_cmp
-    return {"pass": "Met", "fail": "Not met"}[code_cmp["result"]], code_cmp
+    notes.append(
+        "the AI chose which paper value is the limit: an AI opinion, never a code verdict"
+    )
+    return "AI opinion", code_cmp
+
+
+def _paper_compare(code_cmp, page: int | None) -> bool:
+    """Is this a compare of two paper values? Then a limit read from the judged quote itself is on the judged page."""
+    if not (
+        isinstance(code_cmp, dict)
+        and code_cmp.get("read_from") == "verified paper quotes"
+    ):
+        return False
+    if code_cmp.get("limit_page") is None:
+        code_cmp["limit_page"] = page
+    return True
 
 
 def _provisional_figure(quote: str) -> bool:
@@ -210,6 +222,7 @@ def _provisional(
         _label, code_cmp = _numbers(
             nums, quote, str(it.get("rule_quote") or ""), [], paper_doc
         )
+    _paper_compare(code_cmp, page)
     result = code_cmp.get("result") if isinstance(code_cmp, dict) else None
     fails = result == "fail"
     note = {"fail": PROVISIONAL_FAILS, "pass": PROVISIONAL}.get(
@@ -237,13 +250,16 @@ def _num(v) -> str:
 
 
 def _fails_comment(code_cmp: dict, quote: str, base: dict) -> str:
-    """The sent comment of a failed provisional figure, every number from code's check of the verified quotes."""
+    """The sent comment of a failed check (a provisional figure, or two paper values), every number from code's check of the
+    verified quotes; the who-supplies note beside the figure when the quote has one."""
     from app import blank_markers
 
     (pv, pu), (rv, ru) = code_cmp["paper"], code_cmp["rule"]
     stated = f"{_num(pv)} {pu}".strip()
     rule = f"{_num(rv)} {ru}".strip()
-    who = blank_markers.who_supplies(quote) or "who supplies it"
+    who = blank_markers.who_supplies(quote)
+    if who:
+        stated = f"{stated} ({who.lower()})"
     if code_cmp.get("read_from") == "verified paper quotes":
         page = code_cmp.get("limit_page")
         where = f"page {page} of this paper" if page else "this paper"
@@ -252,7 +268,7 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict) -> str:
     else:
         where = "the rule"
     fails = _FAILS_AS.get(str(code_cmp.get("op") or ""), "does not meet the {r} rule")
-    return f"The stated {stated} ({who.lower()}) {fails.format(r=rule)} of {where}; contractor to confirm the value."
+    return f"The stated {stated} {fails.format(r=rule)} of {where}; contractor to confirm the value."
 
 
 def _shown_item(it: dict, books: dict, text: L.BookText) -> dict:
@@ -466,7 +482,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         "label": label,
         "quote": quote if page is not None else "",
         "quote_unverified": quote if (quote and page is None) else "",
-        "comment": str(j.get("comment") or "")[:400],
+        "comment": _comment(j, code_cmp, quote, base, page),
         "code": _code_note(notes, code_cmp),
         "numbers": nums,
         "code_compare": code_cmp,
@@ -474,12 +490,20 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     }
 
 
+def _comment(j: dict, code_cmp, quote: str, base: dict, page) -> str:
+    """The AI's comment; for a FAILED compare of two paper values, code's sentence with both numbers and the limit's page first."""
+    said = str(j.get("comment") or "")
+    if _paper_compare(code_cmp, page) and code_cmp.get("result") == "fail":
+        said = _fails_comment(code_cmp, quote, base) + (" " + said if said else "")
+    return said[:400]
+
+
 def _code_note(notes: list[str], code_cmp: dict | None) -> str:
-    """The line's code note: its notes joined; a PASSED compare of two paper values with the AI's operator is held back from the
+    """The line's code note: its notes joined; a PASSED compare of two paper values (an AI pairing) is held back from the
     comments (`PAPER_COMPARE_PASSED`; the comparison itself is kept in `code_compare`)."""
     if (
         isinstance(code_cmp, dict)
-        and code_cmp.get("op_from") == "the AI's answer"
+        and code_cmp.get("read_from") == "verified paper quotes"
         and code_cmp.get("result") == "pass"
     ):
         return PAPER_COMPARE_PASSED
