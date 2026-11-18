@@ -108,11 +108,11 @@ def test_the_card_carries_the_tag_the_team_file_a_readers_cell_and_the_contracto
     row = aim_review_sheet.comment_rows(model)[0]
     assert (
         "Two readers differ. First reader: AI opinion. Second reader: Met"
-        in row[aim_review_sheet.COMMENT_HEADERS.index("Readers")]
+        in row[aim_review_sheet.COMMENT_HEADERS.index("Team note (AI process)")]
     )
     assert "readers differ" not in row[aim_review_sheet.COMMENT_HEADERS.index("We ask")]
     assert (
-        "Readers" not in aim_review_contractor.HEADERS
+        "Team note (AI process)" not in aim_review_contractor.HEADERS
     )  # the contractor copy has no such column
 
 

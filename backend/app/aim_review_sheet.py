@@ -58,7 +58,7 @@ COMMENT_HEADERS = (
     "Page",
     "Status",
     "Engineer decision",
-    "Readers",
+    "Team note (AI process)",
     # the technical columns: kept for the file's checks and for an engineer who wants them, hidden by default (HIDDEN_COLUMNS)
     "Lines",
     "Field",
@@ -95,7 +95,7 @@ COLUMN_WIDTHS = {
     "No.": 6, "Lines": 9, "Item": 7, "Note": 14, "Status": 12, "Page": 7, "Field": 28, "Shown label": 20, "Comment": 70,
     "Quote": 45, "Standard": 18, "Clause": 10, "Source": 14, "Topic": 26, "Quote not verified by code": 30, "Code note": 20,
     "Asks": 10, "Value left open": 10, "Numbers": 22,
-    "Severity": 16, "Title": 36, "Paper says": 42, "Rule says": 34, "We ask": 48, "Applies to": 30, "Engineer decision": 34, "Readers": 34,
+    "Severity": 16, "Title": 36, "Paper says": 42, "Rule says": 34, "We ask": 48, "Applies to": 30, "Engineer decision": 34, "Team note (AI process)": 40,
 }  # fmt: skip
 DEFAULT_WIDTH = 14
 
@@ -177,6 +177,18 @@ SEVERITY_FILLS = {
 }
 
 
+def team_note(p: dict) -> str | None:
+    """The team file's ONE note on the AI's own process for a card (owner, 19 Nov 2026: such words are never comment text and
+    never in the contractor copy): the two readers' difference and a pairing of two paper values the AI chose."""
+    from app.aim_review.fail_words import PAIRED_TEAM_WORDS
+
+    parts = [
+        readers_words(p.get("readers")),
+        PAIRED_TEAM_WORDS if p.get("paired") else None,
+    ]
+    return " ".join(x for x in parts if x) or None
+
+
 def readers_words(readers) -> str | None:
     """The team file's words for a card whose two readers differ (never in the comment's text, never in the contractor copy)."""
     if not isinstance(readers, dict):
@@ -211,7 +223,7 @@ def comment_rows(model: dict, part: str = "comments") -> list[list]:
         cells = {
             "No.": p["n"], "Severity": p.get("severity"), "Title": p.get("title"), "Paper says": said or None,
             "Rule says": p.get("rule_says") or None, "We ask": ask or None, "Applies to": applies_text(p.get("applies_to")),
-            "Page": page, "Status": model["mark"], "Engineer decision": (p.get("decision") or {}).get("sentence"), "Readers": readers_words(p.get("readers")), "Lines": lines_cell(lines), "Field": p["field"],
+            "Page": page, "Status": model["mark"], "Engineer decision": (p.get("decision") or {}).get("sentence"), "Team note (AI process)": team_note(p), "Lines": lines_cell(lines), "Field": p["field"],
             "Shown label": p["shown_label"], "Comment": comment, "Quote": quote, "Standard": p["standard"], "Clause": p["clause"],
             "Source": p["source"], "Item": p["item_id"], "Note": note,
         }  # fmt: skip

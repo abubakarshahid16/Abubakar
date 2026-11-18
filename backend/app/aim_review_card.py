@@ -16,6 +16,7 @@ import re
 
 from . import aim_review
 from .aim_review import steps as _steps
+from .aim_review.fail_words import PAIRED_MARK
 from .aim_review_gate import AI_MARK
 from .aim_review_store import FAIL_BY_CODE, PASS_BY_CODE
 
@@ -176,6 +177,8 @@ def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict
         "applies_to": _places(members),
         "proven": proven(members),
         "readers": readers_of(members),
+        # internal AI process (never the comment, never the contractor copy): the team file's note column and the card's tag
+        "paired": any(PAIRED_MARK in str(m.get("code_note") or "") for m in members),
     }
 
 
