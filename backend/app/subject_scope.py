@@ -93,6 +93,14 @@ class Vocabulary:
         return {t for t in self.types_in(text) if self.kind.get(t) == EQUIPMENT}
 
 
+def equipment_key(name: object, path: Path | str | None = None) -> str | None:
+    """The ONE registered equipment type a whole name stands for (`reference/equipment_vocabulary.json`: the type's own
+    name or one of its listed spellings), or None when the name is not registered or is listed under more than one type
+    ("valve"). Fail closed: a caller that gets None must not treat the name as any type's synonym."""
+    types = vocabulary(path).phrases.get(_fold(name))
+    return next(iter(types)) if types and len(types) == 1 else None
+
+
 def _fold(text: object) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", numparse.fold(text or "")).strip())
 
