@@ -498,7 +498,7 @@ def _after_judge(
     """After the judge, in order: the contract's reference papers (G), the second reader (S4c: a finding the AI alone decided
     needs two readers), the whole-paper check (S4b, behind its switch: a line whose claim the paper contradicts is not sent), the
     editor (S5), and last the no-ask mark (code: a Question that asks nothing is kept on All points, not sent)."""
-    from . import asks
+    from . import asks, contract_code
     from . import references as R
     from .answered import s4b_answered
     from .editor import s5_edit
@@ -523,6 +523,9 @@ def _after_judge(
     asks.mark(
         state.decided
     )  # last, after every AI step: a Question that asks nothing is kept on All points, not sent
+    contract_code.add_lines(
+        conn, state, paper, allowed_books
+    )  # a contract's code checks (builder C): after every AI step, so none rewrites a code line
 
 
 def _fault_at(exc: BaseException) -> str:
@@ -717,7 +720,7 @@ def _judge(
 ) -> None:
     """The decided lines of every checklist item, in order (one per item, or per failing place). An item whose book is not on
     the list shown is never sent: "not judged", its book counted as unlisted. Company books not cited: "Does not apply"."""
-    from . import always
+    from . import always, contract_code
     from . import library as L
     from . import steps as S
     from . import verify as V
@@ -732,6 +735,9 @@ def _judge(
     items += always.items(
         text.conn, state.identity, checklist, allowed_books, paper.pages
     )
+    items += contract_code.checklist_items(
+        state.identity
+    )  # the fixed contract checklist (builder C), a contract only
     judged, held_back, not_cited = [], set(), set()
     company = L.company_books_not_cited(text.conn, state.paper_id, books)
     for it in items:
