@@ -73,9 +73,9 @@ def test_a_comment_with_any_request_or_named_gap_is_kept(text):
 def test_only_a_question_on_a_stated_value_is_judged():
     quiet = "The value is within the limit."
     assert asks.asks_nothing(decided(quiet, ask="confirm"))
-    assert not asks.asks_nothing(
+    assert asks.asks_nothing(
         decided(quiet, ask="concern")
-    )  # the judge suspects the value: never taken off
+    )  # a concern that only states a pass asks nothing (changed 18 Nov: the strict judges called such comments WRONG)
     assert not asks.asks_nothing(decided(quiet, ask="open"))  # a blank IS the question
     assert not asks.asks_nothing(decided(quiet, ask="confirm", deferred=True))
     assert not asks.asks_nothing(
@@ -202,3 +202,30 @@ def test_no_chain_a_comment_spanning_two_places_stays_alone():
     comments, _ = aim_review_view.comments_and_confirmations(pts)
     covered = sorted(n for c in comments for n in c["lines"])
     assert covered == [1, 2, 3]  # every sent line is in exactly one comment
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Inlet flange rating is Class 150 RF on all sheets, which meets the minimum.",
+        "All valves are specified with the stamp and bench testing; design pressures are well above the threshold.",
+        "Set pressure is well above 10 % over the stated operating pressure; the other sheets show the same pattern.",
+    ],
+)
+def test_a_concern_that_only_states_a_pass_asks_nothing(text):
+    """Invented sentences of the kind the strict judges marked WRONG on the valve copies (pass statements sent as concerns)."""
+    assert asks.states_a_pass(text) and asks.asks_nothing(decided(text, ask="concern"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The flange rating meets the minimum but not the set pressure on sheet 2.",
+        "The rating is acceptable only for the first stage.",
+        "The margin is adequate. Please confirm the design pressure.",
+        "Does the rating meet the minimum?",
+        "The stated set pressure exceeds the vessel rating.",
+    ],
+)
+def test_a_pass_word_beside_a_contrast_or_a_request_is_kept(text):
+    assert not asks.asks_nothing(decided(text, ask="concern"))

@@ -220,3 +220,23 @@ def test_the_books_a_line_names_are_declared_as_carried():
     )
     A.s4b_answered(model, PAPER, [line], MODEL)
     assert model.asked[0]["carries"] == {"doc_ans", "doc_book_x", "doc_sched_y"}
+
+
+def test_the_lines_own_quote_disproves_a_claim_that_the_value_is_blank():
+    """A claim that the paper LACKS a value (the second reader said a filled row was blank) is disproved by the line's own quote
+    holding that value; any other claim on the line's own evidence is still refused (a value conflict is never dropped)."""
+    line = _line("C01", page=2, quote="the chair and the scribe shall each hold")
+    ok = {"n": 1, "page": 2, "quote": TEAM}
+    blank = A.answer_reason(
+        {**ok, "claim": "the second reader says the team row has no value"},
+        {1: line},
+        PAPER,
+    )
+    assert blank is not None and "covers what it says" in blank
+    assert (
+        A.answer_reason(
+            {**ok, "claim": "the team differs from page 3"}, {1: line}, PAPER
+        )
+        is None
+    )
+    assert A.answer_reason(ok, {1: line}, PAPER) is None
