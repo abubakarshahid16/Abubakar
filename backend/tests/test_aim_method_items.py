@@ -132,3 +132,70 @@ def test_a_run_keeps_a_cross_item_line_off_the_comments(aim_db):
         and not any(aim_review.sendable(ln) for ln in marked)
     )
     assert json.dumps(marked)  # stays a point (All points)
+
+
+# A form printed in two columns side by side (invented): one line of the page holds a field of each block.
+TWO_COL = {
+    2: (
+        "                 MAIN BLOCK (1.2)                                          SIDE BLOCK (3.4)\n"
+        "\n"
+        "   FLOW RATE          ____12____ m3/h                                Kind              ___ALPHA___\n"
+        "\n"
+        "   COAT               ____7_____                                     OILING            ___GREASE___\n"
+    ),
+    3: (
+        "              BEARING AND OILING (6.1)\n"
+        "\n"
+        "   OILING :           (6.2)                ____RING OIL____\n"
+    ),
+}
+COLS = Paper(paper_id="doc_cols", pages=TWO_COL)
+GREASE = "OILING            ___GREASE___"
+RING = "OILING :           (6.2)                ____RING OIL____"
+
+
+def test_a_value_belongs_to_the_heading_of_its_own_column():
+    assert (
+        I.heading_of(TWO_COL[2], GREASE) == "side block"
+    )  # not the heading at the start of the line
+    assert I.heading_of(TWO_COL[2], "COAT               ____7_____") == "main block"
+    assert I.heading_of(TWO_COL[3], RING) == "bearing and oiling"
+
+
+def test_a_label_with_a_fill_in_or_a_figure_is_no_heading():
+    page = "   FLOW RATE          ____12____ m3/h\n   COAT  ____7_____\n"
+    assert I.heading_of(page, "COAT  ____7_____") == ""
+    assert (
+        I.heading_of("   12.5 @ 40 OC (OF)\n   COAT  ____7_____\n", "COAT  ____7_____")
+        == ""
+    )
+
+
+def test_items_named_in_the_judges_words_are_checked_against_the_headings_code_finds():
+    """The judge's names need not be printed word for word: a name that shares a word with the heading above its value counts."""
+    line = {**LINE, "page": 3, "quote": RING}
+    j = _j(
+        ["Bearings of the main item", "Side block (invented)"],
+        {"page": 2, "quote": GREASE},
+    )
+    d = I.check(dict(line), j, COLS)
+    assert d["code"].startswith("different_items") and not aim_review.sendable(
+        to_line(1, d)
+    )
+
+
+def test_two_values_under_one_heading_are_one_item_whatever_the_names():
+    pages = {2: TWO_COL[3], 3: TWO_COL[3].replace("RING OIL", "SPLASH")}
+    line = {**LINE, "page": 3, "quote": RING.replace("RING OIL", "SPLASH")}
+    d = I.check(
+        dict(line),
+        _j(["Bearing", "Oiling"], {"page": 2, "quote": RING}),
+        Paper(paper_id="d", pages=pages),
+    )
+    assert d["code"].startswith(
+        f"{I.ITEMS_NOT_ACCEPTED}: the same item"
+    ) and aim_review.sendable(to_line(1, d))
+
+
+def test_the_judge_is_told_to_read_the_heading_of_the_values_own_column():
+    assert "ON ITS OWN SIDE" in P.S4_TASK and "ALWAYS give both" in P.S4_TASK

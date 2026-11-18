@@ -119,7 +119,10 @@ clause does not decide).
 A value belongs to the equipment item its section, block, table heading or sheet names (the main item, its driver, an auxiliary
 system, one side of it): two values conflict only when they belong to the SAME item. When a judgment rests on a second value
 elsewhere on the paper, give it as "other": {"page": p, "quote": "exact paper words"} and name the item of each value as the
-paper writes it: "items": ["item of quote", "item of other"].
+paper writes it: "items": ["item of quote", "item of other"]. ALWAYS give both when your comment names or compares a second
+value (another page, sheet, side or block). A form is often printed in two halves side by side, so one line of the page holds
+two fields of two different blocks: a value's item is the heading ABOVE it ON ITS OWN SIDE of the page, never the heading at the start of
+the line; copy that heading as printed.
 Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
 finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
 that holds everywhere gets one judgment.
