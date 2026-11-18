@@ -19,31 +19,47 @@ log = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------ S5: the editor (it may only take a comment off the sheet)
 
-EDIT_MAX_TOKENS = 4000
 REPEATS, CONTRADICTED = "repeats", "paper_states_otherwise"
+#: Room for the editor's COMPACT answer on a big sheet (a valve run: 125 sent lines; 4000 ended the answer at the limit).
+EDIT_MAX_TOKENS = 16000
+#: At most this many sent lines per editor call; more go to a SECOND call (at most two calls, the same step, the run meter).
+EDIT_CHUNK = 80
+#: What the run's calls say when an editor answer was not applied (`CallRecord`, no model, no cost).
+NOT_APPLIED = "editor not applied"
 
 
 def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
-    """ONE call per paper after S4 (the lead, 18 Nov 2026): the editor sees the SENT lines only (n = the line's number, field,
-    page, comment, quote) and the paper, and may only take a line off the comment sheet. Code checks every move
-    (`_edit_reason`): a repeat names a real, sent line about the same place; a contradiction is only for a line that claims a
-    thing is not stated, with a paper quote on its page that holds its field and a value. A code-proven failure is never offered. A moved line keeps its label and gets "edited: <reason>" (never sent, still in All points).
-    Nothing is added, rewritten or relabelled. A failed call moves nothing. Returns the number of lines moved."""
+    """ONE call per paper after S4 (TWO when the sent lines exceed EDIT_CHUNK): the editor sees the SENT lines only (n = the
+    line's number, field, page, comment, quote) and the paper, and may only take a line off the comment sheet (`_edit_reason`)
+    or group lines that make the same point (`_accept_groups`); code checks every move and every group. A code-proven failure is
+    never offered. Each call's answer is applied WHOLE or not at all: a failed or cut call (the answer too long) applies
+    nothing and the run's calls say so. A group never spans the two calls. Returns the number of lines moved."""
     from . import sendable
     from .engine import to_line
 
     sent = {n: d for n, d in enumerate(lines, 1) if sendable(to_line(n, d))}
     # a line code compared and found failing is code's decision: never offered to the editor, never movable (light check E1)
     offered = {n: d for n, d in sent.items() if not _code_failed(d)}
-    if not offered:
-        return 0
+    keys = list(offered)
+    half = -(-len(keys) // 2)
+    parts = [keys] if len(keys) <= EDIT_CHUNK else [keys[:half], keys[half:]]
+    moved = 0
+    for part in (p for p in parts if p):
+        out = _ask(model, paper, {n: offered[n] for n in part}, lead)
+        if out is not None:
+            moved += _apply(out, {n: offered[n] for n in part}, offered, sent, paper)
+    return moved
+
+
+def _ask(model, paper, shown_lines: dict, lead: str) -> dict | None:
+    """One editor call on these lines; None (and a line in the run's calls) when it failed or its answer was cut."""
     shown = [
         {"n": n, "field": d.get("field") or "", "page": d.get("page"), "comment": d.get("comment") or "", "quote": d.get("quote") or ""}
-        for n, d in offered.items()
+        for n, d in shown_lines.items()
     ]  # fmt: skip
     carries = {paper.paper_id} | {
         str(d["book_document_id"])
-        for d in offered.values()
+        for d in shown_lines.values()
         if d.get("book_document_id")
     }
     try:
@@ -56,28 +72,49 @@ def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
             carries=carries,
             max_tokens=EDIT_MAX_TOKENS,
         )
-    except StepFailed as exc:  # the editor only removes repeats: without it every judged line stays as judged
-        log.info(
-            "general review: the editor step moved nothing (%s)",
-            str(exc).split(" ", 2)[:2],
+    except (
+        StepFailed
+    ) as exc:  # nothing of a failed or cut answer is applied; the run's calls say why
+        code = str(exc).split(":", 1)[-1].strip().split(" ", 1)[0]
+        why = "answer too long" if code == "stop_max_tokens" else code
+        _note(model, f"{NOT_APPLIED}: {why}")
+        log.info("general review: the editor answer was not applied (%s)", code)
+        return None
+    return out if isinstance(out, dict) else None
+
+
+def _note(model, words: str) -> None:
+    """A row of the run's calls with no model and no cost: what happened to the editor's answer."""
+    from .engine import CallRecord
+
+    meter = getattr(model, "meter", None)
+    if meter is not None and hasattr(meter, "calls"):
+        meter.calls.append(
+            CallRecord(
+                step="aim_edit", model="code", prompt_chars=0, ok=False, code=words
+            )
         )
-        return 0
-    moves = (out or {}).get("moves") if isinstance(out, dict) else None
+
+
+def _apply(out: dict, part: dict, offered: dict, sent: dict, paper) -> int:
+    """One call's answer, whole, under code's checks: its moves, then its groups; only lines of THIS call (`part`)."""
+    moves = out.get("moves")
     moved = 0
     for mv in moves if isinstance(moves, list) else []:
         n = mv.get("n") if isinstance(mv, dict) else None
         why = (
-            _edit_reason(mv, n, offered, sent, paper)
-            if isinstance(n, int) and n in offered
+            _edit_reason(mv, n, part, sent, paper)
+            if isinstance(n, int) and n in part
             else None
         )
         if why:
-            d = offered.pop(n)
+            d = part.pop(n)
+            offered.pop(n, None)
             sent.pop(n)
             d["code"] = "; ".join(x for x in (d.get("code"), f"{EDITED}: {why}") if x)
             moved += 1
-    groups = (out or {}).get("groups") if isinstance(out, dict) else None
-    _accept_groups(groups if isinstance(groups, list) else [], offered)
+    groups = out.get("groups")
+    _accept_groups(groups if isinstance(groups, list) else [], part)
     return moved
 
 

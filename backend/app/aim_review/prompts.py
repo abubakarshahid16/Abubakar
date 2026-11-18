@@ -148,7 +148,8 @@ Take nothing off for any other reason.
 Also GROUP the comments that make the SAME POINT (the same value against the same limit, the same missing data, the same
 concern) on other sheets, pages or fields: list their n together. A group is shown as ONE comment that keeps every member's own
 words, field, page and quote; group only comments of the same kind (never a firm finding with a question).
-Reply with ONE JSON object only:
+Reply COMPACT, with ONE JSON object only and no other words: groups as lists of numbers only; a move as {"n", "reason", "of"}
+or {"n", "reason", "page", "quote"}; never repeat a comment's text:
 {"moves": [{"n": n, "reason": "repeats", "of": n} or {"n": n, "reason": "paper_states_otherwise", "page": p, "quote": "..."}],
  "groups": [[n, n, ...], ...]}
 THE COMMENTS:
