@@ -147,3 +147,33 @@ def resort_saved(
     ai = [r for r in rows if r.get("source") not in CL.WANTED_SOURCES]
     use, unlisted, still = sort_needed(conn, paper_id, ai, allowed, kind, gate_ok)
     return use, unlisted, table + still
+
+
+def new_required(
+    conn, paper_id: str, saved: dict, listed, cited, allowed, kind, gate_ok
+) -> list[str]:
+    """The books this run requires that a SAVED checklist does not rest on (then it is built again, not reused): the type's
+    governing and method books on the shown list (`listed`), and the held books the paper cites (the job's ids, `cited`, and
+    the paper's own stored citations), each usable here, its role applying to the kind and the send gate allowing it, so a
+    book the build itself would leave out never forces a build again. 18 Nov 2026: a newly uploaded company book that a paper
+    cites, never named in the tables or by the AI, was not used while a saved checklist of the type was reused."""
+    lib = {
+        e["id"]: e
+        for e in L.library(
+            conn, exclude=frozenset({str(paper_id)}), within=frozenset(allowed)
+        )
+    }
+    want = (
+        set(listed or ())
+        | set(cited or ())
+        | set(paper_cited(conn, paper_id, frozenset(lib)))
+    )
+    have = set(L.saved_books(saved))
+    return sorted(
+        b
+        for b in want - have
+        if b in lib
+        and L.usable(lib[b])
+        and L.role_applies(lib[b], kind)
+        and not gate_ok(b)
+    )
