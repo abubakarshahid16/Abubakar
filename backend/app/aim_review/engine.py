@@ -481,25 +481,30 @@ def _steps(
         cancelled,
     )
     if not state.stop_reason:
-        from . import references as R
+        _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
 
-        # a contract's open questions that name a held Schedule of its own package are checked against it (reference papers)
-        state.references, state.reference_ids = R.check(
-            conn, mdl, paper, state.decided, allowed_books, lead
-        )
-        say(95, "whole-paper check and second reader")
-        from .answered import s4b_answered
-        from .editor import s5_edit
-        from .second_read import s4c_second_read
 
-        s4b_answered(
-            mdl, paper, state.decided, lead
-        )  # a line on no held rule that the paper answers is not sent
-        s4c_second_read(
-            mdl, paper, state.decided, checklist, lead
-        )  # a finding the AI alone decided needs two readers
-        say(96, "judge")
-        s5_edit(mdl, paper, state.decided, lead)
+def _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say) -> None:
+    """After the judge, in this order: the contract's cited Schedules (reference papers), the whole-paper check (S4b), the second
+    reader (S4c), the editor (S5)."""
+    from . import references as R
+    from .answered import s4b_answered
+    from .editor import s5_edit
+    from .second_read import s4c_second_read
+
+    # a contract's open questions that name a held Schedule of its own package are checked against it (reference papers)
+    state.references, state.reference_ids = R.check(
+        conn, mdl, paper, state.decided, allowed_books, lead
+    )
+    say(95, "whole-paper check and second reader")
+    s4b_answered(
+        mdl, paper, state.decided, lead
+    )  # a line on no held rule that the paper answers is not sent
+    s4c_second_read(
+        mdl, paper, state.decided, checklist, lead
+    )  # a finding the AI alone decided needs two readers
+    say(96, "judge")
+    s5_edit(mdl, paper, state.decided, lead)
 
 
 def _book_reasons(checklist: dict) -> dict[str, str]:
