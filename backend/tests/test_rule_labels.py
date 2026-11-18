@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 import pytest
@@ -538,3 +539,304 @@ def test_decide_does_not_trust_a_callers_valid_flag():
 )
 def test_a_quantity_written_in_words_followed_by_a_unit_is_a_quantity(quote, quantity):
     assert rl.quote_states_a_quantity(quote) is quantity
+
+
+# ---------------------------------------------------------------- C3b: designations are no quantity; word alternatives are a reading
+
+DESIGNATION_QUOTE = "Springs shall be made of a resistant alloy in accordance with NACE MR0175/ISO 15156 as applicable."
+BARE = s.reading(values=(), comparator="required", unit=None)
+
+
+def _bare(quote):
+    return decide(
+        s.answer(s.MODEL_A, rd=BARE), s.answer(s.MODEL_B, rd=BARE), quote=quote
+    )
+
+
+def test_the_digits_of_a_cited_standard_are_not_a_quantity_so_two_agreeing_bare_readings_approve():
+    d = _bare(DESIGNATION_QUOTE)
+    assert d.state == "ai_approved" and d.disagreement is None
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "The set pressure shall not exceed 10 bar for the invented item.",
+        "Springs shall be made of alloy per NACE MR0175 and the set pressure shall not exceed 10 bar.",
+        "The item shall be tested at 25 mm clearance as stated in ISO 15156.",
+        "The wall shall be at least 6 mm in accordance with ASME B31.3.",
+    ],
+)
+def test_a_real_quantity_beside_a_standard_name_still_holds_a_bare_reading(quote):
+    d = _bare(quote)
+    assert d.state == "needs_human" and "numbers_unread" in d.disagreement
+
+
+@pytest.mark.parametrize(
+    "comparator", ["le", "ge", "lt", "gt", "eq", "range", "one_of"]
+)
+def test_a_numeric_comparator_with_no_number_is_never_approved_whatever_the_quote(
+    comparator,
+):
+    for quote in (s.QUOTE_NUM, DESIGNATION_QUOTE, s.QUOTE_TXT):
+        bare = s.reading(values=(), comparator=comparator, unit=None)
+        d = decide(
+            s.answer(s.MODEL_A, rd=bare), s.answer(s.MODEL_B, rd=bare), quote=quote
+        )
+        assert d.state == "needs_human" and "invalid_reading" in d.disagreement
+
+
+def test_the_quantity_check_can_only_remove_a_quantity_never_add_one():
+    from app.rule_label_quantity import quote_states_a_quantity
+
+    for text in (
+        s.QUOTE_NUM,
+        s.QUOTE_TXT,
+        DESIGNATION_QUOTE,
+        "see API 520 and ISO 15156-3 for 4 bolts",
+        "per 12 mm",
+    ):
+        masked = text
+        for _c, a, b in __import__("app.standard_ids", fromlist=["x"]).find_citations(
+            text
+        ):
+            masked = masked[:a] + " " * (b - a) + masked[b:]
+        if not quote_states_a_quantity(text):
+            assert not quote_states_a_quantity(masked)
+
+
+WORDS_QUOTE = "Bellows shall be made of Alloy 625 or Hastelloy C-276 for sour service."
+WORDS3 = (
+    "Bellows shall be made of Alloy 400, Alloy 625 or Hastelloy C-276 for sour service."
+)
+
+
+def _alt(*words, comparator="one_of"):
+    return s.reading(values=words, comparator=comparator, unit=None)
+
+
+def test_a_one_of_reading_of_words_found_in_the_quote_is_valid_and_two_readers_agreeing_approve():
+    rd = _alt("Alloy 625", "Hastelloy C-276")
+    d = decide(
+        s.answer(s.MODEL_A, rd=rd),
+        s.answer(s.MODEL_B, rd=_alt("hastelloy c-276", "ALLOY 625")),
+        quote=WORDS_QUOTE,
+    )
+    assert d.state == "ai_approved"
+    assert (
+        d.reading["values"] == ["Alloy 625", "Hastelloy C-276"]
+        and d.reading["comparator"] == "one_of"
+    )
+    ok, reading = rl.check_reading(rd, WORDS_QUOTE)
+    assert (
+        ok
+        and reading["values"] == ["Alloy 625", "Hastelloy C-276"]
+        and reading["unit"] is None
+    )
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ("Alloy 625", "Inconel 718"),  # one alternative is not in the quote
+        ("Alloy 625",),  # one alternative is not a list
+        ("Alloy 625", "alloy 625"),  # the same word twice
+        ("Alloy 625", 10.0),  # words mixed with a number
+        ("Alloy 625", "12"),  # a number written as text
+    ],
+)
+def test_word_alternatives_the_quote_does_not_hold_or_that_do_not_fit_are_invalid(
+    values,
+):
+    rd = _alt(*values)
+    assert rl.check_reading(rd, WORDS_QUOTE)[0] is False
+    d = decide(
+        s.answer(s.MODEL_A, rd=rd), s.answer(s.MODEL_B, rd=rd), quote=WORDS_QUOTE
+    )
+    assert d.state == "needs_human" and "invalid_reading" in d.disagreement
+
+
+def test_words_are_only_a_one_of_reading_and_two_different_word_lists_disagree():
+    rd = _alt("Alloy 625", "Hastelloy C-276", comparator="required")
+    assert rl.check_reading(rd, WORDS_QUOTE)[0] is False
+    a = s.answer(s.MODEL_A, rd=_alt("Alloy 625", "Alloy 400"))
+    b = s.answer(s.MODEL_B, rd=_alt("Alloy 625", "Hastelloy C-276"))
+    d = decide(a, b, quote=WORDS3)
+    assert d.state == "needs_human" and "values" in d.disagreement
+
+
+def test_two_readers_agree_only_on_the_same_set_of_words_a_subset_is_a_disagreement():
+    three = s.answer(s.MODEL_A, rd=_alt("Alloy 400", "Alloy 625", "Hastelloy C-276"))
+    two = s.answer(s.MODEL_B, rd=_alt("Alloy 625", "Hastelloy C-276"))
+    d = decide(three, two, quote=WORDS3)
+    assert d.state == "needs_human" and "values" in d.disagreement
+    same = s.answer(s.MODEL_B, rd=_alt("hastelloy c-276", "ALLOY 400", "alloy 625"))
+    assert decide(three, same, quote=WORDS3).state == "ai_approved"
+
+
+def test_a_real_quantity_beside_the_words_is_still_unread_and_holds_the_reading():
+    quote = WORDS_QUOTE + " The bellows pressure shall not exceed 50 bar."
+    rd = _alt("Alloy 625", "Hastelloy C-276")
+    d = decide(s.answer(s.MODEL_A, rd=rd), s.answer(s.MODEL_B, rd=rd), quote=quote)
+    assert d.state == "needs_human" and "numbers_unread" in d.disagreement
+    assert (
+        decide(
+            s.answer(s.MODEL_A, rd=rd), s.answer(s.MODEL_B, rd=rd), quote=WORDS_QUOTE
+        ).state
+        == "ai_approved"
+    )
+
+
+@pytest.mark.parametrize(
+    "word,cause",
+    [
+        ("", "empty"), ("12", "number_as_text"), ("5 mm", None), ("ten", "number_word"), ("Twenty", "number_word"),
+        ("bar", "bare_unit"), ("mm", "bare_unit"), ("Alloy 625 or Hastelloy C-276", "joiner"), ("tube AND pipe", "joiner"),
+        ("Alloy 625", None), ("A", None), ("Hastelloy C-276", None), ("order", None),
+    ],
+)  # fmt: skip
+def test_the_one_function_that_refuses_alternatives(word, cause):
+    got = rl.alternative_refusal(word)
+    if word == "5 mm":
+        assert got in (
+            None,
+            "number_as_text",
+            "bare_unit",
+        )  # a quantity with a unit is caught by the quote check, not here
+    else:
+        assert got == cause
+
+
+def test_a_refused_alternative_makes_the_reading_invalid_and_a_one_letter_grade_is_allowed():
+    quote = "Bellows shall be made of Alloy 625 or Hastelloy C-276 or the pressure shall be ten bar."
+    for bad in (
+        ("Alloy 625 or Hastelloy C-276", "ten"),
+        ("Alloy 625", "ten"),
+        ("Alloy 625", "bar"),
+    ):
+        assert rl.check_reading(_alt(*bad), quote)[0] is False
+    assert (
+        rl.check_reading(
+            _alt("A", "B"), "The grade shall be A or B for the invented item."
+        )[0]
+        is True
+    )
+
+
+def test_a_stored_word_reading_is_re_proved_against_the_quote():
+    rd = _alt("Alloy 625", "Hastelloy C-276")
+    assert (
+        rl.reading_problem(
+            {**rd, "values": ["Alloy 625", "Hastelloy C-276"]}, WORDS_QUOTE
+        )
+        is None
+    )
+    assert (
+        rl.reading_problem({**rd, "values": ["Alloy 625", "Inconel 718"]}, WORDS_QUOTE)
+        == "value_not_in_quote"
+    )
+
+
+def test_a_label_reading_or_comparator_reaches_no_verdict_code():
+    """The label's reading is a record of the rule: only its tier, kind and field are read by the reviewer. Outside the label
+    modules nothing reads `reading_json`, a label's `a_comparator` / `b_comparator`, or a label answer's `reading`, and the set
+    of modules that select from the label table is pinned, so a new reader fails here and must be reviewed."""
+    import pathlib
+
+    root = pathlib.Path(rl.__file__).parent
+    label_modules = {
+        "rule_labels.py",
+        "rule_label_schema.py",
+        "rule_label_convert.py",
+        "rule_label_import.py",
+        "rule_label_job.py",
+        "rule_label_prompt.py",
+        "rule_label_quantity.py",
+        "rule_label_lane.py",
+        "rule_label_ocr.py",
+    }
+    outside = {
+        p.name: p.read_text(encoding="utf-8")
+        for p in root.glob("*.py")
+        if p.name not in label_modules
+    }
+    tokens = (
+        "reading_json",
+        "a_comparator",
+        "b_comparator",
+        "a_answer_json",
+        "b_answer_json",
+    )
+    readers = sorted(n for n, t in outside.items() if any(tok in t for tok in tokens))
+    assert readers == [], readers
+    selectors = sorted(
+        n for n, t in outside.items() if re.search(r"(?i)from\s+rule_label\b", t)
+    )
+    assert selectors == [
+        "agent_general_review.py",
+        "agent_review_items.py",
+        "rule_equipment.py",
+    ], selectors
+
+
+def test_which_stored_label_versions_stay_usable_after_the_prompt_moved_to_v4():
+    """v4 (this prompt) and v2 (the lab's, accepted only from a lab-origin file) are usable; a v3 label is refused. No file
+    loaded on the app holds a v3 label (checked by count on the live import file and on the regenerated file: 0), so no rule
+    loses its label."""
+    assert rl.PROMPT_VERSION == "rule-label-v4"
+    assert rl.ACCEPTED_PROMPTS == ("rule-label-v4",) and rl.LAB_PROMPTS == (
+        "rule-label-v2",
+    )
+    assert "rule-label-v3" not in (*rl.ACCEPTED_PROMPTS, *rl.LAB_PROMPTS)
+
+
+def test_every_answer_the_parser_leaves_out_is_counted_under_one_cause_word():
+    import json
+    from collections import Counter
+
+    from app import rule_label_prompt as prompt
+
+    class Rule:
+        def __init__(self, quote):
+            self.quote, self.clause = quote, "1"
+
+    batch = [
+        Rule("The supplier shall provide a statement."),
+        Rule("The supplier shall provide a record."),
+    ]
+    base = {"paper_kind": "procedure", "field": None, "comparator": "required", "values": [], "unit": None,
+            "strength": "shall", "subject": "x", "reason": "x"}  # fmt: skip
+    good1 = {**base, "n": 1, "start": "The supplier shall"}
+
+    def causes(answers):
+        why = Counter()
+        prompt.parse_answers(json.dumps({"answers": answers}), batch, "m", why)
+        return dict(why)
+
+    assert causes([good1, {**base, "n": 2, "start": "The supplier shall"}]) == {}
+    assert causes([good1]) == {"batch_structure": 2}
+    assert causes([good1, {**base, "n": 2, "start": "Another rule entirely"}]) == {
+        "start_mismatch": 1
+    }
+    assert causes(
+        [
+            good1,
+            {**base, "n": 2, "start": "The supplier shall", "paper_kind": "nonsense"},
+        ]
+    ) == {"kind_or_shape": 1}
+    assert causes([good1, "text"]) == {"batch_structure": 2}
+    assert causes(
+        [
+            good1,
+            {
+                **base,
+                "n": 2,
+                "start": "The supplier shall",
+                "paper_kind": "datasheet",
+                "field": 7,
+            },
+        ]
+    ) == {"field_not_text": 1}
+    assert causes([good1, {**base, "n": 1, "start": "The supplier shall"}]) == {
+        "batch_structure": 2
+    }
