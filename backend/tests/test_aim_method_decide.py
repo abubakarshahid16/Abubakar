@@ -1549,3 +1549,97 @@ def test_a_comparison_code_cannot_make_leaves_an_ai_opinion_as_it_is():
         "",
     )
     assert d["label"] == "AI opinion" and d["code_compare"] is None
+
+
+# ---- "Not met, proven by code" (lead 4, owner's order of 18 Nov): one home, firm words, never on anything code did not prove ----
+
+_LIMIT = "The pressure shall not exceed 10 bar."
+_NUMS = {
+    "paper_value": "12",
+    "paper_unit": "bar",
+    "operator": "<=",
+    "rule_value": "10",
+    "rule_unit": "bar",
+}
+
+
+def _judged(
+    label="Question", comment="Please confirm the design pressure.", quote=None, **nums
+):
+    return {"label": label, "ask": "confirm", "comment": comment, "page": 1, "field": "design pressure",
+            "quote": quote or "Design pressure of the test item: 12 bar gauge at the inlet", "numbers": {**_NUMS, **nums}}  # fmt: skip
+
+
+@pytest.mark.parametrize("label", ["Question", "AI opinion", "Met", "Not met"])
+def test_a_value_code_proves_breaks_a_held_limit_is_a_firm_not_met_whatever_the_ai_said(
+    label,
+):
+    d = S._decide(
+        _item(kind="limit", rule_quote=_LIMIT), _judged(label), PAPER, BOOKS, ""
+    )
+    assert (
+        d["label"] == "Not met" and d["code_compare"]["read_from"] == "verified quotes"
+    )
+    assert d["comment"].startswith(
+        S.PROVEN_FAIL + ": the stated 12 bar is above the 10 bar limit of"
+    )
+    assert "confirm" not in d["comment"].lower()
+
+
+def test_a_forged_value_never_makes_a_proven_fail():
+    """The model's numbers only point at a value: a figure that is not in the verified quote, or a limit that is not in the
+    rule's verified words, is never compared, so never "Not met, proven by code"."""
+    forged = S._decide(
+        _item(kind="limit", rule_quote=_LIMIT),
+        _judged(paper_value="99"),
+        PAPER,
+        BOOKS,
+        "",
+    )
+    assert forged["code_compare"] is None and not forged["comment"].startswith(
+        S.PROVEN_FAIL
+    )
+    no_rule = S._decide(
+        _item(kind="limit", rule_quote="The pressure shall be suitable."),
+        _judged(),
+        PAPER,
+        BOOKS,
+        "",
+    )
+    assert no_rule["label"] != "Not met" or not no_rule["comment"].startswith(
+        S.PROVEN_FAIL
+    )
+
+
+def test_a_value_left_to_the_vendor_or_a_contractor_filled_figure_is_never_a_proven_fail():
+    open_q = "Noise level of the test item: to be advised by the vendor later"
+    left = S._decide(
+        _item(kind="limit", rule_quote=_LIMIT),
+        _judged(quote=open_q, paper_value="12"),
+        PAPER,
+        BOOKS,
+        "",
+    )
+    assert left["label"] == "Question" and not left["comment"].startswith(S.PROVEN_FAIL)
+    assert not S.proven_fail(
+        "Not met",
+        {"read_from": "verified quotes", "result": "fail"},
+        False,
+        [S.CONTRACTOR_FILLED],
+    )
+    assert not S.proven_fail(
+        "Not met", {"read_from": "verified quotes", "result": "fail"}, True, []
+    )  # left open
+    assert not S.proven_fail(
+        "Not met", {"read_from": "verified paper quotes", "result": "fail"}, False, []
+    )  # AI's pairing
+    assert not S.proven_fail("Not met", None, False, [])  # the AI's words alone
+    assert S.proven_fail(
+        "Not met", {"read_from": "verified quotes", "result": "fail"}, False, []
+    )
+
+
+def test_a_knowledge_item_never_says_proven_by_code():
+    d = S._decide(_item(kind="limit", source="engineering knowledge (book not held)", rule_quote=""), _judged("Not met"), PAPER,
+                  BOOKS, "")  # fmt: skip
+    assert d["label"] != "Not met" and not d["comment"].startswith(S.PROVEN_FAIL)

@@ -20,6 +20,13 @@ from . import items as I
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
+from .fail_words import (  # noqa: F401 - one home: fail_words
+    PAIRED_NOTE,
+    PROVEN_FAIL,
+    _fails_comment,
+    _num,
+    proven_fail,
+)
 from .verify import compare, find_page, norm, quoted_value, rule_operator
 
 log = logging.getLogger(__name__)
@@ -140,9 +147,6 @@ def _clause_context(text: L.BookText, it: dict) -> str:
     return flat[max(0, i - CLAUSE_WINDOW // 2) : i + CLAUSE_WINDOW]
 
 
-#: The process note a paper-vs-paper comparison sentence carries (the AI chose the pairing). A card's "We ask" is read without it (the card's
-#: own `proven` field says how the comment is proven); the stored comment and the team file's Comment cell keep it whole.
-PAIRED_NOTE = " (the AI paired these two values; code compared them)"
 #: What a sent Question asks, as recorded on its line (`_ask`; recorded only, nothing leaves the comments because of it).
 ASK_CONCERN, ASK_CONFIRM, ASK_OPEN = "concern", "confirm", "open"
 
@@ -277,65 +281,6 @@ def _provisional_figure(quote: str) -> bool:
     from app import blank_markers
 
     return blank_markers.is_provisional_figure(quote)
-
-
-#: What a failed check says of the stated figure, by the rule's operator.
-_FAILS_AS = {
-    "<=": ("is above", "limit"),
-    "<": ("is not below", "limit"),
-    ">=": ("is below", "minimum"),
-    ">": ("is not above", "minimum"),
-    "==": ("is not", "required value"),
-    "!=": ("is", "excluded value"),
-}
-
-
-def _num(v) -> str:
-    return f"{float(v):f}".rstrip("0").rstrip(".")
-
-
-#: The same check worded as a QUESTION, for a provisional figure (it is never a finding that it fails).
-_APPEARS = {
-    "is above": "appears above",
-    "is not below": "appears not below",
-    "is below": "appears below",
-    "is not above": "appears not above",
-    "is not": "appears not to be",
-    "is": "appears to be",
-    "does not meet": "appears not to meet",
-}
-
-
-def _fails_comment(code_cmp: dict, quote: str, base: dict, asking: bool = False) -> str:
-    """The sent comment of a failed check (a provisional figure, or two paper values), every number from code's check of the
-    verified quotes; the who-supplies note beside the figure when the quote has one."""
-    from app import blank_markers
-
-    (pv, pu), (rv, ru) = code_cmp["paper"], code_cmp["rule"]
-    stated = f"{_num(pv)} {pu}".strip()
-    rule = f"{_num(rv)} {ru}".strip()
-    who = blank_markers.who_supplies(quote)
-    if who:
-        stated = f"{stated} ({who.lower()})"
-    verb, noun = _FAILS_AS.get(str(code_cmp.get("op") or ""), ("does not meet", "rule"))
-    verb, ask = (
-        (_APPEARS.get(verb, verb), "please confirm")
-        if asking
-        else (verb, "contractor to confirm the value")
-    )
-    if code_cmp.get("read_from") == "verified paper quotes":
-        # the AI chose which paper number is the other value: the sentence states both values and the page, no verdict
-        page = code_cmp.get("limit_page")
-        where = f"on page {page}" if page else "on this paper"
-        # what the paper shows, with its page; the pairing is the AI's choice and says so (a guess is shown as a guess)
-        return (
-            f"The stated {stated} {verb} the {rule} stated {where}{PAIRED_NOTE}; {ask}."
-        )
-    if base.get("standard"):
-        where = f"{base['standard']} clause {base['clause']}".strip()
-    else:
-        where = "the rule"
-    return f"The stated {stated} {verb} the {rule} {noun} of {where}; {ask}."
 
 
 def _shown_item(it: dict, books: dict, text: L.BookText) -> dict:
@@ -716,7 +661,14 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         "label": label,
         "quote": quote if page is not None else "",
         "quote_unverified": quote if (quote and page is None) else "",
-        "comment": _comment(j, code_cmp, quote, base, page),
+        "comment": _comment(
+            j,
+            code_cmp,
+            quote,
+            base,
+            page,
+            proven_fail(label, code_cmp, deferred, notes),
+        ),
         "code": code_note,
         "numbers": nums,
         "code_compare": code_cmp,
@@ -725,9 +677,14 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     }
 
 
-def _comment(j: dict, code_cmp, quote: str, base: dict, page) -> str:
-    """The AI's comment; for a FAILED compare of two paper values, code's sentence with both numbers and the limit's page first."""
+def _comment(
+    j: dict, code_cmp, quote: str, base: dict, page, firm: bool = False
+) -> str:
+    """The AI's comment; for a FAILED compare of two paper values, code's sentence with both numbers and the limit's page first;
+    for a fail proven by code (`proven_fail`), code's firm sentence alone (the AI's words could still ask to "confirm")."""
     said = str(j.get("comment") or "")
+    if firm:
+        return _fails_comment(code_cmp, quote, base, firm=True)[:400]
     if _paper_compare(code_cmp, page) and code_cmp.get("result") == "fail":
         said = _fails_comment(code_cmp, quote, base) + (" " + said if said else "")
     return said[:400]
