@@ -102,6 +102,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_completeness` | Completeness is a hard rule (owner, 15 Nov 2026): the one comparison of the points on the page, the lines in the database and the rows of each CRS file as built (team N = N; contractor M in the file + K not issued = N, K split by reason); the statement on each file's first sheet; the cut-mark check; refuses a download (409) that differs and says what is missing; stores its result with the run |
 | `crs_editions` | Order 14 lane G: the edition check shown in the one CRS team file, behind STANDARD_EDITIONS_ENABLED (off: byte-same): `standard_editions.book_verdict` for every held book the points cite, a sheet "Editions" (one row per cited held book) and the status in brackets after each book reference in a cell; an engineer note, never a Pass or a Fail; the contractor file never shows it |
 | `crs_comments` | P2: ONE COMMENT PER FIELD. The one pure grouping function (field + tag set; else rule book + clause; else the point alone) used by the CRS file and the page's listing; strongest status wins, a Met-and-Not-met contradiction is a Query that says so, every clause and page listed, nothing dropped (every point stays on the sheet Evidence) |
+| `crs_no_finding` | Order 14 (W-D6, W-D7, W-D11): a point that carries no finding of its own (book not held, no rule text given, a check that read the value met, a contents or reference-list "rule", a form the paper is not on and the library does not hold) is never part of a comment; counted and listed on the sheet Not a comment |
 | `agent_run_crs` | Scorer bridge workbook and local result files (RESULTS, examples) of the agent proof test runner; local files only |
 | `agent_run_second` | The local second opinion's wrapper (heavy lock, unload), the model-family check that fails closed, and the fatal-stop words of the agent proof test runner; never reaches Claude |
 | `agent_run_stats` | Honest counts (provider errors, failed tool calls, step-limit items), the 'run unreliable' words and the failure breaker of the agent proof test runner |
@@ -355,6 +356,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `rulebook_v2_schema` | #805 plan change 6, part A: the statements of the version 2 tables and their guards, and the words they allow |
 | `field_naming` | Canonical field names for printed labels and numeric requirements (#193 plan B4, orders 5.2 and 5.3). Behind ` |
 | `front_matter` | Front matter: passages that describe a document rather than answer from it |
+| `rule_text_place` | Order 14 (W-D7): where a rule's text sits in its book (contents, index or reference-list chunk, heading or page) decides that it is no requirement; a text with a requirement word is never dropped |
 | `geometry_reader` | Geometry reader: tables and forms read from PDF positions (#193 section 5.1) |
 | `geometry_blank_cells` | An empty ruled cell beside a label is a blank only when the geometry proves it (order 228.9) |
 | `geometry_index_cells` | A side-by-side numbered form is read as two lists; a lone index number is never an answer (order 228.9b) |

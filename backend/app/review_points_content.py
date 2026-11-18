@@ -143,7 +143,25 @@ def rule_ref(row: dict, finding: dict | None) -> dict:
     name, clause = clean(row.get("standard_reference")), clean(f.get("standard_clause"))
     if clause and clause.lower() in name.lower():  # the stored reference already says the clause: said once
         clause = ""
+    elif clause and (own := reference_clause(name)):  # W-D8: ONE source per row: the clause the reference (and the action) prints
+        clause = own
     return {"name": name, "clause": clause, "page": page}
+
+
+_SUB_CLAUSE = re.compile(r"^(?:\([A-Za-z0-9]{1,3}\))+")
+
+
+def reference_clause(reference: str) -> str:
+    """The clause a stored reference names beyond its book (`review_points.book_and_clause`), with the bracketed sub-clauses printed
+    right after it ("X-1 cl. UG-49(g) (p.128)" -> "UG-49(g)"); "" when it names none. The page in brackets is never a sub-clause."""
+    from .review_points import book_and_clause
+
+    clause = book_and_clause(reference)[1]
+    if not clause:
+        return ""
+    at = reference.find(clause)
+    tail = _SUB_CLAUSE.match(reference[at + len(clause) :]) if at >= 0 else None
+    return clause + (tail.group(0) if tail else "")
 
 
 HIDDEN_ACTION = "Engineer to check this point: its rule book is not one you may read, or the point is not linked to a held rule book (not named)."

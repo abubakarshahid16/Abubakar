@@ -145,12 +145,17 @@ def label_name(label: object) -> str:
 def _field_of(point: dict) -> str:
     """The point's field: an AI point's stored line's field (`crs_ai_workbook.field_name`), else its name, with the tag list taken off
     by `review_points.split_tags` (called, never copied: the tag scanner is review_points', #1823); "" when it is not a field. The name
-    the page gives an AI point with no field (its rule, or a fixed phrase) is never a field."""
+    the page gives an AI point with no field (its rule, or a fixed phrase) is never a field; an item with no field of its own takes the
+    paper label code verified on the page (W-D8)."""
     line = _line_of(point)
     if line:
         from . import crs_ai_workbook
 
         name = rp.split_tags(crs_ai_workbook.field_name(line))[0]
+        if not is_field(name) and isinstance(line.get("field"), str):
+            # W-D8: an item that names no field: the paper's label CODE verified on the page (`agent_review_decide`, never the AI's
+            # unverified label), as the field list names it, so two lines on one paper field are one comment, never two
+            name = label_name(rp.split_tags(line["field"])[0])
     else:  # a rule-check point: its code-read label, as the field list names it
         name = label_name(rp.split_tags(point.get("name") or "")[0])
     return _norm(name) if is_field(name) else ""
@@ -287,23 +292,14 @@ def _disagree(ms: list[dict]) -> bool:
 
 
 def not_a_comment(comment: dict) -> str | None:
-    """What a grouped field is called when it carries NO finding (it is then not a comment), else None: a coverage line; every point
-    met (`KIND_NOTHING_TO_CHANGE`); every point met or a met code could not confirm (`KIND_MET_NOT_CONFIRMED`); none of it applies or
-    was checked (the strongest point's own kind). A field where readers disagree is always a comment."""
+    """What a grouped entry is called when it is NOT a comment, else None: a coverage line, or the allow-listed kind `split_apart` keyed
+    it by (`_kind`). Everything else is a comment (order 14, lead's last review of PR #1889)."""
     s = comment["strongest"]
     if is_coverage(s):
         return words.KIND_COVERAGE
-    if comment["disagree"]:
-        return None
-    ms = comment.get("_members") or [s]
-    if comment["tile"] == "met":
-        # R94: an AI "met" the pass guard objected to is never "nothing to change": the engineer ticks it, the objection said
-        return words.KIND_MET_NOT_CONFIRMED if any(guard_objected(p) for p in ms) else words.KIND_NOTHING_TO_CHANGE
-    if all(p.get("tile") in ("met", "does_not_apply") or tick_only(p) for p in ms) and any(tick_only(p) for p in ms):
-        return words.KIND_MET_NOT_CONFIRMED
-    if comment["tile"] == "does_not_apply":
-        return s.get("other_kind") or words.KIND_NOT_APPLICABLE
-    return None
+    if comment.get("_kind"):  # order 14 (W-D6): points that carry no finding of their own, keyed apart from the field's comment
+        return comment["_kind"]
+    return None  # order 14 (lead, last review of PR #1889): only the closed allow-list is set apart (`split_apart`)
 
 
 def _clauses(members: list[dict]) -> list[dict]:
@@ -449,6 +445,31 @@ def _near_same_roots(order: list[str], members: dict[str, list[dict]]) -> dict[s
     return {k: root_of(k) for k in order}
 
 
+def _met_like(p: dict) -> bool:
+    """A met point, or an AI "met" code could not confirm: it carries nothing to change."""
+    return p.get("tile") == "met" or tick_only(p)
+
+
+def split_apart(ms: list[dict]) -> tuple[list[dict], dict[str, list[dict]]]:
+    """(the points of a field that stay its comment, the others by what they are). Order 14, THE CLOSED ALLOW-LIST (lead, last review
+    of PR #1889): only a point `crs_no_finding.kind_of` names (book missing or no rule text with nothing asked, does-not-apply with no AI
+    concern) and a met point (`crs_no_finding.met_kind`) are set apart; a met on the SAME rule as a finding stays with it (R94: a
+    disagreement is never hidden). Everything else stays the field's comment."""
+    from . import crs_no_finding
+
+    keep: list[dict] = []
+    apart: dict[str, list[dict]] = {}
+    for p in ms:
+        kind = None if is_coverage(p) else crs_no_finding.kind_of(p)
+        (apart.setdefault(kind, []) if kind else keep).append(p)
+    findings = [p for p in keep if not _met_like(p)]
+    rules = set().union(*(_rule_keys(p) for p in findings)) if findings else set()
+    for p in [p for p in keep if _met_like(p) and not (_rule_keys(p) & rules)]:
+        keep.remove(p)
+        apart.setdefault(crs_no_finding.met_kind(p, tick_only(p), guard_objected(p)), []).append(p)
+    return keep, apart
+
+
 def _group_all(points: list[dict], near: bool = True) -> list[dict]:
     """Every grouped field (comments and the fields that carry no finding), numbered in order. Near-same fields are one comment."""
     order: list[str] = []
@@ -468,9 +489,14 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
         if root[k] != k:
             members[root[k]].extend(members.pop(k))
     order = [k for k in order if k in members]
+    entries: list[tuple[str, list[dict], str | None]] = []
+    for k in order:
+        keep, apart = split_apart(members[k])
+        entries += [(k, keep, None)] if keep else []
+        entries += [(f"{k}|apart|{kind}", ms, kind) for kind, ms in apart.items()]
+    members = {k: ms for k, ms, _kind in entries}
     out = []
-    for number, k in enumerate(order, start=1):
-        ms = members[k]
+    for number, (k, ms, kind) in enumerate(entries, start=1):
         strongest = min(
             ms, key=lambda p: (p["rank"], tick_only(p))
         )  # rank 1 is the worst: the strongest status; a met code could not confirm never leads a field that has a real question
@@ -485,6 +511,10 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
             else strongest
         ) or strongest
         rank = DISAGREE_RANK if disagree else strongest["rank"]
+        # order 14 (lead, last review of PR #1889): a COMMENT whose points the AI raised on a rule not yet approved or that does not
+        # apply (an AI Fail, absent or ask kept visible) is a question for the engineer, never a "does not apply" comment
+        raised = kind is None and rank == 8
+        rank = DISAGREE_RANK if raised else rank
         tags = sorted({t for p in ms for t in p.get("tags") or []})
         pages = sorted({p["page"] for p in ms if p.get("page")})
         found = {p["page"] for p in ms if p.get("page") and not p.get("page_note")}
@@ -500,6 +530,8 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
                 "pill": (
                     f"Question · {DISAGREE}"
                     if disagree
+                    else f"Question · {strongest.get('other_kind') or words.KIND_NOT_APPLICABLE}"
+                    if raised
                     else strongest.get("pill") or rp.RANKS[rank][0]
                 ),
                 "firm": None if disagree else strongest.get("firm"),
@@ -511,6 +543,7 @@ def _group_all(points: list[dict], near: bool = True) -> list[dict]:
                 "book_held": any(p.get("_book_docs") or p.get("_book_doc") for p in ms),  # cites a held book (named or not)
                 "disagree": disagree,
                 "_members": ms,
+                "_kind": kind,
             }
         )
     # WORST FIRST (U5): by the comment's own rank (its strongest point: proven Fail, two-reader not met, AI not met, question, met), then

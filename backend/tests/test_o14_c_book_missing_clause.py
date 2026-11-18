@@ -73,6 +73,8 @@ def test_the_built_team_file_names_the_clause_in_every_book_missing_row():
         r = mine[0]
         assert r["Reason"] == words and str(r["What the contractor must do"]).startswith(words + ".")
         assert r["Rule book"] == words  # it cites a book: never "no rule book cited"
+    # Order 14 (lead, last review of PR #1889): each of these three records holds an ask or a code concern (an engineering check, a
+    # "not compliant" finding, a playbook check), so each stays a comment whatever the state of its book
     comments = [list(r) for r in wb[crs_one.TEAM_SHEET].iter_rows(values_only=True)]
     ci = next(i for i, r in enumerate(comments) if r and r[0] == "Comment")
     col = comments[ci].index("Rule books and clauses")
