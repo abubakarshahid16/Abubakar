@@ -574,7 +574,15 @@ def _steps(
     ident = S.s1_identify(mdl, paper, _known_keys(store), lead)
     state.identity = {
         k: ident.get(k)
-        for k in ("kind", "equipment_type", "subject", "subject_key", "service")
+        for k in (
+            "kind",
+            "equipment_type",
+            "subject",
+            "subject_key",
+            "service",
+            "scope_quote",
+            "scope_page",
+        )
     }
     if state.cited is None:
         state.cited = L.cited_company(conn, state.paper_id)
@@ -603,7 +611,9 @@ def _steps(
     )
     if not state.stop_reason:
         say(96, "judge")
-        S.s5_edit(mdl, paper, state.decided, lead)
+        from .editor import s5_edit
+
+        s5_edit(mdl, paper, state.decided, lead, state.identity.get("kind"))
 
 
 def _known_keys(store) -> list[str]:
@@ -696,24 +706,6 @@ def _checklist(
 NOT_CITED = "rule book not cited by this paper"
 
 
-def _company_books(conn, state, books: dict) -> frozenset[str]:
-    """The checklist's books that are COMPANY standards this paper does not cite (`library.not_offered_company`), on the list or not."""
-    from . import library as L
-
-    ids = {str(b.get("book")) for b in books.values() if b.get("book")}
-    return L.not_offered_company(conn, state.paper_id, ids, state.cited or frozenset())
-
-
-def _not_cited_line(S, it: dict, paper, books: dict) -> dict:
-    """An item of a saved checklist from a company standard this paper does not cite: "Does not apply" (never sent, never counted
-    as a book to review again)."""
-    line = S._decide(
-        it, {"label": "Does not apply", "comment": NOT_CITED}, paper, books, ""
-    )
-    line["code"] = NOT_CITED
-    return line
-
-
 def _judge(
     state: _RunState,
     mdl,
@@ -726,15 +718,14 @@ def _judge(
     say,
     cancelled,
 ) -> None:
-    """The decided lines of every checklist item, in order: one per item, or one per place where it fails (by page, at most
-    `steps.MAX_FINDINGS`). An item whose book is not on the list shown is never sent: it is
-    "not judged" and its book is counted as unlisted."""
+    """The decided lines of every checklist item, in order (one per item, or per failing place). An item whose book is not on
+    the list shown is never sent: "not judged", its book counted as unlisted. Company books not cited: "Does not apply"."""
+    from . import always
+    from . import library as L
     from . import steps as S
     from . import verify as V
 
     books = {b["alias"]: b for b in checklist.get("books") or [] if isinstance(b, dict)}
-    from . import always
-
     items = [
         it
         for it in checklist.get("items") or []
@@ -750,7 +741,7 @@ def _judge(
         state.cited or frozenset(),
     )
     judged, held_back, not_cited = [], set(), set()
-    company = _company_books(text.conn, state, books)
+    company = L.company_books_not_cited(text.conn, state.paper_id, books, state.cited)
     for it in items:
         bid = S.item_book(it, books)
         if (
@@ -774,13 +765,14 @@ def _judge(
         lead=lead,
         cancelled=cancelled,
         progress=lambda pct, _w: say(25 + int(pct * 0.7), "judge"),
+        scope=state.identity,
     )
     by_id: dict[str, list[dict]] = {}
     for ln in lines:
         by_id.setdefault(ln["item_id"], []).append(ln)
     for it in items:
         if it["id"] in not_cited:
-            own = [dict(_not_cited_line(S, it, paper, books), finding_no=1)]
+            own = [dict(S.decided_as(it, NOT_CITED, paper, books), finding_no=1)]
         elif it["id"] in held_back:
             own = [dict(S._decide(it, None, paper, books, NOT_ON_LIST), finding_no=1)]
         else:

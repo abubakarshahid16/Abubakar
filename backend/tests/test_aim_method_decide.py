@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+from app.aim_review import editor as ED
 from app.aim_review import steps as S
 from app.aim_review.paper import Paper
 
@@ -916,7 +917,7 @@ class _Editor:
 
 
 def _edit(lines, moves):
-    return S.s5_edit(_Editor(moves), EDIT_PAPER, lines, "claude-sonnet-5-5")
+    return ED.s5_edit(_Editor(moves), EDIT_PAPER, lines, "claude-sonnet-5-5")
 
 
 def _code_failures():
@@ -956,7 +957,7 @@ def test_a_code_proven_failure_is_never_offered_to_the_editor():
     provisional = _sent_line("C003", "set pressure", page=1, quote="Set pressure of the test item: 25 bar gauge",
                              code="provisional_fails")  # fmt: skip
     model = _Editor()
-    S.s5_edit(model, EDIT_PAPER, [*lines, provisional], "claude-sonnet-5-5")
+    ED.s5_edit(model, EDIT_PAPER, [*lines, provisional], "claude-sonnet-5-5")
     shown = model.asked[0]["prompt"]
     assert '"n": 3' in shown and all(f'"n": {n}' not in shown for n in (1, 2, 4))
 
@@ -1068,7 +1069,7 @@ def test_a_contradiction_quote_must_be_on_the_lines_page_and_hold_its_field_with
 
 
 def test_a_field_label_with_a_blank_or_deferral_is_no_value():
-    assert S._states_value(
+    assert ED._states_value(
         "Back pressure of the test item: 3 bar gauge built up", "back pressure"
     )
     for empty in (
@@ -1077,7 +1078,7 @@ def test_a_field_label_with_a_blank_or_deferral_is_no_value():
         "Back pressure: By Contractor",
         "Back pressure:",
     ):
-        assert not S._states_value(empty, "back pressure"), empty
+        assert not ED._states_value(empty, "back pressure"), empty
 
 
 def test_a_moved_line_stays_in_all_points_with_its_label_and_reason():
@@ -1113,13 +1114,13 @@ def test_the_editor_can_never_add_rewrite_or_relabel_a_line():
 def test_a_failed_editor_call_moves_nothing_and_no_offered_line_means_no_call():
     lines = _code_failures()
     assert (
-        S.s5_edit(_Editor(fail="stop budget"), EDIT_PAPER, lines, "claude-sonnet-5-5")
+        ED.s5_edit(_Editor(fail="stop budget"), EDIT_PAPER, lines, "claude-sonnet-5-5")
         == 0
     )
     assert all(d["code"] == "" for d in lines)
     quiet = _Editor()
     assert (
-        S.s5_edit(quiet, EDIT_PAPER, lines[:2], "claude-sonnet-5-5") == 0
+        ED.s5_edit(quiet, EDIT_PAPER, lines[:2], "claude-sonnet-5-5") == 0
         and quiet.asked == []
     )  # only code failures
 

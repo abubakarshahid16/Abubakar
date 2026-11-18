@@ -12,7 +12,6 @@ import logging
 import re
 
 from . import (
-    EDITED,
     PAPER_COMPARE_PASSED,
     PROVISIONAL,
     PROVISIONAL_FAILS,
@@ -21,7 +20,7 @@ from . import (
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
-from .verify import compare, find_page, norm, quote_in, quoted_value, rule_operator
+from .verify import compare, find_page, norm, quoted_value, rule_operator
 
 log = logging.getLogger(__name__)
 
@@ -92,9 +91,17 @@ def s1_identify(model, paper, known: list[str], lead: str) -> dict:
         ).strip("_")[:60]
         or kind
     )
+    scope = (
+        _verified(out["scope"], paper.pages)
+        if isinstance(out.get("scope"), dict)
+        else None
+    )
     return {
         "kind": kind,
         "equipment_type": etype,
+        # the paper's stated scope: kept ONLY as a quote code found on its page (K1; no free text beyond it)
+        "scope_quote": scope["quote"][:300] if scope and scope["verified"] else "",
+        "scope_page": scope["page"] if scope and scope["verified"] else None,
         "subject": str(out.get("subject") or "")[:200],
         "subject_key": key,
         "service": str(out.get("service") or "")[:400],
@@ -335,6 +342,7 @@ def s4_judge(
     lead: str,
     cancelled=None,
     progress=None,
+    scope: dict | None = None,
 ) -> tuple[list[dict], str]:
     """The decided lines of `items`, by item then by page, and a stop code ('' when every batch was asked). An item gives one
     line, or one line per PLACE where it fails or is left open (a paper of several sheets of the same kind; `_lines_of`).
@@ -358,7 +366,7 @@ def s4_judge(
             )
             if windowed
             else ""
-        )
+        ) + _scope_line(scope)
         for batch in batches:
             if stop:
                 break
@@ -389,6 +397,17 @@ def s4_judge(
         )
     ]
     return lines, stop
+
+
+def _scope_line(identity: dict | None) -> str:
+    """The paper's stated scope for the judge (K1), only when S1's quote was verified on its page; else nothing."""
+    quote = str((identity or {}).get("scope_quote") or "")
+    page = (identity or {}).get("scope_page")
+    return (
+        P.SCOPE_LINE % {"page": page, "quote": quote}
+        if quote and isinstance(page, int)
+        else ""
+    )
 
 
 def _ask_batch(
@@ -491,6 +510,14 @@ def _places(decided: list[dict]) -> list[dict]:
         more = f"{extra} more place(s) of this item not listed (at most {MAX_FINDINGS} per item)"
         kept[0]["code"] = "; ".join(x for x in (kept[0].get("code"), more) if x)
     return [dict(d, finding_no=n) for n, d in enumerate(kept, 1)]
+
+
+def decided_as(it: dict, note: str, paper, books: dict) -> dict:
+    """An item code decides does not apply (a saved item from a company rule book the paper does not cite): "Does not apply",
+    its note as the whole code note (never sent, never counted as a book to review again)."""
+    line = _decide(it, {"label": "Does not apply", "comment": note}, paper, books, "")
+    line["code"] = note
+    return line
 
 
 def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
@@ -632,151 +659,3 @@ def _numbers(
     return {"pass": "Met", "fail": "Not met"}.get(
         code_cmp["result"], "Question"
     ), code_cmp
-
-
-# ------------------------------------------------------------------ S5: the editor (it may only take a comment off the sheet)
-
-EDIT_MAX_TOKENS = 4000
-REPEATS, CONTRADICTED = "repeats", "paper_states_otherwise"
-
-
-def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
-    """ONE call per paper after S4 (the lead, 18 Nov 2026): the editor sees the SENT lines only (n = the line's number, field,
-    page, comment, quote) and the paper, and may only take a line off the comment sheet. Code checks every move
-    (`_edit_reason`): a repeat names a real, sent line about the same place; a contradiction is only for a line that claims a
-    thing is not stated, with a paper quote on its page that holds its field and a value. A code-proven failure is never offered. A moved line keeps its label and gets "edited: <reason>" (never sent, still in All points).
-    Nothing is added, rewritten or relabelled. A failed call moves nothing. Returns the number of lines moved."""
-    from . import sendable
-    from .engine import to_line
-
-    sent = {n: d for n, d in enumerate(lines, 1) if sendable(to_line(n, d))}
-    # a line code compared and found failing is code's decision: never offered to the editor, never movable (light check E1)
-    offered = {n: d for n, d in sent.items() if not _code_failed(d)}
-    if not offered:
-        return 0
-    shown = [
-        {"n": n, "field": d.get("field") or "", "page": d.get("page"), "comment": d.get("comment") or "", "quote": d.get("quote") or ""}
-        for n, d in offered.items()
-    ]  # fmt: skip
-    carries = {paper.paper_id} | {
-        str(d["book_document_id"])
-        for d in offered.values()
-        if d.get("book_document_id")
-    }
-    try:
-        out = model.ask(
-            step="aim_edit",
-            model=lead,
-            system="",
-            cached=paper_block(paper),
-            prompt=P.EDIT_TASK % {"comments": "\n".join(_dumps(x) for x in shown)},
-            carries=carries,
-            max_tokens=EDIT_MAX_TOKENS,
-        )
-    except StepFailed as exc:  # the editor only removes repeats: without it every judged line stays as judged
-        log.info(
-            "general review: the editor step moved nothing (%s)",
-            str(exc).split(" ", 2)[:2],
-        )
-        return 0
-    moves = (out or {}).get("moves") if isinstance(out, dict) else None
-    moved = 0
-    for mv in moves if isinstance(moves, list) else []:
-        n = mv.get("n") if isinstance(mv, dict) else None
-        why = (
-            _edit_reason(mv, n, offered, sent, paper)
-            if isinstance(n, int) and n in offered
-            else None
-        )
-        if why:
-            d = offered.pop(n)
-            sent.pop(n)
-            d["code"] = "; ".join(x for x in (d.get("code"), f"{EDITED}: {why}") if x)
-            moved += 1
-    return moved
-
-
-def _code_failed(d: dict) -> bool:
-    """Code compared this line and it FAILED (a rule compare, a provisional figure, a paper compare)."""
-    cmp_ = d.get("code_compare")
-    parts = {x.strip() for x in str(d.get("code") or "").split(";")}
-    return (
-        isinstance(cmp_, dict) and cmp_.get("result") == "fail"
-    ) or PROVISIONAL_FAILS in parts
-
-
-#: What a line's own words say when its claim is "not stated / missing" (read by code from the line, never from the editor).
-_SAYS_MISSING = re.compile(
-    r"\b(?:not\s+(?:stated|given|shown|provided|specified|indicated|found|listed|mentioned|filled)"
-    r"|(?:is|are|was|left)\s+(?:blank|empty|missing)|missing|absent|no\s+(?:value|entry|figure|data)\b"
-    r"|does\s+not\s+(?:state|show|give|specify|list|mention)|do(?:es)?\s+not\s+appear)",
-    re.IGNORECASE,
-)
-
-
-def _claims_missing(d: dict) -> bool:
-    """The line's own claim is that something is not stated: a Question or an AI opinion whose code note is "not on any page" or
-    "no paper quote", or whose comment says so."""
-    if d.get("label") not in ("Question", "AI opinion"):
-        return False
-    code = str(d.get("code") or "")
-    return (
-        NOT_ON_ANY_PAGE in code
-        or "no paper quote" in code
-        or bool(_SAYS_MISSING.search(str(d.get("comment") or "")))
-    )
-
-
-def _states_value(quote: str, field: str) -> bool:
-    """The quote holds the line's field label (folded) followed by a value: not empty, not a blank or deferral form."""
-    from app import blank_markers
-
-    label, q = norm(field), norm(quote)
-    at = q.find(label) if label else -1
-    if at < 0:
-        return False
-    value = q[at + len(label) :].lstrip(" :=-")
-    if not re.search(r"[a-z0-9]", value):
-        return False
-    blank, _marker = blank_markers.classify(value)
-    return not (blank or blank_markers.is_whole_deferral(value, value_field=True))
-
-
-def _same_place(a: dict, b: dict) -> bool:
-    """Two lines about the same place: the same page AND the same verified quote or the same compared value."""
-    if a.get("page") is None or a.get("page") != b.get("page"):
-        return False
-    qa, qb = norm(a.get("quote") or ""), norm(b.get("quote") or "")
-    if qa and qa == qb:
-        return True
-    ca, cb = a.get("code_compare"), b.get("code_compare")
-    return (
-        isinstance(ca, dict)
-        and isinstance(cb, dict)
-        and ca.get("paper") is not None
-        and ca.get("paper") == cb.get("paper")
-    )
-
-
-def _edit_reason(mv: dict, n: int, offered: dict, sent: dict, paper) -> str | None:
-    """Code's check of one move of an OFFERED line (never a code-proven failure): the reason words, or None (refused: the line
-    stays sent). "repeats": line `of` is real, sent, not this line, and about the same place (`_same_place`). "paper states
-    otherwise": the line claims a thing is not stated (`_claims_missing`), and the editor's quote is on the line's own page (its
-    named page only when the line has none) and holds the line's field label with a value (`_states_value`)."""
-    d = offered[n]
-    if mv.get("reason") == REPEATS:
-        m = mv.get("of")
-        if not isinstance(m, int) or m == n or m not in sent:
-            return None
-        return f"repeats line {m}" if _same_place(d, sent[m]) else None
-    if mv.get("reason") == CONTRADICTED:
-        quote = str(mv.get("quote") or "")
-        page = d.get("page") if d.get("page") is not None else mv.get("page")
-        if not _claims_missing(d) or not isinstance(page, int):
-            return None
-        if not quote_in(quote, paper.pages.get(page, "")) or not _states_value(
-            quote, str(d.get("field") or "")
-        ):
-            return None
-        return f'paper states otherwise (page {page}: "{quote[:200]}")'
-    return None
