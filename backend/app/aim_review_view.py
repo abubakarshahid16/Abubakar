@@ -205,10 +205,88 @@ def _keys(sent: list[dict]) -> dict[int, tuple]:
 
 
 def group_comments(points: list[dict]) -> list[dict]:
-    """THE comments of a run (the page, the file and the completeness check read this one list): the SENT lines grouped by
-    `_keys`, in line order of each group's first line. One line: that line as it is. Several: one comment that keeps every
-    member's own words (`_same_point`), or the places of one field said in the same words (`_places_of`).
-    Each comment names the lines it covers."""
+    """THE comments SENT for a run (the page, the file and the completeness check read this list): `comments_and_confirmations`."""
+    return comments_and_confirmations(points)[0]
+
+
+def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(the comments sent, the confirmations not sent) of a run; every SENT line is in exactly one of them, every line stays a
+    point on "All points" (18 Nov 2026, after live: shorter sheets, every find kept):
+      1. the sent lines of one check make one comment (`_item_comments`);
+      2. a comment whose lines ALL record the judge's "confirm" (nothing suspected, the value stated: `steps._ask`) is a
+         CONFIRMATION, not sent: counted apart, on its own sheet and in a closed part of the page. A run that recorded no mark
+         (an older run) moves nothing;
+      3. the comments left that make the SAME FINDING under different checklist items become one (`_same_finding`)."""
+    comments = _item_comments(points)
+    by_n = {p["n"]: p for p in points}
+    confirm = [
+        c for c in comments if all(by_n[n].get("ask") == "confirm" for n in c["lines"])
+    ]
+    sent = [
+        c
+        for c in comments
+        if not all(by_n[n].get("ask") == "confirm" for n in c["lines"])
+    ]
+    return _same_finding(sent, by_n), confirm
+
+
+def _finding_key(p: dict) -> tuple | None:
+    """The FINDING a sent line makes: its shown label, compare kind and provisional kind, with its verified quote (folded), or,
+    with no verified quote, the judge's two numbers (value, unit, operator, limit, unit). None when it has neither. Lines of
+    different labels never share a key (one label per finding: a Question never joins an AI opinion)."""
+    head = (
+        p["shown_label"],
+        p.get("compare_kind") or "",
+        _provisional_kind(p.get("code_note")),
+    )
+    quote = "" if p.get("quote_unverified") else _field_key(p.get("quote"))
+    if quote:
+        return (*head, "quote", quote)
+    nums = p.get("numbers")
+    if isinstance(nums, dict):
+        k = tuple(
+            str(nums.get(x) or "").strip().lower()
+            for x in (
+                "paper_value",
+                "paper_unit",
+                "operator",
+                "rule_value",
+                "rule_unit",
+            )
+        )
+        if k[0] and k[3]:
+            return (*head, "numbers", k)
+    return None
+
+
+def _same_finding(comments: list[dict], by_n: dict) -> list[dict]:
+    """NO CHAIN: comments whose lines ALL make ONE finding (`_finding_key`) become one comment that keeps every line's own
+    words (`_same_point`); a comment whose lines make different findings, or none, stays as it is and links nothing (a chain
+    of shared quotes would build long lists of different points)."""
+    groups: dict[tuple, list[dict]] = {}
+    out = []
+    for c in comments:
+        keys = {_finding_key(by_n[n]) for n in c["lines"]}
+        if len(keys) == 1 and None not in keys:
+            groups.setdefault(keys.pop(), []).append(c)
+        else:
+            out.append(c)
+    for cs in groups.values():
+        if len(cs) == 1:
+            out.append(cs[0])
+            continue
+        members = sorted(
+            (by_n[n] for c in cs for n in c["lines"]),
+            key=lambda m: (m["page"] is None, m["page"] or 0, m["n"]),
+        )
+        out.append(_same_point(members))
+    return sorted(out, key=lambda g: g["n"])
+
+
+def _item_comments(points: list[dict]) -> list[dict]:
+    """The SENT lines grouped by `_keys`, in line order of each group's first line. One line: that line as it is. Several: one
+    comment that keeps every member's own words (`_same_point`), or the places of one field said in the same words
+    (`_places_of`). Each comment names the lines it covers."""
     sent = [p for p in points if aim_review.sendable(p)]
     keys = _keys(sent)
     groups: dict[tuple, list[dict]] = {}
@@ -424,7 +502,7 @@ def build(conn, run: dict, scope=None) -> dict:
     ]
     # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
     # lines of one point make ONE comment listing every place (`group_comments`)
-    comments = group_comments(points)
+    comments, confirmations = comments_and_confirmations(points)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
@@ -453,11 +531,16 @@ def build(conn, run: dict, scope=None) -> dict:
         "counts": {
             "points": len(points),
             "comments": len(comments),
+            # the confirmations not sent (`comments_and_confirmations`): counted apart; comment lines + these = sent lines
+            "confirmations": len(confirmations),
+            "comment_lines": sum(len(c["lines"]) for c in comments),
+            "confirmation_lines": sum(len(c["lines"]) for c in confirmations),
             "by_label": by_label,
             "by_shown_label": by_shown,
             "boundary": BOUNDARY,
         },
         "comments": comments,
+        "confirmations": confirmations,
         "points": points,
         "books": books,
         "books_not_readable": hidden,
