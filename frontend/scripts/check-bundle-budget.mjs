@@ -13,7 +13,9 @@ const root = join(process.cwd(), "dist", "assets");
 // The earlier engine's screens still ship as the way back; retiring them after the new path is proven gives this back.
 // After live 1 (18 Nov 2026): 319000 -> 320000 bytes: the live screen fixes (H3), the book-reason rule-5 wording (H4) and the
 // confirmations count (H5); same way-back reason; retiring the earlier screens is on the after-proof list.
-const max = 320000;
+// After live 3 (18 Nov 2026): 320000 -> 324000 bytes: the comment cards, the engineer's decisions, the sign-off bar and the
+// contractor copy (about 2.9 KB gzip); same way-back reason; retiring the earlier screens is on the after-proof list.
+const max = 324000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;
