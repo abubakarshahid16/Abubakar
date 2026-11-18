@@ -908,7 +908,7 @@ def test_different_findings_of_one_item_are_one_lossless_comment(world):
     assert [cm["lines"] for cm in body["comments"]] == [[1, 2, 3]]
     one = body["comments"][0]
     assert (
-        "Tag number (page 2): The tag differs." in one["comment"]
+        "Tag number (page 2) [rule: STD-X clause 4.2]: The tag differs."  # each place names its rule in one["comment"]
         and "Design pressure disagrees." in one["comment"]
     )
     assert one["quote_unverified"] is True and body["completeness"]["ok"] is True
@@ -1096,14 +1096,14 @@ def test_a_merged_comment_carries_the_safe_state_never_its_first_members(world):
         {"result": "unclear", "why": "invented compare", "read_from": "verified quotes"}
     )
     rows = [
-        _line(1, "Question", "Question", item_id="C01", page=1, ask="confirm"),
+        _line(1, "Question", "Question", item_id="C01", page=1, ask="confirm", quote_unverified=""),
         _line(2, "Question", "Question", item_id="C01", page=2, ask="open", deferred=1),
         _line(3, "Question", "Question", item_id="C02", page=3, ask="confirm", numbers_json=json.dumps(nums),
               code_compare_json=cmp_),
         _line(4, "Question", "Question", item_id="C02", page=4, ask="concern", code_compare_json=cmp_),
-        _line(5, "Question", "Question", item_id="C03", page=5, ask="confirm"),
-        _line(6, "Question", "Question", item_id="C03", page=6, ask="confirm"),
-        _line(7, "Question", "Question", item_id="C04", page=7, ask="confirm"),
+        _line(5, "Question", "Question", item_id="C03", page=5, ask="confirm", quote_unverified=""),
+        _line(6, "Question", "Question", item_id="C03", page=6, ask="confirm", quote_unverified=""),
+        _line(7, "Question", "Question", item_id="C04", page=7, ask="confirm", quote_unverified=""),
         _line(8, "Question", "Question", item_id="C04", page=8),  # unknown
     ]  # fmt: skip
     make_run("gen_state", rows, created="2026-11-18T23:10:00Z")
@@ -1183,9 +1183,9 @@ def test_a_comment_whose_lines_all_say_confirm_is_a_confirmation_not_sent_and_co
     world,
 ):
     rows = [
-        _line(1, "Question", "Question", item_id="C01", page=1, ask="confirm"),
-        _line(2, "Question", "Question", item_id="C01", page=2, ask="confirm"),  # all confirm: a confirmation
-        _line(3, "Question", "Question", item_id="C02", page=3, ask="confirm"),
+        _line(1, "Question", "Question", item_id="C01", page=1, ask="confirm", quote_unverified=""),
+        _line(2, "Question", "Question", item_id="C01", page=2, ask="confirm", quote_unverified=""),  # all confirm: a confirmation
+        _line(3, "Question", "Question", item_id="C02", page=3, ask="confirm", quote_unverified=""),
         _line(4, "Question", "Question", item_id="C02", page=4, ask="concern"),  # one concern: sent
         _line(5, "Question", "Question", item_id="C03", page=5),  # nothing recorded (an older line): sent
     ]  # fmt: skip
@@ -1235,7 +1235,7 @@ def test_an_older_run_with_no_recorded_mark_moves_nothing(world):
 
 
 def test_a_file_that_loses_a_confirmation_row_is_refused(world, monkeypatch):
-    make_run("gen_conf_lost", [_line(1, "Question", "Question", ask="confirm"), _line(2, "Question", "Question", item_id="C02")],
+    make_run("gen_conf_lost", [_line(1, "Question", "Question", ask="confirm", quote_unverified=""), _line(2, "Question", "Question", item_id="C02")],
              created="2026-11-19T00:20:00Z")  # fmt: skip
     real = aim_review_sheet.comment_rows
     monkeypatch.setattr(aim_review_sheet, "comment_rows",
@@ -1339,3 +1339,175 @@ def test_with_no_quote_the_same_two_numbers_are_the_same_finding(world):
         .json()
     )
     assert [cm["lines"] for cm in body["comments"]] == [[1, 2], [3]]
+
+
+# ---- review of PR #1899 (18 Nov 2026): what may be a confirmation; specific quotes only; never two Not met; each rule kept ----
+
+LONG_Q = "Set pressure 12.5 barg at the outlet"
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"code_note": "provisional_unchecked"},  # a figure beside a who-supplies note
+        {"deferred": 1},  # a value left open
+        {
+            "code_compare_json": json.dumps(
+                {"result": "unclear", "why": "x", "read_from": "verified quotes"}
+            )
+        },
+        {"quote_unverified": "the model's words"},  # no verified quote
+        {"quote": ""},
+    ],
+)
+def test_only_a_plain_verified_question_marked_confirm_is_a_confirmation(world, over):
+    row = _line(
+        1, "Question", "Question", ask="confirm", quote=LONG_Q, quote_unverified=""
+    )
+    make_run("gen_conf_guard", [{**row, **over}], created="2026-11-19T02:00:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_conf_guard")
+        .json()
+    )
+    assert body["confirmations"] == [] and [cm["lines"] for cm in body["comments"]] == [
+        [1]
+    ]
+
+
+def test_any_provisional_figure_is_a_concern_whatever_the_judge_said():
+    from app.aim_review import steps as S
+
+    for note in ("provisional_unchecked", "provisional_fails", "provisional"):
+        assert (
+            S._ask({"ask": "confirm"}, "Question", False, None, None, note)
+            == S.ASK_CONCERN
+        )
+    assert (
+        S._ask({"ask": "confirm"}, "Question", False, None, None, "") == S.ASK_CONFIRM
+    )
+
+
+@pytest.mark.parametrize(
+    "quote", ["TBA", "bar", "25", "N/A", "Yes", "A", "set pressure"]
+)
+def test_a_short_or_generic_quote_never_merges_different_items(world, quote):
+    rows = [
+        _line(
+            i,
+            "Question",
+            "Question",
+            item_id=f"C0{i}",
+            quote=quote,
+            quote_unverified="",
+        )
+        for i in (1, 2)
+    ]
+    make_run("gen_generic", rows, created="2026-11-19T02:10:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_generic")
+        .json()
+    )
+    assert [cm["lines"] for cm in body["comments"]] == [[1], [2]]
+
+
+def test_two_not_met_of_different_items_never_merge_even_on_one_quote(world):
+    rows = [
+        _line(
+            i,
+            "Not met",
+            "AI opinion: not met",
+            item_id=f"C0{i}",
+            quote=LONG_Q,
+            quote_unverified="",
+        )
+        for i in (1, 2)
+    ]
+    make_run("gen_two_fails", rows, created="2026-11-19T02:20:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_two_fails")
+        .json()
+    )
+    assert [cm["lines"] for cm in body["comments"]] == [[1], [2]]
+
+
+def test_a_provisional_figure_never_joins_an_ordinary_question_on_one_quote(world):
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", quote=LONG_Q, quote_unverified="", code_note="provisional_unchecked"),
+        _line(2, "Question", "Question", item_id="C02", quote=LONG_Q, quote_unverified=""),
+        _line(3, "Question", "Question", item_id="C03", quote=LONG_Q, quote_unverified=""),
+    ]  # fmt: skip
+    make_run("gen_prov_quote", rows, created="2026-11-19T02:30:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_prov_quote")
+        .json()
+    )
+    assert [cm["lines"] for cm in body["comments"]] == [[1], [2, 3]]
+
+
+def test_a_merged_finding_keeps_each_items_own_rule_and_clause(world):
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", quote=LONG_Q, quote_unverified="", standard="STD-X", clause="4.1"),
+        _line(2, "Question", "Question", item_id="C02", quote=LONG_Q, quote_unverified="", standard="STD-Y", clause="7.2", ),
+    ]  # fmt: skip
+    make_run("gen_rules", rows, created="2026-11-19T02:40:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_rules").json()
+    one = body["comments"][0]
+    assert (
+        one["lines"] == [1, 2]
+        and one["standard"] == "STD-X; STD-Y"
+        and one["clause"] == "4.1; 7.2"
+    )
+    assert "[rule: " in one["comment"] and "clause 7.2]" in one["comment"]
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_rules"))
+    row = aim_review_completeness._table(wb, "Comments")[0]
+    assert row[aim_review_sheet.COMMENT_HEADERS.index("Clause")] == "4.1; 7.2"
+
+
+def test_a_first_sheet_without_the_sent_statement_is_refused(world, monkeypatch):
+    def summary(ws, model):
+        aim_review_sheet._head(ws, "General review: summary")
+        aim_review_sheet._put(
+            ws,
+            3,
+            1,
+            team_statement(model["counts"]["points"], model["counts"]["comments"]),
+        )
+
+    monkeypatch.setattr(aim_review_sheet, "_summary", summary)
+    with pytest.raises(Incomplete) as e:
+        aim_review_completeness.file_or_refuse(RUN, access.unrestricted_scope())
+    assert "the first sheet does not state the counts" in str(e.value)
+
+
+def test_a_confirmation_count_that_differs_from_its_rows_alone_refuses_the_file(
+    world, monkeypatch
+):
+    make_run("gen_conf_rows", [_line(1, "Question", "Question", ask="confirm", quote=LONG_Q, quote_unverified=""),
+                               _line(2, "Question", "Question", item_id="C02")], created="2026-11-19T02:50:00Z")  # fmt: skip
+    real = aim_review_sheet.comment_rows
+    lines = aim_review_sheet.COMMENT_HEADERS.index("Lines")
+
+    def rows(model, part="comments"):
+        out = real(model, part)
+        if (
+            part == "confirmations"
+        ):  # one more row that covers no line: only the count differs
+            extra = list(out[0])
+            extra[lines] = None
+            out = [*out, extra]
+        return out
+
+    monkeypatch.setattr(aim_review_sheet, "comment_rows", rows)
+    with pytest.raises(Incomplete) as e:
+        aim_review_completeness.file_or_refuse(
+            "gen_conf_rows", access.unrestricted_scope()
+        )
+    rep = e.value.report
+    assert (rep["confirmations"], rep["confirmation_rows"]) == (1, 2) and rep[
+        "problems"
+    ] == []
