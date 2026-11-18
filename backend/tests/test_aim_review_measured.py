@@ -138,7 +138,7 @@ def test_the_page_json_carries_the_measured_sentence_of_the_runs_kind(
 ):
     got = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general").json()
     assert got["identity"]["kind"]
-    assert set(got["measured"]) == {
+    assert set(got["measured"]) >= {
         "kind_label",
         "found",
         "target",
@@ -168,3 +168,102 @@ def test_a_score_is_never_rounded_up_and_a_missing_denominator_or_target_is_not_
         monkeypatch.setattr(M, "_table", lambda bad=bad: {**table, **bad})
         got = M.for_run({"kind": "datasheet"})
         assert got["verdict"] == "not measured" and got["found"] is None, bad
+
+
+# ---------------------------------------------------------------------------------- the wrong-comment share (piece H)
+WRONG_TABLE = {
+    "out_of": 10,
+    "target": 7.0,
+    "kinds": {
+        "study": {"label": "study", "found_mean": 5.0, "false_alarm_wrong": 23, "false_alarm_of": 124},
+        "datasheet": {"label": "datasheet", "found_mean": 8.5, "false_alarm_wrong": 4, "false_alarm_of": 71},
+        "contract": {"label": "contract document", "found_mean": 5.0, "false_alarm_wrong": None, "false_alarm_of": None},
+        "procedure": {"label": "procedure", "found_mean": 5.0, "false_alarm_wrong": 3, "false_alarm_of": None},
+        "drawing": {"label": "drawing", "found_mean": 5.0, "false_alarm_wrong": 9, "false_alarm_of": 4},
+        "calculation": {"label": "calculation", "found_mean": 5.0, "false_alarm_wrong": 0, "false_alarm_of": 0},
+        "specification": {"label": "specification", "found_mean": 5.0, "false_alarm_wrong": True, "false_alarm_of": 10},
+    },
+}  # fmt: skip
+
+
+@pytest.fixture
+def wrong_table(monkeypatch):
+    monkeypatch.setattr(M, "_table", lambda: WRONG_TABLE)
+
+
+def test_the_wrong_share_is_said_with_its_n_of_m_and_the_target(wrong_table):
+    got = M.for_run({"kind": "study"})
+    assert got["sentence"].endswith(
+        " A strict reader judged 23 of 124 comments wrong (19%; target 10% or less)."
+    )
+    assert got["false_alarm"] == {
+        "wrong": 23, "of": 124, "percent": 19, "target_percent": 10, "within_target": False,
+        "sentence": "A strict reader judged 23 of 124 comments wrong (19%; target 10% or less).",
+    }  # fmt: skip
+
+
+def test_a_share_within_the_target_says_so_in_the_data_and_is_rounded_up(wrong_table):
+    got = M.for_run({"kind": "datasheet"})
+    assert (
+        "4 of 71 comments wrong (6%; target 10% or less)" in got["sentence"]
+    )  # 5.63 shown as 6, never 5
+    assert got["false_alarm"]["within_target"] is True
+
+
+@pytest.mark.parametrize(
+    "kind", ["contract", "procedure", "drawing", "calculation", "specification"]
+)
+def test_no_percentage_without_both_counts(wrong_table, kind):
+    """Missing, one-sided, impossible (more wrong than comments), zero comments, or a bool count: no wrong-share words at all."""
+    got = M.for_run({"kind": kind})
+    assert got["false_alarm"] is None
+    assert "strict reader" not in got["sentence"] and "%" not in got["sentence"]
+
+
+def test_the_exact_ten_percent_is_within_the_target(monkeypatch):
+    table = {
+        "out_of": 10,
+        "target": 7.0,
+        "kinds": {
+            "study": {"found_mean": 5.0, "false_alarm_wrong": 10, "false_alarm_of": 100}
+        },
+    }
+    monkeypatch.setattr(M, "_table", lambda: table)
+    got = M.for_run({"kind": "study"})["false_alarm"]
+    assert got["percent"] == 10 and got["within_target"] is True
+
+
+def test_the_summary_sheet_carries_the_wrong_share_too(world, monkeypatch):
+    from tests.test_aim_sheet_rule import _sheet, make_run
+
+    monkeypatch.setattr(
+        M,
+        "_table",
+        lambda: {
+            "out_of": 10,
+            "target": 7.0,
+            "kinds": {
+                "datasheet": {
+                    "label": "datasheet",
+                    "found_mean": 5.0,
+                    "false_alarm_wrong": 23,
+                    "false_alarm_of": 124,
+                }
+            },
+        },
+    )
+    make_run("gen_run_wrong", created="2026-11-18T16:00:00Z")
+    c = client(PAPER, BOOK)
+    wb = _sheet(
+        c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_run_wrong")
+    )
+    cells = [
+        r[1]
+        for r in wb["Summary"].iter_rows(values_only=True)
+        if r and r[0] == "Measured score of this kind"
+    ]
+    assert (
+        cells
+        and "A strict reader judged 23 of 124 comments wrong (19%; target 10% or less)."
+        in cells[0]
+    )
