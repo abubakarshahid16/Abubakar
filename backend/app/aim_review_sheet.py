@@ -296,6 +296,11 @@ def _summary(ws: Worksheet, model: dict) -> None:
         ("Measured score of this kind", (model.get("measured") or {}).get("sentence")),
         ("Comments by severity", severity_words(counts.get("by_severity"))),
         ("Sign-off", signoff_words(model.get("signoff"))),
+        (
+            "AI steps that did not run",
+            " ".join(x["sentence"] for x in model.get("steps_not_applied") or [])
+            or "none",
+        ),
     ]
     row = 4
     for label, value in lines:
