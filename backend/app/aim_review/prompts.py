@@ -246,12 +246,29 @@ not on these pages, reply for it {"id": "C..", "not_here": true} and nothing els
 
 #: At most this many opening braces are tried in one answer (a long answer of words is not scanned without end).
 PARSE_TRIES = 200
+#: The top-level key(s) each step's answer carries, as its prompt asks ("Reply with ONE JSON object only: {...}"). Only an object
+#: holding one of them is that step's answer: a small valid example or a quoted "{...}" in words before it is never taken.
+ANSWER_KEYS: dict[str, frozenset[str]] = {
+    "aim_identify": frozenset({"kind"}),
+    "aim_select": frozenset({"books", "not_held_needed"}),
+    "aim_checklist": frozenset({"items"}),
+    "aim_checklist_retry": frozenset({"items"}),
+    "aim_checklist_knowledge": frozenset({"items"}),
+    "aim_attack": frozenset({"remove", "fix", "add"}),
+    "aim_judge": frozenset({"judgments"}),
+    "aim_answered": frozenset({"verdicts"}),
+    "aim_second_read": frozenset({"reads"}),
+    "aim_edit": frozenset({"moves", "groups"}),
+    "aim_reference": frozenset({"checks", "compare"}),
+}
 
 
-def parse_json(text: str):
-    """The JSON object (or list) of a model's answer: inside a fenced block when there is one, else the first opening brace or
-    bracket from which a whole JSON value decodes. Every opener is tried in order (18 Nov 2026: a second reader's answer that
-    opened with words holding a brace was read as no JSON at all; only the first "{" and the first "[" were tried)."""
+def parse_json(text: str, keys: frozenset[str] | None = None):
+    """The JSON answer in a model's reply: inside a fenced block when there is one, else the FIRST object, from any opening brace,
+    that decodes and (with `keys`, the step's `ANSWER_KEYS`) holds one of the step's answer keys; without `keys`, the first object,
+    else the first list. Every opener is tried in order, at most `PARSE_TRIES` (18 Nov 2026: a second reader's answer opening with
+    words that held a brace was read as no JSON; trying every opener alone could take a foreign example object, hence the keys).
+    The prompts ask for the answer only, so the first matching object is it. None: no such object (the step's "no_json")."""
     s = (text or "").strip()
     fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.S)
     if fence:
@@ -261,12 +278,14 @@ def parse_json(text: str):
         ("{", dict),
         ("[", list),
     ):  # an object first: words like "clause [3]" never hide it
+        if keys and kind is list:
+            break  # a step that names its keys answers with an object, never a bare list
         for i in [m.start() for m in re.finditer(re.escape(opener), s)][:PARSE_TRIES]:
             try:
                 obj, _ = decoder.raw_decode(s[i:])
             except ValueError:
                 continue
-            if isinstance(obj, kind):
+            if isinstance(obj, kind) and (not keys or keys & set(obj)):
                 return obj
     return None
 

@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 
 from .prompts import (
+    ANSWER_KEYS,
     _text_of,
     build_parts,
     check_body,
@@ -180,7 +181,7 @@ class ClaudeModel:
         if answer.get("stop_reason") in ("max_tokens", "refusal"):
             rec.ok, rec.code = False, "stop_" + str(answer.get("stop_reason"))
             raise StepFailed(f"{step}: {rec.code}")
-        out = parse_json(_text_of(answer))
+        out = parse_json(_text_of(answer), ANSWER_KEYS.get(step))
         if out is None:
             rec.ok, rec.code = False, "no_json"
             raise StepFailed(f"{step}: no_json")
