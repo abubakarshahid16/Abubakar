@@ -211,6 +211,7 @@ EGRESS_SAFE: dict[str, object] = {
     "general_review_max_usd_per_run": 5.0,  # the general review run's own meter (refused above 15)
     "general_review_lead_model": "claude-sonnet-5-5",  # only on the Claude lane, which stays closed in tests
     "general_review_strong_model": "claude-opus-5-5",
+    "aim_answered_check_enabled": False,  # the whole-paper check (S4b), a way-back switch, off; its own tests turn it on
     "ai_review_calculator_enabled": False,  # 12 Nov: the calculator step of the AI review, off
     "agent_review_two_reader_absence_enabled": False,  # its absence word, off
     "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off
