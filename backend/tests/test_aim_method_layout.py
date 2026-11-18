@@ -87,3 +87,13 @@ def test_no_pair_reading_without_two_names_and_two_values_side_by_side():
     for line in ("By Seller / Agent   12   Invented part / item", "Invented limit  25 kN", "Date 18/11/2026",
                  "MAKER / MODEL NO.          Invented"):  # fmt: skip
         assert LY.pairs(line) == "", line
+
+
+def test_the_judge_reads_each_items_condition_against_this_place():
+    from app.aim_review import prompts as P
+
+    assert 'Read each item\'s "applies_when" against THIS place' in P.S4_TASK
+    assert (
+        "a blank field for a part the condition excludes is never a Question"
+        in P.S4_TASK
+    )

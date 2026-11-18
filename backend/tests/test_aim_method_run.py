@@ -610,3 +610,63 @@ def test_a_fault_names_its_file_and_line_in_the_run_record(aim_db, monkeypatch):
         and ":" in r.stop_reason.rsplit(" ", 1)[-1]
         and "alias" not in r.stop_reason
     )
+
+
+def test_a_checklist_saved_by_another_checklist_method_is_built_again_once(aim_db):
+    """A saved checklist from an older checklist method (or with none recorded) is not reused: the first run after the change
+    builds it again and saves it; the next run reuses the new one. The old one stays in the store (history)."""
+    from app.aim_review import checklist as CL
+
+    store = MemoryStore()
+    _first, _m, _s = _run(aim_db, store=store)
+    key = next(iter(store.saved))
+    sha, body = store.saved[key][-1]
+    assert body["method"] == CL.CHECKLIST_METHOD
+    store.saved[key][-1] = (
+        sha,
+        {k: v for k, v in body.items() if k != "method"},
+    )  # saved by an older method
+    second, model, _s = _run(aim_db, store=store)
+    assert not second.checklist_reused and any(
+        c["step"] == "aim_checklist" for c in model.asked
+    )
+    assert len(store.saved[key]) == 2  # the old one stays as history
+    store.saved[key][-1][1]["method"] = CL.CHECKLIST_METHOD
+    third, model3, _s = _run(aim_db, store=store)
+    assert third.checklist_reused and not any(
+        c["step"] == "aim_checklist" for c in model3.asked
+    )
+    store.saved[key].append((sha, dict(body, method="2026-01-01.0")))
+    fourth, _m4, _s = _run(aim_db, store=store)
+    assert not fourth.checklist_reused
+
+
+def test_a_pass_the_judge_gives_as_an_empty_confirm_is_kept_off_the_comments(aim_db):
+    """The judge is told (S4) that a line that only says the paper meets the rule is no comment: a held-rule item is "Met"; any
+    other item is a "Question" with "ask": "confirm" and an empty comment, which code keeps on All points, never sent (no word
+    list reads the AI's wording: REVIEW.md, 18 Nov)."""
+    import re
+
+    from app.aim_review import prompts as P
+
+    assert (
+        "is NO COMMENT" in P.S4_TASK
+        and '"ask":\n"confirm" and an empty comment' in P.S4_TASK
+    )
+
+    def judge(step, cached, prompt):
+        ids = re.findall(r'"id": "([CG]\d+)"', prompt)
+        return {"judgments": [{"id": i, "label": "Question", "ask": "confirm", "comment": "", "page": 1,
+                               "quote": "Design pressure of the test item: 12 bar gauge at the inlet", "field": "f"}
+                              for i in ids]}  # fmt: skip
+
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_judge": judge}
+    )
+    r, _model, _s = _run(aim_db, model=model)
+    confirms = [
+        ln for ln in r.lines if ln["label"] == "Question" and ln.get("ask") == "confirm"
+    ]
+    assert r.status == "done" and confirms
+    assert not any(aim_review.sendable(ln) for ln in confirms)
+    assert len(r.lines) >= len(confirms)  # every one stays a point (All points)

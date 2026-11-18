@@ -319,6 +319,7 @@ def run(
         usd=ledger_usd,
         seconds=round(time.time() - t0, 2),
         references=state.references,
+        answered=state.answered,
         book_why=dict(state.book_why),
     )
 
@@ -365,6 +366,9 @@ class _RunState:
         self.key, self.sha, self.reused = "", "", False
         self.books: set[str] = set()
         self.references: list[dict] = []
+        self.answered: list[
+            dict
+        ] = []  # the whole-paper check's verdicts (local run record)
         self.reference_ids: set[str] = set()
         self.book_why: dict[str, str] = {}
         self.not_held: list[dict] = []
@@ -512,7 +516,7 @@ def _after_judge(
         aim_review_gate.answered_check_on()
     ):  # off by default (a way-back switch): code proves the quote, not the answer
         s4b_answered(
-            mdl, paper, state.decided, lead
+            mdl, paper, state.decided, lead, state.answered
         )  # after the second reader: its words are claims too
     say(96, "judge")
     s5_edit(mdl, paper, state.decided, lead)
@@ -561,6 +565,21 @@ def _known_keys(store) -> list[str]:
         return []
 
 
+def _saved_current(store, state: _RunState) -> dict | None:
+    """The saved checklist of the run's key when it was built by THIS checklist method (`checklist.CHECKLIST_METHOD`); one from
+    another method is not reused (the run builds it again once; the old one stays in the store as history)."""
+    from . import checklist as CL
+
+    saved = store.get(state.key) if store is not None else None
+    if isinstance(saved, dict) and saved.get("method") != CL.CHECKLIST_METHOD:
+        log.info(
+            "general review %s: the saved checklist is from another checklist method: built again",
+            state.run_id,
+        )
+        return None
+    return saved
+
+
 def _checklist(
     conn,
     state: _RunState,
@@ -578,7 +597,7 @@ def _checklist(
     from . import library as L
     from . import scope_books as SB
 
-    saved = store.get(state.key) if store is not None else None
+    saved = _saved_current(store, state)
     if (
         isinstance(saved, dict)
         and saved.get("built_from") in CL.BUILT_FROMS
