@@ -1511,3 +1511,21 @@ def test_a_confirmation_count_that_differs_from_its_rows_alone_refuses_the_file(
     assert (rep["confirmations"], rep["confirmation_rows"]) == (1, 2) and rep[
         "problems"
     ] == []
+
+
+def test_a_merged_comments_field_cell_names_every_members_field(world):
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", field="Invented field one", page=1, comment="One."),
+        _line(2, "Question", "Question", item_id="C01", field="Invented field two", page=2, comment="Two."),
+    ]  # fmt: skip
+    make_run("gen_fields", rows, created="2026-11-19T03:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_fields").json()
+    assert [cm["lines"] for cm in body["comments"]] == [[1, 2]]
+    assert body["comments"][0]["field"] == "Invented field one; Invented field two"
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_fields"))
+    row = aim_review_completeness._table(wb, "Comments")[0]
+    assert (
+        row[aim_review_sheet.COMMENT_HEADERS.index("Field")]
+        == "Invented field one; Invented field two"
+    )
