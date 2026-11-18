@@ -76,6 +76,8 @@ class Result:
     )  # {step, model, usd, input_tokens, output_tokens, seconds, ok, code}
     usd: float = 0.0
     seconds: float = 0.0
+    #: The reference papers of a contract review and what was done with each (`references.check`): not rule books, not in `books`.
+    references: list = field(default_factory=list)
     #: {book document id: the reason the scope step chose it} for the books in `books` (empty text: no reason was recorded).
     book_why: dict = field(default_factory=dict)
 
@@ -96,7 +98,31 @@ PAPER_COMPARE_PASSED = "paper_compare_passed"
 #: `code_note` part of a line the editor step (S5) took off the comment sheet: "edited: repeats line 3", "edited: paper states
 #: otherwise (page 2: ...)". Its label is unchanged; it stays in "All points" with its reason.
 EDITED = "edited"
-NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED, EDITED)
+#: `code_note` part of a line on NO held rule that the whole-paper check (S4b, `answered.py`) found answered by the paper:
+#: "answered: the paper answers it on page 7: "..."" (a quote code found on that page). It stays in "All points", never sent.
+ANSWERED = "answered"
+#: `code_note` part of a line whose quoted figure the contractor FILLED IN beside a who-supplies note ("380 psig (By Contractor)"):
+#: judged as a stated value (owner, 18 Nov 2026 after live); the note says where the figure came from.
+CONTRACTOR_FILLED = "filled in by the contractor (By Contractor)"
+#: `code_note` parts of the second reader (S4c, `second_read.py`): both readers find a fault, or they differ ("readers differ:
+#: first Not met, second Met"): a line the readers differ on is sent as a Question to be checked, with both readers' words.
+TWO_READERS_AGREE = "two readers agree"
+READERS_DIFFER = "readers differ"
+#: `code_note` part of a line that sets a value of one equipment item against another item's (`items.py`): "different_items: page
+#: 2 "X" / page 3 "Y"" (both names found on their pages). No finding: it stays in "All points", never sent.
+DIFFERENT_ITEMS = "different_items"
+#: `code_note` part of a Question that states a pass or repeats the paper and asks nothing (`asks.mark`, after every AI step): kept on
+#: "All points" with its reason, never sent.
+NO_ASK = "no_ask"
+NOT_SENT_NOTES = (
+    NOT_JUDGED,
+    PROVISIONAL,
+    PAPER_COMPARE_PASSED,
+    EDITED,
+    DIFFERENT_ITEMS,
+    ANSWERED,
+    NO_ASK,
+)
 
 
 def sendable(line: dict) -> bool:
@@ -154,17 +180,23 @@ def run(
 
 
 __all__ = [
+    "ANSWERED",
+    "CONTRACTOR_FILLED",
+    "DIFFERENT_ITEMS",
     "EDITED",
     "LABELS",
     "MAX_BOOKS",
     "METHOD_VERSION",
     "NOT_JUDGED",
     "NOT_SENT_NOTES",
+    "NO_ASK",
     "PAPER_COMPARE_PASSED",
     "PROVISIONAL",
     "PROVISIONAL_FAILS",
     "PROVISIONAL_UNCHECKED",
+    "READERS_DIFFER",
     "SENDABLE",
+    "TWO_READERS_AGREE",
     "WHYS",
     "WHY_CITED",
     "WHY_GOVERNS",

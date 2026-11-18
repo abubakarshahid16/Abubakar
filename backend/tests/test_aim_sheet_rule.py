@@ -139,6 +139,9 @@ def test_the_page_json_has_the_contract_shape(world):
     )
     assert body["counts"] == {
         "points": 6, "comments": 3, "confirmations": 0, "comment_lines": 3, "confirmation_lines": 0,
+        # by code's own verdict: line 1 is shown "Fail, compared by code" (Must fix); the others are "Check a value"
+        "by_severity": {"Must fix": 1, "Check a value": 2, "Missing information": 0, "Please confirm": 0},
+        "not_sent": {"edited": 0, "answered": 0},
         "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
         "by_shown_label": body["counts"]["by_shown_label"], "boundary": "this paper, this review",
     }  # fmt: skip
@@ -376,7 +379,14 @@ def test_every_sheet_carries_the_mark_and_the_first_sheet_states_the_counts(worl
             )
             if r[0] is not None
         ]
-        assert rows and all(r[-1] == "AI, to be checked" for r in rows)
+        # H9 (card layout): the mark stands in the "Status" cell, found by its header (hidden technical columns now follow it)
+        headers = (
+            aim_review_sheet.COMMENT_HEADERS
+            if name == "Comments"
+            else aim_review_sheet.POINT_HEADERS
+        )
+        at = headers.index("Status")
+        assert rows and all(r[at] == "AI, to be checked" for r in rows)
 
 
 def test_the_rows_on_the_sheets_are_the_counts(world):
@@ -599,9 +609,15 @@ def test_the_count_check_script_exits_1_on_a_difference(world, monkeypatch, caps
 
 @pytest.mark.parametrize("copy", ["contractor"])
 def test_the_contractor_copy_is_refused_with_the_one_sentence(world, copy):
-    r = client(PAPER, BOOK).get(
-        f"/api/reviews/papers/{PAPER}/general/sheet?copy={copy}"
+    c = client(
+        PAPER, BOOK
+    )  # a super user (the admin capability): the copy is asked of an UNSIGNED review
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id="eng",
+        allowed_document_ids=frozenset({PAPER, BOOK}),
+        capabilities=frozenset({access.ADMIN_CAPABILITY}),
     )
+    r = c.get(f"/api/reviews/papers/{PAPER}/general/sheet?copy={copy}")
     assert r.status_code == 409
     assert r.json()["detail"]["message"] == aim_review_gate.NO_CONTRACTOR_COPY_WORDS
     assert "AI, to be checked" in r.json()["detail"]["message"]
@@ -970,11 +986,12 @@ def test_different_items_are_never_merged_whatever_their_source_or_rule_book(wor
     assert body["completeness"]["ok"] is True
 
 
-def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_by_label_and_compare_kind(
+def test_an_editor_group_mark_merges_only_the_same_kind_and_one_item_splits_by_label_and_compare_kind(
     world,
 ):
-    """The editor's "same point" mark joins nothing in the view now (it spanned different items); one item's lines merge only
-    when they show the same label and the same compare kind (a code-compared Fail never joins a Question)."""
+    """The editor's "same point" mark joins the comments of one group when every member shows the same label and compare kind (lead 3,
+    18 Nov: the editor's groups are applied by code, lossless); a mark that crosses kinds (a Fail, a code-compared line) merges nothing;
+    one item's lines merge only when they show the same label and the same compare kind."""
     mark = "same point as line 1"
     cmp_rule = json.dumps(
         {
@@ -987,9 +1004,9 @@ def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_b
     lines = [
         _line(1, "Question", "Question", item_id="C01", code_note=mark),
         _line(2, "Question", "Question", item_id="C02", code_note=mark),  # another item: its own comment
-        _line(3, "Not met", "Fail, compared by code", item_id="C03", code_compare_json=cmp_rule),
+        _line(3, "Not met", "Fail, compared by code", item_id="C03", code_compare_json=cmp_rule, code_note=mark),  # a mark never joins a Fail
         _line(4, "Question", "Question", item_id="C03"),  # same item, another label
-        _line(5, "Question", "Question", item_id="C04", code_compare_json=cmp_other),
+        _line(5, "Question", "Question", item_id="C04", code_compare_json=cmp_other, code_note=mark),  # nor another compare kind
         _line(6, "Question", "Question", item_id="C04"),  # same item and label, another compare kind
         _line(7, "Question", "Question", item_id="C05"),
         _line(8, "Question", "Question", item_id="C05"),  # a true repeat
@@ -1001,18 +1018,17 @@ def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_b
         .json()
     )
     assert [c["lines"] for c in body["comments"]] == [
-        [1],
-        [2],
+        [1, 2],  # the editor's group: two items, the same label and kind: one comment keeping both lines' words
         [3],
         [4],
         [5],
         [6],
         [7, 8],
     ]
-    assert body["comments"][2]["shown_label"] == "Fail, compared by code"
+    assert body["comments"][1]["shown_label"] == "Fail, compared by code"
     rep = body["completeness"]
     assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 8
-    assert rep["comments"] == rep["comment_rows"] == 7
+    assert rep["comments"] == rep["comment_rows"] == 6  # lines 1 and 2 are one comment
 
 
 # ---- the recorded ask, the value-left-open flag and the judge's numbers reach the page and the file (18 Nov 2026) --------------
@@ -1528,4 +1544,168 @@ def test_a_merged_comments_field_cell_names_every_members_field(world):
     assert (
         row[aim_review_sheet.COMMENT_HEADERS.index("Field")]
         == "Invented field one; Invented field two"
+    )
+
+
+# ---- the comment card (planner 19:00, 18 Nov 2026): severity by CODE, a short title, the card's parts as fields ----------------
+
+FAIL_RULE = json.dumps(
+    {"result": "fail", "why": "25 bar <= 20 bar: false", "read_from": "verified quotes"}
+)
+FAIL_PAIR = json.dumps(
+    {
+        "result": "fail",
+        "why": "25 bar <= 20 bar: false",
+        "read_from": "verified paper quotes",
+    }
+)
+
+
+def _cards(run_id, rows):
+    make_run(run_id, rows, created="2026-11-19T06:00:00Z")
+    return (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id={run_id}")
+        .json()
+    )
+
+
+def test_the_severity_of_a_card_is_decided_by_code_never_by_its_words(world):
+    rows = [
+        _line(1, "Not met", "Fail, compared by code", item_id="C01", code_compare_json=FAIL_RULE),  # against a held rule
+        _line(2, "AI opinion", "AI opinion", item_id="C02", code_compare_json=FAIL_PAIR),  # the paper against itself
+        _line(3, "Question", "Question", item_id="C03", code_compare_json=FAIL_RULE, code_note="provisional_fails"),
+        _line(4, "Not met", "AI opinion: not met", item_id="C04", comment="Must fix: this is plainly wrong."),  # words decide nothing
+        _line(5, "Question", "Question", item_id="C05", deferred=1),
+        _line(6, "Question", "Question", item_id="C06", ask="open"),
+        _line(7, "Question", "Question", item_id="C07", code_note="not_on_any_page"),
+        _line(8, "Question", "Question", item_id="C08", ask="confirm", quote_unverified=""),  # a confirmation
+    ]  # fmt: skip
+    body = _cards("gen_cards", rows)
+    sev = {
+        cm["lines"][0]: cm["severity"]
+        for cm in body["comments"] + body["confirmations"]
+    }
+    assert sev == {1: "Must fix", 2: "Check a value", 3: "Check a value", 4: "Check a value", 5: "Missing information",
+                   6: "Missing information", 7: "Missing information", 8: "Please confirm"}  # fmt: skip
+    assert body["counts"]["by_severity"] == {
+        "Must fix": 1,
+        "Check a value": 3,
+        "Missing information": 3,
+        "Please confirm": 1,
+    }
+    proven = {cm["lines"][0]: cm["proven"] for cm in body["comments"]}
+    assert proven[1] == "compared by code" and proven[4] == aim_review_gate.AI_MARK
+
+
+def test_a_card_takes_its_most_severe_point(world):
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", deferred=1, comment="Left open."),  # Missing information
+        _line(2, "Question", "Question", item_id="C01", comment="A value to check."),  # Check a value
+    ]  # fmt: skip
+    body = _cards("gen_card_max", rows)
+    assert [(cm["lines"], cm["severity"]) for cm in body["comments"]] == [
+        ([1, 2], "Check a value")
+    ]
+
+
+def test_a_card_has_a_short_title_and_its_parts_as_fields(world):
+    long_topic = "an invented topic of many words that goes well past the eleven word title limit here"
+    rows = [
+        _line(1, "Not met", "Fail, compared by code", item_id="C01", code_compare_json=FAIL_RULE, topic="Design pressure limit",
+              comment="State a design pressure within the limit."),
+        _line(2, "Question", "Question", item_id="C02", topic=long_topic),
+        _line(3, "AI opinion", "AI opinion", item_id="C03", topic="", field="Invented field three",
+              source="engineering knowledge (book not held)", standard="", clause=""),
+    ]  # fmt: skip
+    body = _cards("gen_card_parts", rows)
+    by = {cm["lines"][0]: cm for cm in body["comments"]}
+    one = by[1]
+    assert (
+        one["title"] == "Design pressure limit"
+        and one["paper_says"] == "invented quote 1"
+    )
+    assert one["rule_says"] == "STD-X clause 4.1: 25 bar <= 20 bar: false"
+    assert one["we_ask"] == "State a design pressure within the limit."
+    assert one["applies_to"] == [
+        {"page": 3, "field": "Invented field 1", "quote": "invented quote 1"}
+    ]
+    assert len(by[2]["title"].replace(" ...", "").split()) < 12 and by[2][
+        "title"
+    ].endswith(" ...")
+    assert by[3]["title"] == "Invented field three"
+    assert by[3]["rule_says"] == "Engineering knowledge (no held rule book)"
+
+
+def test_the_contractor_filled_note_stays_on_the_line_and_the_sheet_for_every_viewer(
+    world,
+):
+    """Owner, 18 Nov 2026: a figure filled in beside "(By Contractor)" is judged as a stated value; the note says where it came
+    from, on the page and on All points, also for a viewer who may not open the rule book."""
+    note = aim_review.CONTRACTOR_FILLED
+    rows = [
+        _line(1, "Not met", "Fail, compared by code", code_note=note,
+              code_compare_json=json.dumps({"result": "fail", "why": "380 psig <= 340 psig: false", "read_from": "verified quotes"})),
+        _line(2, "Met", "AI opinion: met", code_note=note, standard="QX-GONE-707", book_document_id="doc_inv_gone"),
+    ]  # fmt: skip
+    make_run("gen_filled", rows, created="2026-11-19T04:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_filled").json()
+    assert [p["code_note"] for p in body["points"]] == [note, note]
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_filled"))
+    col = aim_review_sheet.POINT_HEADERS.index("Code note")
+    assert [r[col] for r in aim_review_completeness._table(wb, "All points")] == [
+        note,
+        note,
+    ]
+
+
+# ---- the second reader's notes (18 Nov 2026): every viewer sees them; a differing line stays one point and one comment ----------
+
+
+def test_the_readers_notes_are_state_words_for_every_viewer_and_the_counts_hold(world):
+    differ = "readers differ: first Not met, second Met"
+    rows = [
+        _line(1, "Question", "Question", code_note=differ, comment="To be checked: the two readers differ. First reader (Not met): x"),
+        _line(2, "Not met", "AI opinion: not met", code_note="two readers agree"),
+        _line(3, "Question", "Question", code_note=differ + "; the rule's figure 707 bar", standard="QX-GONE-707",
+              book_document_id="doc_inv_gone"),  # a book the viewer may not open
+    ]  # fmt: skip
+    make_run("gen_readers", rows, created="2026-11-19T05:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_readers").json()
+    notes = [p["code_note"] for p in body["points"]]
+    assert (
+        notes[0] == differ
+        and notes[1] == "two readers agree"
+        and notes[2] == "readers differ"
+    )  # hidden: state words only
+    assert sorted(cm["lines"] for cm in body["comments"]) == [[1], [2], [3]]
+
+
+def test_answered_and_edited_points_are_counted_apart_and_every_point_stays_a_row(
+    world,
+):
+    """A point the whole-paper check found answered (or the editor took off) is not a comment, is counted apart, and stays on
+    "All points": page = database = file still holds."""
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", code_note='answered: the paper answers it on page 4: "invented words"'),
+        _line(2, "Question", "Question", item_id="C02", code_note="edited: repeats line 3"),
+        _line(3, "Question", "Question", item_id="C03"),
+    ]  # fmt: skip
+    make_run("gen_answered", rows, created="2026-11-19T01:10:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_answered").json()
+    assert [cm["lines"] for cm in body["comments"]] == [[3]]
+    assert body["counts"]["not_sent"] == {"edited": 1, "answered": 1}
+    rep = body["completeness"]
+    assert (
+        rep["ok"] is True
+        and rep["page"] == rep["database"] == rep["file_rows"] == 3
+        and rep["comment_rows"] == 1
+    )
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_answered"))
+    note = aim_review_sheet.POINT_HEADERS.index("Code note")
+    assert aim_review_completeness._table(wb, "All points")[0][note].startswith(
+        "answered: the paper answers it on page 4"
     )

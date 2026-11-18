@@ -23,7 +23,49 @@ export interface GeneralLine {
   /** What code compared, in words ("380 psig <= 23.5 barg: false"); empty when code compared nothing. */
   compared?: string;
   compare_kind?: string;
+  /** The comment card (code-decided, from the server; absent on an older answer): how serious, a short title, and the parts of the card. */
+  severity?: Severity;
+  title?: string;
+  paper_says?: string;
+  rule_says?: string;
+  we_ask?: string;
+  applies_to?: { page: number | null; field: string; quote: string }[];
+  /** "compared by code", or the mark when it is an AI reading. */
+  proven?: string;
+  /** The engineer's latest decision on this comment (append-only on the server); null when undecided. */
+  decision?: CommentDecision | null;
 }
+
+export type DecisionState = "accept" | "edit" | "reject";
+
+/** The engineer's sign-off of the review (server's answer): not signed / signed / changed since the sign-off. */
+export interface SignoffStatus {
+  state: "not_signed" | "signed" | "changed";
+  undecided: { part: "comment" | "confirmation"; n: number; title: string }[];
+  undecided_count: number;
+  /** The four configured review codes: the engineer chooses one, nothing is proposed by the machine. */
+  codes: string[];
+  can_sign: boolean;
+  /** The admin capability ("super user"): only that reader signs, and fetches the contractor copy, until engineer accounts are named. */
+  may_sign: boolean;
+  may_sign_words: string | null;
+  signed: { by: string; at: string; code: string; statement: string | null; copy_statement: string } | null;
+}
+
+export interface SignoffRefusal { message: string; blockers: { part: string; n: number; title?: string; why?: string }[] }
+
+export interface CommentDecision {
+  state: DecisionState;
+  words: string;
+  text: string | null;
+  reason: string | null;
+  by: string;
+  at: string;
+  revisions: number;
+  sentence?: string;
+}
+
+export type Severity = "Must fix" | "Check a value" | "Missing information" | "Please confirm";
 
 /** One model or code call of the run, as the server recorded it. `usd` null: the cost of this call was not read. */
 export interface GeneralCall {
@@ -58,6 +100,8 @@ export interface GeneralReview {
     /** The points inside the comments sent, and inside the confirmations: comment_lines + confirmation_lines = the points that qualified to be sent. */
     comment_lines?: number;
     confirmation_lines?: number;
+    /** The summary tiles: how many comments (and confirmations) of each severity. */
+    by_severity?: Partial<Record<Severity, number>>;
   };
   comments: GeneralLine[];
   /** The confirmations not sent (absent on an older answer). */
@@ -79,6 +123,8 @@ export interface GeneralReview {
   created_at?: string | null;
   finished_at?: string | null;
   completeness: GeneralCompleteness;
+  /** The engineer's sign-off state of this run (absent on an older answer). */
+  signoff?: SignoffStatus;
   /** False when an earlier-engine review of the paper is newer: the page then draws the older sections. */
   is_latest?: boolean;
 }
@@ -98,7 +144,25 @@ export interface PaperHistory { paper_document_id: string; boundary: string; run
 const isObject = (b: unknown): b is Record<string, unknown> => typeof b === "object" && b !== null;
 const paper = (documentId: string) => `/reviews/papers/${encodeURIComponent(documentId)}`;
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 export const generalReview = {
+  /** Accept every comment and confirmation that has no decision yet (each its own, append-only, decision). */
+  acceptRest: (documentId: string, runId: string) =>
+    request<{ run_id: string; accepted: number }>(`${paper(documentId)}/general/accept-rest`,
+      { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ run_id: runId }) }, (b) => isObject(b) && typeof b.accepted === "number"),
+  /** Sign the review off with the engineer's own choice of the review code. A 409 carries the reason and the comments in the way. */
+  signOff: (documentId: string, body: { run_id: string; review_code: string; statement?: string }) =>
+    request<{ run_id: string; signoff: SignoffStatus }>(`${paper(documentId)}/general/signoff`,
+      { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, (b) => isObject(b) && isObject(b.signoff)),
+  /** Accept, edit or reject ONE comment (or confirmation). Only a signed-in user who may read the paper; the answer is the comment's
+   *  latest decision. Edit needs the engineer's text, reject a one-line reason (the server refuses otherwise, in its own words). */
+  decide: (documentId: string, body: { run_id: string; comment: number; part: "comment" | "confirmation"; state: DecisionState; text?: string; reason?: string }) =>
+    request<{ run_id: string; comment: number; part: string; decision: CommentDecision }>(
+      `${paper(documentId)}/general/decision`,
+      { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) },
+      (b) => isObject(b) && isObject(b.decision),
+    ),
   /** Which method the Review button runs now (piece E's route): "general" or "earlier". */
   method: () => request<{ method: "general" | "earlier" }>("/reviews/method", undefined, (b) => isObject(b) && typeof b.method === "string"),
   /** The paper's latest finished general review (or the one asked for). A 404 means: this paper has none. */
@@ -112,12 +176,12 @@ export const generalReview = {
   history: (documentId: string) =>
     request<PaperHistory>(`${paper(documentId)}/history`, undefined, (b) => isObject(b) && Array.isArray(b.runs)),
   /** The team file of one general review. The server refuses it (409, with the sentence) unless page, database and rows agree. */
-  sheet: async (documentId: string, runId?: string): Promise<Result<{ blob: Blob; filename: string }>> => {
+  sheet: async (documentId: string, runId?: string, copy: "team" | "contractor" = "team"): Promise<Result<{ blob: Blob; filename: string }>> => {
     let response: Response;
     try {
       const headers = new Headers();
       markSession(headers);
-      response = await fetch(`${BASE}${paper(documentId)}/general/sheet${runId ? `?run_id=${encodeURIComponent(runId)}` : ""}`, { headers });
+      response = await fetch(`${BASE}${paper(documentId)}/general/sheet?${runId ? `run_id=${encodeURIComponent(runId)}&` : ""}copy=${copy}`, { headers });
     } catch (e) {
       return { ok: false, disconnected: true, error: { code: "internal", message: e instanceof Error ? e.message : "Network request failed." } };
     }
@@ -132,8 +196,8 @@ export const generalReview = {
 };
 
 /** Fetch the file and hand it to the browser. Returns the server's own sentence on a refusal, or null when handed over. */
-export async function downloadGeneralSheet(documentId: string, runId?: string): Promise<string | null> {
-  const result = await generalReview.sheet(documentId, runId);
+export async function downloadGeneralSheet(documentId: string, runId?: string, copy: "team" | "contractor" = "team"): Promise<string | null> {
+  const result = await generalReview.sheet(documentId, runId, copy);
   if (!result.ok) return result.error.message;
   const url = URL.createObjectURL(result.data.blob);
   const link = document.createElement("a");

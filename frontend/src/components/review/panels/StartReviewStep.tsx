@@ -26,11 +26,11 @@ export function StartReviewStep({ documentId, filename = null, onStarted, onOpen
   const [error, setError] = useState<string | null>(null);
   const [runningRunId, setRunningRunId] = useState<string | null>(null);
 
-  async function go(engine: Engine, shownDocumentIds: string[]) {
+  async function go(engine: Engine, shownDocumentIds: string[], ticked: string[] = []) {
     setBusy(true);
     setError(null);
     setRunningRunId(null);
-    const result = await reviewPlan.start(documentId, engine, shownDocumentIds);
+    const result = await reviewPlan.start(documentId, engine, shownDocumentIds, ...(ticked.length ? [ticked] : []));
     setBusy(false);
     if (!result.ok) {
       // A refusal (already running, administrators only) is a real answer, in plain words (`startRefusal`), never retried silently.
@@ -50,7 +50,7 @@ export function StartReviewStep({ documentId, filename = null, onStarted, onOpen
 
   return (
     <div className="space-y-2" data-testid="start-review-step">
-      <StartPanel submittalId={documentId} starting={busy} onStart={(e, ids) => void go(e, ids)} onCancel={onCancel} />
+      <StartPanel submittalId={documentId} starting={busy} onStart={(e, ids, ticked) => void go(e, ids, ticked)} onCancel={onCancel} />
       {error && <p role="alert" className="text-xs text-danger-500">{error}</p>}
       {runningRunId && (
         <button type="button" onClick={() => (onOpenRunning ?? onStarted)(runningRunId)}

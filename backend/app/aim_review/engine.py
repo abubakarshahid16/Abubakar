@@ -290,10 +290,14 @@ def run(
     except StepFailed as exc:
         state.stop(str(exc))
     except Exception as exc:  # noqa: BLE001 - a fault is a stopped run with its code, never a crash of the worker
+        where = _fault_at(exc)
         log.warning(
-            "general review %s stopped by a fault (%s)", run_id, type(exc).__name__
+            "general review %s stopped by a fault (%s at %s)",
+            run_id,
+            type(exc).__name__,
+            where,
         )
-        state.stop(f"fault: {type(exc).__name__}")
+        state.stop(f"fault: {type(exc).__name__} at {where}")
     say(100, "counts")
     # THE COST IS THE LEDGER'S (review R1 N4; REVIEW.md: a paid run's cost is read from the ledger's lines, never from one stored
     # field): what this run's lines in `claude_spend` hold, an open hold at its worst case. The run's own meter only stops calls.
@@ -306,7 +310,7 @@ def run(
         checklist_key=state.key,
         checklist_sha256=state.sha,
         checklist_reused=state.reused,
-        books=sorted(state.books),
+        books=sorted(state.books - state.reference_ids),
         not_held=state.not_held,
         unlisted_books=sorted(state.unlisted),
         unlisted_count=len(state.unlisted),
@@ -314,6 +318,7 @@ def run(
         calls=calls,
         usd=ledger_usd,
         seconds=round(time.time() - t0, 2),
+        references=state.references,
         book_why=dict(state.book_why),
     )
 
@@ -359,6 +364,8 @@ class _RunState:
         self.identity: dict = {}
         self.key, self.sha, self.reused = "", "", False
         self.books: set[str] = set()
+        self.references: list[dict] = []
+        self.reference_ids: set[str] = set()
         self.book_why: dict[str, str] = {}
         self.not_held: list[dict] = []
         self.unlisted: set[str] = set()
@@ -478,10 +485,57 @@ def _steps(
         cancelled,
     )
     if not state.stop_reason:
-        say(96, "judge")
-        from .editor import s5_edit
+        _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
 
-        s5_edit(mdl, paper, state.decided, lead)
+
+def _after_judge(
+    conn, state, mdl, paper, checklist: dict, allowed_books, lead: str, say
+) -> None:
+    """After the judge, in order: the contract's reference papers (G), the second reader (S4c: a finding the AI alone decided
+    needs two readers), the whole-paper check (S4b, behind its switch: a line whose claim the paper contradicts is not sent), the
+    editor (S5), and last the no-ask mark (code: a Question that asks nothing is kept on All points, not sent)."""
+    from . import asks
+    from . import references as R
+    from .answered import s4b_answered
+    from .editor import s5_edit
+    from .second_read import s4c_second_read
+
+    # a contract's open questions that name a held Schedule of its own package are checked against it (reference papers)
+    state.references, state.reference_ids = R.check(
+        conn, mdl, paper, state.decided, allowed_books, lead
+    )
+    say(95, "whole-paper check and second reader")
+    from app import aim_review_gate
+
+    s4c_second_read(mdl, paper, state.decided, checklist, lead)
+    if (
+        aim_review_gate.answered_check_on()
+    ):  # off by default (a way-back switch): code proves the quote, not the answer
+        s4b_answered(
+            mdl, paper, state.decided, lead
+        )  # after the second reader: its words are claims too
+    say(96, "judge")
+    s5_edit(mdl, paper, state.decided, lead)
+    asks.mark(
+        state.decided
+    )  # last, after every AI step: a Question that asks nothing is kept on All points, not sent
+
+
+def _fault_at(exc: BaseException) -> str:
+    """Where a fault was raised, as "file.py:line" of the innermost frame in the app's own code (no message: a key or value
+    could hold document words), or "unknown"."""
+    import traceback
+    from pathlib import Path
+
+    frames = [
+        f
+        for f in traceback.extract_tb(exc.__traceback__)
+        if "/app/" in f.filename.replace("\\", "/")
+    ]
+    if not frames:
+        return "unknown"
+    f = frames[-1]
+    return f"{Path(f.filename).parent.name}/{Path(f.filename).name}:{f.lineno}"
 
 
 def _book_reasons(checklist: dict) -> dict[str, str]:
@@ -519,8 +573,10 @@ def _checklist(
     strong: str,
 ) -> dict:
     """The saved checklist of the paper's type, else one built from the listed books (standards only) and saved."""
+    from . import book_names as BN
     from . import checklist as CL
     from . import library as L
+    from . import scope_books as SB
 
     saved = store.get(state.key) if store is not None else None
     if (
@@ -531,13 +587,18 @@ def _checklist(
         want = CL.wanted(
             conn, state.paper_id, CL.type_identity(ident), allowed_books, state.cited
         )
-        if L.wanted_not_held(saved.get("not_held")) == L.wanted_not_held(
-            want["not_held"]
+        # the saved AI "needed" names sorted again: a held book now on the list means build again; held, not listed: unlisted
+        use, unlisted, still = BN.resort_saved(conn, state.paper_id, saved.get("not_held"), allowed_books, ident.get("kind"), gate_checker())  # fmt: skip
+        if (
+            L.wanted_not_held(saved.get("not_held"))
+            == L.wanted_not_held(want["not_held"])
+            and SB.saved_fits_scope(conn, saved, ident, state.cited or frozenset())
+            and not use
         ):
             state.reused = True
             state.sha = str(saved.get("sha256") or "")
-            state.not_held = list(saved.get("not_held") or [])
-            state.unlisted |= set(want["unlisted"])
+            state.not_held = still
+            state.unlisted |= set(want["unlisted"]) | set(unlisted)
             return saved
         # a book the saved checklist was written without is now held (or the governing table changed): build again
         log.info(

@@ -208,6 +208,11 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (APP + "aim_review_view.py", "what the general review's page says"),
     (APP + "aim_review_sheet.py", "what the general review's file says"),
     (APP + "aim_review_completeness.py", "page = database = file for the general review, or no file"),
+    (APP + "aim_review_merge.py", "which sent lines become one comment on the general review's sheet"),
+    (APP + "aim_review_card.py", "each comment's card: its severity, decided by code"),
+    (APP + "aim_review_decisions.py", "the engineer's accept / edit / reject on each comment, append-only"),
+    (APP + "aim_review_signoff.py", "the engineer's sign-off of a general review"),
+    (APP + "aim_review_contractor.py", "the contractor copy: what leaves the team after sign-off"),
 )
 
 #: A file `agent_review_*.py` or `crs_ai_*.py` that is NOT on the list must be

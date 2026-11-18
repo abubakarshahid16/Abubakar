@@ -388,7 +388,7 @@ GENERAL_BOOKS_NOTE = "chosen from the library's own records before the start; th
 
 
 def general_leaving(
-    conn, document_id, allowed, facts, *, leaves: bool, explicit: bool
+    conn, document_id, allowed, facts, *, leaves: bool, explicit: bool, project_ids=()
 ) -> dict:
     """The general review's list (order 14, CONTRACT section 2): the paper and the rule books `aim_review.candidates` chooses from
     the library's own records (no model, no write), each through the same send gate as the older list; books not held are named
@@ -398,7 +398,7 @@ def general_leaving(
         out["summary"] = LOCAL_WORDS
         return _finish(out)
     try:
-        _general_fill(conn, document_id, allowed, facts, out, explicit)
+        _general_fill(conn, document_id, allowed, facts, out, explicit, project_ids)
     except (sqlite3.Error, ValueError, OSError, LookupError) as exc:
         log.warning("general review leaving list unreadable (%s)", type(exc).__name__)
         out.update(leaving=[], not_sent=[], not_readable=0, unreadable=True)
@@ -414,7 +414,9 @@ def general_leaving(
     return _finish(out)
 
 
-def _general_fill(conn, document_id, allowed, facts, out, explicit) -> None:
+def _general_fill(
+    conn, document_id, allowed, facts, out, explicit, project_ids=()
+) -> None:
     from . import aim_review, aim_review_store
 
     gate = _Gate(facts, explicit)
@@ -461,6 +463,8 @@ def _general_fill(conn, document_id, allowed, facts, out, explicit) -> None:
         else:
             out["leaving"].append({**entry, "contract": _is_contract(row["id"])})
     out["not_readable"] += int(found.unreadable or 0)
+    _reference_papers(conn, document_id, allowed, gate, seen, out)
+    _offered_schedules(conn, document_id, allowed, gate, seen, out, project_ids)
     for n in found.not_held:
         out["not_sent"].append(
             {
@@ -470,6 +474,74 @@ def _general_fill(conn, document_id, allowed, facts, out, explicit) -> None:
                 "reason": NOT_HELD,
             }
         )
+
+
+def _reference_papers(conn, document_id, allowed, gate, seen, out) -> None:
+    """A contract's cited Schedules that ONE held paper of its package is, as reference papers (read, not rule books): listed before
+    the start with why "cited by the paper; same package", through the same send gate as any contract. A part the caller may not
+    read is counted, never named. Only for a contract paper; nothing for any other paper."""
+    from .aim_review import references
+
+    if not _is_contract(document_id):
+        return
+    refs, hidden = references.plan_entries(conn, document_id, allowed)
+    out["not_readable"] += hidden
+    rows = _doc_rows(conn, [r.doc_id for r in refs])
+    for ref in refs:
+        row = rows.get(ref.doc_id)
+        if row is None or row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        entry = {
+            "id": row["id"],
+            "title": _title(row),
+            "kind": references.KIND_WORDS,
+            "why": references.WHY_REFERENCE,
+            "part": ref.name,
+        }
+        reason = gate.why_not(row, references.KIND_WORDS)
+        if reason:
+            out["not_sent"].append({**entry, "reason": reason})
+        else:
+            out["leaving"].append({**entry, "contract": _is_contract(row["id"])})
+
+
+def _offered_schedules(
+    conn, document_id, allowed, gate, seen, out, project_ids
+) -> None:
+    """A contract's cited Schedules that are HELD but that no recorded link ties to it (not the same recorded project): OFFERED, unticked
+    (`offered`: id, title, the Schedule's name, why, `ticked`). The ones the engineer ticked (named in `project_ids`) join the list
+    through the same send gate and so reach the shown list. Names only from the caller's readable set (rule 5)."""
+    from .aim_review import references
+
+    if not _is_contract(document_id):
+        return
+    offers = references.plan_offers(conn, document_id, allowed)
+    rows = _doc_rows(conn, [r.doc_id for r in offers])
+    out["offered"] = []
+    for ref in offers:
+        row = rows.get(ref.doc_id)
+        if row is None:
+            continue
+        ticked = ref.doc_id in set(project_ids)
+        out["offered"].append(
+            {"id": row["id"], "title": _title(row), "part": ref.name, "why": references.WHY_OFFER, "ticked": ticked}
+        )  # fmt: skip
+        if not ticked or row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        entry = {
+            "id": row["id"],
+            "title": _title(row),
+            "kind": references.KIND_WORDS,
+            "why": references.WHY_CHOSEN_REFERENCE,
+            "part": ref.name,
+        }
+        reason = gate.why_not(row, references.KIND_WORDS)
+        if reason:
+            out["not_sent"].append({**entry, "reason": reason})
+        else:
+            out["leaving"].append({**entry, "contract": _is_contract(row["id"])})
 
 
 def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
@@ -490,6 +562,7 @@ def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
                 facts,
                 leaves=leaves,
                 explicit=plan.choice == "claude",
+                project_ids=tuple(project_ids),
             )
         )
         books = [d for d in docs["leaving"] if d["kind"] != PAPER]

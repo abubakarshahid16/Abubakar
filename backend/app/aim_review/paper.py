@@ -50,9 +50,11 @@ class Paper:
         return note + (f"; file not read: {self.file_note}" if self.file_note else "")
 
     def text_with_markers(self, only: list[int] | None = None) -> str:
+        """The pages as the model reads them: a page printed in two halves side by side (`layout.halves`) as its left half,
+        then its right half, under the same page number; any other page as it is. The quote check reads `pages` as stored."""
         keep = set(only) if only is not None else None
         return "\n".join(
-            f"=== PAGE {n} ===\n{t}"
+            _marked(n, t)
             for n, t in sorted(self.pages.items())
             if keep is None or n in keep
         )
@@ -60,6 +62,18 @@ class Paper:
     @property
     def chars(self) -> int:
         return sum(len(t) for t in self.pages.values())
+
+
+def _marked(n: int, text: str) -> str:
+    from .layout import halves, with_pairs
+
+    two = halves(text)
+    if two is None:
+        return f"=== PAGE {n} ===\n{with_pairs(text)}"
+    left, right = (with_pairs(x) for x in two)
+    return (
+        f"=== PAGE {n} (left half) ===\n{left}\n=== PAGE {n} (right half) ===\n{right}"
+    )
 
 
 def load_paper(conn, paper_id: str, data_dir=None) -> Paper:

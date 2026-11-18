@@ -139,16 +139,21 @@ def test_a_saved_checklist_is_reused_and_no_build_call_is_made(aim_db):
     first, _m, _s = _run(aim_db, store=store)
     second, model, _s = _run(aim_db, store=store)
     assert second.checklist_reused and second.checklist_sha256 == first.checklist_sha256
-    assert [
-        c["step"]
-        for c in model.asked
-        if c["step"]
-        not in (
-            "aim_identify",
-            "aim_judge",
-            "aim_edit",
-        )  # no BUILD call; the editor is no build step
-    ] == []
+    assert (
+        [
+            c["step"]
+            for c in model.asked
+            if c["step"]
+            not in (
+                "aim_identify",
+                "aim_judge",
+                "aim_answered",
+                "aim_second_read",
+                "aim_edit",
+            )  # no BUILD call; the whole-paper check, the second reader and the editor are no build steps
+        ]
+        == []
+    )
     assert len(store.puts) == 1
     assert [ln["item_id"] for ln in second.lines] == [
         ln["item_id"] for ln in first.lines
@@ -216,7 +221,9 @@ def test_a_fault_inside_a_step_is_a_stopped_run_not_a_crash(aim_db, monkeypatch)
 
     monkeypatch.setattr(S, "s4_judge", boom)
     r, _m, _s = _run(aim_db)
-    assert r.status == "stopped" and r.stop_reason == "fault: KeyError"
+    assert r.status == "stopped" and r.stop_reason.startswith(
+        "fault: KeyError at "
+    )  # and where (file:line)
 
 
 def test_a_paper_with_no_stored_pages_stops_with_a_code(aim_db):
@@ -443,7 +450,7 @@ def test_an_item_that_fails_in_two_places_gives_two_lines_through_run_and_the_st
                 "label": "Question",
                 "page": p,
                 "quote": q,
-                "comment": f"place {p}",
+                "comment": f"Please confirm place {p}.",  # a comment that asks nothing is not sent (`asks.mark`)
             }
             for p, q in reversed(places)
         ]
@@ -539,3 +546,67 @@ def test_ids_the_job_passes_never_make_another_role_a_rule_book(aim_db):
         cited_books=frozenset({COMPANY}),
     )
     assert COMPANY not in r.books
+
+
+def test_the_whole_paper_check_is_off_by_default_and_asks_nothing(aim_db):
+    """A way-back switch, default OFF (code proves the quote stands on its page, not that it answers the comment)."""
+    _r, model, _s = _run(aim_db)
+    assert "aim_answered" not in [c["step"] for c in model.asked]
+
+
+def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(
+    aim_db, monkeypatch
+):
+    """S4b runs after the second reader and before the editor (v3: the second reader's words are claims too): a line whose claim
+    the paper contradicts (a quote code finds on the named page) stays a point, not sent; every other line is unchanged. With its
+    switch on."""
+    import json
+
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_answered_check_enabled", True)
+    import re
+
+    def check(step, cached, prompt):
+        pages = re.findall(r"=== PAGE (\d+) ===\n(.*?)(?=\n=== PAGE|\Z)", cached, re.S)
+        page, text = pages[0]
+        quote = max(text.splitlines(), key=len).strip()
+        rows = [json.loads(x) for x in prompt.splitlines() if x.startswith('{"n"')]
+        first = (
+            [{"n": rows[0]["n"], "answered": True, "page": int(page), "quote": quote}]
+            if rows
+            else []
+        )
+        return {
+            "verdicts": first + [{"n": x["n"], "answered": False} for x in rows[1:]]
+        }
+
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_answered": check}
+    )
+    r, model, _s = _run(aim_db, model=model)
+    steps = [c["step"] for c in model.asked]
+    assert r.status == "done" and steps.index("aim_second_read") < steps.index(
+        "aim_answered"
+    ) < steps.index("aim_edit")
+    answered = [ln for ln in r.lines if aim_review.ANSWERED in (ln["code_note"] or "")]
+    assert len(answered) == 1 and not aim_review.sendable(
+        answered[0]
+    )  # any source now (v3), held rule lines included
+
+
+def test_a_fault_names_its_file_and_line_in_the_run_record(aim_db, monkeypatch):
+    """A fault stops the run with its kind AND where it was raised (file:line in the app), never its message."""
+    from app.aim_review import checklist as CL
+
+    def broken(*a, **k):
+        return {}["alias"]
+
+    monkeypatch.setattr(CL, "build", broken)
+    r, _model, _s = _run(aim_db)
+    assert r.status == "stopped" and r.stop_reason.startswith("fault: KeyError at ")
+    assert (
+        "/" in r.stop_reason
+        and ":" in r.stop_reason.rsplit(" ", 1)[-1]
+        and "alias" not in r.stop_reason
+    )

@@ -2488,6 +2488,8 @@ export interface ApiError {
     | "unauthenticated"
     | "invalid_credentials"
     | "rate_limited"
+    // signed in, but the action is for a super user only (a general review's sign-off and contractor copy)
+    | "super_user_only"
     // the upload was not acceptable
     | "not_pdf"
     | "encrypted_pdf"

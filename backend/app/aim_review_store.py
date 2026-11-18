@@ -23,6 +23,11 @@ from .db import connect
 RUNS = "aim_runs"
 LINES = "aim_lines"
 CHECKLISTS = "aim_checklists"
+#: The engineer's decision on each comment (append-only; `aim_review_decisions`).
+DECISIONS = "aim_comment_decisions"
+#: The engineer's sign-off of a run and the contractor copy issued with it (append-only; `aim_review_signoff`).
+SIGNOFFS = "aim_signoffs"
+ISSUED = "aim_issued_copies"
 #: The only `built_from` a saved checklist may have: it was written from the rule books alone, never from a paper.
 BUILT_FROM = "standards only, no paper"
 #: A checklist that also holds engineering-knowledge items where a governing book is not held (still no paper).
@@ -99,6 +104,43 @@ _SCHEMA = (
         usd            REAL,
         PRIMARY KEY (key, sha256)
     )""",
+    f"""CREATE TABLE IF NOT EXISTS {DECISIONS} (
+        id                TEXT PRIMARY KEY,
+        run_id            TEXT NOT NULL,
+        paper_document_id TEXT NOT NULL,
+        comment_key       TEXT NOT NULL,
+        part              TEXT NOT NULL CHECK (part IN ('comment', 'confirmation')),
+        state             TEXT NOT NULL CHECK (state IN ('accept', 'edit', 'reject')),
+        text              TEXT,
+        original          TEXT,
+        reason            TEXT,
+        decided_by        TEXT NOT NULL,
+        decided_at        TEXT NOT NULL
+    )""",
+    f"CREATE INDEX IF NOT EXISTS {DECISIONS}_run ON {DECISIONS} (run_id, part, comment_key)",
+    f"""CREATE TABLE IF NOT EXISTS {SIGNOFFS} (
+        id                TEXT PRIMARY KEY,
+        run_id            TEXT NOT NULL,
+        paper_document_id TEXT NOT NULL,
+        signed_by         TEXT NOT NULL,
+        signed_at         TEXT NOT NULL,
+        review_code       TEXT NOT NULL,
+        statement         TEXT,
+        counts_json       TEXT NOT NULL,
+        decisions_digest  TEXT NOT NULL,
+        team_sha256       TEXT NOT NULL
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS {ISSUED} (
+        id          TEXT PRIMARY KEY,
+        run_id      TEXT NOT NULL,
+        signoff_id  TEXT NOT NULL,
+        filename    TEXT NOT NULL,
+        sha256      TEXT NOT NULL,
+        content     BLOB NOT NULL,
+        issued_by   TEXT NOT NULL,
+        issued_at   TEXT NOT NULL
+    )""",
+    f"CREATE INDEX IF NOT EXISTS {SIGNOFFS}_run ON {SIGNOFFS} (run_id, signed_at)",
 )
 
 
@@ -126,6 +168,8 @@ def _create(conn) -> None:
     # what a Question asks and whether its value is left open (recorded 18 Nov 2026; an older line reads null: unknown)
     add_column_if_missing(conn, LINES, "ask", "TEXT")
     add_column_if_missing(conn, LINES, "deferred", "INTEGER")
+    # the reference papers of a contract review and what was done with each (order 14): not rule books, so not in books_json
+    add_column_if_missing(conn, RUNS, "references_json", "TEXT")
 
 
 def has_tables(conn) -> bool:
@@ -305,7 +349,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
         cur = conn.execute(
             f"UPDATE {RUNS} SET status = ?, method_version = ?, identity_json = ?, checklist_key = ?, checklist_sha256 = ?,"
             " checklist_reused = ?, books_json = ?, not_held_json = ?, unlisted_json = ?, usd = ?, seconds = ?, calls_json = ?,"
-            " stop_reason = ?, finished_at = ? WHERE run_id = ?",
+            " stop_reason = ?, finished_at = ?, references_json = ? WHERE run_id = ?",
             (
                 status,
                 result.get("method_version") or _method_version(),
@@ -321,6 +365,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
                 _dump(list(result.get("calls") or [])),
                 result.get("stop_reason") or "",
                 now,
+                _dump(list(result.get("references") or [])),
                 run_id,
             ),
         )
@@ -370,6 +415,7 @@ _RUN_JSON = {
     "unlisted": "unlisted_json",
     "calls": "calls_json",
     "completeness": "completeness_json",
+    "references": "references_json",
 }
 
 

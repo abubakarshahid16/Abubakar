@@ -26,6 +26,8 @@ export interface ReviewPlan {
     paper: boolean; rule_books: string[]; rule_books_note: string | null;
     /** Every document a Claude review of this paper may send, before the start (absent: the list is not known). */
     leaving?: { id: string; title: string; kind: string; why: string; contract?: boolean }[];
+    /** Held Schedules the paper cites that no record ties to it: offered, unticked (ticking puts one on the list shown). */
+    offered?: { id: string; title: string; part: string; why: string; ticked: boolean }[];
     not_sent?: { id?: string; title?: string; name?: string; kind: string; why: string; reason: string }[];
     not_readable?: number;
     /** True when the list could not be worked out: no Claude start is offered. */
@@ -196,9 +198,9 @@ export async function oldCrsDownloadOffered(): Promise<boolean> {
 }
 
 export const reviewPoints = {
-  plan: (documentId: string, engine: EngineChoice) =>
+  plan: (documentId: string, engine: EngineChoice, ticked: string[] = []) =>
     request<ReviewPlan>(
-      `/reviews/plan?submittal_document_id=${encodeURIComponent(documentId)}&engine=${engine}`,
+      `/reviews/plan?submittal_document_id=${encodeURIComponent(documentId)}&engine=${engine}${ticked.map((id) => `&project_document_ids=${encodeURIComponent(id)}`).join("")}`,
       undefined, (b) => isObject(b) && Array.isArray(b.parts) && typeof b.sentence === "string",
     ),
   list: (documentId: string) =>
@@ -223,10 +225,10 @@ export const reviewPoints = {
     request<PointsListing>(`${paper(documentId)}/add`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }),
   /** The ONE start. `shown` = the ids of the documents the screen listed as leaving this computer; the server stores that list and the run
    *  sends only those. Omitted: no list was shown (the older behaviour). */
-  start: (documentId: string, engine: EngineChoice, shown?: string[]) =>
+  start: (documentId: string, engine: EngineChoice, shown?: string[], ticked: string[] = []) =>
     request<{ review_run_id: string }>("/reviews/start", {
       method: "POST", headers: JSON_HEADERS,
-      body: JSON.stringify({ submittal_document_id: documentId, engine, ...(shown ? { shown_document_ids: shown } : {}) }),
+      body: JSON.stringify({ submittal_document_id: documentId, engine, ...(shown ? { shown_document_ids: shown } : {}), ...(ticked.length ? { project_document_ids: ticked } : {}) }),
     }),
 };
 

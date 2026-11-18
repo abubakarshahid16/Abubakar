@@ -93,6 +93,14 @@ def _step_of(body: dict) -> str:
         ),  # before "TASK S3": the knowledge task's name starts with it
         ("TASK S3", "aim_checklist"),
         ("ATTACK THIS CHECKLIST", "aim_attack"),
+        (
+            "TASK S4C",
+            "aim_second_read",
+        ),  # before "TASK S4": the second reader's name starts with it
+        (
+            "TASK S4B",
+            "aim_answered",
+        ),  # before "TASK S4": the whole-paper check's name starts with it
         ("TASK S4", "aim_judge"),
         (
             "TASK S5",

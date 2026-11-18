@@ -15,11 +15,16 @@ from typing import Any
 from . import (
     aim_review,
     aim_review_book_why,
+    aim_review_card,
+    aim_review_decisions,
     aim_review_gate,
     aim_review_measured,
+    aim_review_merge,
+    aim_review_signoff,
     aim_review_store,
     review_shown,
 )
+from .aim_review import references as aim_review_references
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
@@ -82,6 +87,9 @@ def _named_books(row: dict) -> list[dict]:
 def line_view(row: dict, n: int, hidden: bool = False) -> dict:
     """One stored line as the page and the file show it. `n` is the 1-based position in line order. `hidden` (from `book_hidden`):
     the book's name, clause and id are not served, and the name is not left in the comment either; the line is still counted."""
+    group = _group_of(
+        row.get("code_note")
+    )  # read from the STORED note: the same for every viewer
     if hidden:
         comment = str(row.get("comment") or "")
         names = [str(row.get("standard") or "")] + [
@@ -96,7 +104,9 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
             "standard": HIDDEN_BOOK_WORDS,
             "clause": "",
             "book_document_id": None,
-            "comment": comment,
+            "comment": aim_review_references.HIDDEN_COMMENT
+            if aim_review_references.NOTE_CHECKED in str(row.get("code_note") or "")
+            else comment,
             # code's note may hold the rule's words or numbers: only its state words stay (they decide whether the line is sent
             # and how it groups, the same for every viewer); the comparison's words are not served either (`compared`)
             "code_note": _state_words(row.get("code_note")),
@@ -124,12 +134,23 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "book_document_id": _blank(row.get("book_document_id")),
         "compared": "" if hidden else _compared(row),
         "compare_kind": _compare_kind(row),
+        "compare_result": _compare_result(row),
         # recorded state (18 Nov 2026): what a Question asks ("" when not recorded: an older run), whether its value is left
         # open, and the judge's numbers (none for a book the viewer may not open: rule 5)
         "ask": row.get("ask") or "",
         "deferred": bool(row.get("deferred")),
         "numbers": None if hidden else _numbers(row),
+        "same_point_as": group,
     }
+
+
+#: The editor's mark on a line it grouped with others ("same point as line 7"): the group's first line number.
+_GROUP_RE = re.compile(r"same point as line (\d+)")
+
+
+def _group_of(code_note) -> int | None:
+    found = _GROUP_RE.search(str(code_note or ""))
+    return int(found.group(1)) if found else None
 
 
 def _numbers(row: dict) -> dict | None:
@@ -144,6 +165,9 @@ def _numbers(row: dict) -> dict | None:
 _STATE_WORDS = frozenset(aim_review.NOT_SENT_NOTES) | {
     aim_review.PROVISIONAL_FAILS,
     aim_review.PROVISIONAL_UNCHECKED,
+    aim_review.CONTRACTOR_FILLED,  # where the figure came from: shown to every viewer
+    aim_review.TWO_READERS_AGREE,
+    aim_review.READERS_DIFFER,
 }
 
 
@@ -153,10 +177,37 @@ def _state_words(code_note) -> str:
     return "; ".join(dict.fromkeys(w for w in words if w in _STATE_WORDS))
 
 
+def _apart(points: list[dict], comments: list[dict], confirmations: list[dict]) -> dict:
+    """The counts kept apart: the confirmations not sent (comment lines + confirmation lines = sent lines), and the points kept
+    off the comments (each stays on "All points"): taken off by the editor, or answered by the paper (the whole-paper check)."""
+    return {
+        "confirmations": len(confirmations),
+        "comment_lines": sum(len(c["lines"]) for c in comments),
+        "confirmation_lines": sum(len(c["lines"]) for c in confirmations),
+        "not_sent": {
+            note: sum(1 for p in points if note in _note_words(p["code_note"]))
+            for note in (aim_review.EDITED, aim_review.ANSWERED)
+        },
+    }
+
+
+def _note_words(code_note) -> set[str]:
+    """The words a code note's parts start with ("edited: repeats line 3; answered: ..." -> {"edited", "answered"})."""
+    return {x.split(":", 1)[0].strip() for x in str(code_note or "").split(";")}
+
+
 def _provisional_kind(code_note) -> str:
     """The provisional part of a code note ("provisional_unchecked", "provisional_fails", ...), or ""."""
     parts = (x.strip() for x in str(code_note or "").split(";"))
     return next((x for x in parts if x.startswith(aim_review.PROVISIONAL)), "")
+
+
+def _compare_result(row: dict) -> str:
+    """The result of code's comparison at this place ("pass", "fail", "unclear"), or "" when code compared nothing."""
+    cmp_ = row.get("code_compare")
+    if cmp_ is None:
+        cmp_ = _json(row.get("code_compare_json"), {})
+    return str(cmp_.get("result") or "") if isinstance(cmp_, dict) else ""
 
 
 def _compared(row: dict) -> str:
@@ -222,7 +273,9 @@ def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dic
     by_n = {p["n"]: p for p in points}
     confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
     sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
-    return _same_finding(sent, by_n), confirm
+    return aim_review_merge.same_group(
+        aim_review_merge.same_place(_same_finding(sent, by_n), by_n), by_n
+    ), confirm
 
 
 def _confirm_only(p: dict) -> bool:
@@ -405,16 +458,17 @@ def _member(m: dict) -> str:
     return f"{m.get('field') or 'no field'} ({where}){rule}: {m.get('comment') or ''}{quote}{numbers}"
 
 
-def _same_point(members: list[dict]) -> dict:
+def _same_point(members: list[dict], keep_order: bool = False) -> dict:
     """ONE comment for the lines of one point, LOSSLESS: the first line's words, then every other line's field, page, rule and
     clause, own comment in full, quote and value; the Standard and Clause cells list every rule cited (the first line's book
     link only when every line cites the same book). Lines stay one per place (All points keeps each)."""
-    members = sorted(members, key=lambda m: m["n"])
+    members = members if keep_order else sorted(members, key=lambda m: m["n"])
     first, others = members[0], members[1:]
     pages = sorted({m["page"] for m in members if m["page"] is not None})
     return {
         **first,
-        "lines": [m["n"] for m in members],
+        "n": min(m["n"] for m in members),
+        "lines": sorted(m["n"] for m in members),
         "pages": pages,
         "comment": f"{first['comment']}\nThe same point at {len(others)} more place{'' if len(others) == 1 else 's'}: "
         + "; ".join(_member(m) for m in others),
@@ -463,6 +517,31 @@ def _books(conn, run: dict, scope) -> tuple[list[dict], int, list[str]]:
         hidden,
         ids,
     )
+
+
+def _references(conn, run: dict, scope) -> list[dict]:
+    """The reference papers of a contract review and what was done with each. A part the viewer may not read is named by words only
+    (rule 5: its file name and id are not served)."""
+    out = []
+    for r in run.get("references") or []:
+        if not isinstance(r, dict):
+            continue
+        doc_id = str(r.get("id") or "")
+        titles, hidden = _titles(conn, [doc_id], scope) if doc_id else ({}, 0)
+        out.append(
+            {
+                "part": HIDDEN_BOOK_WORDS if hidden else str(r.get("part") or ""),
+                "title": titles.get(doc_id) if doc_id else None,
+                "status": str(r.get("status") or ""),
+                "reason": "" if hidden else str(r.get("reason") or ""),
+                "questions": r.get("questions"),
+                "settled": r.get("settled"),
+                # the Form's sentences compared with the Schedule, and how many differ (absent on a run made before the comparison)
+                "compared": r.get("compared"),
+                "differs": r.get("differs"),
+            }
+        )
+    return out
 
 
 def _checklist(conn, run: dict, points: list[dict]) -> dict:
@@ -535,6 +614,15 @@ def resolve(conn, paper_id: str, run_id: str | None = None) -> dict | None:
     return aim_review_store.latest_run(conn, paper_id, ended=True)
 
 
+def _cost(run: dict) -> dict:
+    """The contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)."""
+    usd = run.get("usd")
+    note = _cost_note(run)
+    return {"usd": None if usd is None else float(usd)} | (
+        {"note": note} if usd is None and note else {}
+    )
+
+
 def build(conn, run: dict, scope=None) -> dict:
     """The page's JSON for ONE stored general run, without the completeness answer (that needs the built file). Raises
     `NotFinished` for a run that has not ended."""
@@ -545,9 +633,10 @@ def build(conn, run: dict, scope=None) -> dict:
     points = [
         line_view(r, i, book_hidden(conn, r, scope)) for i, r in enumerate(rows, 1)
     ]
-    # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
-    # lines of one point make ONE comment listing every place (`group_comments`)
+    # a "not judged" Question stays a point, never a comment; one point's lines make ONE comment; each comment gets its card
     comments, confirmations = comments_and_confirmations(points)
+    by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
+    aim_review_decisions.attach(conn, run["run_id"], comments, confirmations)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
@@ -558,8 +647,7 @@ def build(conn, run: dict, scope=None) -> dict:
     identity = _json(run.get("identity_json"), {})
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
-    usd = run.get("usd")
-    return {
+    view = {
         "paper_document_id": run["paper_document_id"],
         "run_id": run["run_id"],
         "method": run.get("method_version") or aim_review.METHOD_VERSION,
@@ -576,10 +664,8 @@ def build(conn, run: dict, scope=None) -> dict:
         "counts": {
             "points": len(points),
             "comments": len(comments),
-            # the confirmations not sent (`comments_and_confirmations`): counted apart; comment lines + these = sent lines
-            "confirmations": len(confirmations),
-            "comment_lines": sum(len(c["lines"]) for c in comments),
-            "confirmation_lines": sum(len(c["lines"]) for c in confirmations),
+            "by_severity": by_severity,  # the summary tiles
+            **_apart(points, comments, confirmations),
             "by_label": by_label,
             "by_shown_label": by_shown,
             "boundary": BOUNDARY,
@@ -588,6 +674,7 @@ def build(conn, run: dict, scope=None) -> dict:
         "confirmations": confirmations,
         "points": points,
         "books": books,
+        "references": _references(conn, run, scope),
         "books_not_readable": hidden,
         # the documents listed before the start (besides the paper) and how many of them the run used; None for an older run
         "documents_listed": aim_review_book_why.listed_and_used(conn, run, carried),
@@ -605,13 +692,15 @@ def build(conn, run: dict, scope=None) -> dict:
         },
         "checklist": _checklist(conn, run, points),
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
-        # the contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)
-        "cost": {"usd": None if usd is None else float(usd)}
-        | ({"note": _cost_note(run)} if usd is None and _cost_note(run) else {}),
+        "cost": _cost(run),
         "seconds": run.get("seconds"),
         "created_at": run.get("created_at"),
         "finished_at": run.get("finished_at"),
     }
+    view["signoff"] = aim_review_signoff.status(
+        conn, run, view, bool(getattr(scope, "is_admin", False))
+    )
+    return view
 
 
 def served(conn, paper_id: str, scope, run_id: str | None = None) -> dict | None:

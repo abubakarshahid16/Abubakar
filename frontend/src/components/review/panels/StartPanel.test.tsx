@@ -44,6 +44,45 @@ function panel(onStart = vi.fn()) {
   return onStart;
 }
 
+const OFFER = { id: "doc_s", title: "Schedule C milestones.pdf", part: "Schedule C", why: "cited by this paper; tick to compare it" };
+
+describe("StartPanel: held Schedules the paper cites", () => {
+  it("offers them unticked with the one line; ticking asks the plan again with the id, shows it on the list and Start carries it", async () => {
+    plan.mockImplementation(async (_id: string, _engine: string, ticked: string[] = []) => ({
+      ok: true,
+      data: ticked.includes("doc_s")
+        ? { ...claudePlan, documents: { ...claudePlan.documents,
+            leaving: [...claudePlan.documents.leaving, { id: "doc_s", title: OFFER.title, kind: "reference paper", why: "cited by this paper; chosen by you to compare" }],
+            offered: [{ ...OFFER, ticked: true }] } }
+        : { ...claudePlan, documents: { ...claudePlan.documents, offered: [{ ...OFFER, ticked: false }] } },
+    }));
+    const onStart = panel();
+    const box = await screen.findByRole("checkbox", { name: "Compare Schedule C" });
+    expect(box).not.toBeChecked();
+    expect(screen.getByText(/cited by this paper; tick to compare it/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start review" }));
+    expect(onStart).toHaveBeenLastCalledWith("automatic", ["doc_1", "doc_2"]); // untouched: nothing extra is sent
+    await userEvent.click(box);
+    await screen.findByText(/chosen by you to compare/);
+    expect(plan).toHaveBeenLastCalledWith("doc-sub", "automatic", ["doc_s"]);
+    expect(screen.getByRole("checkbox", { name: "Compare Schedule C" })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Start review" }));
+    expect(onStart).toHaveBeenLastCalledWith("automatic", ["doc_1", "doc_2", "doc_s"], ["doc_s"]);
+  });
+
+  it("offers nothing when Local only is chosen (nothing leaves, so nothing is compared)", async () => {
+    plan.mockImplementation(async (_id: string, engine: string) => ({
+      ok: true,
+      data: engine === "local" ? localPlan : { ...claudePlan, documents: { ...claudePlan.documents, offered: [{ ...OFFER, ticked: false }] } },
+    }));
+    panel();
+    await screen.findByRole("checkbox", { name: "Compare Schedule C" });
+    await userEvent.click(screen.getByRole("radio", { name: "Local only" }));
+    await screen.findByText("Text leaves this Mac: no");
+    expect(screen.queryByRole("checkbox", { name: "Compare Schedule C" })).toBeNull();
+  });
+});
+
 describe("StartPanel", () => {
   it("shows the engine, that text leaves, the cost and the documents that will be sent, then starts with that list", async () => {
     const onStart = panel();
