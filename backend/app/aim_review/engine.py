@@ -311,7 +311,7 @@ class FakeModel:
         if step == "aim_attack":
             return {"remove": [], "fix": [], "add": []}
         if step == "aim_judge":
-            ids = re.findall(r'"id": "(C\d+)"', prompt)
+            ids = re.findall(r'"id": "([CG]\d+)"', prompt)
             n, txt = pages[0]
             q = (_long_lines(txt) or [txt.strip()[:40]])[0][:50]
             labels = ["Not met", "Question", "Met", "AI opinion", "Does not apply"]
@@ -650,11 +650,17 @@ def _judge(
     from . import steps as S
 
     books = {b["alias"]: b for b in checklist.get("books") or [] if isinstance(b, dict)}
+    from . import always
+
     items = [
         it
         for it in checklist.get("items") or []
         if isinstance(it, dict) and it.get("id")
     ]
+    # the three always-on checks of every review (G1 cited standards, G2 internal consistency, G3 required entries)
+    items += always.items(
+        text.conn, state.identity, checklist, allowed_books, paper.pages
+    )
     judged, held_back = [], set()
     for it in items:
         bid = S.item_book(it, books)

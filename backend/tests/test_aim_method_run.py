@@ -53,7 +53,12 @@ def test_a_run_writes_one_line_per_checklist_item_in_order(aim_db):
     r, _model, store = _run(aim_db)
     assert r.status == "done" and r.stop_reason == ""
     saved = store.get(r.checklist_key)
-    assert [ln["item_id"] for ln in r.lines] == [it["id"] for it in saved["items"]]
+    # the saved checklist's items, then the three always-on checks of every review (G1 to G3, never saved with the checklist)
+    assert [ln["item_id"] for ln in r.lines] == [it["id"] for it in saved["items"]] + [
+        "G1",
+        "G2",
+        "G3",
+    ]
     assert [ln["line_no"] for ln in r.lines] == list(range(1, len(r.lines) + 1))
     assert all(ln["label"] in aim_review.LABELS for ln in r.lines)
     assert (
@@ -164,8 +169,10 @@ def test_a_saved_item_whose_book_is_not_on_the_list_is_not_judged_and_is_counted
     assert BOOK_A in second.unlisted_books and second.unlisted_count == len(
         second.unlisted_books
     )
-    assert all(BOOK_A not in c["carries"] for c in model.asked)
-    assert len(second.lines) == len(saved["items"])
+    assert all(
+        BOOK_A not in c["carries"] for c in model.asked
+    )  # the always-on G3 never carries an unlisted book either
+    assert len(second.lines) == len(saved["items"]) + 3  # + G1 to G3
 
 
 def test_a_stopped_run_still_returns_one_line_per_item(aim_db):
@@ -318,7 +325,9 @@ def test_a_long_paper_is_judged_by_page_windows_and_answers_are_merged(
                 {"id": cid, "label": "Met", "page": 1, "quote": quote}
                 if on_one
                 else {"id": cid, "not_here": True}
-                for cid in re.findall(r'"id": "(C\d+)"', prompt)
+                for cid in re.findall(
+                    r'"id": "([CG]\d+)"', prompt
+                )  # the always-on items too
             ]
         }
 
@@ -347,7 +356,9 @@ def test_an_item_no_window_shows_is_a_question_that_says_so(aim_db, monkeypatch)
         return {
             "judgments": [
                 {"id": cid, "not_here": True}
-                for cid in re.findall(r'"id": "(C\d+)"', prompt)
+                for cid in re.findall(
+                    r'"id": "([CG]\d+)"', prompt
+                )  # the always-on items too
             ]
         }
 
@@ -450,7 +461,7 @@ def test_an_item_that_fails_in_two_places_gives_two_lines_through_run_and_the_st
     items = store.get(r.checklist_key)["items"]
     first = [ln for ln in r.lines if ln["item_id"] == items[0]["id"]]
     assert [(ln["page"], ln["finding_no"]) for ln in first] == [(1, 1), (2, 2)]
-    assert len(r.lines) == len(items) + 1 and all(
+    assert len(r.lines) == len(items) + 1 + 3 and all(  # + the three always-on items
         aim_review.sendable(ln) for ln in first
     )
     assert [ln["item_id"] for ln in r.lines][:2] == [
