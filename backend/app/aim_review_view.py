@@ -138,23 +138,8 @@ def _compare_kind(row: dict) -> str:
 
 # ------------------------------------------------------------------ comments: one per point, every place listed
 
-#: A note part that only says how many places were not listed: never a different point.
-_PLACES_NOTE = re.compile(r"^\d+ more place")
-#: The editor's group mark on a line's code note (`aim_review.editor.SAME_POINT`): "same point as line <n>". Never a different
-#: point by itself, so `note_kind` drops it.
+#: The editor's group mark on a line's code note (`aim_review.editor.SAME_POINT`): "same point as line <n>".
 _SAME_POINT = re.compile(r"^same point as line (\d+)$")
-
-
-def note_kind(code_note: str) -> tuple[str, ...]:
-    """The KIND of a line's code note, without its place-specific words: each "; " part up to its first ":", digits removed;
-    the "N more places" count dropped. "code compared: 25 bar <= 20 bar: false" -> ("code compared",)."""
-    kinds = set()
-    for part in str(code_note or "").split(";"):
-        part = part.strip()
-        if not part or _PLACES_NOTE.match(part) or _SAME_POINT.match(part):
-            continue
-        kinds.add(re.sub(r"\d+(?:[.,]\d+)*", "#", part.split(":", 1)[0]).strip())
-    return tuple(sorted(kinds))
 
 
 def _field_key(field) -> str:
@@ -170,27 +155,6 @@ def _editor_group(p: dict) -> int | None:
     return None
 
 
-def group_key(p: dict) -> tuple:
-    """Lines that make ONE comment: the lines the EDITOR grouped as the same point (checked by code: real sent lines, one shown
-    label, one compare kind, no line twice; `aim_review.editor`), else the same item, the same FIELD (folded), the same shown
-    label (a code-compared Fail never joins anything else) and the same kind of code note (the same compare kind). One item may
-    give several DIFFERENT findings (an always-on check: another standard, another inconsistency): another field is another
-    point (final light check, B1)."""
-    grouped = _editor_group(p)
-    if grouped is not None:
-        return ("same point", grouped)
-    return _item_field_key(p)
-
-
-def _item_field_key(p: dict) -> tuple:
-    return (
-        p.get("item_id") or f"line-{p['n']}",
-        _field_key(p.get("field")),
-        p.get("shown_label") or "",
-        note_kind(p.get("code_note")),
-    )
-
-
 def _place(p: dict) -> str:
     where = f"page {p['page']}" if p.get("page") is not None else "no page"
     quote = f': "{p["quote"]}"' if p.get("quote") else ""
@@ -198,48 +162,171 @@ def _place(p: dict) -> str:
     return f"{where}{quote}{numbers}"
 
 
+#: The key of the ONE comment that lists the plain questions to confirm (`_to_confirm`).
+CONFIRM_KEY = ("data to confirm",)
+CONFIRM_FIELD = "data to confirm"
+
+
+def _plain_question(p: dict) -> bool:
+    """A plain question: shown "Question", no comparison by code, no provisional figure. It asks the contractor to state or confirm
+    data; it holds no conflict of values (those stay comments of their own)."""
+    parts = [x.strip() for x in str(p.get("code_note") or "").split(";")]
+    return (
+        p.get("shown_label") == "Question"
+        and not p.get("compare_kind")
+        and not p.get("compared")
+        and not any(x.startswith("provisional") for x in parts)
+    )
+
+
+def _to_confirm(p: dict) -> bool:
+    """A plain question from NO held standard (engineering knowledge, an always-on check): one list of data to confirm."""
+    return _plain_question(p) and p.get("source") != "held standard"
+
+
+def _keys(sent: list[dict]) -> dict[int, tuple]:
+    """{line number: the key of its comment}. ONE comment per point (the owner's order: one comment per point, listing every
+    sheet and page; at most 40 on a valve sheet), every member's own words kept:
+      1. the editor's group (checked by code when accepted; here again: one shown label and one compare kind, else its lines
+         go back to rules 2-4); a line of the SAME item, shown label and compare kind as a member joins that group;
+      2. a plain question from no held standard (`_to_confirm`), and an editor group made only of such questions: ONE list of
+         data to confirm;
+      3. a plain question against a held rule book: one list per rule book (its standard);
+      4. every other line (a finding, a code comparison, a provisional figure, an AI opinion): one comment per item, shown
+         label and compare kind (a code-compared Fail never joins anything else).
+    Every sent line is in exactly one comment; every line stays a point."""
+    by_group: dict[int, list[dict]] = {}
+    for p in sent:
+        gid = _editor_group(p)
+        if gid is not None:
+            by_group.setdefault(gid, []).append(p)
+    ok = {
+        g
+        for g, ms in by_group.items()
+        if len({(m["shown_label"], m.get("compare_kind") or "") for m in ms}) == 1
+    }
+    to_confirm = {g for g in ok if all(_to_confirm(m) for m in by_group[g])}
+    joins: dict[tuple, int] = {}
+    for g in sorted(ok - to_confirm):
+        for m in by_group[g]:
+            joins.setdefault(
+                (m.get("item_id") or "", m["shown_label"], m.get("compare_kind") or ""),
+                g,
+            )
+    keys = {}
+    for p in sent:
+        gid = _editor_group(p)
+        item = (p.get("item_id") or "", p["shown_label"], p.get("compare_kind") or "")
+        if gid in to_confirm or (
+            gid not in ok
+            and _to_confirm(p)
+            and not (p.get("item_id") and item in joins)
+        ):
+            keys[p["n"]] = CONFIRM_KEY
+        elif gid in ok:
+            keys[p["n"]] = ("same point", gid)
+        elif p.get("item_id") and item in joins:
+            keys[p["n"]] = ("same point", joins[item])
+        elif _plain_question(p) and p.get("standard"):
+            keys[p["n"]] = ("book", p["standard"])
+        else:
+            keys[p["n"]] = (
+                "item",
+                p.get("item_id") or f"line-{p['n']}",
+                p["shown_label"],
+                p.get("compare_kind") or "",
+            )
+    return keys
+
+
 def group_comments(points: list[dict]) -> list[dict]:
     """THE comments of a run (the page, the file and the completeness check read this one list): the SENT lines grouped by
-    `group_key`, in line order of each group's first line. One line: that line as it is. Several: the point is said once (the
-    first place's words) and every place is listed with its own quote and numbers. Each comment names the lines it covers."""
+    `_keys`, in line order of each group's first line. One line: that line as it is. Several: one comment that keeps every
+    member's own words (`_same_point`), the places of one field (`_places_of`), or the list of data to confirm (`_confirm`).
+    Each comment names the lines it covers."""
+    sent = [p for p in points if aim_review.sendable(p)]
+    keys = _keys(sent)
     groups: dict[tuple, list[dict]] = {}
-    for p in points:
-        if aim_review.sendable(p):
-            groups.setdefault(group_key(p), []).append(p)
-    # SECOND LOCK (the editor checked the group when it accepted it): an editor group whose members do not all show the same
-    # label and the same compare kind (a forged or stale mark) is not honoured: its lines split back to item + field grouping.
-    for key in [k for k in groups if k[0] == "same point"]:
-        if len({(m["shown_label"], m["compare_kind"]) for m in groups[key]}) > 1:
-            for m in groups.pop(key):
-                groups.setdefault(_item_field_key(m), []).append(m)
+    for p in sent:
+        groups.setdefault(keys[p["n"]], []).append(p)
     out = []
     for key, members in groups.items():
         members = sorted(
             members, key=lambda m: (m["page"] is None, m["page"] or 0, m["n"])
         )
-        first = members[0]
-        pages = sorted({m["page"] for m in members if m["page"] is not None})
         if len(members) == 1:
-            out.append({**first, "lines": [first["n"]], "pages": pages})
-            continue
-        if (
+            pages = [members[0]["page"]] if members[0]["page"] is not None else []
+            out.append({**members[0], "lines": [members[0]["n"]], "pages": pages})
+        elif key == CONFIRM_KEY:
+            out.append(_confirm(members))
+        elif key[0] == "book":
+            out.append(_confirm(members, key[1]))
+        elif (
             key[0] == "same point"
-        ):  # the editor's group: LOSSLESS, every member's own words, field, page and quote
-            out.append(_same_point(members))
-            continue
-        places = "; ".join(_place(m) for m in members)
-        out.append({
-            **first,
-            "n": min(m["n"] for m in members),
-            "lines": sorted(m["n"] for m in members),
-            "pages": pages,
-            "comment": f"{first['comment']}\nThe same point at {len(members)} places (pages {', '.join(map(str, pages)) or 'none'}): {places}.",
-            "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
-                                for m in members if m["quote"]),
-            "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
-            "quote_unverified": any(m["quote_unverified"] for m in members),
-        })  # fmt: skip
+            or len({_field_key(m.get("field")) for m in members}) > 1
+            or len({m.get("comment") or "" for m in members})
+            > 1  # words differ: keep each place's own words
+        ):
+            out.append(
+                _same_point(members)
+            )  # LOSSLESS: every member's own words, field, page and quote
+        else:
+            out.append(_places_of(members))
     return sorted(out, key=lambda g: g["n"])
+
+
+def _places_of(members: list[dict]) -> dict:
+    """ONE comment for the places of one point in one field: the point said once, every place with its quote and numbers."""
+    first = members[0]
+    pages = sorted({m["page"] for m in members if m["page"] is not None})
+    places = "; ".join(_place(m) for m in members)
+    return {
+        **first,
+        "n": min(m["n"] for m in members),
+        "lines": sorted(m["n"] for m in members),
+        "pages": pages,
+        "comment": f"{first['comment']}\nThe same point at {len(members)} places (pages {', '.join(map(str, pages)) or 'none'}): {places}.",
+        "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
+                            for m in members if m["quote"]),
+        "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
+        "quote_unverified": any(m["quote_unverified"] for m in members),
+    }  # fmt: skip
+
+
+def _confirm(members: list[dict], standard: str = "") -> dict:
+    """ONE comment for plain questions, LOSSLESS: how many points it holds, then every point's clause (against a rule book),
+    field, page, own words and quote (`_member`); each point also stays a row of the sheet "All points". Nothing is dropped.
+    With `standard`: the questions against that rule book; without: the data to confirm from no held standard."""
+    members = sorted(members, key=lambda m: m["n"])
+    lines = [m["n"] for m in members]
+    pages = sorted({m["page"] for m in members if m["page"] is not None})
+    head = (
+        f"Please confirm the following against {standard} ({len(members)} points):"
+        if standard
+        else f"Please confirm the following data ({len(members)} points):"
+    )
+    body = "\n".join(
+        (f"clause {m['clause']}, " if standard and m.get("clause") else "") + _member(m)
+        for m in members
+    )
+    return {
+        **members[0],
+        "n": lines[0],
+        "lines": lines,
+        "pages": pages,
+        "item_id": "",
+        # the field cell names every member's field (a reader, and the score, find each field in its own cell)
+        "field": f"{CONFIRM_FIELD}: " + "; ".join(dict.fromkeys(m.get("field") or "no field" for m in members)),
+        "topic": CONFIRM_FIELD,
+        "standard": standard,
+        "clause": "",
+        "book_document_id": members[0].get("book_document_id") if standard else None,
+        "comment": f"{head}\n{body}",
+        "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
+                            for m in members if m["quote"]),
+        "code_note": CONFIRM_FIELD,
+        "quote_unverified": any(m["quote_unverified"] for m in members),
+    }  # fmt: skip
 
 
 def _member(m: dict) -> str:

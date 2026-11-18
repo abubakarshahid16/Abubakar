@@ -294,10 +294,11 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict, asking: bool = False)
         else (verb, "contractor to confirm the value")
     )
     if code_cmp.get("read_from") == "verified paper quotes":
-        # the AI chose which paper number is the limit: said as the AI's reading, never as a fact
+        # the AI chose which paper number is the other value: the sentence states both values and the page, no verdict
         page = code_cmp.get("limit_page")
         where = f"on page {page}" if page else "on this paper"
-        return f"The stated {stated} {verb} {rule}, which the AI read as the {noun} {where}; {ask}."
+        # what the paper shows, with its page (light check of the valve sheet: no "the AI read ... as" narration)
+        return f"The stated {stated} {verb} the {rule} stated {where}; {ask}."
     if base.get("standard"):
         where = f"{base['standard']} clause {base['clause']}".strip()
     else:
