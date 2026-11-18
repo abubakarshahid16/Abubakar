@@ -306,7 +306,28 @@ def test_a_card_that_names_a_book_the_signer_may_not_read_is_not_issued_until_ed
     assert _sign(c).status_code == 200
 
 
-def test_the_rows_must_add_up_to_the_statement_or_the_copy_is_refused(world):
+def test_the_rows_must_add_up_to_the_statement_and_the_stored_total_or_the_copy_is_refused(
+    world,
+):
+    """The check counts the file's real rows against the stored total (the page's points) and the first sheet's own statement."""
+    from openpyxl import Workbook
+
+    def book(places, statement="6 points reviewed, 4 in this file, 2 not issued: 2 x"):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = C.SUMMARY
+        ws.cell(row=2, column=2, value=statement)
+        ws = wb.create_sheet(C.COMMENTS)
+        for i, h in enumerate(C.HEADERS, 1):
+            ws.cell(row=C.HEADER_ROW, column=i, value=h)
+        ws.cell(row=C.HEADER_ROW + 1, column=1, value=1)
+        ws.cell(
+            row=C.HEADER_ROW + 1, column=C.HEADERS.index("Places") + 1, value=places
+        )
+        out = BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
     counts = {
         "points": 6,
         "in_file": 4,
@@ -315,21 +336,21 @@ def test_the_rows_must_add_up_to_the_statement_or_the_copy_is_refused(world):
         "comments": 1,
         "confirmations": 0,
     }
-    from openpyxl import Workbook
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = C.COMMENTS
-    for i, h in enumerate(C.HEADERS, 1):
-        ws.cell(row=C.HEADER_ROW, column=i, value=h)
-    ws.cell(row=C.HEADER_ROW + 1, column=1, value=1)
-    ws.cell(
-        row=C.HEADER_ROW + 1, column=C.HEADERS.index("Places") + 1, value=3
-    )  # the rows say 3 points, the statement says 4
-    out = BytesIO()
-    wb.save(out)
+    C.read_back(
+        book(4), counts, 6
+    )  # rows say 4, the statement says 4 of 6, the page holds 6
     with pytest.raises(C.NotIssuable):
-        C.read_back(out.getvalue(), counts)
+        C.read_back(book(3), counts, 6)  # the rows cover 3 points, the statement says 4
+    with pytest.raises(C.NotIssuable):
+        C.read_back(
+            book(4), counts, 7
+        )  # the page holds 7 points: the statement's 6 is not the stored total
+    with pytest.raises(C.NotIssuable):
+        C.read_back(
+            book(4, "6 points reviewed, 4 in this file, 2 not issued: 1 x"), counts, 6
+        )  # reasons do not add to K
+    with pytest.raises(C.NotIssuable):
+        C.read_back(book(4), {**counts, "comments": 2}, 6)  # a row is missing
 
 
 def test_a_review_that_stopped_early_cannot_be_signed(temp_db):
@@ -430,3 +451,59 @@ def test_only_a_super_user_can_sign_or_fetch_the_contractor_copy(world):
         _sign(client(BOOK)).status_code == 404
     )  # an admin who may not read the paper: not found, never 403
     assert _contractor(client(BOOK)).status_code == 404
+
+
+def test_a_decision_that_lands_while_signing_is_refused_not_signed_over(world):
+    """The copy is built from the view; a decision made after that view (another tab) must not be signed over with the older text."""
+    c = client(PAPER, BOOK)
+    _accept_all(c)
+    with db.connect() as conn:
+        from app import aim_review_view as V
+
+        run = V.resolve(conn, PAPER, RUN)
+        old_view = V.build(
+            conn,
+            run,
+            access.AccessScope(
+                user_id="eng",
+                allowed_document_ids=frozenset({PAPER, BOOK}),
+                capabilities=frozenset({"admin"}),
+            ),
+        )
+    _decide(
+        c, 1, "reject", reason="Found to be wrong a moment ago."
+    )  # lands after the view was built
+    with db.connect() as conn:
+        run = V.resolve(conn, PAPER, RUN)
+        with pytest.raises(SO.Refused) as exc:
+            SO.sign(conn, run, old_view, "eng", CODE)
+    assert "changed while you were signing" in str(exc.value) and exc.value.blockers
+    assert _rows("aim_signoffs") == [] and _rows("aim_issued_copies") == []
+    assert _sign(c).status_code == 200  # a fresh view signs
+
+
+def test_the_answer_after_a_good_sign_off_says_the_signer_may_sign(world):
+    c = client(PAPER, BOOK)
+    _accept_all(c)
+    s = _sign(c).json()["signoff"]
+    assert (
+        s["state"] == "signed" and s["may_sign"] is True and s["may_sign_words"] is None
+    )
+
+
+def test_a_viewer_without_a_hidden_book_decides_the_same_comment_the_signer_sees(world):
+    """The grouping key of a comment (the point numbers it covers) is the same for every viewer: a decision of a reader who may not
+    open the book is the very decision the signer, who may, sees on that comment and has to count."""
+    blind = client(PAPER, admin=True)  # may read the paper, not the rule book
+    seen_blind = [(x["n"], x["lines"]) for x in _page(blind)["comments"]]
+    _decide(blind, 1, "reject", reason="The paper states it on page 3.")
+    signer = client(PAPER, BOOK)
+    page = _page(signer)
+    assert [(x["n"], x["lines"]) for x in page["comments"]] == seen_blind
+    assert page["comments"][0]["decision"]["state"] == "reject"
+    assert page["signoff"]["undecided_count"] == len(page["comments"]) - 1 + len(
+        page.get("confirmations") or []
+    )
+    _accept_all(signer)
+    assert _sign(signer).status_code == 200
+    assert _page(blind)["signoff"]["state"] == "signed"

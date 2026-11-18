@@ -38,6 +38,11 @@ def _world(ids):
         ids["sched"],
         "SCHEDULE C\nMILESTONES\nThe contractor shall complete milestone one in ninety days.\n",
     )
+    with db.connect() as conn:  # the parts of one package carry one RECORDED project
+        conn.execute(
+            "UPDATE document_classification SET project = 'Invented Project One' WHERE document_id IN (?, ?)",
+            (ids["contract"], ids["sched"]),
+        )
     return ids
 
 

@@ -163,7 +163,7 @@ def attach(conn, run_id: str, comments: list[dict], confirmations: list[dict]) -
                 continue
             last = history[-1]
             c["decision"] = {
-                "state": last["state"], "words": WORDS[last["state"]], "text": last["text"],
+                "id": last["id"], "state": last["state"], "words": WORDS[last["state"]], "text": last["text"],
                 "reason": last["reason"], "by": _name(conn, last["decided_by"]), "at": last["decided_at"], "revisions": len(history),
             }  # fmt: skip
             c["decision"]["sentence"] = words_of(c["decision"])

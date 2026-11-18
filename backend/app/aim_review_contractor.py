@@ -209,15 +209,25 @@ def build(
     out = BytesIO()
     wb.save(out)
     data = out.getvalue()
-    read_back(data, counts)
+    read_back(data, counts, len(view["points"]))
     return data, counts
 
 
-def read_back(data: bytes, counts: dict) -> None:
-    """The file's rows against its own statement: the points the rows say they cover must equal M, and no cell carries internal text.
-    Raises `NotIssuable` otherwise (a bug or a hand-edited file: never issued)."""
+_STATEMENT = re.compile(
+    r"(\d+) points reviewed, (\d+) in this file, (\d+) not issued: (.*)"
+)
+
+
+def _wrong(why: str) -> NotIssuable:
+    return NotIssuable([{"part": "file", "n": 0, "why": why}])
+
+
+def read_back(data: bytes, counts: dict, total: int) -> None:
+    """The file READ BACK against the stored total: the points the rows really cover (M), the rows really there, and the first sheet's own
+    statement (N, M, K and its reasons) must agree with each other and with `total`, the points the page holds. Raises `NotIssuable`
+    otherwise (a bug or a hand-edited file: never issued), and no cell may carry internal text."""
     wb = load_workbook(BytesIO(data))
-    covered = 0
+    covered = rows = 0
     for name in (COMMENTS, CONFIRM):
         if name not in wb.sheetnames:
             continue
@@ -225,20 +235,27 @@ def read_back(data: bytes, counts: dict) -> None:
         places = HEADERS.index("Places") + 1
         for r in range(HEADER_ROW + 1, ws.max_row + 1):
             if ws.cell(row=r, column=1).value is not None:
+                rows += 1
                 covered += int(ws.cell(row=r, column=places).value or 0)
-    if (
-        covered != counts["in_file"]
-        or counts["in_file"] + counts["not_issued"] != counts["points"]
-    ):
-        raise NotIssuable(
-            [
-                {
-                    "part": "file",
-                    "n": 0,
-                    "why": "the rows do not add up to the points stated on the first sheet",
-                }
-            ]
-        )
+    stated = next(
+        (
+            m
+            for row in wb[SUMMARY].iter_rows(values_only=True)
+            for v in row
+            if isinstance(v, str) and (m := _STATEMENT.search(v))
+        ),
+        None,
+    )
+    if stated is None:
+        raise _wrong("the first sheet does not state the points")
+    n, m, k = (int(stated.group(i)) for i in (1, 2, 3))
+    why = [
+        int(x.split(" ", 1)[0]) for x in stated.group(4).split("; ") if x[:1].isdigit()
+    ]
+    if not (n == total and m == covered and m + k == n and sum(why) == k):
+        raise _wrong("the rows do not add up to the points stated on the first sheet")
+    if rows != counts["comments"] + counts["confirmations"]:
+        raise _wrong("the rows are not the comments that were to be issued")
     bad = []
     for ws in wb.worksheets:
         for row in ws.iter_rows(values_only=True):
