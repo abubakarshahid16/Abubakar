@@ -197,7 +197,9 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     # --- order 14: the general review behind the ONE Review button (CONTRACT section 7) ---
     (
         APP + "aim_review/",
-        "the general review method: decides and words every line, what leaves, its cost",
+        "the general review method: decides and words every line, what leaves, its cost; incl. parallel.py (judge calls side by"
+        " side: the run meter's worst-case hold before every call) and fake.py (the dry run's model: asks the send gate, sends"
+        " nothing)",
     ),
     (APP + "aim_review_gate.py", "which review method the Review button runs (the way back)"),
     (APP + "aim_review_jobs.py", "the general review's job: which rule books it may send"),
