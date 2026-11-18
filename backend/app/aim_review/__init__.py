@@ -98,6 +98,9 @@ PAPER_COMPARE_PASSED = "paper_compare_passed"
 #: `code_note` part of a line the editor step (S5) took off the comment sheet: "edited: repeats line 3", "edited: paper states
 #: otherwise (page 2: ...)". Its label is unchanged; it stays in "All points" with its reason.
 EDITED = "edited"
+#: `code_note` part of a line whose quoted figure the contractor FILLED IN beside a who-supplies note ("380 psig (By Contractor)"):
+#: judged as a stated value (owner, 18 Nov 2026 after live); the note says where the figure came from.
+CONTRACTOR_FILLED = "filled in by the contractor (By Contractor)"
 NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED, EDITED)
 
 
@@ -156,6 +159,7 @@ def run(
 
 
 __all__ = [
+    "CONTRACTOR_FILLED",
     "EDITED",
     "LABELS",
     "MAX_BOOKS",

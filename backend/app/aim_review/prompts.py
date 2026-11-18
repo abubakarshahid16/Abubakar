@@ -114,16 +114,17 @@ S4_TASK = """TASK S4 - JUDGE THE PAPER ABOVE AGAINST THESE CHECKLIST ITEMS. For 
 paper pages it names (and any other page where the thing is), and judge.
 Labels: "Met" (the paper states what the clause requires), "Not met" (the paper states something that breaks it), "Question"
 (the value or statement is missing, unclear, or left open by the vendor: TBA, TBC, TBD, later, *, blank, or "by
-vendor/contractor"; a figure stated beside a note of who supplies it, such as "380 psig (By Contractor)", is provisional: give
-its "numbers" so code can check it, and label it "Question", never Met or Not met), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
+vendor/contractor" with no figure), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
 clause does not decide).
 Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
 finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
 that holds everywhere gets one judgment.
-A comment on a value left open or provisional is a QUESTION to the vendor ("appears above the limit of ...; please confirm"),
-never a statement that it fails.
+A figure the contractor FILLED IN beside a note of who supplies it, such as "380 psig (By Contractor)", is a STATED value: judge
+it as any value (Met, Not met or Question, and give "numbers" for a limit). A comment on a value left open (no figure) is a
+QUESTION to the vendor, never a statement that it fails.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
-NEVER Met or Not met on a value the vendor left open; for a limit, give "numbers" and code will compare them (do not compare
+NEVER Met or Not met on a value the vendor left open; for EVERY item that rests on a held rule with a numeric limit, give
+"numbers" (the paper's figure and the rule's limit) whenever both are stated, WHATEVER your label, and code will compare them (do not compare
 yourself); items whose source is not "held standard" (engineering knowledge) may only be "Question", "AI opinion" or
 "Does not apply".
 Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "field": "the paper field or section",

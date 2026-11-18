@@ -12,10 +12,9 @@ import logging
 import re
 
 from . import (
+    CONTRACTOR_FILLED,
     PAPER_COMPARE_PASSED,
     PROVISIONAL,
-    PROVISIONAL_FAILS,
-    PROVISIONAL_UNCHECKED,
 )
 from . import library as L
 from . import prompts as P
@@ -163,6 +162,45 @@ def _ask(j: dict, label: str, deferred: bool, code_cmp, nums, note: str = "") ->
     return ASK_CONFIRM if j.get("ask") == ASK_CONFIRM else ASK_CONCERN
 
 
+def _compare(
+    it: dict, label: str, nums, quote: str, notes: list[str], paper, deferred: bool
+):
+    """(label, code's comparison). CODE DOES EVERY NUMBER AND UNIT COMPARISON (the project's top rule): a Met / Not met with
+    numbers is decided by code (a held or always-on item); and a Question or AI opinion whose numbers code reads from VERIFIED
+    quotes against a HELD rule's limit is decided by code too, whatever the AI's label: a fail is a Fail by code, a pass a Pass
+    by code (18 Nov 2026 after live: the judge kept "Question" on filled-in figures, so code never compared them). When code
+    reaches no verdict ("unclear", a paper-vs-paper pairing, a value it cannot read) the AI's label stands. A value left open
+    is never compared."""
+    held = it["source"] == HELD
+    rule_quote = str(it.get("rule_quote") or "")
+    if nums and label in ("Met", "Not met") and (held or it.get("always_on")):
+        return _numbers(nums, quote, rule_quote, notes, paper)
+    if nums and held and quote and not deferred and label in ("Question", "AI opinion"):
+        tried: list[str] = []
+        new, cmp_ = _numbers(nums, quote, rule_quote, tried, paper)
+        if (
+            isinstance(cmp_, dict)
+            and cmp_.get("read_from") == "verified quotes"
+            and cmp_.get("result") in ("pass", "fail")
+        ):
+            notes.extend(tried)
+            return new, cmp_
+    if it["kind"] == "limit" and label in ("Met", "Not met") and held:
+        notes.append("a limit with no numbers for code to compare")
+        return "Question", None
+    return label, None
+
+
+def _left_open(j: dict, quote: str, page, notes: list[str]) -> bool:
+    """Is the judged value left open? A figure the contractor FILLED IN beside a who-supplies note is a stated value, judged as
+    any value (owner, 18 Nov 2026 after live; the note says so on the line; Pass/Fail only when code compares it with a held
+    rule): never left open, whatever the judge's flag. Otherwise the judge's flag or code reading the quote as open."""
+    filled = page is not None and _provisional_figure(quote)
+    if filled:
+        notes.append(CONTRACTOR_FILLED)
+    return (bool(j.get("deferred")) and not filled) or _deferred(quote)
+
+
 def _deferred(quote: str) -> bool:
     """THE one decision "the paper leaves this value open" for a quote: `blank_markers.value_left_open` (the one list; the lead's
     decision of 18 Nov 2026). A pending marker (TBA, TBC, TBD, later, VTA, a lone "*"), a blank form, or a who-supplies note
@@ -246,44 +284,6 @@ _FAILS_AS = {
     "==": ("is not", "required value"),
     "!=": ("is", "excluded value"),
 }
-
-
-def _provisional(
-    it: dict, j: dict, quote: str, page: int, base: dict, paper_doc=None
-) -> dict:
-    """A PROVISIONAL figure (a stated figure beside a who-supplies note; verified quote): code checks it from the verified quotes
-    as for any value, but the label is ALWAYS Question (the standing order: a value left to the vendor is a Question, nothing
-    unproven is a Pass or Fail). A failed check is a sent Question that states the check in numbers (`PROVISIONAL_FAILS`); a
-    check code could not run is a sent Question with the AI's comment (`PROVISIONAL_UNCHECKED`); only a PASSED check stays in
-    "All points" (`PROVISIONAL`, never sent). The limit may be the rule's or one the paper states (`_paper_numbers`)."""
-    nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
-    code_cmp = None
-    if nums and it["source"] == HELD:
-        _label, code_cmp = _numbers(
-            nums, quote, str(it.get("rule_quote") or ""), [], paper_doc
-        )
-    _paper_compare(code_cmp, page)
-    result = code_cmp.get("result") if isinstance(code_cmp, dict) else None
-    fails = result == "fail"
-    note = {"fail": PROVISIONAL_FAILS, "pass": PROVISIONAL}.get(
-        str(result), PROVISIONAL_UNCHECKED
-    )
-    return {
-        **base,
-        "field": str(j.get("field") or "")[:100],
-        "page": page,
-        "label": "Question",
-        "quote": quote,
-        "quote_unverified": "",
-        "comment": _fails_comment(code_cmp, quote, base, asking=True)
-        if fails
-        else str(j.get("comment") or "")[:400],
-        "code": note,
-        "numbers": nums,
-        "code_compare": code_cmp,
-        "deferred": False,
-        "ask": _ask(j, "Question", False, code_cmp, nums, note),
-    }
 
 
 def _num(v) -> str:
@@ -684,9 +684,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         label, _ = "Question", notes.append("no paper quote for a verdict")
     if j.get("scope_unverified"):
         notes.append(SCOPE_NOT_VERIFIED)
-    if page is not None and _provisional_figure(quote):
-        return _provisional(it, j, quote, page, base, paper)
-    deferred = bool(j.get("deferred")) or _deferred(quote)
+    deferred = _left_open(j, quote, page, notes)
     if (
         deferred and label != "Question"
     ):  # ANY label (owner, 18 Nov): a value left to the vendor is a Question
@@ -695,18 +693,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
             "the value is left open by the vendor: a question, never a verdict"
         )
     nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
-    code_cmp = None
-    if (
-        nums
-        and label in ("Met", "Not met")
-        and (it["source"] == HELD or it.get("always_on"))
-    ):
-        label, code_cmp = _numbers(
-            nums, quote, str(it.get("rule_quote") or ""), notes, paper
-        )
-    elif it["kind"] == "limit" and label in ("Met", "Not met") and it["source"] == HELD:
-        label = "Question"
-        notes.append("a limit with no numbers for code to compare")
+    label, code_cmp = _compare(it, label, nums, quote, notes, paper, deferred)
     if it["source"] != HELD and label in (
         "Met",
         "Not met",

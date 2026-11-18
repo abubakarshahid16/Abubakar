@@ -1634,3 +1634,25 @@ def test_a_card_has_a_short_title_and_its_parts_as_fields(world):
     ].endswith(" ...")
     assert by[3]["title"] == "Invented field three"
     assert by[3]["rule_says"] == "Engineering knowledge (no held rule book)"
+
+def test_the_contractor_filled_note_stays_on_the_line_and_the_sheet_for_every_viewer(
+    world,
+):
+    """Owner, 18 Nov 2026: a figure filled in beside "(By Contractor)" is judged as a stated value; the note says where it came
+    from, on the page and on All points, also for a viewer who may not open the rule book."""
+    note = aim_review.CONTRACTOR_FILLED
+    rows = [
+        _line(1, "Not met", "Fail, compared by code", code_note=note,
+              code_compare_json=json.dumps({"result": "fail", "why": "380 psig <= 340 psig: false", "read_from": "verified quotes"})),
+        _line(2, "Met", "AI opinion: met", code_note=note, standard="QX-GONE-707", book_document_id="doc_inv_gone"),
+    ]  # fmt: skip
+    make_run("gen_filled", rows, created="2026-11-19T04:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_filled").json()
+    assert [p["code_note"] for p in body["points"]] == [note, note]
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_filled"))
+    col = aim_review_sheet.POINT_HEADERS.index("Code note")
+    assert [r[col] for r in aim_review_completeness._table(wb, "All points")] == [
+        note,
+        note,
+    ]
