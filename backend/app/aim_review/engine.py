@@ -733,15 +733,10 @@ def _judge(
     ]
     # the three always-on checks of every review (G1 cited standards, G2 internal consistency, G3 required entries)
     items += always.items(
-        text.conn,
-        state.identity,
-        checklist,
-        allowed_books,
-        paper.pages,
-        state.cited or frozenset(),
+        text.conn, state.identity, checklist, allowed_books, paper.pages
     )
     judged, held_back, not_cited = [], set(), set()
-    company = L.company_books_not_cited(text.conn, state.paper_id, books, state.cited)
+    company = L.company_books_not_cited(text.conn, state.paper_id, books)
     for it in items:
         bid = S.item_book(it, books)
         if (

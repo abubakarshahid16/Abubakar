@@ -294,8 +294,9 @@ def test_the_store_keeps_named_books_and_adds_the_column_to_an_older_table(aim_d
     ]
 
 
-def test_g3_lists_a_company_books_items_only_when_the_paper_cites_it():
-    """G3's second lock (final light check, S5): on the shown list AND usable (public, or a company book the paper cites)."""
+def test_g3_lists_only_usable_rule_books_items_and_a_citation_never_adds_one():
+    """G3's second lock: on the shown list AND a usable rule book. With no database only an unroled public name is known; a
+    cited id never makes a document a rule book (fix check 961f7126, N2)."""
     checklist = {
         "books": [{"alias": "B01", "book": "doc_public", "identifier": "ISO 99101"},
                   {"alias": "B02", "book": "doc_company", "identifier": "97-ZQ-707"}],
@@ -306,15 +307,4 @@ def test_g3_lists_a_company_books_items_only_when_the_paper_cites_it():
     }  # fmt: skip
     shown = frozenset({"doc_public", "doc_company"})
     g3 = next(it for it in A.items(None, {}, checklist, shown, {}) if it["id"] == "G3")
-    assert "company topic" not in g3["context"] and g3["carries"] == [
-        "doc_public"
-    ]  # on the list, but not cited
-    g3 = next(
-        it
-        for it in A.items(None, {}, checklist, shown, {}, frozenset({"doc_company"}))
-        if it["id"] == "G3"
-    )
-    assert "company topic" in g3["context"] and g3["carries"] == [
-        "doc_company",
-        "doc_public",
-    ]
+    assert "company topic" not in g3["context"] and g3["carries"] == ["doc_public"]

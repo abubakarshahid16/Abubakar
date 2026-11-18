@@ -52,7 +52,6 @@ def items(
     checklist: dict,
     allowed_books: frozenset[str],
     text: dict[int, str],
-    cited: frozenset[str] = frozenset(),
 ) -> list[dict]:
     """The three always-on items for this paper, in order G1, G2, G3, as checklist items (same fields). G3 lists ONLY the held
     items whose rule book is on this review's list (an item of another book is never judged, so its words never go out), and
@@ -67,11 +66,11 @@ def items(
         for it in checklist.get("items") or []
         if isinstance(it, dict) and it.get("source") == HELD
     ]
-    # two locks: the book is on the shown list AND it may be used for this paper (public, the client's own, or cited)
+    # two locks: the book is on the shown list AND it is a usable rule book (the client's own by its role, or public)
     names = {str(b.get("book")): b.get("identifier") for b in books.values()}
-    ok = L.usable_ids(conn, {b for _it, b in listed}, cited, names)
+    ok = L.usable_ids(conn, {b for _it, b in listed}, names)
     listed = [(it, b) for it, b in listed if b and b in allowed_books and b in ok]
-    facts, named = _library_facts(conn, identity, allowed_books, text, cited)
+    facts, named = _library_facts(conn, identity, allowed_books, text)
     g3_named = {
         b: str((books.get(it.get("book") or "") or {}).get("identifier") or "")
         for it, b in listed
@@ -132,7 +131,6 @@ def _library_facts(
     identity: dict,
     allowed_books: frozenset[str],
     text: dict[int, str],
-    cited: frozenset[str] = frozenset(),
 ) -> tuple[str, dict[str, str]]:
     """G1's facts, from the app's own tables: each cited standard and whether a book on this review's list holds it (with the edition
     its file name or title prints), and the standards governing the paper's type. Never a book that is not on the list. Returns
@@ -148,6 +146,9 @@ def _library_facts(
             cited_edition.cited_years("\n".join(text[n] for n in sorted(text))).items()
         ):
             entry = L.resolve(lib, ident)
+            entry = (
+                entry if L.usable(entry) else None
+            )  # a citation never makes another role a rule book (N2)
             if entry:
                 named[str(entry["id"])] = L.identifier_of(entry)
             held = cited_edition.held_year(entry) if entry else None
@@ -167,13 +168,11 @@ def _library_facts(
                 else f"{name} (not among this review's books)"
             )
             for entry, name in L.governing_books(lib, identity.get("equipment_type"))
-            if entry is None
-            or L.usable(entry, cited)  # a held book: public, the client's own, or cited
-        ]
+        ]  # the governing table names company-standard books only: every one is a usable rule book (N4: no check needed)
         named |= {
             str(entry["id"]): L.identifier_of(entry)
             for entry, _name in L.governing_books(lib, identity.get("equipment_type"))
-            if entry and L.usable(entry, cited)
+            if entry
         }
     except Exception as exc:  # noqa: BLE001 - the facts are a help to the judge; without them G1 is judged on the paper alone
         log.info(

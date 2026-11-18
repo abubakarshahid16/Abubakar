@@ -514,39 +514,22 @@ def test_a_saved_item_of_a_company_standard_this_paper_does_not_cite_does_not_ap
     assert COMPANY not in r.unlisted_books
 
 
-def test_a_cited_company_book_enters_the_checklist_and_reuse_needs_the_same_cited_set(
+def test_a_cited_document_of_another_role_never_enters_the_checklist(
     aim_db, monkeypatch
 ):
-    """The key carries a short hash of the cited company book ids: reused only with the same cited set; a cited company book
-    enters a new checklist and is carried; a paper citing none never gets it, and no "not cited" line falls on a cited book."""
+    """Fix check 961f7126, N2: a document recorded with another role (a reference document) that the paper cites by its file
+    name is never a rule book: not carried, the key stays plain, and an own book of the same prefix is used uncited."""
     from app import standard_ids
     from app.aim_review import library as L
     from tests.test_aim_method_candidates import COMPANY, _company_book
 
     _company_book(aim_db)
-    store = MemoryStore()
-    every = frozenset({BOOK_A, BOOK_B, COMPANY})
     monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["ZQ-ENG-501"])
-    cited, _m, _s = _run(aim_db, store=store, allowed=every)
-    assert L.CITED_MARK in cited.checklist_key and not cited.checklist_reused
-    assert COMPANY in cited.books  # it entered the checklist and was carried
-    assert all(ln["code_note"] != E.NOT_CITED for ln in cited.lines)
-    again, _m, _s = _run(aim_db, store=store, allowed=every)
-    assert (
-        again.checklist_key == cited.checklist_key and again.checklist_reused
-    )  # the same cited set: reused
-    assert all(ln["code_note"] != E.NOT_CITED for ln in again.lines)
-    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: [])
-    none, _m, _s = _run(aim_db, store=store, allowed=every)
-    assert (
-        L.CITED_MARK not in none.checklist_key
-        and not none.checklist_reused
-        and len(store.puts) == 2
-    )
-    assert COMPANY not in none.books
+    r, _m, _s = _run(aim_db, allowed=frozenset({BOOK_A, BOOK_B, COMPANY}))
+    assert COMPANY not in r.books and L.CITED_MARK not in r.checklist_key
 
 
-def test_the_job_may_pass_the_cited_ids(aim_db):
+def test_ids_the_job_passes_never_make_another_role_a_rule_book(aim_db):
     from tests.test_aim_method_candidates import COMPANY, _company_book
 
     _company_book(aim_db)
@@ -555,4 +538,4 @@ def test_the_job_may_pass_the_cited_ids(aim_db):
         allowed=frozenset({BOOK_A, BOOK_B, COMPANY}),
         cited_books=frozenset({COMPANY}),
     )
-    assert "__cited-" in r.checklist_key and COMPANY in r.books
+    assert COMPANY not in r.books
