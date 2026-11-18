@@ -206,3 +206,66 @@ def rule_operator(rule_quote: str) -> str | None:
         if op:
             found.add(op)
     return found.pop() if len(found) == 1 else None
+
+
+# ------------------------------------------------------------------ a clause number is shown only if the book prints it
+
+CLAUSE_NOT_FOUND = "clause not found in the book"
+#: How many pages before the rule's own page a clause's heading may stand.
+CLAUSE_PAGES_BEFORE = 3
+_CLAUSE_WORDS = r"(?:clause|section|sec\.?|paragraph|para\.?|\u00a7|annex|appendix)"
+
+
+def clause_in_book(clause: str, pages: dict[int, str], near: int | None) -> bool:
+    """Does the book print `clause` AS a clause: at the start of a line, or after a clause word ("clause 4.2", "section 4.2"), on
+    the rule's page or the CLAUSE_PAGES_BEFORE pages before it (the whole book when the page is not known)? A number that only
+    appears inside a sentence or a formula ("M = 28.96") is not a clause. A clause with no digit (a heading word) is found when
+    the words stand on those pages. An empty clause has nothing to check."""
+    c = " ".join(str(clause or "").split())
+    if not c:
+        return True
+    wanted = (
+        {n: pages[n] for n in range(near - CLAUSE_PAGES_BEFORE, near + 1) if n in pages}
+        if isinstance(near, int) and near in pages
+        else pages
+    )
+    if not re.search(r"\d", c):
+        return any(norm(c) in norm(t) for t in wanted.values())
+    body = r"\s*".join(re.escape(part) for part in c.split())
+    pat = re.compile(
+        r"(?:^[ \t]*(?:"
+        + _CLAUSE_WORDS
+        + r"[ \t]*)?|\b"
+        + _CLAUSE_WORDS
+        + r"\s*)"
+        + body
+        + r"(?![0-9]|\.[0-9])",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    return any(pat.search(t or "") for t in wanted.values())
+
+
+def keep_clause_if_found(line: dict, text, near: int | None) -> None:
+    """A line's clause is kept only when its book prints it (`clause_in_book`); else the standard stays, the clause is blank and
+    the code note says CLAUSE_NOT_FOUND."""
+    book = line.get("book_document_id")
+    if not book or not line.get("clause"):
+        return
+    if not clause_in_book(str(line["clause"]), text.pages(str(book)), near):
+        line["clause"] = ""
+        if (
+            line.get("code") not in _whole_notes()
+        ):  # a line never judged keeps its one note (it is no finding)
+            line["code"] = "; ".join(
+                x for x in (line.get("code"), CLAUSE_NOT_FOUND) if x
+            )
+
+
+def _whole_notes() -> tuple[str, ...]:
+    """The notes that are a line's whole content (not judged, not on any page, does not apply): never extended. Read from their
+    one home each."""
+    from . import NOT_JUDGED
+    from .engine import NOT_CITED
+    from .steps import NOT_ON_ANY_PAGE
+
+    return (NOT_JUDGED, NOT_ON_ANY_PAGE, NOT_CITED)

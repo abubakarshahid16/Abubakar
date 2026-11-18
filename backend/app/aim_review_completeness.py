@@ -4,7 +4,8 @@ Three counts of ONE general run are compared, and the file is refused when they 
   page       the points the page serves (`aim_review_view.build`),
   database   the lines stored for the run (a separate `COUNT(*)` on `aim_lines`),
   file rows  the rows on the sheet "All points" of the workbook AS BUILT, read back from the bytes (never the builder's own number);
-and the comments the page serves = the rows on the sheet "Comments".
+and the comments the page serves = the rows on the sheet "Comments" (one comment per point: `aim_review_view.group_comments`),
+and every sent line is in exactly one comment (its "Lines" cell, read back).
 Also read back: every sheet carries the mark, the first sheet states "N points reviewed, N in this file", a cell cut on "Comments" is
 cut only with `crs_completeness.CUT_MARK` and is whole on "All points", and "All points" holds every text whole.
 
@@ -70,46 +71,64 @@ def _text(cell) -> str:
     return "" if cell is None else str(cell)
 
 
-def _cut_check(
-    comments_rows: list[list], points_rows: list[list]
-) -> tuple[int, list[str]]:
-    """(cells cut with the mark, problems). A Comments cell must equal its All points text, or be that text cut with the mark."""
-    full = {r[0]: r for r in points_rows if isinstance(r[0], int)}
+def _cut_check(comments_rows: list[list], view: dict) -> tuple[int, list[str]]:
+    """(cells cut with the mark, problems). A Comments row is ONE comment (`aim_review_view.group_comments`): its cell must equal
+    that comment's text on the page, or be it cut with the mark and a note naming where each place's full text stands."""
+    by_n = {c["n"]: c for c in view["comments"]}
     marked, problems = 0, []
     for r in comments_rows:
         n = r[0]
-        if n not in full:
-            problems.append(
-                f"comment {n} has no row on the sheet {aim_review_sheet.ALL_POINTS}"
-            )
+        if n not in by_n:
+            problems.append(f"comment {n} is not a comment of the page")
             continue
-        for col, full_col, name in (
-            (
-                aim_review_sheet.COMMENT_HEADERS.index("Comment"),
-                aim_review_sheet.POINT_HEADERS.index("Comment"),
-                "comment",
-            ),
-            (
-                aim_review_sheet.COMMENT_HEADERS.index("Quote"),
-                aim_review_sheet.POINT_HEADERS.index("Quote"),
-                "quote",
-            ),
-        ):  # columns found by their header, never by a fixed number
-            cell, whole = _text(r[col]), _text(full[n][full_col])
+        for col, name in (
+            ("Comment", "comment"),
+            ("Quote", "quote"),
+        ):  # columns found by their header, never by a number
+            cell = _text(r[aim_review_sheet.COMMENT_HEADERS.index(col)])
+            whole = safe_cell_text(by_n[n][name])
             if cell == whole:
                 continue
             if (
                 cell.endswith(CUT_MARK)
                 and whole.startswith(cell[:-1])
-                and len(whole) >= len(cell)
                 and _text(r[aim_review_sheet.COMMENT_HEADERS.index("Note")])
             ):
                 marked += 1
             else:
                 problems.append(
-                    f"the {name} of point {n} is cut without the mark or without its full text beside it"
+                    f"the {name} of comment {n} is cut without the mark or without its full text beside it"
                 )
     return marked, problems
+
+
+def _lines_check(comments_rows: list[list], view: dict) -> list[str]:
+    """Every SENT line belongs to exactly one comment: the "Lines" cells of the file, read back, cover the page's sent lines once
+    each and nothing else."""
+    from . import aim_review
+
+    sent = sorted(p["n"] for p in view["points"] if aim_review.sendable(p))
+    covered: list[int] = []
+    for r in comments_rows:
+        cell = _text(r[aim_review_sheet.COMMENT_HEADERS.index("Lines")])
+        covered += [int(x) for x in cell.replace(" ", "").split(",") if x.isdigit()]
+    problems = []
+    twice = sorted({n for n in covered if covered.count(n) > 1})
+    if twice:
+        problems.append(f"lines {twice[:LIST_AT_MOST]} are in more than one comment")
+    if sorted(set(covered)) != sent:
+        missing = sorted(set(sent) - set(covered))
+        extra = sorted(set(covered) - set(sent))
+        problems.append(
+            f"the comments cover {len(set(covered))} lines, the page sends {len(sent)}"
+            + (f"; not in any comment: {missing[:LIST_AT_MOST]}" if missing else "")
+            + (
+                f"; not sent lines in a comment: {extra[:LIST_AT_MOST]}"
+                if extra
+                else ""
+            )
+        )
+    return problems
 
 
 def _row_problems(
@@ -177,8 +196,12 @@ def checked(conn, run: dict, view: dict) -> tuple[bytes, dict]:
     comments_rows = _table(wb, aim_review_sheet.COMMENTS)
     db_lines = _database_lines(conn, run["run_id"])
     in_file = {r[0] for r in points_rows if isinstance(r[0], int)}
-    marked, cut_problems = _cut_check(comments_rows, points_rows)
-    problems = [*cut_problems, *_row_problems(view, wb, comments_rows, points_rows)]
+    marked, cut_problems = _cut_check(comments_rows, view)
+    problems = [
+        *cut_problems,
+        *_lines_check(comments_rows, view),
+        *_row_problems(view, wb, comments_rows, points_rows),
+    ]
     rep = {
         "run_id": run["run_id"],
         "page": view["counts"]["points"],

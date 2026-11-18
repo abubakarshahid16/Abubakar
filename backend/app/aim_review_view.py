@@ -9,6 +9,7 @@ named. The labels the person SEES are the stored `shown_label` (written by `aim_
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from . import aim_review, aim_review_gate, aim_review_store, review_shown
@@ -107,7 +108,83 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "code_note": row.get("code_note") or "",
         "quote_unverified": bool(row.get("quote_unverified")),
         "book_document_id": _blank(row.get("book_document_id")),
+        "compared": _compared(row),
     }
+
+
+def _compared(row: dict) -> str:
+    """The words of code's comparison at this place ("25 bar <= 20 bar: false"), or ""."""
+    cmp_ = row.get("code_compare")
+    if cmp_ is None:
+        cmp_ = _json(row.get("code_compare_json"), {})
+    return str(cmp_.get("why") or "") if isinstance(cmp_, dict) else ""
+
+
+# ------------------------------------------------------------------ comments: one per point, every place listed
+
+#: A note part that only says how many places were not listed: never a different point.
+_PLACES_NOTE = re.compile(r"^\d+ more place")
+
+
+def note_kind(code_note: str) -> tuple[str, ...]:
+    """The KIND of a line's code note, without its place-specific words: each "; " part up to its first ":", digits removed;
+    the "N more places" count dropped. "code compared: 25 bar <= 20 bar: false" -> ("code compared",)."""
+    kinds = set()
+    for part in str(code_note or "").split(";"):
+        part = part.strip()
+        if not part or _PLACES_NOTE.match(part):
+            continue
+        kinds.add(re.sub(r"\d+(?:[.,]\d+)*", "#", part.split(":", 1)[0]).strip())
+    return tuple(sorted(kinds))
+
+
+def group_key(p: dict) -> tuple:
+    """Lines that make ONE comment: the same item, the same shown label (a code-compared Fail never joins anything else) and the
+    same kind of code note (the same compare kind)."""
+    return (
+        p.get("item_id") or f"line-{p['n']}",
+        p.get("shown_label") or "",
+        note_kind(p.get("code_note")),
+    )
+
+
+def _place(p: dict) -> str:
+    where = f"page {p['page']}" if p.get("page") is not None else "no page"
+    quote = f': "{p["quote"]}"' if p.get("quote") else ""
+    numbers = f" ({p['compared']})" if p.get("compared") else ""
+    return f"{where}{quote}{numbers}"
+
+
+def group_comments(points: list[dict]) -> list[dict]:
+    """THE comments of a run (the page, the file and the completeness check read this one list): the SENT lines grouped by
+    `group_key`, in line order of each group's first line. One line: that line as it is. Several: the point is said once (the
+    first place's words) and every place is listed with its own quote and numbers. Each comment names the lines it covers."""
+    groups: dict[tuple, list[dict]] = {}
+    for p in points:
+        if aim_review.sendable(p):
+            groups.setdefault(group_key(p), []).append(p)
+    out = []
+    for members in groups.values():
+        members = sorted(
+            members, key=lambda m: (m["page"] is None, m["page"] or 0, m["n"])
+        )
+        first = members[0]
+        pages = sorted({m["page"] for m in members if m["page"] is not None})
+        if len(members) == 1:
+            out.append({**first, "lines": [first["n"]], "pages": pages})
+            continue
+        places = "; ".join(_place(m) for m in members)
+        out.append({
+            **first,
+            "n": min(m["n"] for m in members),
+            "lines": sorted(m["n"] for m in members),
+            "pages": pages,
+            "comment": f"{first['comment']}\nThe same point at {len(members)} places (pages {', '.join(map(str, pages)) or 'none'}): {places}.",
+            "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
+                                for m in members if m["quote"]),
+            "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
+        })  # fmt: skip
+    return sorted(out, key=lambda g: g["n"])
 
 
 def _titles(conn, ids: list[str], scope) -> tuple[dict[str, str], int]:
@@ -219,8 +296,9 @@ def build(conn, run: dict, scope=None) -> dict:
     points = [
         line_view(r, i, book_hidden(conn, r, scope)) for i, r in enumerate(rows, 1)
     ]
-    # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C)
-    comments = [p for p in points if aim_review.sendable(p)]
+    # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
+    # lines of one point make ONE comment listing every place (`group_comments`)
+    comments = group_comments(points)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS

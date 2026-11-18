@@ -229,7 +229,8 @@ def test_a_null_page_renders_as_nothing_not_zero(world):
         for r in ws.iter_rows(min_row=aim_review_sheet.HEADER_ROW + 1, values_only=True)
         if r[0] is not None
     ]
-    assert rows[1][2] is None  # the page cell of comment 2 (line 3) is empty, never 0
+    # the page cell of comment 2 (line 3) is empty, never 0 (the column found by its header: "Lines" now stands before it)
+    assert rows[1][aim_review_sheet.COMMENT_HEADERS.index("Page")] is None
 
 
 def test_a_book_the_caller_may_not_read_is_a_count_never_named(world):
@@ -388,7 +389,14 @@ def test_a_cell_is_cut_only_with_the_mark_and_is_whole_on_all_points(world):
         f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_long"
     )
     wb = _sheet(r)
-    cell = wb["Comments"].cell(row=aim_review_sheet.HEADER_ROW + 1, column=5).value
+    cell = (
+        wb["Comments"]
+        .cell(
+            row=aim_review_sheet.HEADER_ROW + 1,
+            column=aim_review_sheet.COMMENT_HEADERS.index("Comment") + 1,
+        )
+        .value
+    )
     whole = wb["All points"].cell(row=aim_review_sheet.HEADER_ROW + 1, column=8).value
     assert (
         cell.endswith(CUT_MARK)
@@ -396,8 +404,13 @@ def test_a_cell_is_cut_only_with_the_mark_and_is_whole_on_all_points(world):
         and whole == long
     )
     assert (
-        "full text is on the sheet All points, No. 1"
-        in wb["Comments"].cell(row=aim_review_sheet.HEADER_ROW + 1, column=11).value
+        "full text of each place is on the sheet All points, No. 1"  # the note of a comment (one point, its places)
+        in wb["Comments"]
+        .cell(
+            row=aim_review_sheet.HEADER_ROW + 1,
+            column=aim_review_sheet.COMMENT_HEADERS.index("Note") + 1,
+        )
+        .value
     )
     # a short comment is not marked
     assert not LINES[0]["comment"].endswith(CUT_MARK)
@@ -453,7 +466,10 @@ def test_a_text_that_looks_like_a_formula_is_stored_as_text(world):
             f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_f"
         )
     )
-    cell = wb["Comments"].cell(row=aim_review_sheet.HEADER_ROW + 1, column=5)
+    cell = wb["Comments"].cell(
+        row=aim_review_sheet.HEADER_ROW + 1,
+        column=aim_review_sheet.COMMENT_HEADERS.index("Comment") + 1,
+    )
     assert cell.data_type == "s" and cell.value.startswith("=HYPERLINK")
 
 
@@ -672,7 +688,9 @@ def test_one_item_with_several_failing_places_keeps_every_line_and_the_counts_ho
     body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id={run_id}").json()
     assert [p["item_id"] for p in body["points"]] == ["C07", "C07", "C07", "C08"]
     assert [p["page"] for p in body["points"]][:3] == [2, 4, 5]
-    assert len(body["comments"]) == 3
+    # one point at three places is ONE comment listing them (lead, 18 Nov 2026: merge repeats); every place stays a point
+    assert len(body["comments"]) == 1 and body["comments"][0]["lines"] == [1, 2, 3]
+    assert body["comments"][0]["pages"] == [2, 4, 5]
     assert body["completeness"]["ok"] is True
     assert (
         body["completeness"]["page"]
@@ -682,7 +700,7 @@ def test_one_item_with_several_failing_places_keeps_every_line_and_the_counts_ho
     )
     wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id={run_id}"))
     assert len(aim_review_completeness._table(wb, "All points")) == 4
-    assert len(aim_review_completeness._table(wb, "Comments")) == 3
+    assert len(aim_review_completeness._table(wb, "Comments")) == 1
 
 
 def test_the_items_every_review_checks_are_counted_apart_from_the_checklist(world):
@@ -713,3 +731,102 @@ def test_the_items_every_review_checks_are_counted_apart_from_the_checklist(worl
         if v is not None
     ]
     assert "Items every review checks besides the checklist" in text
+
+
+# ---- one comment per point: every place it applies to listed (lead, 18 Nov 2026: merge repeats; invented values) --------------
+
+
+def _cmp(v):
+    return json.dumps(
+        {
+            "result": "fail",
+            "why": f"{v} bar <= 20 bar: false",
+            "read_from": "verified quotes",
+        }
+    )
+
+
+def test_four_places_of_one_point_are_one_comment_listing_four_pages_and_the_counts_hold(
+    world,
+):
+    places = [
+        _line(1, "Not met", "Fail, compared by code", item_id="C09", page=p, quote=f"Design pressure {v} bar gauge",
+              comment=f"Design pressure {v} bar is above the 20 bar limit.", code_note=f"code compared: {v} bar <= 20 bar: false",
+              code_compare_json=_cmp(v))
+        for p, v in ((2, 25), (3, 26), (5, 27), (7, 28))
+    ]  # fmt: skip
+    other = _line(2, "Question", "Question", item_id="C10", page=4)
+    make_run("gen_group", [*places, other], created="2026-11-18T16:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_group").json()
+    assert body["counts"]["points"] == 5 and body["counts"]["comments"] == 2
+    one = body["comments"][0]
+    assert one["lines"] == [1, 2, 3, 4] and one["pages"] == [2, 3, 5, 7]
+    assert "The same point at 4 places (pages 2, 3, 5, 7)" in one["comment"]
+    for v in (25, 26, 27, 28):  # each place's own quote and numbers
+        assert (
+            f"Design pressure {v} bar gauge" in one["comment"]
+            and f"{v} bar <= 20 bar: false" in one["comment"]
+        )
+    rep = body["completeness"]
+    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 5
+    assert rep["comments"] == rep["comment_rows"] == 2
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_group"))
+    rows = aim_review_completeness._table(wb, "Comments")
+    lines_col = aim_review_sheet.COMMENT_HEADERS.index("Lines")
+    assert [r[lines_col] for r in rows] == ["1, 2, 3, 4", "5"]
+    assert rows[0][aim_review_sheet.COMMENT_HEADERS.index("Page")] == "2, 3, 5, 7"
+
+
+def test_a_code_compared_fail_is_never_folded_into_a_question(world):
+    fail = _line(1, "Not met", "Fail, compared by code", item_id="C11", page=2, code_note="code compared: 25 bar <= 20 bar: false",
+                 code_compare_json=_cmp(25))  # fmt: skip
+    question = _line(
+        2,
+        "Question",
+        "Question",
+        item_id="C11",
+        page=3,
+        code_note="the value is left open by the vendor",
+    )
+    other_kind = _line(3, "Not met", "Fail, compared by code", item_id="C11", page=4,
+                       code_note="code compared two values of the paper: 26 bar <= 20 bar: false")  # fmt: skip
+    make_run("gen_nofold", [fail, question, other_kind], created="2026-11-18T16:30:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_nofold")
+        .json()
+    )
+    assert [c["lines"] for c in body["comments"]] == [
+        [1],
+        [2],
+        [3],
+    ]  # another label, another compare kind: apart
+    assert body["completeness"]["ok"] is True
+
+
+def test_every_sent_line_is_in_exactly_one_comment_or_the_file_is_refused():
+    view = {
+        "points": [{"n": 1, "label": "Question", "code_note": ""}, {"n": 2, "label": "Question", "code_note": ""},
+                   {"n": 3, "label": "Met", "code_note": ""}],
+    }  # fmt: skip
+    col = aim_review_sheet.COMMENT_HEADERS.index("Lines")
+
+    def row(lines):
+        r = [None] * len(aim_review_sheet.COMMENT_HEADERS)
+        r[col] = lines
+        return r
+
+    assert aim_review_completeness._lines_check([row("1, 2")], view) == []
+    assert (
+        "not in any comment: [2]"
+        in aim_review_completeness._lines_check([row("1")], view)[0]
+    )  # a forged, short file
+    assert (
+        "in more than one comment"
+        in aim_review_completeness._lines_check([row("1, 2"), row("2")], view)[0]
+    )
+    assert (
+        "not sent lines in a comment: [3]"
+        in aim_review_completeness._lines_check([row("1, 2, 3")], view)[0]
+    )
