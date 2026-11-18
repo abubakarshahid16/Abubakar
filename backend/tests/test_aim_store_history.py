@@ -151,8 +151,10 @@ def test_history_is_scope_narrowed_a_paper_outside_the_scope_is_404(world):
     outside = _get(f"/api/reviews/papers/{PAPER}/history", world["narrow"])
     unknown = _get("/api/reviews/papers/doc_does_not_exist/history", world["narrow"])
     assert outside.status_code == 404 and unknown.status_code == 404
+    # "at" is the moment each answer was made: two requests a second apart differ there (the test failed once in a long run);
+    # it is a clock, not a sign that the paper exists, so it is left out of the comparison with the id asked for
     strip = lambda r: {
-        k: v for k, v in r.json()["detail"].items() if k != "document_id"
+        k: v for k, v in r.json()["detail"].items() if k not in ("document_id", "at")
     }
     assert strip(outside) == strip(unknown)  # indistinguishable: no existence oracle
     assert "gen_a" not in outside.text
