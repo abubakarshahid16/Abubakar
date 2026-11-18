@@ -502,6 +502,9 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         "clause": it["clause"],
         "source": it["source"],
         "topic": it["topic"],
+        "named_books": list(
+            it.get("named_books") or []
+        ),  # an always-on item: the listed books its words name (rule 5)
     }
     if j is None:
         return {

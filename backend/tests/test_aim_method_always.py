@@ -167,3 +167,126 @@ def test_g3_lists_and_declares_only_items_whose_book_is_on_the_list():
     assert [it["id"] for it in got] == ["G1", "G2", "G3"] and all(
         it["topic"] == "always checked" for it in got
     )
+
+
+# ---- light check of f4b870ba: G1 declares the books it names; rule 5 covers G lines; count by id -------------------------------
+
+
+def test_g1_declares_and_records_the_listed_books_its_facts_name(aim_db):
+    from tests.test_aim_method_helpers import _doc
+
+    with (
+        aim_db
+    ):  # two invented held books of a public family, one on this review's list, one not
+        _doc(
+            aim_db,
+            "doc_api9990",
+            "API 9990.pdf",
+            "COMPANY_STANDARD",
+            {1: "Section heading of the invented book\n"},
+        )
+        _doc(
+            aim_db,
+            "doc_api9991",
+            "API 9991.pdf",
+            "COMPANY_STANDARD",
+            {1: "Section heading of the invented book\n"},
+        )
+    pages = {1: "The invented item is built to API 9990 (2009) and to API 9991.\n"}
+    got = A.items(
+        aim_db,
+        {},
+        {"items": [], "books": []},
+        frozenset({"doc_api9990", BOOK_B}),
+        pages,
+    )
+    g1 = next(it for it in got if it["id"] == "G1")
+    assert g1["carries"] == ["doc_api9990"] and [
+        b["id"] for b in g1["named_books"]
+    ] == ["doc_api9990"]
+    name = g1["named_books"][0]["name"]
+    assert name and f"on this review's list as {name}" in g1["context"]
+    # API 9991 is held but not on the list: never declared, never named beyond the paper's own words
+    assert (
+        "doc_api9991" not in g1["carries"]
+        and "cited: API 9991; not among this review's books" in g1["context"]
+    )
+    d = S._decide(g1, {"label": "Not met", "page": 1, "quote": "built to API 9990 (2009) and to API 9991",
+                       "comment": f"{name} is cited with an old edition"}, Paper("doc_x", pages), {}, "")  # fmt: skip
+    assert (
+        E.to_line(1, d)["named_books_json"]
+        == f'[{{"id": "doc_api9990", "name": "{name}"}}]'
+    )
+
+
+class _Viewer:
+    def __init__(self, readable):
+        self.readable = set(readable)
+
+    def may_read(self, doc_id):
+        return doc_id in self.readable
+
+
+def test_a_g_line_naming_a_book_the_viewer_may_not_read_is_hidden_with_the_fixed_words(
+    aim_db,
+):
+    from app import aim_review_view as V
+
+    row = {"item_id": "G1", "label": "AI opinion", "comment": "QX-STD-101 is cited without its edition", "standard": "",
+           "book_document_id": None, "named_books": [{"id": BOOK_A, "name": "QX-STD-101"}], "topic": "always checked"}  # fmt: skip
+    assert V.book_hidden(aim_db, row, _Viewer({BOOK_A})) is False
+    assert V.book_hidden(aim_db, row, _Viewer({BOOK_B})) is True
+    assert V.book_hidden(aim_db, row, None) is False  # the app's own counting
+    shown = V.line_view(row, 1, True)
+    assert (
+        "QX-STD-101" not in shown["comment"] and V.HIDDEN_BOOK_WORDS in shown["comment"]
+    )
+    stored = {
+        **row,
+        "named_books": None,
+        "named_books_json": '[{"id": "doc_gone", "name": "QX-STD-999"}]',
+    }
+    assert (
+        V.book_hidden(aim_db, stored, _Viewer({"doc_gone"})) is True
+    )  # a book no longer in the library
+
+
+def test_always_items_are_counted_by_id_not_by_topic_words():
+    from app import aim_review_view as V
+
+    points = [
+        {"item_id": "C001", "topic": "always checked"},
+        {"item_id": "G1", "topic": "other words"},
+        {"item_id": "G2", "topic": "always checked"},
+        {"item_id": "G2", "topic": "always checked"},
+    ]
+    got = V._checklist(None, {"checklist_key": None}, points)
+    assert got["always_items"] == 2 and got["items"] == 1
+    assert A.is_always("G3") and not A.is_always("C003") and not A.is_always(None)
+
+
+def test_the_store_keeps_named_books_and_adds_the_column_to_an_older_table(aim_db):
+    from app import aim_review_store as store
+
+    aim_db.execute(
+        "CREATE TABLE aim_lines (run_id TEXT NOT NULL, line_no INTEGER NOT NULL, item_id TEXT, label TEXT NOT NULL,"
+        " shown_label TEXT NOT NULL, field TEXT, page INTEGER, quote TEXT, quote_unverified TEXT, comment TEXT, standard TEXT,"
+        " book_document_id TEXT, clause TEXT, source TEXT, topic TEXT, code_note TEXT, numbers_json TEXT,"
+        " code_compare_json TEXT, PRIMARY KEY (run_id, line_no))"
+    )  # the table as it was made before the column
+    store.ensure_schema(aim_db)
+    cols = {r[1] for r in aim_db.execute("PRAGMA table_info(aim_lines)")}
+    assert "named_books_json" in cols
+    store.start_run(aim_db, "run_named", PAPER, "2026-11-18T00:00:00Z")
+    line = {
+        "item_id": "G1",
+        "label": "AI opinion",
+        "comment": "c",
+        "named_books": [{"id": BOOK_A, "name": "QX-STD-101"}],
+    }
+    store.finish_run(
+        aim_db, "run_named", {"status": "done", "lines": [line]}, "2026-11-18T00:01:00Z"
+    )
+    assert store.lines(aim_db, "run_named")[0]["named_books"] == [
+        {"id": BOOK_A, "name": "QX-STD-101"}
+    ]

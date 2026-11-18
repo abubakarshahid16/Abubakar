@@ -529,6 +529,9 @@ def to_line(n: int, d: dict) -> dict:
         "numbers_json": json.dumps(d["numbers"], ensure_ascii=False)
         if d.get("numbers")
         else None,
+        "named_books_json": json.dumps(d["named_books"], ensure_ascii=False)
+        if d.get("named_books")
+        else None,
         "code_compare_json": json.dumps(d["code_compare"], ensure_ascii=False)
         if d.get("code_compare")
         else None,

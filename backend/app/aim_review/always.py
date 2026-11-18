@@ -66,14 +66,27 @@ def items(
         if isinstance(it, dict) and it.get("source") != KNOWLEDGE
     ]
     listed = [(it, b) for it, b in listed if b and b in allowed_books]
+    facts, named = _library_facts(conn, identity, allowed_books, text)
+    g3_named = {
+        b: str((books.get(it.get("book") or "") or {}).get("identifier") or "")
+        for it, b in listed
+    }
     return [
-        _item("G1", G1_CHECK, "presence", _library_facts(conn, identity, allowed_books, text), []),
-        _item("G2", G2_CHECK, "limit", "", []),
-        _item("G3", G3_CHECK, "presence", _required([it for it, _b in listed]), sorted({b for _it, b in listed})),
+        _item("G1", G1_CHECK, "presence", facts, named),
+        _item("G2", G2_CHECK, "limit", "", {}),
+        _item("G3", G3_CHECK, "presence", _required([it for it, _b in listed]), g3_named),
     ]  # fmt: skip
 
 
-def _item(gid: str, check: str, kind: str, context: str, carries: list[str]) -> dict:
+def is_always(item_id) -> bool:
+    """Is this line one of the always-on items? By its id (never by its topic words)."""
+    return str(item_id or "") in IDS
+
+
+def _item(gid: str, check: str, kind: str, context: str, named: dict[str, str]) -> dict:
+    """`named`: {book id: its identifier as the context prints it}: the listed books the item's words name. They are declared to
+    the send gate (`carries`) and kept on every line of the item (`named_books`), so the page hides a name a viewer may not read
+    (rule 5; `aim_review_view.book_hidden`)."""
     return {
         "id": gid,
         "topic": TOPIC,
@@ -90,7 +103,10 @@ def _item(gid: str, check: str, kind: str, context: str, carries: list[str]) -> 
         "stands_in_for": "the checks a senior engineer makes on every paper",
         "always_on": True,
         "context": context,
-        "carries": carries,  # the rule books whose words the context holds (G3): declared to the send gate with the item
+        "carries": sorted(
+            named
+        ),  # the listed books the context names or quotes: declared to the send gate with the item
+        "named_books": [{"id": i, "name": n} for i, n in sorted(named.items())],
     }
 
 
@@ -108,20 +124,23 @@ def _required(held: list[dict]) -> str:
 
 def _library_facts(
     conn, identity: dict, allowed_books: frozenset[str], text: dict[int, str]
-) -> str:
+) -> tuple[str, dict[str, str]]:
     """G1's facts, from the app's own tables: each cited standard and whether a book on this review's list holds it (with the edition
-    its file name or title prints), and the standards governing the paper's type. Never a book that is not on the list."""
+    its file name or title prints), and the standards governing the paper's type. Never a book that is not on the list. Returns
+    (the facts, {book id: identifier} of the listed books they name)."""
     from app import cited_edition
 
     from . import library as L
 
     try:
         lib = L.library(conn, within=frozenset(allowed_books))
-        rows = []
+        rows, named = [], {}
         for _key, (ident, year) in sorted(
             cited_edition.cited_years("\n".join(text[n] for n in sorted(text))).items()
         ):
             entry = L.resolve(lib, ident)
+            if entry:
+                named[str(entry["id"])] = L.identifier_of(entry)
             held = cited_edition.held_year(entry) if entry else None
             where = (
                 f"on this review's list as {L.identifier_of(entry)}"
@@ -140,13 +159,18 @@ def _library_facts(
             )
             for entry, name in L.governing_books(lib, identity.get("equipment_type"))
         ]
+        named |= {
+            str(entry["id"]): L.identifier_of(entry)
+            for entry, _name in L.governing_books(lib, identity.get("equipment_type"))
+            if entry
+        }
     except Exception as exc:  # noqa: BLE001 - the facts are a help to the judge; without them G1 is judged on the paper alone
         log.info(
             "general review: library facts for G1 not read (%s)", type(exc).__name__
         )
-        return ""
+        return "", {}
     out = ["THE LIBRARY FACTS (from the app's own tables):"]
     out += rows or ["- the paper cites no standard the app can read"]
     if gov:
         out.append("- the app's governing table names for this type: " + "; ".join(gov))
-    return "\n".join(out)
+    return "\n".join(out), named

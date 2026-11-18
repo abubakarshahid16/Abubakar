@@ -46,28 +46,49 @@ HIDDEN_BOOK_WORDS = "a rule book you may not open"
 
 def book_hidden(conn, row: dict, scope) -> bool:
     """THE one decision "this line's rule book is hidden from this viewer" (rule 5; REVIEW.md: decide it in ONE function from the
-    stored document and the viewer's read set). True when the line names a book id and the viewer cannot open that book: the
-    viewer's read set does not hold it, or the book is no longer in the library (then no stored id is served either, only the
-    fixed words: review fix check). No book id, or no viewer (`scope` None: the app's own counting), hides nothing."""
-    doc_id = str(row.get("book_document_id") or "")
-    if not doc_id or scope is None:
+    stored document and the viewer's read set). True when the line names a book id the viewer cannot open: its own book, or a
+    book its words name (an always-on line's `named_books`): the viewer's read set does not hold it, or the book is no longer
+    in the library (then no stored id is served either, only the fixed words: review fix check). No book id, or no viewer
+    (`scope` None: the app's own counting), hides nothing."""
+    if scope is None:
         return False
-    held = conn.execute("SELECT 1 FROM documents WHERE id = ?", (doc_id,)).fetchone()
-    return held is None or not scope.may_read(doc_id)
+    ids = [str(row.get("book_document_id") or "")] + [
+        str(b.get("id") or "") for b in _named_books(row)
+    ]
+    for doc_id in (i for i in ids if i):
+        held = conn.execute(
+            "SELECT 1 FROM documents WHERE id = ?", (doc_id,)
+        ).fetchone()
+        if held is None or not scope.may_read(doc_id):
+            return True
+    return False
+
+
+def _named_books(row: dict) -> list[dict]:
+    named = row.get("named_books")
+    if named is None:
+        named = _json(row.get("named_books_json"), [])
+    return [b for b in named or [] if isinstance(b, dict)]
 
 
 def line_view(row: dict, n: int, hidden: bool = False) -> dict:
     """One stored line as the page and the file show it. `n` is the 1-based position in line order. `hidden` (from `book_hidden`):
     the book's name, clause and id are not served, and the name is not left in the comment either; the line is still counted."""
     if hidden:
-        name = str(row.get("standard") or "")
         comment = str(row.get("comment") or "")
+        names = [str(row.get("standard") or "")] + [
+            str(b.get("name") or "") for b in _named_books(row)
+        ]
+        for name in sorted(
+            {n for n in names if n}, key=len, reverse=True
+        ):  # the longest name first
+            comment = comment.replace(name, HIDDEN_BOOK_WORDS)
         row = {
             **row,
             "standard": HIDDEN_BOOK_WORDS,
             "clause": "",
             "book_document_id": None,
-            "comment": comment.replace(name, HIDDEN_BOOK_WORDS) if name else comment,
+            "comment": comment,
         }
     page = row.get("page")
     return {
@@ -124,7 +145,7 @@ def _checklist(conn, run: dict, points: list[dict]) -> dict:
     which are not part of the saved checklist."""
     from .aim_review import always
 
-    always_ids = {p["item_id"] for p in points if p.get("topic") == always.TOPIC}
+    always_ids = {p["item_id"] for p in points if always.is_always(p.get("item_id"))}
     judged = {p["item_id"] for p in points if p.get("item_id")} - always_ids
     key = _blank(run.get("checklist_key"))
     row = None
