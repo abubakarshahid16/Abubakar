@@ -38,6 +38,19 @@ export interface GeneralLine {
 
 export type DecisionState = "accept" | "edit" | "reject";
 
+/** The engineer's sign-off of the review (server's answer): not signed / signed / changed since the sign-off. */
+export interface SignoffStatus {
+  state: "not_signed" | "signed" | "changed";
+  undecided: { part: "comment" | "confirmation"; n: number; title: string }[];
+  undecided_count: number;
+  /** The four configured review codes: the engineer chooses one, nothing is proposed by the machine. */
+  codes: string[];
+  can_sign: boolean;
+  signed: { by: string; at: string; code: string; statement: string | null; copy_statement: string } | null;
+}
+
+export interface SignoffRefusal { message: string; blockers: { part: string; n: number; title?: string; why?: string }[] }
+
 export interface CommentDecision {
   state: DecisionState;
   words: string;
@@ -108,6 +121,8 @@ export interface GeneralReview {
   created_at?: string | null;
   finished_at?: string | null;
   completeness: GeneralCompleteness;
+  /** The engineer's sign-off state of this run (absent on an older answer). */
+  signoff?: SignoffStatus;
   /** False when an earlier-engine review of the paper is newer: the page then draws the older sections. */
   is_latest?: boolean;
 }
@@ -130,6 +145,14 @@ const paper = (documentId: string) => `/reviews/papers/${encodeURIComponent(docu
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export const generalReview = {
+  /** Accept every comment and confirmation that has no decision yet (each its own, append-only, decision). */
+  acceptRest: (documentId: string, runId: string) =>
+    request<{ run_id: string; accepted: number }>(`${paper(documentId)}/general/accept-rest`,
+      { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ run_id: runId }) }, (b) => isObject(b) && typeof b.accepted === "number"),
+  /** Sign the review off with the engineer's own choice of the review code. A 409 carries the reason and the comments in the way. */
+  signOff: (documentId: string, body: { run_id: string; review_code: string; statement?: string }) =>
+    request<{ run_id: string; signoff: SignoffStatus }>(`${paper(documentId)}/general/signoff`,
+      { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, (b) => isObject(b) && isObject(b.signoff)),
   /** Accept, edit or reject ONE comment (or confirmation). Only a signed-in user who may read the paper; the answer is the comment's
    *  latest decision. Edit needs the engineer's text, reject a one-line reason (the server refuses otherwise, in its own words). */
   decide: (documentId: string, body: { run_id: string; comment: number; part: "comment" | "confirmation"; state: DecisionState; text?: string; reason?: string }) =>
@@ -151,12 +174,12 @@ export const generalReview = {
   history: (documentId: string) =>
     request<PaperHistory>(`${paper(documentId)}/history`, undefined, (b) => isObject(b) && Array.isArray(b.runs)),
   /** The team file of one general review. The server refuses it (409, with the sentence) unless page, database and rows agree. */
-  sheet: async (documentId: string, runId?: string): Promise<Result<{ blob: Blob; filename: string }>> => {
+  sheet: async (documentId: string, runId?: string, copy: "team" | "contractor" = "team"): Promise<Result<{ blob: Blob; filename: string }>> => {
     let response: Response;
     try {
       const headers = new Headers();
       markSession(headers);
-      response = await fetch(`${BASE}${paper(documentId)}/general/sheet${runId ? `?run_id=${encodeURIComponent(runId)}` : ""}`, { headers });
+      response = await fetch(`${BASE}${paper(documentId)}/general/sheet?${runId ? `run_id=${encodeURIComponent(runId)}&` : ""}copy=${copy}`, { headers });
     } catch (e) {
       return { ok: false, disconnected: true, error: { code: "internal", message: e instanceof Error ? e.message : "Network request failed." } };
     }
@@ -171,8 +194,8 @@ export const generalReview = {
 };
 
 /** Fetch the file and hand it to the browser. Returns the server's own sentence on a refusal, or null when handed over. */
-export async function downloadGeneralSheet(documentId: string, runId?: string): Promise<string | null> {
-  const result = await generalReview.sheet(documentId, runId);
+export async function downloadGeneralSheet(documentId: string, runId?: string, copy: "team" | "contractor" = "team"): Promise<string | null> {
+  const result = await generalReview.sheet(documentId, runId, copy);
   if (!result.ok) return result.error.message;
   const url = URL.createObjectURL(result.data.blob);
   const link = document.createElement("a");

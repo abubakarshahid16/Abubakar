@@ -252,6 +252,21 @@ def severity_words(by_severity) -> str | None:
     )
 
 
+def signoff_words(signoff) -> str | None:
+    """ "Signed by Name, 2026-11-18, Approved with Comments" / "Not signed" / "Changed since the sign-off"; None for a model with none."""
+    if not isinstance(signoff, dict):
+        return None
+    signed = signoff.get("signed") or {}
+    if signoff.get("state") == "signed":
+        return f"Signed by {signed.get('by')}, {str(signed.get('at') or '')[:10]}, {signed.get('code')}"
+    if signoff.get("state") == "changed":
+        return (
+            "Changed since the sign-off by "
+            + f"{signed.get('by')}: a decision was made after it; sign again"
+        )
+    return "Not signed"
+
+
 def _summary(ws: Worksheet, model: dict) -> None:
     _head(ws, "General review: summary")
     counts = model["counts"]
@@ -280,6 +295,7 @@ def _summary(ws: Worksheet, model: dict) -> None:
         # piece G: the measured score of this paper's kind; a null prints as an empty cell ("below target" / "not measured yet")
         ("Measured score of this kind", (model.get("measured") or {}).get("sentence")),
         ("Comments by severity", severity_words(counts.get("by_severity"))),
+        ("Sign-off", signoff_words(model.get("signoff"))),
     ]
     row = 4
     for label, value in lines:

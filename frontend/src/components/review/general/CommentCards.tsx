@@ -199,8 +199,10 @@ export function SeverityTiles({ counts, active, onPick }: {
 }
 
 /** The comments as cards, with the severity and page filters. Lines without a card (an older answer) keep the plain row. */
-export function CommentCards({ review, mark, onViewPage, renderPlain }: {
+export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided }: {
   review: GeneralReview; mark: string; onViewPage: (page: number) => void; renderPlain: (l: GeneralLine) => React.ReactNode;
+  /** Called after a decision was recorded (the sign-off bar re-reads what is still undecided). */
+  onDecided?: () => void;
 }) {
   const [severity, setSeverity] = useState<Severity | null>(null);
   const [page, setPage] = useState<number | null>(null);
@@ -210,6 +212,7 @@ export function CommentCards({ review, mark, onViewPage, renderPlain }: {
     const res = await generalReview.decide(review.paper_document_id, { run_id: review.run_id, comment: line.n, part, state, text, reason });
     if (!res.ok) return res.error.code === "unauthenticated" ? "Sign in to record a decision." : res.error.message;
     setDecided((was) => ({ ...was, [`${part}:${line.n}`]: res.data.decision }));
+    onDecided?.();
     return null;
   };
   const pages = useMemo(() => [...new Set(review.comments.flatMap((c) => (c.applies_to ?? []).map((a) => a.page)).filter((p): p is number => p != null))].sort((a, b) => a - b), [review.comments]);

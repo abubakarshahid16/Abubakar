@@ -1,13 +1,17 @@
 """Routes of the general review's results page and file (order 14, piece C).
 
     GET /api/reviews/papers/{document_id}/general[?run_id=]                the stored general review, as the page draws it
-    GET /api/reviews/papers/{document_id}/general/sheet[?run_id=][&copy=team]   the Excel file (team copy only)
+    GET /api/reviews/papers/{document_id}/general/sheet[?run_id=][&copy=team|contractor]   the Excel file; the contractor copy only after the
+        engineer's sign-off (409 with the reason otherwise), and then the copy KEPT at the sign-off, byte for byte
+    POST .../general/decision   accept / edit / reject one comment (append-only)
+    POST .../general/accept-rest   accept every comment that has no decision yet
+    POST .../general/signoff   the engineer signs the review off with their own choice of the review code; builds and keeps the contractor copy
 
 The caller's scope is checked ONCE, by `require_document` (404, never 403: a paper the caller may not read is indistinguishable from
 one that does not exist). A paper with no general review, or a `run_id` that is not a general run of THIS paper, is also 404. The
 file is refused with 409 whenever the page, the database and the rows of the file differ (`aim_review_completeness`). `copy=contractor`
-answers 409 `NO_CONTRACTOR_COPY_WORDS`: there is no contractor copy and no sign-off for a general review. These routes only read what
-is stored: they serve earlier general runs whichever way the old-engine switch stands.
+answers 409 with the reason (`aim_review_signoff`) until the review is signed off and again once a decision changed after it. The reads
+serve earlier general runs whichever way the old-engine switch stands; the writes need a signed-in user who may read the paper.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ from .. import (
     access,
     aim_review_completeness,
     aim_review_decisions,
-    aim_review_gate,
+    aim_review_signoff,
     aim_review_view,
     crs_one,
     errors,
@@ -104,18 +108,18 @@ def general_sheet(
 ):
     reject_unknown_params(request, {"run_id", "copy"})
     require_document(document_id, scope)
-    if (
-        copy == "contractor"
-    ):  # no contractor copy and no sign-off for a general review (the one sentence lives in the gate)
-        raise HTTPException(
-            status_code=409,
-            detail=errors.safe_error(
-                errors.CRS_NOT_FINISHED, aim_review_gate.NO_CONTRACTOR_COPY_WORDS
-            ),
-        )
     run = aim_review_view.resolve(connect(), document_id, run_id)
     if run is None:
         raise _not_found(document_id)
+    if copy == "contractor":  # only after the engineer's sign-off, and only the copy kept at it (byte for byte)
+        conn = connect()
+        try:
+            data = aim_review_signoff.issued_copy(conn, run, aim_review_view.build(conn, run, scope))
+        except (aim_review_signoff.Refused, aim_review_view.NotFinished) as exc:
+            raise HTTPException(status_code=409, detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc))) from exc
+        stem = crs_one.paper_file_stem(_stem(document_id))
+        name = f"contractor-copy-{stem}.xlsx" if stem else "contractor-copy.xlsx"
+        return Response(content=data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
     try:  # THE HARD RULE: page, database and file rows agree, or the file is refused with the sentence
         data = aim_review_completeness.file_or_refuse(run["run_id"], scope)
     except aim_review_view.NotFinished as exc:
@@ -201,3 +205,54 @@ def decide_comment(
         raise HTTPException(status_code=422, detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc))) from exc
     aim_review_decisions.attach(conn, run["run_id"], [comment] if body.part == "comment" else [], [comment] if body.part == "confirmation" else [])
     return {"run_id": run["run_id"], "comment": comment["n"], "part": body.part, "decision": comment["decision"]}
+
+
+class SignoffIn(BaseModel):
+    run_id: str | None = None
+    review_code: str = Field(..., min_length=1, max_length=80, description="the engineer's own choice of one of the configured codes")
+    statement: str | None = Field(None, max_length=300)
+
+
+class RunIn(BaseModel):
+    run_id: str | None = None
+
+
+def _signing_context(document_id: str, run_id: str | None, request: Request, scope: access.AccessScope):
+    """The caller (a signed-in user who may read the paper), the connection, the run and its view; 404/409 as the other routes."""
+    reject_unknown_params(request, set())
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(errors.UNAUTHENTICATED, "a sign-off must name the engineer who signs"),
+        )
+    require_document(document_id, scope)
+    conn = connect()
+    run = aim_review_view.resolve(conn, document_id, run_id)
+    if run is None:
+        raise _not_found(document_id)
+    try:
+        return conn, run, aim_review_view.build(conn, run, scope)
+    except aim_review_view.NotFinished as exc:
+        raise _not_finished(exc) from exc
+
+
+@router.post("/api/reviews/papers/{document_id}/general/accept-rest", responses={**schemas.ERRORS_404})
+def accept_rest(document_id: str, body: RunIn, request: Request, scope: access.AccessScope = Depends(access.current_scope)):
+    """Accept every comment and confirmation that has no decision yet, each as its own (append-only) decision."""
+    conn, run, view = _signing_context(document_id, body.run_id, request, scope)
+    n = aim_review_signoff.accept_rest(conn, run, view, scope.user_id)
+    return {"run_id": run["run_id"], "accepted": n, "signoff": aim_review_signoff.status(conn, run, aim_review_view.build(conn, run, scope))["state"]}
+
+
+@router.post("/api/reviews/papers/{document_id}/general/signoff", responses={**schemas.ERRORS_404})
+def sign_off(document_id: str, body: SignoffIn, request: Request, scope: access.AccessScope = Depends(access.current_scope)):
+    """The engineer signs the review off (their own choice of the review code); the contractor copy is built and kept with it. 409 names
+    each comment that stands in the way; nothing is written then."""
+    conn, run, view = _signing_context(document_id, body.run_id, request, scope)
+    try:
+        status = aim_review_signoff.sign(conn, run, view, scope.user_id, body.review_code, body.statement)
+    except aim_review_signoff.Refused as exc:
+        detail = {**errors.safe_error(errors.CRS_NOT_FINISHED, str(exc)), "message": str(exc), "blockers": exc.blockers}
+        raise HTTPException(status_code=409, detail=detail) from exc
+    return {"run_id": run["run_id"], "signoff": status}

@@ -34,7 +34,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
 }) {
   const documentId = run.submittal_document_id ?? null;
   // Order 14: when the paper's latest finished review is a general one, the general results are drawn instead of the old sections.
-  const { general, method } = useGeneralReview(documentId);
+  const { general, method, reload: reloadGeneral } = useGeneralReview(documentId);
   const latest = latestGeneral(general);
   const generalLatest = latest !== null;
   // the older sections wait until it is known which review is the latest, so one page never flashes into the other
@@ -64,7 +64,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
 
       {general.state === "loading" && <p className="text-slateish-300">Reading the review…</p>}
       {latest && (
-        <GeneralResults review={latest} onViewPage={(page) => setViewing({ page })}
+        <GeneralResults review={latest} onViewPage={(page) => setViewing({ page })} onReload={reloadGeneral}
           howTab={<><GeneralHistory documentId={latest.paper_document_id} />{howTab}</>} />
       )}
       {drawOld && (general.state === "ok" || method === "general") && (

@@ -19,6 +19,7 @@ from . import (
     aim_review_decisions,
     aim_review_gate,
     aim_review_measured,
+    aim_review_signoff,
     aim_review_store,
     review_shown,
 )
@@ -571,7 +572,7 @@ def build(conn, run: dict, scope=None) -> dict:
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
     usd = run.get("usd")
-    return {
+    view = {
         "paper_document_id": run["paper_document_id"],
         "run_id": run["run_id"],
         "method": run.get("method_version") or aim_review.METHOD_VERSION,
@@ -625,6 +626,8 @@ def build(conn, run: dict, scope=None) -> dict:
         "created_at": run.get("created_at"),
         "finished_at": run.get("finished_at"),
     }
+    view["signoff"] = aim_review_signoff.status(conn, run, view)
+    return view
 
 
 def served(conn, paper_id: str, scope, run_id: str | None = None) -> dict | None:

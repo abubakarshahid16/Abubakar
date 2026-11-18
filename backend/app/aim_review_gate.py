@@ -25,7 +25,7 @@ LOCAL_NOT_AVAILABLE = (
     "sent and nothing is reviewed. Choose Automatic or Claude to review this paper."
 )
 #: The contractor copy of a general review is refused (409) with these words.
-NO_CONTRACTOR_COPY_WORDS = "No contractor copy yet: sign-off is not connected to the general review. This file is for the team: AI, to be checked."
+NO_CONTRACTOR_COPY_WORDS = "No contractor copy yet: this review is not signed off. This file is for the team: AI, to be checked."
 #: The rule-check part of the plan while the general review is on.
 OLD_ENGINE_OFF_WORDS = "the earlier rule check is switched off"
 #: The label of a review made by the old engine, in history and on the page.

@@ -25,6 +25,9 @@ LINES = "aim_lines"
 CHECKLISTS = "aim_checklists"
 #: The engineer's decision on each comment (append-only; `aim_review_decisions`).
 DECISIONS = "aim_comment_decisions"
+#: The engineer's sign-off of a run and the contractor copy issued with it (append-only; `aim_review_signoff`).
+SIGNOFFS = "aim_signoffs"
+ISSUED = "aim_issued_copies"
 #: The only `built_from` a saved checklist may have: it was written from the rule books alone, never from a paper.
 BUILT_FROM = "standards only, no paper"
 #: A checklist that also holds engineering-knowledge items where a governing book is not held (still no paper).
@@ -115,6 +118,29 @@ _SCHEMA = (
         decided_at        TEXT NOT NULL
     )""",
     f"CREATE INDEX IF NOT EXISTS {DECISIONS}_run ON {DECISIONS} (run_id, part, comment_key)",
+    f"""CREATE TABLE IF NOT EXISTS {SIGNOFFS} (
+        id                TEXT PRIMARY KEY,
+        run_id            TEXT NOT NULL,
+        paper_document_id TEXT NOT NULL,
+        signed_by         TEXT NOT NULL,
+        signed_at         TEXT NOT NULL,
+        review_code       TEXT NOT NULL,
+        statement         TEXT,
+        counts_json       TEXT NOT NULL,
+        decisions_digest  TEXT NOT NULL,
+        team_sha256       TEXT NOT NULL
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS {ISSUED} (
+        id          TEXT PRIMARY KEY,
+        run_id      TEXT NOT NULL,
+        signoff_id  TEXT NOT NULL,
+        filename    TEXT NOT NULL,
+        sha256      TEXT NOT NULL,
+        content     BLOB NOT NULL,
+        issued_by   TEXT NOT NULL,
+        issued_at   TEXT NOT NULL
+    )""",
+    f"CREATE INDEX IF NOT EXISTS {SIGNOFFS}_run ON {SIGNOFFS} (run_id, signed_at)",
 )
 
 
