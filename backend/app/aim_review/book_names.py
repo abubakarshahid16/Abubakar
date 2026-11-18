@@ -130,3 +130,18 @@ def paper_cited(conn, paper_id: str, within: frozenset[str]) -> frozenset[str]:
     lib = L.library(conn, exclude=frozenset({str(paper_id)}))
     found = (L.resolve(lib, name) for name in L._paper_citations(conn, str(paper_id)))
     return frozenset(e["id"] for e in found if e and e["id"] in within)
+
+
+def resort_saved(
+    conn, paper_id: str, not_held, allowed, kind, gate_ok
+) -> tuple[list[str], list[str], list[dict]]:
+    """A SAVED checklist's not-held list, sorted again for this paper (a checklist saved before the held-name rule, or before a
+    book was held): (held ids on the shown list that may serve now: then the checklist is built again, not reused; held ids not
+    on the list; the rows that stay "not held": the table's names as saved, and the AI's names no held book answers)."""
+    from . import checklist as CL
+
+    rows = [r for r in not_held or [] if isinstance(r, dict)]
+    table = [r for r in rows if r.get("source") in CL.WANTED_SOURCES]
+    ai = [r for r in rows if r.get("source") not in CL.WANTED_SOURCES]
+    use, unlisted, still = sort_needed(conn, paper_id, ai, allowed, kind, gate_ok)
+    return use, unlisted, table + still

@@ -158,3 +158,72 @@ def test_the_plan_reading_falls_back_to_the_last_reviews_type(monkeypatch):
         "datasheet",
         "relief_valve",
     )
+
+
+# ---- a REUSED checklist (owner via the lead, 18 Nov 2026): its saved "not held" names are sorted again --------------------------
+
+AI = "AI: needed, not in the catalog"
+
+
+def test_a_saved_not_held_list_is_sorted_again(aim_db):
+    saved = [{"name": "API 9990", "why": "governs; not held", "source": "governs"},
+             {"name": "ISO 99202 Invented title", "source": AI}, {"name": "ISO 99303", "source": AI},
+             {"name": "ISO 99999", "source": AI}]  # fmt: skip
+    from app.aim_review import checklist as CL
+
+    saved[0]["source"] = CL.WANTED_SOURCES[0]
+    use, unlisted, rows = BN.resort_saved(
+        aim_db, PAPER, saved, LISTED, "datasheet", lambda _b: None
+    )
+    assert use == [BOOK_B] and unlisted == [BOOK_C]
+    assert [r["name"] for r in rows] == [
+        "API 9990",
+        "ISO 99999",
+    ]  # the table's name as saved, and the unheld AI name
+
+
+def _seed(aim_db, store, extra_not_held):
+    first = aim_review.run(aim_db, run_id="run_seed_books", paper_id=PAPER, allowed_books=LISTED, store=store, max_usd=5.0,
+                           model=E.FakeModel(kind="datasheet", subject_key="test_item"))  # fmt: skip
+    rows = next(iter(store.saved.values()))
+    sha, body = rows[-1]
+    rows.append(
+        (
+            sha + "x",
+            {**body, "not_held": list(body.get("not_held") or []) + extra_not_held},
+        )
+    )
+    return first
+
+
+def test_a_saved_checklist_whose_needed_name_is_now_a_held_listed_book_is_built_again(
+    aim_db,
+):
+    """HAND-REVERT PROOF (b): with `and not use` taken out of the engine's reuse condition, the saved checklist is reused and
+    this test fails."""
+    store = MemoryStore()
+    _seed(
+        aim_db, store, [{"name": "ISO 99202 Invented title", "why": "x", "source": AI}]
+    )
+    r = aim_review.run(aim_db, run_id="run_rebuild_books", paper_id=PAPER, allowed_books=LISTED, store=store, max_usd=5.0,
+                       model=E.FakeModel(kind="datasheet", subject_key="test_item"))  # fmt: skip
+    assert r.status == "done" and r.checklist_reused is False
+
+
+def test_a_reused_checklist_never_reports_a_held_book_not_held(aim_db):
+    store = MemoryStore()
+    _seed(
+        aim_db,
+        store,
+        [
+            {"name": "ISO 99303", "why": "y", "source": AI},
+            {"name": "ISO 99999", "why": "z", "source": AI},
+        ],
+    )
+    r = aim_review.run(aim_db, run_id="run_reuse_books", paper_id=PAPER, allowed_books=LISTED, store=store, max_usd=5.0,
+                       model=E.FakeModel(kind="datasheet", subject_key="test_item"))  # fmt: skip
+    names = [n["name"] for n in r.not_held]
+    assert (
+        r.checklist_reused is True and "ISO 99303" not in names and "ISO 99999" in names
+    )
+    assert BOOK_C in r.unlisted_books

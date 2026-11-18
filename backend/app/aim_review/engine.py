@@ -507,6 +507,7 @@ def _checklist(
     strong: str,
 ) -> dict:
     """The saved checklist of the paper's type, else one built from the listed books (standards only) and saved."""
+    from . import book_names as BN
     from . import checklist as CL
     from . import library as L
     from . import scope_books as SB
@@ -520,13 +521,18 @@ def _checklist(
         want = CL.wanted(
             conn, state.paper_id, CL.type_identity(ident), allowed_books, state.cited
         )
-        if L.wanted_not_held(saved.get("not_held")) == L.wanted_not_held(
-            want["not_held"]
-        ) and SB.saved_fits_scope(conn, saved, ident, state.cited or frozenset()):
+        # the saved AI "needed" names sorted again: a held book now on the list means build again; held, not listed: unlisted
+        use, unlisted, still = BN.resort_saved(conn, state.paper_id, saved.get("not_held"), allowed_books, ident.get("kind"), gate_checker())  # fmt: skip
+        if (
+            L.wanted_not_held(saved.get("not_held"))
+            == L.wanted_not_held(want["not_held"])
+            and SB.saved_fits_scope(conn, saved, ident, state.cited or frozenset())
+            and not use
+        ):
             state.reused = True
             state.sha = str(saved.get("sha256") or "")
-            state.not_held = list(saved.get("not_held") or [])
-            state.unlisted |= set(want["unlisted"])
+            state.not_held = still
+            state.unlisted |= set(want["unlisted"]) | set(unlisted)
             return saved
         # a book the saved checklist was written without is now held (or the governing table changed): build again
         log.info(
