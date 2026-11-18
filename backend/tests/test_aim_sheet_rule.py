@@ -141,6 +141,7 @@ def test_the_page_json_has_the_contract_shape(world):
         "points": 6, "comments": 3, "confirmations": 0, "comment_lines": 3, "confirmation_lines": 0,
         # by code's own verdict: line 1 is shown "Fail, compared by code" (Must fix); the others are "Check a value"
         "by_severity": {"Must fix": 1, "Check a value": 2, "Missing information": 0, "Please confirm": 0},
+        "not_sent": {"edited": 0, "answered": 0},
         "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
         "by_shown_label": body["counts"]["by_shown_label"], "boundary": "this paper, this review",
     }  # fmt: skip
@@ -608,15 +609,15 @@ def test_the_count_check_script_exits_1_on_a_difference(world, monkeypatch, caps
 
 @pytest.mark.parametrize("copy", ["contractor"])
 def test_the_contractor_copy_is_refused_with_the_one_sentence(world, copy):
-    c = client(PAPER, BOOK)  # a super user (the admin capability): the copy is asked of an UNSIGNED review
+    c = client(
+        PAPER, BOOK
+    )  # a super user (the admin capability): the copy is asked of an UNSIGNED review
     app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
         user_id="eng",
         allowed_document_ids=frozenset({PAPER, BOOK}),
         capabilities=frozenset({access.ADMIN_CAPABILITY}),
     )
-    r = c.get(
-        f"/api/reviews/papers/{PAPER}/general/sheet?copy={copy}"
-    )
+    r = c.get(f"/api/reviews/papers/{PAPER}/general/sheet?copy={copy}")
     assert r.status_code == 409
     assert r.json()["detail"]["message"] == aim_review_gate.NO_CONTRACTOR_COPY_WORDS
     assert "AI, to be checked" in r.json()["detail"]["message"]
@@ -1635,6 +1636,7 @@ def test_a_card_has_a_short_title_and_its_parts_as_fields(world):
     assert by[3]["title"] == "Invented field three"
     assert by[3]["rule_says"] == "Engineering knowledge (no held rule book)"
 
+
 def test_the_contractor_filled_note_stays_on_the_line_and_the_sheet_for_every_viewer(
     world,
 ):
@@ -1656,3 +1658,54 @@ def test_the_contractor_filled_note_stays_on_the_line_and_the_sheet_for_every_vi
         note,
         note,
     ]
+
+
+# ---- the second reader's notes (18 Nov 2026): every viewer sees them; a differing line stays one point and one comment ----------
+
+
+def test_the_readers_notes_are_state_words_for_every_viewer_and_the_counts_hold(world):
+    differ = "readers differ: first Not met, second Met"
+    rows = [
+        _line(1, "Question", "Question", code_note=differ, comment="To be checked: the two readers differ. First reader (Not met): x"),
+        _line(2, "Not met", "AI opinion: not met", code_note="two readers agree"),
+        _line(3, "Question", "Question", code_note=differ + "; the rule's figure 707 bar", standard="QX-GONE-707",
+              book_document_id="doc_inv_gone"),  # a book the viewer may not open
+    ]  # fmt: skip
+    make_run("gen_readers", rows, created="2026-11-19T05:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_readers").json()
+    notes = [p["code_note"] for p in body["points"]]
+    assert (
+        notes[0] == differ
+        and notes[1] == "two readers agree"
+        and notes[2] == "readers differ"
+    )  # hidden: state words only
+    assert sorted(cm["lines"] for cm in body["comments"]) == [[1], [2], [3]]
+
+
+def test_answered_and_edited_points_are_counted_apart_and_every_point_stays_a_row(
+    world,
+):
+    """A point the whole-paper check found answered (or the editor took off) is not a comment, is counted apart, and stays on
+    "All points": page = database = file still holds."""
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", code_note='answered: the paper answers it on page 4: "invented words"'),
+        _line(2, "Question", "Question", item_id="C02", code_note="edited: repeats line 3"),
+        _line(3, "Question", "Question", item_id="C03"),
+    ]  # fmt: skip
+    make_run("gen_answered", rows, created="2026-11-19T01:10:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_answered").json()
+    assert [cm["lines"] for cm in body["comments"]] == [[3]]
+    assert body["counts"]["not_sent"] == {"edited": 1, "answered": 1}
+    rep = body["completeness"]
+    assert (
+        rep["ok"] is True
+        and rep["page"] == rep["database"] == rep["file_rows"] == 3
+        and rep["comment_rows"] == 1
+    )
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_answered"))
+    note = aim_review_sheet.POINT_HEADERS.index("Code note")
+    assert aim_review_completeness._table(wb, "All points")[0][note].startswith(
+        "answered: the paper answers it on page 4"
+    )

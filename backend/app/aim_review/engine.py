@@ -487,9 +487,18 @@ def _steps(
         state.references, state.reference_ids = R.check(
             conn, mdl, paper, state.decided, allowed_books, lead
         )
-        say(96, "judge")
+        say(95, "whole-paper check and second reader")
+        from .answered import s4b_answered
         from .editor import s5_edit
+        from .second_read import s4c_second_read
 
+        s4b_answered(
+            mdl, paper, state.decided, lead
+        )  # a line on no held rule that the paper answers is not sent
+        s4c_second_read(
+            mdl, paper, state.decided, checklist, lead
+        )  # a finding the AI alone decided needs two readers
+        say(96, "judge")
         s5_edit(mdl, paper, state.decided, lead)
 
 

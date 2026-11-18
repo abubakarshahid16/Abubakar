@@ -68,7 +68,7 @@ def lane(monkeypatch):
 
 def _step_of(prompt: str) -> str:
     for words, step in (("TASK S1", "aim_identify"), ("TASK S2", "aim_select"), ("TASK S3K", "aim_checklist_knowledge"),
-                        ("TASK S3", "aim_checklist"), ("ATTACK THIS CHECKLIST", "aim_attack"), ("TASK S4", "aim_judge"),
+                        ("TASK S3", "aim_checklist"), ("ATTACK THIS CHECKLIST", "aim_attack"), ("TASK S4C", "aim_second_read"), ("TASK S4B", "aim_answered"), ("TASK S4", "aim_judge"),
                         ("TASK S5", "aim_edit"), ("was NOT found", "aim_checklist_retry")):  # fmt: skip
         if words in prompt:
             return step
