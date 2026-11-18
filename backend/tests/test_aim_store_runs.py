@@ -439,3 +439,19 @@ def test_a_line_table_made_before_the_named_books_column_is_upgraded_and_still_s
     store.finish_run(conn, run_id, _result([_line(named_books=named)]), NOW)
     got = store.lines(conn, run_id)[0]
     assert got["named_books"] == named and got["label"] == _line()["label"]
+
+
+def test_a_code_decided_not_cited_line_says_so_never_ai_opinion(temp_storage):
+    """A saved item from a company standard the paper does not cite: code decided it does not apply, so a person sees that and why,
+    never "AI opinion: does not apply"; an AI's own "Does not apply" keeps the AI opinion words."""
+    from app.aim_review.engine import NOT_CITED
+
+    run_id = _started("gen_not_cited")
+    conn = db.connect()
+    lines = [
+        _line(label="Does not apply", code=NOT_CITED),
+        _line(label="Does not apply", code=""),
+    ]
+    store.finish_run(conn, run_id, _result(lines), NOW)
+    got = [ln["shown_label"] for ln in store.lines(conn, run_id)]
+    assert got == [store.NOT_CITED_SHOWN, "AI opinion: does not apply"]

@@ -188,12 +188,27 @@ def _json_of(value):
         return None
 
 
-def shown_label(label: str, code_compare=None, deferred: bool = False) -> str:
+#: What a person sees for a line code decided does not apply because its rule book is a company standard this paper does not cite
+#: (`aim_review.engine.NOT_CITED`): code's decision, so never "AI opinion" (the lead, 18 Nov 2026).
+NOT_CITED_SHOWN = "Does not apply (rule book not cited by this paper)"
+
+
+def _not_cited(code_note) -> bool:
+    from .aim_review.engine import NOT_CITED
+
+    return NOT_CITED in {part.strip() for part in str(code_note or "").split(";")}
+
+
+def shown_label(
+    label: str, code_compare=None, deferred: bool = False, code_note: str = ""
+) -> str:
     """The words a person sees for a line. `Fail, compared by code` / `Pass, compared by code` ONLY when code compared a value
     (`code_compare.result` is fail / pass) AND the line's label agrees with that result; a vendor-deferred value is always a
     `Question`; everything else is an AI opinion or a question. An unknown label is a `Question` (never a verdict)."""
     if deferred:
         return "Question"
+    if label == "Does not apply" and _not_cited(code_note):
+        return NOT_CITED_SHOWN
     compare = _json_of(code_compare)
     result = (
         str(compare.get("result") or "").casefold() if isinstance(compare, dict) else ""
@@ -227,7 +242,9 @@ def _line_row(run_id: str, n: int, line: dict) -> tuple:
         n,
         line.get("item_id"),
         label,
-        shown_label(label, compare, deferred),
+        shown_label(
+            label, compare, deferred, line.get("code_note", line.get("code")) or ""
+        ),
         line.get("field") or "",
         page if isinstance(page, int) and not isinstance(page, bool) else None,
         line.get("quote") or "",
