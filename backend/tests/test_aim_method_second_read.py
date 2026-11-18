@@ -87,7 +87,9 @@ def test_two_readers_who_both_find_a_fault_send_the_line_as_it_is(second):
         },  # no answer for this line
     ],
 )
-def test_a_disagreement_is_a_sent_question_with_the_first_readers_plain_words_and_both_readers_in_the_note(read):
+def test_a_disagreement_is_a_sent_question_with_the_first_readers_plain_words_and_both_readers_in_the_note(
+    read,
+):
     lines = [_line()]
     assert _read(lines, [read]) == 1
     d = lines[0]
@@ -185,11 +187,21 @@ def test_a_line_a_reference_paper_checked_never_goes_to_the_second_reader():
     assert differs["label"] == "AI opinion" and "readers" not in differs["code"]
 
 
-def test_a_long_disagreement_is_cut_with_the_visible_mark():
+def test_a_long_disagreement_keeps_the_comment_whole_and_cuts_the_reason_with_the_visible_mark():
+    """o14/aim-G-readers: the comment stays the first reader's own words (never rebuilt, never cut here; the sheet's completeness
+    rules handle a long cell); the second reader's reason in the code note is cut at REASON_MAX only with the visible mark."""
     from app.crs_completeness import CUT_MARK
 
     lines = [_line(comment="x" * 2000)]
-    _read(lines, [{"n": 1, "label": "Met", "page": 1, "quote": GOOD, "reason": "r"}])
-    assert len(lines[0]["comment"]) == R.COMMENT_MAX and lines[0]["comment"].endswith(
-        CUT_MARK
+    _read(
+        lines, [{"n": 1, "label": "Met", "page": 1, "quote": GOOD, "reason": "y" * 500}]
+    )
+    assert lines[0]["comment"] == "x" * 2000
+    note = next(
+        p for p in lines[0]["code"].split("; ") if p.startswith(R.READERS_DIFFER)
+    )
+    assert (
+        note.endswith(CUT_MARK)
+        and ("y" * (R.REASON_MAX - 1)) in note
+        and ("y" * R.REASON_MAX) not in note
     )

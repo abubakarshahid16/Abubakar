@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import logging
 
+from app.crs_completeness import CUT_MARK
+
 from . import PROVISIONAL, READERS_DIFFER, TWO_READERS_AGREE
 from . import prompts as P
 from .engine import StepFailed
@@ -30,6 +32,8 @@ FAULT = frozenset({"Not met", "AI opinion"})
 READ_CHUNK = 60
 READ_MAX_TOKENS = 8000
 NOT_APPLIED = "second reader not applied"
+#: The second reader's reason at most this long in the line's code note; a longer one is cut WITH the cut mark.
+REASON_MAX = 200
 
 
 def offered(lines: list[dict]) -> dict[int, dict]:
@@ -146,9 +150,11 @@ def _apply(out: dict, shown: dict, paper) -> int:
             d["code"] = "; ".join(x for x in (d.get("code"), TWO_READERS_AGREE) if x)
             continue
         second = str((read or {}).get("label") or "no answer")
-        why = " ".join(str((read or {}).get("reason") or "").replace(";", ",").split())[
-            :200
-        ]
+        why = " ".join(str((read or {}).get("reason") or "").replace(";", ",").split())
+        if (
+            len(why) > REASON_MAX
+        ):  # a cut is marked (owner's completeness rule: no text cut without a visible mark)
+            why = why[: REASON_MAX - 1] + CUT_MARK
         first = d.get("label") or ""
         # The comment stays the FIRST reader's own plain words: process wording (reader names, labels) never enters a comment's text.
         # What the readers said goes in the line's code note, shown as a small tag on the card and in the team copy only.
