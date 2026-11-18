@@ -608,7 +608,13 @@ def test_the_count_check_script_exits_1_on_a_difference(world, monkeypatch, caps
 
 @pytest.mark.parametrize("copy", ["contractor"])
 def test_the_contractor_copy_is_refused_with_the_one_sentence(world, copy):
-    r = client(PAPER, BOOK).get(
+    c = client(PAPER, BOOK)  # a super user (the admin capability): the copy is asked of an UNSIGNED review
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id="eng",
+        allowed_document_ids=frozenset({PAPER, BOOK}),
+        capabilities=frozenset({access.ADMIN_CAPABILITY}),
+    )
+    r = c.get(
         f"/api/reviews/papers/{PAPER}/general/sheet?copy={copy}"
     )
     assert r.status_code == 409

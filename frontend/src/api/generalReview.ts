@@ -46,6 +46,9 @@ export interface SignoffStatus {
   /** The four configured review codes: the engineer chooses one, nothing is proposed by the machine. */
   codes: string[];
   can_sign: boolean;
+  /** The admin capability ("super user"): only that reader signs, and fetches the contractor copy, until engineer accounts are named. */
+  may_sign: boolean;
+  may_sign_words: string | null;
   signed: { by: string; at: string; code: string; statement: string | null; copy_statement: string } | null;
 }
 

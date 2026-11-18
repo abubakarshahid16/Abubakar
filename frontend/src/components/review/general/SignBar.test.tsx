@@ -17,7 +17,7 @@ import { SignBar } from "./SignBar";
 const CODES = ["Approved", "Approved with Comments", "Rejected / Revise and Resubmit", "Manual Review Required"];
 const review = { paper_document_id: "doc1", run_id: "run1" } as unknown as GeneralReview;
 const status = (over: Partial<SignoffStatus> = {}): SignoffStatus => ({
-  state: "not_signed", undecided: [], undecided_count: 0, codes: CODES, can_sign: true, signed: null, ...over,
+  state: "not_signed", undecided: [], undecided_count: 0, codes: CODES, can_sign: true, may_sign: true, may_sign_words: null, signed: null, ...over,
 });
 const signed = { by: "Dana Engineer", at: "2026-11-18T12:00:00+00:00", code: "Approved with Comments", statement: "Checked it.", copy_statement: "6 points reviewed, 4 in this file, 2 not issued: 2 rejected by the engineer" };
 
@@ -32,6 +32,18 @@ describe("SignBar", () => {
     mount(status({ undecided_count: 2, undecided: [{ part: "comment", n: 3, title: "T3" }, { part: "comment", n: 5, title: "T5" }], can_sign: false }));
     expect(screen.getByTestId("sign-undecided")).toHaveTextContent("2 comments still need your decision.");
     expect(screen.getByTestId("sign-button")).toBeDisabled();
+  });
+
+  it("a reader who is not a super user sees the sentence, no sign controls and no contractor download; Accept the rest stays", () => {
+    const words = "Only a super user can sign this review for now.";
+    const { unmount } = render(<SignBar review={review} signoff={status({ undecided_count: 1, may_sign: false, may_sign_words: words })} onStatus={vi.fn()} onChanged={vi.fn()} />);
+    expect(screen.getByTestId("sign-super-user")).toHaveTextContent(words);
+    expect(screen.queryByTestId("sign-button")).toBeNull();
+    expect(screen.getByRole("button", { name: "Accept the rest (1)" })).toBeInTheDocument();
+    unmount();
+    mount(status({ state: "signed", signed, may_sign: false, may_sign_words: words }));
+    expect(screen.queryByTestId("contractor-download")).toBeNull();
+    expect(screen.getByTestId("sign-super-user")).toHaveTextContent(words);
   });
 
   it("the review code is the engineer's own choice: none is preselected and all four are offered", () => {

@@ -77,12 +77,16 @@ CODE_NOT_DECIDED = "code_not_decided"
 CRS_NOT_FINISHED = "crs_not_finished"
 ISSUE_THROUGH_POST = "issue_through_post"
 
+#: A general review's sign-off and contractor copy need the admin capability ("super user" on screen) until the owner names engineer
+#: accounts. The route is visible to every reader of the paper, so a plain 403 reveals nothing.
+SUPER_USER_ONLY = "super_user_only"
+
 CLIENT_ERROR_CODES = frozenset(
     {NOT_FOUND, INVALID_PARAMETER, UNKNOWN_PARAMETER, CONFIRM_REQUIRED,
      NOT_PDF, ENCRYPTED_PDF, TOO_LARGE, DUPLICATE,
      UNAUTHENTICATED, INVALID_CREDENTIALS, RATE_LIMITED,
      INVALID_RESET_TOKEN, WEAK_PASSWORD, ORPHANING_REFUSED, CODE_NOT_DECIDED,
-     CRS_NOT_FINISHED, ISSUE_THROUGH_POST}
+     CRS_NOT_FINISHED, ISSUE_THROUGH_POST, SUPER_USER_ONLY}
 )
 
 ALL_CODES = CLIENT_ERROR_CODES | {

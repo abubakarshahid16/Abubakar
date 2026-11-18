@@ -36,6 +36,13 @@ from ..db import connect
 
 router = APIRouter()
 
+_SUPER_USER_ONLY = {
+    403: {
+        "model": schemas.ErrorEnvelope,
+        "description": "Only a super user can sign this review for now",
+    }
+}
+
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 NO_GENERAL_WORDS = "this paper has no general review"
 
@@ -95,6 +102,7 @@ def general_review(
     response_class=Response,
     responses={
         200: {"content": {_XLSX: {}}, "description": "The general review's file"},
+        **_SUPER_USER_ONLY,
         **schemas.ERRORS_404,
     },
 )
@@ -110,15 +118,28 @@ def general_sheet(
     run = aim_review_view.resolve(connect(), document_id, run_id)
     if run is None:
         raise _not_found(document_id)
-    if copy == "contractor":  # only after the engineer's sign-off, and only the copy kept at it (byte for byte)
+    if copy == "contractor":
+        _require_super_user(scope)
+    if (
+        copy == "contractor"
+    ):  # only after the engineer's sign-off, and only the copy kept at it (byte for byte)
         conn = connect()
         try:
-            data = aim_review_signoff.issued_copy(conn, run, aim_review_view.build(conn, run, scope))
+            data = aim_review_signoff.issued_copy(
+                conn, run, aim_review_view.build(conn, run, scope)
+            )
         except (aim_review_signoff.Refused, aim_review_view.NotFinished) as exc:
-            raise HTTPException(status_code=409, detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc))) from exc
+            raise HTTPException(
+                status_code=409,
+                detail=errors.safe_error(errors.CRS_NOT_FINISHED, str(exc)),
+            ) from exc
         stem = crs_one.paper_file_stem(_stem(document_id))
         name = f"contractor-copy-{stem}.xlsx" if stem else "contractor-copy.xlsx"
-        return Response(content=data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        return Response(
+            content=data,
+            media_type=_XLSX,
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
     try:  # THE HARD RULE: page, database and file rows agree, or the file is refused with the sentence
         data = aim_review_completeness.file_or_refuse(run["run_id"], scope)
     except aim_review_view.NotFinished as exc:
@@ -234,7 +255,12 @@ def decide_comment(
 
 class SignoffIn(BaseModel):
     run_id: str | None = None
-    review_code: str = Field(..., min_length=1, max_length=80, description="the engineer's own choice of one of the configured codes")
+    review_code: str = Field(
+        ...,
+        min_length=1,
+        max_length=80,
+        description="the engineer's own choice of one of the configured codes",
+    )
     statement: str | None = Field(None, max_length=300)
 
 
@@ -242,11 +268,32 @@ class RunIn(BaseModel):
     run_id: str | None = None
 
 
-def _signing_context(document_id: str, run_id: str | None, request: Request, scope: access.AccessScope):
+def _require_super_user(scope: access.AccessScope) -> None:
+    """The sign-off and the contractor copy: the admin capability AND may-read (checked before this), until the owner names engineer
+    accounts. A plain 403 with a sentence: the route is the same for every reader, so it reveals nothing."""
+    if not scope.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail=errors.safe_error(
+                errors.SUPER_USER_ONLY, aim_review_signoff.SUPER_USER_WORDS
+            ),
+        )
+
+
+def _signing_context(
+    document_id: str,
+    run_id: str | None,
+    request: Request,
+    scope: access.AccessScope,
+    *,
+    sign: bool = False,
+):
     """The caller's user id (a signed-in user who may read the paper), the connection, the run and its view; 404/409 as the other routes."""
     reject_unknown_params(request, set())
     actor = require_named_user(scope, "a sign-off must name the engineer who signs")
     require_document(document_id, scope)
+    if sign:
+        _require_super_user(scope)
     conn = connect()
     run = aim_review_view.resolve(conn, document_id, run_id)
     if run is None:
@@ -273,25 +320,54 @@ class SignoffOut(BaseModel):
     response_model=AcceptRestOut,
     responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409},
 )
-def accept_rest(document_id: str, body: RunIn, request: Request, scope: access.AccessScope = Depends(access.current_scope)):
+def accept_rest(
+    document_id: str,
+    body: RunIn,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """Accept every comment and confirmation that has no decision yet, each as its own (append-only) decision."""
     actor, conn, run, view = _signing_context(document_id, body.run_id, request, scope)
     n = aim_review_signoff.accept_rest(conn, run, view, actor)
-    return {"run_id": run["run_id"], "accepted": n, "signoff": aim_review_signoff.status(conn, run, aim_review_view.build(conn, run, scope))["state"]}
+    return {
+        "run_id": run["run_id"],
+        "accepted": n,
+        "signoff": aim_review_signoff.status(
+            conn, run, aim_review_view.build(conn, run, scope)
+        )["state"],
+    }
 
 
 @router.post(
     "/api/reviews/papers/{document_id}/general/signoff",
     response_model=SignoffOut,
-    responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409},
+    responses={
+        **schemas.ERRORS_401,
+        **_SUPER_USER_ONLY,
+        **schemas.ERRORS_404,
+        **schemas.ERRORS_409,
+    },
 )
-def sign_off(document_id: str, body: SignoffIn, request: Request, scope: access.AccessScope = Depends(access.current_scope)):
+def sign_off(
+    document_id: str,
+    body: SignoffIn,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
     """The engineer signs the review off (their own choice of the review code); the contractor copy is built and kept with it. 409 names
     each comment that stands in the way; nothing is written then."""
-    actor, conn, run, view = _signing_context(document_id, body.run_id, request, scope)
+    actor, conn, run, view = _signing_context(
+        document_id, body.run_id, request, scope, sign=True
+    )
     try:
-        status = aim_review_signoff.sign(conn, run, view, actor, body.review_code, body.statement)
+        status = aim_review_signoff.sign(
+            conn, run, view, actor, body.review_code, body.statement
+        )
     except aim_review_signoff.Refused as exc:
-        detail = {**errors.safe_error(errors.CRS_NOT_FINISHED, str(exc)), "message": str(exc), "blockers": exc.blockers}
+        detail = {
+            **errors.safe_error(errors.CRS_NOT_FINISHED, str(exc)),
+            "message": str(exc),
+            "blockers": exc.blockers,
+        }
         raise HTTPException(status_code=409, detail=detail) from exc
     return {"run_id": run["run_id"], "signoff": status}

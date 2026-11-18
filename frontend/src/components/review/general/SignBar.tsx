@@ -38,6 +38,7 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
     setBusy(false);
     if (!r.ok) {
       if (r.error.code === "unauthenticated") setProblem("Sign in to sign off this review.");
+      else if (r.error.code === "super_user_only") setProblem(r.error.message);
       else setRefusal({ message: r.error.message, blockers: (r.error as unknown as { blockers?: SignoffRefusal["blockers"] }).blockers ?? [] });
       return;
     }
@@ -60,7 +61,8 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
             className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100 disabled:opacity-50">Accept the rest ({todo})</button>
         </div>
       )}
-      <div className="flex flex-wrap items-end gap-2">
+      {!signoff.may_sign && <p data-testid="sign-super-user" className="text-sm text-slateish-300">{signoff.may_sign_words ?? "Only a super user can sign this review for now."}</p>}
+      {signoff.may_sign && <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-slateish-400">Review code (your choice)
           <select value={code} onChange={(e) => setCode(e.target.value)} aria-label="Review code"
             className="mt-1 block rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 px-2 py-1 text-sm text-slateish-100">
@@ -76,7 +78,7 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
           className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-1.5 text-sm font-semibold text-ink-950 disabled:opacity-50">
           {signoff.state === "changed" ? "Sign off again" : "Sign off"}
         </button>
-      </div>
+      </div>}
     </div>
   );
 
@@ -87,8 +89,9 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
           <p data-testid="sign-signed" className="text-sm text-pill-pass-fg"><strong>Signed off</strong> by {signed.by}, {dayTimeWords(signed.at)}. Review code: {signed.code}.</p>
           {signed.statement && <p className="text-sm text-slateish-200">{signed.statement}</p>}
           <p data-testid="sign-copy-statement" className="text-xs text-slateish-300">Contractor copy: {signed.copy_statement}.</p>
-          <button type="button" onClick={() => void download()} data-testid="contractor-download"
-            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-100 hover:bg-ink-700">Download the contractor copy</button>
+          {signoff.may_sign && <button type="button" onClick={() => void download()} data-testid="contractor-download"
+            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-100 hover:bg-ink-700">Download the contractor copy</button>}
+          {!signoff.may_sign && <p data-testid="sign-super-user" className="text-xs text-slateish-300">{signoff.may_sign_words}</p>}
         </div>
       )}
       {signoff.state === "changed" && signed && (

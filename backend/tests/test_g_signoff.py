@@ -16,10 +16,22 @@ from app import aim_review_contractor as C
 from app import aim_review_gate as G
 from app import aim_review_signoff as SO
 from app.main import app
-from tests.test_aim_sheet_rule import BOOK, PAPER, RUN, _doc, _sheet, client, make_run
+from tests.test_aim_sheet_rule import BOOK, PAPER, RUN, _doc, _sheet, make_run
 from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
 
 CODE = "Approved with Comments"
+
+
+def client(*allowed: str, admin: bool = True) -> TestClient:
+    """A signed-in user who may read `allowed`; a super user (the admin capability) unless `admin=False`."""
+    app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
+        user_id="eng",
+        allowed_document_ids=frozenset(allowed),
+        capabilities=frozenset({access.ADMIN_CAPABILITY}) if admin else frozenset(),
+    )
+    return TestClient(app)
+
+
 BASE = f"/api/reviews/papers/{PAPER}/general"
 
 
@@ -97,7 +109,10 @@ def test_signing_with_undecided_comments_is_refused_naming_them_and_writes_nothi
     r = _sign(c)
     assert r.status_code == 409
     d = r.json()["detail"]
-    assert "not decided yet" in d["message"] and [b["n"] for b in d["blockers"]] == [3, 5]
+    assert "not decided yet" in d["message"] and [b["n"] for b in d["blockers"]] == [
+        3,
+        5,
+    ]
     assert _rows("aim_signoffs") == [] and _rows("aim_issued_copies") == []
 
 
@@ -135,7 +150,9 @@ def test_sign_off_records_who_when_and_keeps_the_contractor_copy_byte_for_byte(w
     assert s["signed"]["by"] and s["signed"]["at"]
     cs = s["signed"]["copy_statement"]
     n = s["signed"]["counts"]
-    assert cs.startswith(f"{n['points']} points reviewed, {n['in_file']} in this file, {n['not_issued']} not issued")
+    assert cs.startswith(
+        f"{n['points']} points reviewed, {n['in_file']} in this file, {n['not_issued']} not issued"
+    )
     (issued,) = _rows("aim_issued_copies")
     one, two = _contractor(c), _contractor(c)
     assert one.status_code == 200 and one.content == two.content == bytes(
@@ -362,4 +379,38 @@ def test_the_audit_names_the_sign_off_by_ids_and_counts_only(world):
         "general_comments_accepted_rest",
     }
     assert all("private" not in r["detail"] for r in rows)
-    assert all(r["actor_user_id"] == "eng" and r["actor_username"] == "eng@example.test" for r in rows)
+    assert all(
+        r["actor_user_id"] == "eng" and r["actor_username"] == "eng@example.test"
+        for r in rows
+    )
+
+
+def test_only_a_super_user_can_sign_or_fetch_the_contractor_copy(world):
+    """Deciding is any signed-in reader; the sign-off and the contractor copy need the admin capability AND may-read (until the owner
+    names engineer accounts). A non-admin gets 403 with a plain sentence; a caller who may not read the paper still gets 404."""
+    plain = client(PAPER, BOOK, admin=False)
+    assert (
+        plain.post(f"{BASE}/accept-rest", json={"run_id": RUN}).status_code == 200
+    )  # deciding is open to a reader
+    r = _sign(plain)
+    assert (
+        r.status_code == 403
+        and "Only a super user can sign this review for now." in r.text
+    )
+    assert (
+        _rows("aim_signoffs") == [] and _rows("aim_issued_copies") == []
+    )  # nothing was written
+    assert _page(plain)["signoff"]["may_sign"] is False
+    assert "super user" in _page(plain)["signoff"]["may_sign_words"]
+    boss = client(PAPER, BOOK)
+    assert _page(boss)["signoff"]["may_sign"] is True
+    assert _sign(boss).status_code == 200
+    assert _contractor(boss).status_code == 200
+    r = _contractor(
+        client(PAPER, BOOK, admin=False)
+    )  # signed, but this reader is not a super user
+    assert r.status_code == 403 and "super user" in r.text
+    assert (
+        _sign(client(BOOK)).status_code == 404
+    )  # an admin who may not read the paper: not found, never 403
+    assert _contractor(client(BOOK)).status_code == 404

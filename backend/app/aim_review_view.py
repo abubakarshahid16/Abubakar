@@ -632,7 +632,9 @@ def build(conn, run: dict, scope=None) -> dict:
         "created_at": run.get("created_at"),
         "finished_at": run.get("finished_at"),
     }
-    view["signoff"] = aim_review_signoff.status(conn, run, view)
+    view["signoff"] = aim_review_signoff.status(
+        conn, run, view, bool(scope is not None and scope.is_admin)
+    )
     return view
 
 

@@ -27,6 +27,7 @@ from .aim_review_store import DECISIONS, ISSUED, SIGNOFFS
 AUDIT = "general_review_signed"
 AUDIT_ACCEPT_REST = "general_comments_accepted_rest"
 NOT_SIGNED, SIGNED, CHANGED = "not_signed", "signed", "changed"
+SUPER_USER_WORDS = "Only a super user can sign this review for now."
 NOT_SIGNED_WORDS = NO_CONTRACTOR_COPY_WORDS
 CHANGED_WORDS = (
     "No contractor copy: a decision changed after the sign-off. Sign the review again."
@@ -104,7 +105,7 @@ def latest(conn, run_id: str):
     ).fetchone()
 
 
-def status(conn, run: dict, view: dict) -> dict:
+def status(conn, run: dict, view: dict, may_sign: bool = False) -> dict:
     """What the page's sign bar says: not signed / signed / changed since sign-off, the undecided list, and the four code labels."""
     from . import comparison
 
@@ -119,7 +120,8 @@ def status(conn, run: dict, view: dict) -> dict:
     todo = undecided(view)
     out = {
         "state": state, "undecided": todo, "undecided_count": len(todo), "codes": list(comparison.review_codes()),
-        "can_sign": run.get("status") == "done" and not todo, "signed": None,
+        "can_sign": run.get("status") == "done" and not todo, "signed": None, "may_sign": may_sign,
+        "may_sign_words": None if may_sign else SUPER_USER_WORDS,
     }  # fmt: skip
     if row is not None:
         from . import aim_review_contractor
@@ -151,7 +153,11 @@ def accept_rest(conn, run: dict, view: dict, actor: str) -> int:
             )  # fmt: skip
         if todo:
             aim_review_decisions.audit(
-                conn, actor, AUDIT_ACCEPT_REST, run["paper_document_id"], {"run": run["run_id"], "count": len(todo)}
+                conn,
+                actor,
+                AUDIT_ACCEPT_REST,
+                run["paper_document_id"],
+                {"run": run["run_id"], "count": len(todo)},
             )
     return len(todo)
 
@@ -212,7 +218,12 @@ def sign(
             ),
         )
         aim_review_decisions.audit(
-            conn, actor, AUDIT, run["paper_document_id"], {"run": run["run_id"], "code": code, **counts}, at=at
+            conn,
+            actor,
+            AUDIT,
+            run["paper_document_id"],
+            {"run": run["run_id"], "code": code, **counts},
+            at=at,
         )
     return status(conn, run, view)
 
