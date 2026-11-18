@@ -621,3 +621,65 @@ def test_the_found_during_review_sentence_has_one_home_in_the_backend():
         if "were not sent because they were not on" in p.read_text(encoding="utf-8")
     ]
     assert homes == ["review_shown.py"]
+
+
+def test_one_item_with_several_failing_places_keeps_every_line_and_the_counts_hold(
+    world,
+):
+    """A's one-line-per-failing-place (order 14): several lines of ONE item, through the real store (`finish_run`), the page, the
+    file and the completeness check: every line is kept by its line number and page = database = file."""
+    run_id = "gen_run_multi"
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO review_runs (id, submittal_document_id, status, created_at, updated_at, started_at) VALUES (?,?,?,?,?,?)",
+            (
+                run_id,
+                PAPER,
+                "completed",
+                "2026-11-18T14:00:00Z",
+                "2026-11-18T14:00:00Z",
+                "2026-11-18T14:00:00Z",
+            ),
+        )
+        aim_review_store.start_run(conn, run_id, PAPER, "2026-11-18T14:00:00Z")
+        conn.commit()
+    same = {
+        "item_id": "C07",
+        "label": "Not met",
+        "field": "Invented field",
+        "quote": "",
+        "comment": "invented",
+        "source": "held standard",
+    }
+    lines = [{**same, "page": p, "finding_no": n} for n, p in ((1, 2), (2, 4), (3, 5))]
+    lines.append(
+        {
+            "item_id": "C08",
+            "label": "Met",
+            "field": "Other field",
+            "page": 1,
+            "quote": "",
+            "comment": "",
+        }
+    )
+    aim_review_store.finish_run(
+        db.connect(),
+        run_id,
+        {"status": "done", "lines": lines, "books": [BOOK]},
+        "2026-11-18T14:01:00Z",
+    )
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id={run_id}").json()
+    assert [p["item_id"] for p in body["points"]] == ["C07", "C07", "C07", "C08"]
+    assert [p["page"] for p in body["points"]][:3] == [2, 4, 5]
+    assert len(body["comments"]) == 3
+    assert body["completeness"]["ok"] is True
+    assert (
+        body["completeness"]["page"]
+        == body["completeness"]["database"]
+        == body["completeness"]["file_rows"]
+        == 4
+    )
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id={run_id}"))
+    assert len(aim_review_completeness._table(wb, "All points")) == 4
+    assert len(aim_review_completeness._table(wb, "Comments")) == 3
