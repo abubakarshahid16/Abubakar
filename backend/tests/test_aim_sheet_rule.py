@@ -1633,10 +1633,10 @@ def test_a_card_has_a_short_title_and_its_parts_as_fields(world):
         one["title"] == "Design pressure limit"
         and one["paper_says"] == "invented quote 1"
     )
-    assert one["rule_says"] == "STD-X clause 4.1: 25 bar <= 20 bar: false"
+    assert one["rule_says"] == "Design pressure limit (STD-X clause 4.1): 25 bar <= 20 bar: false"  # the requirement in a few words first (planner 18 Nov 23:30)
     assert one["we_ask"] == "State a design pressure within the limit."
     assert one["applies_to"] == [
-        {"page": 3, "field": "Invented field 1", "quote": "invented quote 1"}
+        {"page": 3, "field": "Invented field 1", "quote": "invented quote 1", "tag": "", "value": "invented quote 1"}
     ]
     assert len(by[2]["title"].replace(" ...", "").split()) < 12 and by[2][
         "title"

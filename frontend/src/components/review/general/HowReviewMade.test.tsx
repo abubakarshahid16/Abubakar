@@ -46,7 +46,7 @@ describe("H: How this review was made", () => {
     render(<HowReviewMade review={review()} />);
     const s = screen.getByTestId("how-paper");
     expect(s).toHaveTextContent("datasheet");
-    expect(s).toHaveTextContent("relief_valve");
+    expect(s).toHaveTextContent("relief valve"); // plain words, no underscore (planner 18 Nov 23:40-5)
     expect(s).toHaveTextContent("invented valve sheet");
   });
 

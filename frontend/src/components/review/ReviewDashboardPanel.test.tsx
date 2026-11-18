@@ -131,7 +131,7 @@ describe("the one button", () => {
     const { onOpenReview } = panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload Datasheet and Run AI Review/ }));
+      await screen.findByRole("button", { name: /Upload a document and review/ }));
     await userEvent.selectOptions(
       screen.getByLabelText(/already loaded/i), "doc_sub");
     await userEvent.click(screen.getByRole("button", { name: /^Run AI review$/ }));
@@ -154,7 +154,7 @@ describe("the one button", () => {
     const { onOpenReview } = panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload Datasheet and Run AI Review/ }));
+      await screen.findByRole("button", { name: /Upload a document and review/ }));
     await userEvent.selectOptions(
       screen.getByLabelText(/already loaded/i), "doc_sub");
     await userEvent.click(screen.getByRole("button", { name: /^Run AI review$/ }));
@@ -169,7 +169,7 @@ describe("the one button", () => {
     const { onOpenDocuments } = panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload Datasheet and Run AI Review/ }));
+      await screen.findByRole("button", { name: /Upload a document and review/ }));
     await userEvent.click(
       screen.getByRole("button", { name: /Upload it on the Documents page/ }));
 
@@ -180,7 +180,7 @@ describe("the one button", () => {
     panel(vi.fn(), vi.fn(), false);
 
     const launch = await screen.findByRole(
-      "button", { name: /Upload Datasheet and Run AI Review/ });
+      "button", { name: /Upload a document and review/ });
     expect(launch).toBeDisabled();
     expect(screen.getByText(/Only an administrator can start a review/))
       .toBeInTheDocument();
@@ -224,7 +224,7 @@ describe("a result it cannot use", () => {
     expect(await screen.findByText(/The review figures could not be loaded - offline/))
       .toBeInTheDocument();
     expect(screen.getByText(/This is not a count of zero/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Upload Datasheet and Run AI Review/ }))
+    expect(screen.getByRole("button", { name: /Upload a document and review/ }))
       .toBeInTheDocument();
     expect(screen.queryByText("Needs attention")).toBeNull();
   });
@@ -236,7 +236,7 @@ describe("a result it cannot use", () => {
     panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload Datasheet and Run AI Review/ }));
+      await screen.findByRole("button", { name: /Upload a document and review/ }));
     expect(await screen.findByText(/contractor submittals could not be loaded - list broke/))
       .toBeInTheDocument();
   });

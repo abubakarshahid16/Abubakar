@@ -65,17 +65,88 @@ def title(p: dict) -> str:
 
 
 def rule_says(p: dict) -> str:
-    """The rule a point rests on as the viewer may see it (a hidden book is already masked), with code's comparison when made."""
+    """The rule a point rests on as the viewer may see it (a hidden book is already masked): the checklist item's own few words (its
+    topic), then the book and clause, with code's comparison when made."""
     if p.get("source") != "held standard":
         return KNOWLEDGE
     rule = " ".join(
         x for x in (p.get("standard"), p.get("clause") and f"clause {p['clause']}") if x
     )
+    said = " ".join(str(p.get("topic") or "").split())
+    rule = f"{said} ({rule})" if said and rule else (rule or said)
     return (
         f"{rule}: {p['compared']}"
         if p.get("compared") and rule
         else (rule or p.get("compared") or "")
     )
+
+
+_TAG = re.compile(r"\(([^()]*)\)\s*$")
+#: A row number the sheet prints before a label ("74   Rated area").
+_ROW_NO = re.compile(r"^\s*\d{1,3}\s+")
+
+
+def is_blank(quote: str, field: str) -> bool:
+    """The quote is only the field's own label (with a printed row number): the paper's value is blank. Read against the field's own
+    words, never a list of values: a quote with any other word or number is a value."""
+    words = re.findall(r"\w+", _ROW_NO.sub("", str(quote or "")).lower())
+    label = set(re.findall(r"\w+", str(field or "").lower()))
+    return bool(words) and all(w in label for w in words)
+
+
+def place_text(m: dict) -> str:
+    """What the paper says at one place: its quote, or the word "blank" with the field when the quote is only the field's label."""
+    quote = " ".join(str(m.get("quote") or "").split())
+    if quote and not is_blank(quote, m.get("field") or ""):
+        return quote
+    field = _TAG.sub("", str(m.get("field") or "").split(" / ")[0]).strip()
+    return f"{field}: blank" if field else ""
+
+
+def _places(members: list[dict]) -> list[dict]:
+    """APPLIES TO: one chip per distinct place (page, tag, text); the tag is the field's last bracket (a valve tag, a sheet)."""
+    out, seen = [], set()
+    for m in members:
+        tag = ((_TAG.search(m.get("field") or "") or [None, ""])[1]).strip()
+        item = {
+            "page": m.get("page"),
+            "field": m.get("field") or "",
+            "quote": m.get("quote") or "",
+            "tag": tag,
+            "value": place_text(m),
+        }
+        key = (item["page"], item["field"], item["quote"])
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+    return out
+
+
+def paper_says(members: list[dict]) -> str:
+    """PAPER SAYS: each distinct text once, with every page it stands on ("page 1, 2: <text>"), in first-seen order."""
+    seen: dict[str, list] = {}
+    for m in members:
+        text = place_text(m)
+        if not text:
+            continue
+        pages = seen.setdefault(text, [])
+        if m.get("page") is not None and m["page"] not in pages:
+            pages.append(m["page"])
+    if len(seen) == 1 and len(next(iter(seen.values()))) <= 1:
+        return next(
+            iter(seen)
+        )  # one text at one place: the card header already says the page
+    out = []
+    for text, pages in seen.items():
+        where = (
+            ""
+            if not pages
+            else ("page " if len(pages) == 1 else "pages ")
+            + ", ".join(map(str, pages))
+            + ": "
+        )
+        out.append(where + text)
+    return " | ".join(out)
 
 
 def proven(members: list[dict]) -> str:
@@ -99,17 +170,10 @@ def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict
     return {
         "severity": severity,
         "title": title(first),
-        "paper_says": comment.get("quote") or "",
+        "paper_says": paper_says(members) or comment.get("quote") or "",
         "rule_says": rule_says(first),
         "we_ask": (first.get("comment") or "").replace(_steps.PAIRED_NOTE, ""),
-        "applies_to": [
-            {
-                "page": m.get("page"),
-                "field": m.get("field") or "",
-                "quote": m.get("quote") or "",
-            }
-            for m in members
-        ],
+        "applies_to": _places(members),
         "proven": proven(members),
         "readers": readers_of(members),
     }

@@ -15,6 +15,11 @@ import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
 
 const MARK_FALLBACK = "AI, to be checked";
+/** The shown labels in plain words for the header's counts (a label not listed is shown as written, in lower case). */
+const SHOWN_WORDS: Record<string, string> = {
+  "Question": "questions", "AI opinion": "other AI opinions", "AI opinion: met": "met (the AI's view)",
+  "AI opinion: does not apply": "do not apply (the AI's view)", "Fail, compared by code": "failed, compared by code", "Pass, compared by code": "passed, compared by code",
+};
 
 function PageLink({ page, onViewPage }: { page: number | null; onViewPage: (page: number) => void }) {
   if (page == null) return null; // a null page renders as nothing, never "page 0"
@@ -77,8 +82,17 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
   return (
     <div data-testid="general-results" className="space-y-4">
       <div role="note" data-testid="general-mark" className="rounded-[var(--radius-md)] border border-signal-400 p-3 text-sm text-slateish-100">
-        <strong>{mark}</strong>
-        <span className="ml-2 text-slateish-300">General review. This is the AI's opinion, for the team: nothing here is signed off or ready for the contractor.</span>
+        {signoff?.state === "signed" && signoff.signed ? (
+          <>
+            <strong>Signed off</strong>
+            <span className="ml-2 text-slateish-300">General review, signed off by {signoff.signed.by}. The contractor copy is below; this page is still the team's full list.</span>
+          </>
+        ) : (
+          <>
+            <strong>{mark}</strong>
+            <span className="ml-2 text-slateish-300">General review. This is the AI's opinion, for the team: nothing here is signed off or ready for the contractor.</span>
+          </>
+        )}
       </div>
       <MeasuredBadge measured={review.measured} />
 
@@ -106,7 +120,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         {review.counts.points} points reviewed, {review.counts.comments} comments sent
         {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).
         {Object.entries(review.counts.by_shown_label ?? {}).filter(([k]) => k).map(([k, n]) => (
-          <span key={k} className="ml-2 text-xs text-slateish-400">{k}: {n}</span>
+          <span key={k} className="ml-2 text-xs text-slateish-400">{n} {SHOWN_WORDS[k] ?? k.toLowerCase()}</span>
         ))}
       </p>
 

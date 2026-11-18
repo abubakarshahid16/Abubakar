@@ -11,7 +11,7 @@ import { agentReview } from "../../../api/agentReview";
 
 /** How many older reviews of a file are looked at for the hint. */
 export const EARLIER_LOOKED_AT = 5;
-export const EARLIER_HINT = "An earlier review of this file has an AI review";
+export const EARLIER_HINT = "An earlier review of this file has AI review lines (earlier method)";
 
 type Mark = { kind: "lines"; lines: number } | { kind: "earlier" } | null;
 

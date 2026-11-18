@@ -195,8 +195,8 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
         </h1>
         <p className="mt-2 max-w-3xl text-slateish-300">
           Each review compares one contractor submittal against the standards
-          that apply to it, and records a finding per requirement with both
-          citations.
+          that apply to it, and writes comments with the standard, clause, page
+          and quote, which an engineer checks and signs before the contractor sees them.
         </p>
       </header>
 

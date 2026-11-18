@@ -2,7 +2,7 @@
  * The AI Submittal Review block on the Dashboard.
  *
  * MASTER PLAN SECTION 20 AND CLAUDE.md RULE 10, exactly: four primary cards,
- * one prominent `Upload Datasheet and Run AI Review` button, one compact
+ * one prominent `Upload a document and review` button, one compact
  * Recent Reviews table. Nothing else. The rule names what belongs here and
  * this component holds all of it, so a fifth tile cannot be added by editing
  * the Dashboard without editing the rule first.
@@ -189,7 +189,7 @@ export function ReviewDashboardPanel(
           disabled={!isAdmin}
           className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
         >
-          Upload Datasheet and Run AI Review
+          Upload a document and review
         </button>
         {/* THE REASON, not a quietly-greyed-out button. The server gives a
             non-admin a 404 that reads as "no such submittal", not as "you

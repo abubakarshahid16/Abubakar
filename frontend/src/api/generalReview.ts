@@ -29,7 +29,7 @@ export interface GeneralLine {
   paper_says?: string;
   rule_says?: string;
   we_ask?: string;
-  applies_to?: { page: number | null; field: string; quote: string }[];
+  applies_to?: { page: number | null; field: string; quote: string; /** The valve tag or sheet in the field's last bracket. */ tag?: string; /** What the paper says there, "<field>: blank" for a blank value. */ value?: string }[];
   /** "compared by code", or the mark when it is an AI reading. */
   proven?: string;
   /** Set when the two readers of this comment differ: shown as a small tag, never part of the comment's text. */
