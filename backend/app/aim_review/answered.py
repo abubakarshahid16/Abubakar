@@ -63,9 +63,12 @@ def offered(lines: list[dict]) -> dict[int, dict]:
     return out
 
 
-def s4b_answered(model, paper, lines: list[dict], lead: str) -> int:
+def s4b_answered(
+    model, paper, lines: list[dict], lead: str, record: list | None = None
+) -> int:
     """The whole-paper check on the offered lines (`offered`), in calls of at most `ANSWER_CHUNK` lines. Returns the number of
-    lines taken off."""
+    lines taken off. `record` (the run's own list) gets every verdict as answered and what code did with it (`_recorded`): the
+    local run record keeps it so a miss can be read later; it is never sent and never shown to a contractor."""
     pool = offered(lines)
     keys = list(pool)
     parts = [keys[i : i + ANSWER_CHUNK] for i in range(0, len(keys), ANSWER_CHUNK)]
@@ -73,8 +76,10 @@ def s4b_answered(model, paper, lines: list[dict], lead: str) -> int:
     for part in parts:
         shown = {n: pool[n] for n in part}
         out = _ask(model, paper, shown, lead)
+        if out is None and record is not None:
+            record.append({"lines": sorted(shown), "not_applied": True})
         if out is not None:
-            taken += _apply(out, shown, paper)
+            taken += _apply(out, shown, paper, record)
     return taken
 
 
@@ -156,7 +161,7 @@ def answer_reason(a: dict, shown: dict, paper) -> str | None:
     return f'{ANSWERED}: the paper covers {what} on page {page}: "{quote[:300]}"; an engineer to check'
 
 
-def _apply(out: dict, shown: dict, paper) -> int:
+def _apply(out: dict, shown: dict, paper, record: list | None = None) -> int:
     """One call's answer, whole: each accepted answer adds the not-sent note to its line (once)."""
     verdicts = out.get("verdicts")
     taken = 0
@@ -168,8 +173,23 @@ def _apply(out: dict, shown: dict, paper) -> int:
             if isinstance(a, dict) and a.get("answered") is True
             else None
         )
+        if record is not None and isinstance(a, dict):
+            record.append(_recorded(a, bool(why)))
         if why:
             d = shown.pop(a["n"])
             d["code"] = "; ".join(x for x in (d.get("code"), why) if x)
             taken += 1
     return taken
+
+
+def _recorded(a: dict, taken: bool) -> dict:
+    """One verdict as the local run record keeps it: the line, the answer, the claim, page and quote it gave (paper words, cut to
+    300 characters with no mark: a record for the team, never a sheet) and whether code took the line off."""
+    return {
+        "n": a.get("n") if isinstance(a.get("n"), int) else None,
+        "answered": a.get("answered") if isinstance(a.get("answered"), bool) else None,
+        "claim": " ".join(str(a.get("claim") or "").split())[:120],
+        "page": a.get("page") if isinstance(a.get("page"), int) else None,
+        "quote": str(a.get("quote") or "")[:300],
+        "taken_off": taken,
+    }
