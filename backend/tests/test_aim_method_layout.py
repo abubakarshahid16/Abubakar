@@ -54,3 +54,13 @@ def test_prose_a_short_page_and_a_label_value_gap_are_never_split():
     assert (
         paper_block(Paper(paper_id="d", pages={1: prose})).count("=== PAGE 1 ===") == 1
     )
+
+
+def test_the_judge_is_told_a_question_carries_no_verdict_and_pairs_slash_fields_in_order():
+    from app.aim_review import prompts as P
+
+    assert (
+        'A "Question" ASKS: its comment never says that a value passes, fails'
+        in P.S4_TASK
+    )
+    assert "pairs them in order" in P.S4_TASK and "SAME quantity" in P.S4_TASK

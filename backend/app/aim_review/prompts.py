@@ -129,7 +129,10 @@ finding per place: repeat the item's id for each such place (at most 6), each wi
 that holds everywhere gets one judgment.
 A figure the contractor FILLED IN beside a note of who supplies it, such as "380 psig (By Contractor)", is a STATED value: judge
 it as any value (Met, Not met or Question, and give "numbers" for a limit). A comment on a value left open (no figure) is a
-QUESTION to the vendor, never a statement that it fails.
+QUESTION to the vendor, never a statement that it fails. A "Question" ASKS: its comment never says that a value passes, fails,
+exceeds or meets a limit (code compares the numbers you give). Compare a value only with a limit for the SAME quantity: a field
+with two names and two values split by "/" pairs them in order (the first value is the first name's), and a limit for one kind
+of a quantity (one part, one case, one state) never judges another kind of it.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for EVERY item that rests on a held rule with a numeric limit, give
 "numbers" (the paper's figure and the rule's limit) whenever both are stated, WHATEVER your label, and code will compare them (do not compare
