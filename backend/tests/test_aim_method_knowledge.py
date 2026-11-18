@@ -583,3 +583,22 @@ def test_a_required_book_missing_from_the_saved_checklist_builds_it_again(aim_db
                            lambda b: "gate_closed") == []  # the gate refuses it: the build leaves it out too  # fmt: skip
     assert BN.new_required(aim_db, PAPER, saved, {BOOK_B: "governs"}, frozenset(), frozenset({BOOK_A}), "datasheet",
                            lambda b: "") == []  # not on this run's list  # fmt: skip
+
+
+def test_the_run_builds_again_when_a_required_book_is_missing_from_the_saved_checklist(
+    aim_db, monkeypatch
+):
+    """The run reads `new_required`: a required book the saved checklist does not rest on means build again, not reuse."""
+    from app.aim_review import book_names as BN
+    from tests.test_aim_method_helpers import MemoryStore
+
+    store = MemoryStore()
+
+    def run(run_id):
+        return aim_review.run(aim_db, run_id=run_id, paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}), store=store,
+                              max_usd=5.0, model=E.FakeModel(kind="datasheet", subject_key="test_item"))  # fmt: skip
+
+    run("run_rq1")
+    assert run("run_rq2").checklist_reused
+    monkeypatch.setattr(BN, "new_required", lambda *a, **k: ["doc_some_required_book"])
+    assert not run("run_rq3").checklist_reused and len(store.puts) == 2
