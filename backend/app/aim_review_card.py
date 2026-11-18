@@ -4,8 +4,8 @@ TITLE built from the checklist item or the field (no model call), and the parts 
 separate fields, so the results page and the Excel lay the card out without parsing text.
 
 Severity, most severe first (a comment takes its most severe point):
-  "Must fix"            code found the paper against a held rule, or against itself: a comparison by code of two VERIFIED
-                        quotes (the rule's or the paper's) that failed; never a provisional figure;
+  "Must fix"            code's own verdict: the point is shown "Fail, compared by code" (a held rule's verified quote against
+                        the paper's), never a provisional figure; an AI opinion beside a comparison is never "Must fix";
   "Check a value"       any other finding or question on a stated value: AI-judged, provisional, readers differ;
   "Missing information" the value is left open or blank (the run's own flag or mark), or found on no page;
   "Please confirm"      a confirmation (its own sheet and closed part of the page)."""
@@ -13,8 +13,9 @@ Severity, most severe first (a comment takes its most severe point):
 from __future__ import annotations
 
 from . import aim_review
-from .aim_review_gate import AI_MARK
 from .aim_review import steps as _steps
+from .aim_review_gate import AI_MARK
+from .aim_review_store import FAIL_BY_CODE, PASS_BY_CODE
 
 MUST_FIX, CHECK, MISSING, CONFIRM = (
     "Must fix",
@@ -24,8 +25,8 @@ MUST_FIX, CHECK, MISSING, CONFIRM = (
 )
 #: Most severe first: the order of the summary tiles and of a comment's points.
 SEVERITIES = (MUST_FIX, CHECK, MISSING, CONFIRM)
-#: The comparisons code made from verified quotes (the rule's quote against the paper's, or two of the paper's).
-CODE_COMPARED = frozenset({"verified quotes", "verified paper quotes"})
+#: The shown labels of code's own verdict: the only ones that are "compared by code".
+BY_CODE = frozenset({FAIL_BY_CODE, PASS_BY_CODE})
 #: A card title has fewer than this many words.
 TITLE_WORDS = 12
 KNOWLEDGE = "Engineering knowledge (no held rule book)"
@@ -40,10 +41,8 @@ def point_severity(p: dict) -> str:
     parts = _parts(p.get("code_note"))
     provisional = any(x.startswith(aim_review.PROVISIONAL) for x in parts)
     if (
-        p.get("compare_result") == "fail"
-        and p.get("compare_kind") in CODE_COMPARED
-        and not provisional
-    ):
+        p.get("shown_label") == FAIL_BY_CODE and not provisional
+    ):  # code's own verdict only, never an AI opinion
         return MUST_FIX
     if (
         p.get("deferred")
@@ -78,13 +77,11 @@ def rule_says(p: dict) -> str:
 
 
 def proven(members: list[dict]) -> str:
-    """How the card is proven: by code when code compared a point of it from verified quotes; else an AI reading."""
+    """How the card is proven: by code only when code's own verdict (Pass or Fail, compared by code) stands on a point of it; an
+    AI opinion beside a comparison (a paper pairing, a knowledge item, a comparison that could not run) is an AI reading."""
     return (
         "compared by code"
-        if any(
-            m.get("compare_kind") in CODE_COMPARED and m.get("compare_result")
-            for m in members
-        )
+        if any(m.get("shown_label") in BY_CODE for m in members)
         else AI_MARK
     )
 
