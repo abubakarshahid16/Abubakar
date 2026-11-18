@@ -272,10 +272,11 @@ def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dic
          CONFIRMATION, not sent: counted apart, on its own sheet and in a closed part of the page. A run that recorded no mark
          (an older run) moves nothing;
       3. the comments left that make the SAME FINDING under different checklist items become one (`_same_finding`)."""
-    comments = _item_comments(points)
     by_n = {p["n"]: p for p in points}
-    confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
-    sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
+    # per LINE, before the lines of one check are grouped: a line that only asks to confirm a stated value never rides inside a comment
+    # that is sent for another line of its check (it is the same rule as a whole comment of such lines, applied to each line)
+    confirm = _item_comments([p for p in points if _confirm_only(p)])
+    sent = _item_comments([p for p in points if not _confirm_only(p)])
     return aim_review_merge.same_group(
         aim_review_merge.same_place(_same_finding(sent, by_n), by_n), by_n
     ), confirm

@@ -55,7 +55,9 @@ NOT_HELD, AMBIGUOUS, NOT_READABLE, NOT_LINKED = (
 #: A line's code note when a reference paper settled or changed it (`sendable` reads the label, never this note).
 NOTE_CHECKED = "reference_checked"
 HIDDEN_COMMENT = "Checked against a part of the contract package that you may not open."
-MAX_PART_CHARS = 100_000
+MAX_PART_CHARS = 100_000  # one window of a part for its questions
+#: A long Schedule is read in at most this many windows for its questions (a Job Specification of 190 000 characters takes two).
+MAX_PART_WINDOWS = 4
 MAX_QUESTIONS = 40
 REF_MAX_TOKENS = 8000
 MIN_QUOTE = 12  # a quote shorter than this proves nothing about a part
@@ -156,8 +158,10 @@ def resolve(
         ids = held.get(key, [])
         if not ids:
             (res.unlinked if elsewhere.get(key) else res.not_held).append(name_of(key))
-            if len(elsewhere.get(key, [])) == 1:
-                res.offers.append(Ref(elsewhere[key][0], key, name_of(key)))
+            if cand := pick(conn, elsewhere.get(key, []), shown):
+                # one held paper (or the main one of several: `pick`): offered by name; still tied: each offered, the engineer chooses
+                label = name_of(key) if len(cand) == 1 else f"{name_of(key)} ({TIED})"
+                res.offers += [Ref(i, key, label) for i in cand]
         elif len(chosen := pick(conn, ids, shown)) == 1:
             res.refs.append(Ref(chosen[0], key, name_of(key)))
         else:  # still tied: said, never merged; each offered on the plan so the engineer chooses one
@@ -355,49 +359,83 @@ def _status(
 def _ask_part(
     conn, mdl, paper, ref: Ref, mine: list[dict], lead: str
 ) -> tuple[int, int, int, str]:
-    """One reference paper's questions asked in batches. Returns (settled, pages read, pages held, failure words or "")."""
+    """One reference paper's questions asked in batches over WINDOWS of the part (a long Schedule is read whole, not cut at its first
+    pages): a question settles in the first window that answers it ("agrees" / "differs" with a quote code finds on that page); a window
+    that does not state it leaves it for the next; only after the last window read does a question say "does not state this". Returns
+    (settled, pages read, pages held, failure words or "")."""
     from app import agent_review_standards
 
     from . import steps as S
     from .engine import StepFailed
 
     part_pages = agent_review_standards.read_book(conn, ref.doc_id).pages
-    text, read, held = _part_text(part_pages)
+    windows = windows_of(part_pages, MAX_PART_CHARS, MAX_PART_WINDOWS)
+    read = sum(len(w) for w in windows)
+    held = len(part_pages)
     partial = "" if read == held else f" (pages 1 to {read} of {held})"
+    pending = list(mine)
+    said_not_stated: set[int] = (
+        set()
+    )  # ids of the lines a window said it does not state (cleared if a later answer is unusable)
     settled = 0
-    for i in range(0, len(mine), MAX_QUESTIONS):
-        by_n = dict(enumerate(mine[i : i + MAX_QUESTIONS], 1))
-        items = "\n".join(
-            S._dumps({"n": n, "field": ln.get("field"), "page": ln.get("page"), "paper_quote": ln.get("quote"),
-                      "question": ln.get("comment")}) for n, ln in by_n.items()
-        )  # fmt: skip
-        try:
-            out = mdl.ask(
-                step="aim_reference",
-                model=lead,
-                system="",
-                cached=S.paper_block(paper),
-                prompt=REF_TASK
-                % {
-                    "name": ref.name,
-                    "range": f": pages 1 to {read} of {held} only" if partial else "",
-                    "items": items,
-                    "part": text,
-                },
-                carries={paper.paper_id, ref.doc_id},
-                max_tokens=REF_MAX_TOKENS,
-            )
-        except StepFailed as exc:
-            return settled, read, held, str(exc)
-        answers = out.get("checks") if isinstance(out, dict) else None
-        for ans in answers if isinstance(answers, list) else []:
-            n = ans.get("n") if isinstance(ans, dict) else None
-            done = n in by_n and _apply(by_n[n], ref, ans, part_pages, partial)
-            settled += done in ("agrees", "differs")
+    for window in windows:
+        if not pending:
+            break
+        win_text = _window_text(window)
+        first, last = min(window), max(window)
+        again: list[dict] = []
+        for i in range(0, len(pending), MAX_QUESTIONS):
+            batch = pending[i : i + MAX_QUESTIONS]
+            by_n = dict(enumerate(batch, 1))
+            items = "\n".join(
+                S._dumps({"n": n, "field": ln.get("field"), "page": ln.get("page"), "paper_quote": ln.get("quote"),
+                          "question": ln.get("comment")}) for n, ln in by_n.items()
+            )  # fmt: skip
+            try:
+                out = mdl.ask(
+                    step="aim_reference",
+                    model=lead,
+                    system="",
+                    cached=S.paper_block(paper),
+                    prompt=REF_TASK
+                    % {
+                        "name": ref.name,
+                        "range": f": pages {first} to {last} of {held} only"
+                        if len(windows) > 1 or partial
+                        else "",
+                        "items": items,
+                        "part": win_text,
+                    },
+                    carries={paper.paper_id, ref.doc_id},
+                    max_tokens=REF_MAX_TOKENS,
+                )
+            except StepFailed as exc:
+                return settled, read, held, str(exc)
+            answers = out.get("checks") if isinstance(out, dict) else None
+            decided: set[int] = set()
+            for ans in answers if isinstance(answers, list) else []:
+                n = ans.get("n") if isinstance(ans, dict) else None
+                if n not in by_n:
+                    continue
+                if ans.get("result") == "not_stated":
+                    said_not_stated.add(
+                        id(by_n[n])
+                    )  # not stated HERE: the next window may state it
+                    continue
+                said_not_stated.discard(id(by_n[n]))
+                done = _apply(by_n[n], ref, ans, part_pages, partial)
+                if done in ("agrees", "differs"):
+                    settled += 1
+                    decided.add(n)
+            again += [ln for n, ln in by_n.items() if n not in decided]
+        pending = again
+    for ln in (
+        pending
+    ):  # every window read and the last answer for the line was "does not state it"
+        if id(ln) in said_not_stated:
+            _apply(ln, ref, {"result": "not_stated"}, part_pages, partial)
     return settled, read, held, ""
 
-
-# ------------------------------------------------------------------ the Form against the cited Schedule (v2)
 
 MAX_CITES = 40  # citing sentences compared per Schedule
 CITE_CHARS = 500
@@ -463,21 +501,24 @@ def citing_sentences(pages: dict[int, str], ref: Ref) -> list[Cite]:
     return out
 
 
-def windows_of(pages: dict[int, str]) -> list[dict[int, str]]:
-    """The Schedule's pages in order, cut into windows of at most WINDOW_CHARS (a page is never split); at most MAX_WINDOWS."""
+def windows_of(
+    pages: dict[int, str], size: int | None = None, most: int | None = None
+) -> list[dict[int, str]]:
+    """The Schedule's pages in order, cut into windows of at most `size` characters (a page is never split); at most `most` windows."""
+    size, most = size or WINDOW_CHARS, most or MAX_WINDOWS
     out: list[dict[int, str]] = []
     cur: dict[int, str] = {}
     used = 0
     for n in sorted(pages):
-        size = len(pages[n]) + 12
-        if cur and used + size > WINDOW_CHARS:
+        page_size = len(pages[n]) + 12
+        if cur and used + page_size > size:
             out.append(cur)
             cur, used = {}, 0
         cur[n] = pages[n]
-        used += size
+        used += page_size
     if cur:
         out.append(cur)
-    return out[:MAX_WINDOWS]
+    return out[:most]
 
 
 def _window_text(window: dict[int, str]) -> str:
