@@ -183,7 +183,7 @@ def _compare(
     is never compared."""
     held = it["source"] == HELD
     rule_quote = str(it.get("rule_quote") or "")
-    if nums and label in ("Met", "Not met") and (held or it.get("always_on")):
+    if nums and quote and label in ("Met", "Not met") and (held or it.get("always_on")):
         return _numbers(nums, quote, rule_quote, notes, paper)
     if nums and held and quote and not deferred and label in ("Question", "AI opinion"):
         tried: list[str] = []
@@ -648,7 +648,10 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
             "the value is left open by the vendor: a question, never a verdict"
         )
     nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
-    label, code_cmp = _compare(it, label, nums, quote, notes, paper, deferred)
+    # code compares ONLY a quote it found on the paper (review of update 5, B1): an unfound quote is never compared, never firm
+    label, code_cmp = _compare(
+        it, label, nums, quote if page is not None else "", notes, paper, deferred
+    )
     if it["source"] != HELD and label in (
         "Met",
         "Not met",
@@ -686,10 +689,12 @@ def _comment(
     for a fail proven by code (`proven_fail`), code's firm sentence alone (the AI's words could still ask to "confirm")."""
     said = str(j.get("comment") or "")
     if firm:
-        return _fails_comment(code_cmp, quote, base, firm=True)[:400]
+        return _fails_comment(
+            code_cmp, quote, base, firm=True
+        )  # whole: never cut without a mark
     if _paper_compare(code_cmp, page) and code_cmp.get("result") == "fail":
         said = _fails_comment(code_cmp, quote, base) + (" " + said if said else "")
-    return said[:400]
+    return said  # whole: the sheet cuts with its own mark and keeps the full text on All points
 
 
 def _code_note(notes: list[str], code_cmp: dict | None, said: str | None = None) -> str:
