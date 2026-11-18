@@ -8,6 +8,9 @@ import { useState } from "react";
 
 import { type Engine, reviewPlan } from "../../../api/reviewPlan";
 import { startRefusal } from "../workspace/newReview";
+import {
+  SIGN_IN_ENDED_LINE, clearStartFailure, isSignInEnded, recordStartFailure, startFailureReason,
+} from "../workspace/startFailures";
 import { watchRun } from "../workspace/reviewWatch";
 import { StartPanel } from "./StartPanel";
 
@@ -32,10 +35,15 @@ export function StartReviewStep({ documentId, filename = null, onStarted, onOpen
     if (!result.ok) {
       // A refusal (already running, administrators only) is a real answer, in plain words (`startRefusal`), never retried silently.
       const refusal = await startRefusal(result);
-      setError(refusal.message);
+      const ended = isSignInEnded(result.error);
+      // G3: the answer is kept per paper, so the row says "Not reviewed: the start failed (...)" even when this screen is gone (a 401
+      // sends the page to Sign in). A review that is already running is not a failed start: the running one is offered instead.
+      if (refusal.runningRunId === null) recordStartFailure(documentId, startFailureReason(result.error, refusal.message), ended);
+      setError(ended ? `${SIGN_IN_ENDED_LINE}.` : refusal.message || startFailureReason(result.error, ""));
       setRunningRunId(refusal.runningRunId);
       return;
     }
+    clearStartFailure(documentId);
     watchRun(result.data.review_run_id, result.data.submittal_filename ?? filename);
     onStarted(result.data.review_run_id);
   }

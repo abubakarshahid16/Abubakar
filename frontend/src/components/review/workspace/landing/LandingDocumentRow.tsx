@@ -15,6 +15,7 @@ import { ReviewJobControl } from "../../panels/ReviewJobControl";
 import { AiMark } from "../../agent/AiMark";
 import { PastReviewsButton } from "../PastReviewsButton";
 import { ReviewAgainButton } from "../ReviewAgainButton";
+import { useStartFailure } from "../startFailures";
 import { dayTimeWords } from "./dateWords";
 import { type ChipTone, type LandingRow, NO_ROLE_LINE, countsLine, hasFinishedReview, rowChip } from "./landingRows";
 
@@ -56,7 +57,11 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   /** Something changed (a review was cancelled): re-read the list. */
   onChanged: () => void;
 }) {
-  const chip = rowChip(row.state, row.latest, counts);
+  // G3: a paper never reviewed whose start failed says so, with the reason (kept even when the screen that pressed Start is gone).
+  const failedStart = useStartFailure(row.documentId);
+  const chip = row.state.kind === "not_reviewed" && failedStart
+    ? { text: `Not reviewed: the start failed (${failedStart})`, tone: "failed" as const }
+    : rowChip(row.state, row.latest, counts);
   const detail = simple ? "" : countsLine(row.state, counts);
   const moving = row.state.kind === "queued" || row.state.kind === "running";
   const step = row.state.kind === "running" && row.state.label ? row.state.label : "";
