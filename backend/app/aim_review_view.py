@@ -547,6 +547,15 @@ def resolve(conn, paper_id: str, run_id: str | None = None) -> dict | None:
     return aim_review_store.latest_run(conn, paper_id, ended=True)
 
 
+def _cost(run: dict) -> dict:
+    """The contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)."""
+    usd = run.get("usd")
+    note = _cost_note(run)
+    return {"usd": None if usd is None else float(usd)} | (
+        {"note": note} if usd is None and note else {}
+    )
+
+
 def build(conn, run: dict, scope=None) -> dict:
     """The page's JSON for ONE stored general run, without the completeness answer (that needs the built file). Raises
     `NotFinished` for a run that has not ended."""
@@ -571,7 +580,6 @@ def build(conn, run: dict, scope=None) -> dict:
     identity = _json(run.get("identity_json"), {})
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
-    usd = run.get("usd")
     view = {
         "paper_document_id": run["paper_document_id"],
         "run_id": run["run_id"],
@@ -619,9 +627,7 @@ def build(conn, run: dict, scope=None) -> dict:
         },
         "checklist": _checklist(conn, run, points),
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
-        # the contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)
-        "cost": {"usd": None if usd is None else float(usd)}
-        | ({"note": _cost_note(run)} if usd is None and _cost_note(run) else {}),
+        "cost": _cost(run),
         "seconds": run.get("seconds"),
         "created_at": run.get("created_at"),
         "finished_at": run.get("finished_at"),
