@@ -44,7 +44,9 @@ def _fails_comment(
 
     (pv, pu), (rv, ru) = code_cmp["paper"], code_cmp["rule"]
     stated = f"{_num(pv)} {pu}".strip()
-    rule = f"{_num(rv)} {ru}".strip()
+    rule = f"{_num(rv)} {ru}".strip() + (
+        f" ({code_cmp['converted']})" if code_cmp.get("converted") else ""
+    )
     who = blank_markers.who_supplies(quote)
     if who:
         stated = f"{stated} ({who.lower()})"
