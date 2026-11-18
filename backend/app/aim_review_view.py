@@ -558,8 +558,9 @@ def build(conn, run: dict, scope=None) -> dict:
     # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
     # lines of one point make ONE comment listing every place (`group_comments`)
     comments, confirmations = comments_and_confirmations(points)
-    # each comment's card: severity by code, a short title, paper says / rule says / we ask (`aim_review_card`)
-    by_severity = aim_review_card.add(comments, confirmations, points)
+    by_severity = aim_review_card.add(
+        comments, confirmations, points
+    )  # each comment's card (severity by code)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
@@ -588,8 +589,7 @@ def build(conn, run: dict, scope=None) -> dict:
         "counts": {
             "points": len(points),
             "comments": len(comments),
-            # the summary tiles: comments per severity (decided by code; "Please confirm" = the confirmations)
-            "by_severity": by_severity,
+            "by_severity": by_severity,  # the summary tiles
             # the confirmations not sent (`comments_and_confirmations`): counted apart; comment lines + these = sent lines
             "confirmations": len(confirmations),
             "comment_lines": sum(len(c["lines"]) for c in comments),
