@@ -261,6 +261,9 @@ class RunCountsBatch(BaseModel):
     boundary: str
     counts: dict[str, TierCounts]
     general: dict[str, GeneralRunCounts] = {}
+    #: Order 14: the earlier AI reviewer's stored lines per run (they are not findings, so `counts` says 0 for them); a run with
+    #: none is absent.
+    ai_lines: dict[str, int] = {}
 
 
 def reader_timed_out_pages(split: dict | None) -> list[int] | None:
@@ -331,7 +334,12 @@ def review_run_counts(
         ):
             continue
         counts[review_run_id] = _tiers(review_run_id, allowed)[0]["counts"]
-    return {"boundary": BOUNDARY, "counts": counts, "general": general}
+    return {
+        "boundary": BOUNDARY,
+        "counts": counts,
+        "general": general,
+        "ai_lines": aim_review_runs_mod.ai_line_counts(connect(), list(counts)),
+    }
 
 
 @router.get(

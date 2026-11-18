@@ -41,3 +41,27 @@ describe("what a general review's line says", () => {
     expect(foundLine({ findings: null, needs_you: null })).toBe("");
   });
 });
+
+describe("H8: the earlier AI reviewer's rows", () => {
+  it("loadReadyCounts carries the AI lines of a run that has some", async () => {
+    reviewRunCounts.mockResolvedValue({ ok: true, data: { boundary: "", counts: { ai: { comment: 0, needs_you: 0 }, plain: { comment: 0, needs_you: 0 } }, ai_lines: { ai: 55 } } });
+    const got = await loadReadyCounts(["ai", "plain"]);
+    expect(got.ai).toEqual({ findings: 0, needs_you: 0, aiLines: 55 });
+    expect(got.plain).toEqual({ findings: 0, needs_you: 0 });
+  });
+
+  it("says AI review: N lines (earlier method), never '0 findings', when the findings table has none", () => {
+    const line = foundLine({ findings: 0, needs_you: 0, aiLines: 55 });
+    expect(line).toBe("AI review: 55 lines (earlier method)");
+    expect(line).not.toMatch(/0 findings/);
+  });
+
+  it("adds the findings only when the findings table truly has rows", () => {
+    expect(foundLine({ findings: 12, needs_you: 3, aiLines: 1 })).toBe(
+      "AI review: 1 line (earlier method). Found by the review: 12 findings, 3 needing your judgement");
+  });
+
+  it("a run with no AI line keeps its findings line, and 0 is said only where it is truly 0", () => {
+    expect(foundLine({ findings: 0, needs_you: 0 })).toBe("Found by the review: 0 findings, 0 needing your judgement");
+  });
+});
