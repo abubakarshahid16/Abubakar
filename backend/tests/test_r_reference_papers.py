@@ -230,9 +230,9 @@ def test_a_vendor_deferred_value_and_an_unnamed_part_are_never_touched(world):
         frozenset({SCHED_C, SCHED_B1, SCHED_B2}),
         "m",
     )
-    assert (
-        lines == before and model.calls == []
-    )  # nothing eligible: not even a call is paid for
+    # v2: the Form's own sentence that points to Schedule C is compared with it (one call); no QUESTION is asked of any part
+    assert lines == before
+    assert [c["prompt"].startswith("TASK S7") for c in model.calls] == [True]
 
 
 def test_a_schedule_not_on_the_shown_list_is_not_sent_and_its_questions_stay(world):
@@ -334,3 +334,200 @@ def test_a_checked_line_shows_a_viewer_who_may_not_read_the_part_no_words_of_it(
             "named_books": [{"id": SCHED_C, "name": "Schedule C"}], "book_document_id": "", "label": "Met", "shown_label": "AI opinion: met"}  # fmt: skip
     out = aim_review_view.line_view(line, 1, hidden=True)
     assert out["comment"] == R.HIDDEN_COMMENT and "own words" not in json.dumps(out)
+
+
+# ---- the Form against the Schedule it cites (v2) -------------------------------------------------------------------------------
+
+
+def _ref(name="Schedule C", doc=SCHED_C):
+    return R.Ref(doc, ("schedule", name[-1]), name)
+
+
+def test_the_citing_sentences_are_the_papers_own_lines_that_point_to_the_schedule(
+    world,
+):
+    cites = R.citing_sentences(AGREEMENT_PAGES, _ref())
+    assert [(c.page, c.text) for c in cites] == [
+        (
+            1,
+            "The milestones and the delay damages are set out in Schedule C. Payment follows Schedule B and Schedule D.",
+        )
+    ]
+
+
+def test_a_heading_a_repeat_and_a_sub_part_are_not_citing_sentences():
+    pages = {
+        1: "SCHEDULE C\nThe fee is stated in Schedule C of this agreement.\nThe fee is stated in Schedule C of this agreement.\nSee Attachment II of Schedule C.\n",
+        2: "The fee is stated in Schedule C of this agreement.\n",
+    }
+    cites = R.citing_sentences(pages, _ref())
+    assert (
+        len(cites) == 1 and cites[0].page == 1
+    )  # the heading, the second copy and the sub-part form are left out
+
+
+def test_the_citing_sentences_are_capped(monkeypatch):
+    monkeypatch.setattr(R, "MAX_CITES", 3)
+    pages = {
+        1: "\n".join(
+            f"Clause {i} follows Schedule C in all respects, item {i}."
+            for i in range(10)
+        )
+    }
+    assert len(R.citing_sentences(pages, _ref())) == 3
+
+
+def test_windows_never_split_a_page_and_are_capped(monkeypatch):
+    monkeypatch.setattr(R, "WINDOW_CHARS", 100)
+    monkeypatch.setattr(R, "MAX_WINDOWS", 2)
+    got = R.windows_of({n: "x" * 60 for n in range(1, 7)})
+    assert [sorted(w) for w in got] == [[1], [2]] and all(
+        len(t) == 60 for w in got for t in w.values()
+    )
+
+
+FORM_QUOTE = "The milestones and the delay damages are set out in Schedule C."
+PART_QUOTE = "Delay damages are payable at one half of one percent of the contract price for each week of delay."
+
+
+def _compare_answer(result, form=FORM_QUOTE, part=PART_QUOTE, fpage=1, ppage=2, n=1):
+    return {
+        "compare": [
+            {
+                "n": n,
+                "result": result,
+                "form_quote": form,
+                "form_page": fpage,
+                "part_quote": part,
+                "part_page": ppage,
+                "comment": "the two differ on the rate",
+            }
+        ]
+    }
+
+
+def test_a_difference_with_both_quotes_found_becomes_one_sent_ai_opinion_naming_both_pages(
+    world,
+):
+    lines: list[dict] = []
+    model = Part(_compare_answer("differs"))
+    record, carried = R.check(
+        world, model, _paper(world), lines, frozenset({SCHED_C}), "m"
+    )
+    assert len(lines) == 1
+    ln = lines[0]
+    assert ln["label"] == "AI opinion" and aim_review.sendable(
+        {"label": ln["label"], "code_note": ln["code"]}
+    )
+    assert "Form page 1" in ln["comment"] and "Schedule C page 2" in ln["comment"]
+    assert FORM_QUOTE in ln["comment"] and PART_QUOTE in ln["comment"]
+    assert (
+        ln["quote"] == FORM_QUOTE
+        and ln["page"] == 1
+        and {"id": SCHED_C, "name": "Schedule C"} in ln["named_books"]
+    )
+    row = [r for r in record if r["part"] == "Schedule C"][0]
+    assert row["differs"] == 1 and row["compared"] == 1 and carried == {SCHED_C}
+    assert model.calls[0]["carries"] == {AGREEMENT, SCHED_C} and model.calls[0][
+        "prompt"
+    ].startswith("TASK S7")
+
+
+def test_an_agreement_adds_no_line_only_a_count(world):
+    lines: list[dict] = []
+    record, _ = R.check(
+        world,
+        Part(_compare_answer("agrees")),
+        _paper(world),
+        lines,
+        frozenset({SCHED_C}),
+        "m",
+    )
+    assert lines == []
+    assert [
+        (r["agrees"], r["differs"]) for r in record if r["part"] == "Schedule C"
+    ] == [(1, 0)]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        _compare_answer(
+            "differs",
+            part="The schedule says something its page does not hold at all, in any words",
+        ),
+        _compare_answer(
+            "differs",
+            form="The paper says something its page never states anywhere in the document",
+        ),
+        _compare_answer(
+            "differs", fpage=5, ppage=9
+        ),  # wrong pages are found by a search of the other pages too: still verified
+        _compare_answer("differs", part="short one"),
+        _compare_answer("not_here"),
+        {
+            "compare": [
+                {
+                    "n": 99,
+                    "result": "differs",
+                    "form_quote": FORM_QUOTE,
+                    "form_page": 1,
+                    "part_quote": PART_QUOTE,
+                    "part_page": 2,
+                    "comment": "x",
+                }
+            ]
+        },
+    ],
+)
+def test_an_answer_whose_quote_code_cannot_find_changes_nothing(world, answer):
+    lines: list[dict] = []
+    R.check(world, Part(answer), _paper(world), lines, frozenset({SCHED_C}), "m")
+    unverified_pages = answer["compare"][0].get("form_page") == 5
+    assert (len(lines) == 1) if unverified_pages else lines == []
+
+
+def test_a_difference_in_any_window_wins_over_an_agreement_in_another(
+    world, monkeypatch
+):
+    monkeypatch.setattr(
+        R, "WINDOW_CHARS", 60
+    )  # each page of Schedule C is its own window
+    seen = []
+
+    def answer(kw):
+        seen.append(kw["prompt"])
+        return _compare_answer("agrees" if len(seen) == 1 else "differs")
+
+    lines: list[dict] = []
+    R.check(world, Part(answer), _paper(world), lines, frozenset({SCHED_C}), "m")
+    assert len(seen) == 2 and len(lines) == 1 and lines[0]["label"] == "AI opinion"
+
+
+def test_a_schedule_with_no_open_question_is_still_compared_when_the_form_points_to_it(
+    world,
+):
+    record, _ = R.check(
+        world, Part({"compare": []}), _paper(world), [], frozenset({SCHED_C}), "m"
+    )
+    assert [r["compared"] for r in record if r["part"] == "Schedule C"] == [1]
+
+
+def test_a_refused_comparison_is_said_and_adds_nothing(world):
+    def refuse(kw):
+        raise E.StepFailed("aim_reference: gate_closed")
+
+    lines: list[dict] = []
+    record, _ = R.check(
+        world, Part(refuse), _paper(world), lines, frozenset({SCHED_C}), "m"
+    )
+    assert lines == [] and [
+        r["status"] for r in record if r["part"] == "Schedule C"
+    ] == [R.NOT_SENT]
+
+
+def test_a_schedule_not_on_the_list_is_not_compared_and_no_call_is_made(world):
+    model = Part(_compare_answer("differs"))
+    lines: list[dict] = []
+    R.check(world, model, _paper(world), lines, frozenset(), "m")
+    assert lines == [] and model.calls == []

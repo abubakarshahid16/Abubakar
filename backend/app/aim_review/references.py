@@ -288,11 +288,228 @@ def _ask_part(
     return settled, read, held, ""
 
 
+# ------------------------------------------------------------------ the Form against the cited Schedule (v2)
+
+MAX_CITES = 40  # citing sentences compared per Schedule
+CITE_CHARS = 500
+WINDOW_CHARS = 60_000  # one window of the Schedule per call, the size the judge uses for a long paper
+MAX_WINDOWS = 6
+
+COMPARE_TASK = """TASK S7 - COMPARE THE PAPER UNDER REVIEW WITH %(name)s. Above is the paper. Below are sentences of the paper that point to
+%(name)s, and part of %(name)s%(range)s. For each sentence decide whether what the paper states about that matter AGREES with what
+%(name)s states, or DIFFERS (the two cannot both hold: a different value, period, order, party, condition or wording of a duty), or the
+matter is not on these pages of %(name)s ("not_here": say nothing else about it). A sentence that only names %(name)s and states nothing
+to compare is "not_here". Never call a value the paper or the schedule leaves open (TBA, TBD, By Contractor, blank) a difference.
+For "agrees" and "differs" give BOTH sides, each as words copied EXACTLY (5 to 30 words): "form_quote" and "form_page" from the paper,
+"part_quote" and "part_page" from %(name)s, and "comment": what differs or agrees, at most 35 words.
+Reply with ONE JSON object only: {"compare": [{"n": n, "result": "agrees"|"differs"|"not_here", "form_quote": "...", "form_page": p,
+ "part_quote": "...", "part_page": q, "comment": "..."}]}
+THE PAPER'S SENTENCES:
+%(items)s
+%(name)s (pages %(first)d to %(last)d):
+%(part)s"""
+
+
+@dataclass(frozen=True)
+class Cite:
+    n: int
+    page: int
+    text: str
+
+
+def _plainly_cites(line: str, key: Key) -> bool:
+    """The line names the Schedule ITSELF, not only as the higher part of a sub-part ("Attachment II of Schedule C" points to the
+    attachment). Every labelled part the contract code reads in the line counts once; the ones that are another part's higher part are taken off."""
+    found = CC.parts(line)
+    named = sum(1 for (k, parent), _at in found if k == key and parent is None)
+    as_parent = sum(1 for (_k, parent), _at in found if parent == key)
+    return named > as_parent
+
+
+def citing_sentences(pages: dict[int, str], ref: Ref) -> list[Cite]:
+    """The paper's own sentences that point to the Schedule, found by code: a line that names it as a Schedule (the contract code's
+    part reading), with the next line of the page when the sentence wraps. A bare heading is not a sentence. In page order, no
+    sentence twice, at most MAX_CITES."""
+    out: list[Cite] = []
+    seen: set[str] = set()
+    for page in sorted(pages):
+        lines = [ln.strip() for ln in pages[page].splitlines() if ln.strip()]
+        for i, line in enumerate(lines):
+            if not _plainly_cites(line, ref.key):
+                continue
+            if CC._heading_part(line) and len(line.split()) < 6:
+                continue  # a heading naming the part, not a sentence about it
+            text = (line + (" " + lines[i + 1] if i + 1 < len(lines) else ""))[
+                :CITE_CHARS
+            ]
+            key = re.sub(
+                r"\W+", "", line.lower()
+            )  # the cited line itself: the same sentence on another page is one
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(Cite(len(out) + 1, page, text))
+            if len(out) >= MAX_CITES:
+                return out
+    return out
+
+
+def windows_of(pages: dict[int, str]) -> list[dict[int, str]]:
+    """The Schedule's pages in order, cut into windows of at most WINDOW_CHARS (a page is never split); at most MAX_WINDOWS."""
+    out: list[dict[int, str]] = []
+    cur: dict[int, str] = {}
+    used = 0
+    for n in sorted(pages):
+        size = len(pages[n]) + 12
+        if cur and used + size > WINDOW_CHARS:
+            out.append(cur)
+            cur, used = {}, 0
+        cur[n] = pages[n]
+        used += size
+    if cur:
+        out.append(cur)
+    return out[:MAX_WINDOWS]
+
+
+def _window_text(window: dict[int, str]) -> str:
+    return "".join(f"[page {n}]\n{t}\n" for n, t in sorted(window.items()))
+
+
+def _both_sides(
+    answer: dict, paper_pages: dict[int, str], part_pages: dict[int, str]
+) -> dict | None:
+    """The answer's two quotes, each found by code on its own page of its own paper; None when either is missing or not found."""
+    from . import steps as S
+
+    form = S._verified(
+        {"quote": answer.get("form_quote"), "page": answer.get("form_page")},
+        paper_pages,
+    )
+    part = S._verified(
+        {"quote": answer.get("part_quote"), "page": answer.get("part_page")}, part_pages
+    )
+    comment = re.sub(r"\s+", " ", str(answer.get("comment") or "")).strip()[:300]
+    if not (form["verified"] and part["verified"] and comment):
+        return None
+    if min(len(str(form["quote"])), len(str(part["quote"]))) < MIN_QUOTE:
+        return None
+    return {"form": form, "part": part, "comment": comment}
+
+
+def differs_line(ref: Ref, found: dict, n: int) -> dict:
+    """The sent AI opinion of one difference: both quotes and both pages. Never a Fail or Not met, never "by code"."""
+    form, part = found["form"], found["part"]
+    return {
+        "item_id": f"R-{ref.key[1]}-{n:02d}", "finding_no": 1, "label": "AI opinion", "field": f"The Form against {ref.name}",
+        "page": form["page"], "quote": form["quote"], "quote_unverified": "",
+        "comment": f"Form page {form['page']} says: \u201c{form['quote']}\u201d; {ref.name} page {part['page']} says: \u201c{part['quote']}\u201d. {found['comment']}",
+        "standard": ref.name, "book_document_id": "", "clause": "", "source": "held contract paper (same package)",
+        "topic": f"The Form against {ref.name}", "code": f"{NOTE_CHECKED}: {ref.name}", "numbers": None,
+        "named_books": [{"id": ref.doc_id, "name": ref.name}], "code_compare": None, "deferred": False, "ask": "",
+    }  # fmt: skip
+
+
+def _compare(conn, mdl, paper, ref: Ref, lead: str) -> tuple[list[dict], dict, str]:
+    """The Form's sentences that point to the Schedule against the whole Schedule, window by window. Returns (the new lines: one AI
+    opinion for each verified difference, stats {sentences, agrees, differs, windows}, failure words or "")."""
+    from app import agent_review_standards
+
+    from . import steps as S
+    from .engine import StepFailed
+
+    cites = citing_sentences(paper.pages, ref)
+    stats = {"sentences": len(cites), "agrees": 0, "differs": 0, "windows": 0}
+    if not cites:
+        return [], stats, ""
+    part_pages = agent_review_standards.read_book(conn, ref.doc_id).pages
+    items = "\n".join(
+        S._dumps({"n": c.n, "page": c.page, "sentence": c.text}) for c in cites
+    )
+    best: dict[int, tuple[str, dict]] = {}
+    windows = windows_of(part_pages)
+    for w in windows:
+        first, last = min(w), max(w)
+        try:
+            out = mdl.ask(
+                step="aim_reference", model=lead, system="", cached=S.paper_block(paper),
+                prompt=COMPARE_TASK % {"name": ref.name, "range": "" if len(windows) == 1 else f" (window {stats['windows'] + 1} of {len(windows)})",
+                                       "items": items, "first": first, "last": last, "part": _window_text(w)},
+                carries={paper.paper_id, ref.doc_id}, max_tokens=REF_MAX_TOKENS,
+            )  # fmt: skip
+        except StepFailed as exc:
+            return [], stats, str(exc)
+        stats["windows"] += 1
+        answers = out.get("compare") if isinstance(out, dict) else None
+        for ans in answers if isinstance(answers, list) else []:
+            n = ans.get("n") if isinstance(ans, dict) else None
+            result = str(ans.get("result") or "") if isinstance(ans, dict) else ""
+            if (
+                not isinstance(n, int)
+                or n < 1
+                or n > len(cites)
+                or result not in ("agrees", "differs")
+            ):
+                continue
+            found = _both_sides(ans, paper.pages, part_pages)
+            if found is None:
+                continue  # a quote code cannot find on its page: the answer is dropped, nothing changes
+            if (
+                result == "differs" or n not in best
+            ):  # a verified difference wins over an agreement from another window
+                best[n] = (result, found)
+    new: list[dict] = []
+    for n in sorted(best):
+        result, found = best[n]
+        stats["agrees" if result == "agrees" else "differs"] += 1
+        if result == "differs":
+            new.append(differs_line(ref, found, n))
+    return new, stats, ""
+
+
+def _check_ref(conn, mdl, paper, ref: Ref, lines: list[dict], lead: str) -> dict:
+    """What the review does with ONE reference paper that is on the run's list: its open questions, then the Form against it."""
+    mine = questions_for(lines, ref)
+    settled = read = held = 0
+    if mine:
+        settled, read, held, failure = _ask_part(conn, mdl, paper, ref, mine, lead)
+        if failure:
+            return _failed(ref, failure, len(mine), settled)
+    new, stats, failure = _compare(conn, mdl, paper, ref, lead)
+    if failure:
+        return _failed(ref, failure, len(mine), settled)
+    lines.extend(new)
+    status = READ_IN_PART if held and read != held else READ
+    out = _status(
+        ref,
+        status,
+        ""
+        if (mine or stats["sentences"])
+        else "no open question and no sentence of the Form names it",
+        len(mine),
+        settled,
+        read,
+        held,
+    )
+    return {
+        **out,
+        "compared": stats["sentences"],
+        "agrees": stats["agrees"],
+        "differs": stats["differs"],
+    }
+
+
+def _failed(ref: Ref, failure: str, questions: int, settled: int) -> dict:
+    gate = "gate_closed" in failure or ": stop " in failure
+    why = "the send gate did not allow it" if gate else failure[:200]
+    return _status(ref, NOT_SENT if gate else FAILED, why, questions, settled)
+
+
 def check(
     conn, mdl, paper, lines: list[dict], allowed_books: frozenset[str], lead: str
 ) -> tuple[list[dict], set[str]]:
-    """Check the open questions that name a reference paper against it. Returns (the run's `references` record, the reference
-    document ids that were carried: they are not rule books). Changes `lines` in place. Never raises for a model or gate failure."""
+    """Check a contract against its reference papers. Returns (the run's `references` record, the reference document ids that were
+    carried: they are not rule books). Changes `lines` in place: an open question that a Schedule answers is settled or marked read, and a
+    sentence of the Form that DIFFERS from the Schedule it points to becomes a new sent AI opinion. Never raises for a model or gate failure."""
     from app import claude_auto_approve
 
     try:
@@ -307,37 +524,16 @@ def check(
     ] + [{"part": n, "status": AMBIGUOUS, "reason": "", "questions": 0, "settled": 0} for n in res.ambiguous]  # fmt: skip
     carried: set[str] = set()
     for ref in res.refs:
-        mine = questions_for(lines, ref)
         if ref.doc_id not in allowed_books:
             record.append(
                 _status(
                     ref,
                     NOT_SENT,
                     "not on the list of documents shown before the start",
-                    len(mine),
+                    len(questions_for(lines, ref)),
                 )
             )
-        elif not mine:
-            record.append(_status(ref, READ, "no open question names it", 0))
-        else:
-            carried.add(ref.doc_id)
-            settled, read, held, failure = _ask_part(conn, mdl, paper, ref, mine, lead)
-            if failure:
-                gate = "gate_closed" in failure or ": stop " in failure
-                why = "the send gate did not allow it" if gate else failure[:200]
-                record.append(
-                    _status(ref, NOT_SENT if gate else FAILED, why, len(mine), settled)
-                )
-            else:
-                record.append(
-                    _status(
-                        ref,
-                        READ if read == held else READ_IN_PART,
-                        "",
-                        len(mine),
-                        settled,
-                        read,
-                        held,
-                    )
-                )
+            continue
+        carried.add(ref.doc_id)
+        record.append(_check_ref(conn, mdl, paper, ref, lines, lead))
     return record, carried

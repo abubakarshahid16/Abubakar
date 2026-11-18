@@ -485,6 +485,9 @@ def _references(conn, run: dict, scope) -> list[dict]:
                 "reason": "" if hidden else str(r.get("reason") or ""),
                 "questions": r.get("questions"),
                 "settled": r.get("settled"),
+                # the Form's sentences compared with the Schedule, and how many differ (absent on a run made before the comparison)
+                "compared": r.get("compared"),
+                "differs": r.get("differs"),
             }
         )
     return out
