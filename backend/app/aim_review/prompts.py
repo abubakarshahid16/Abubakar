@@ -103,6 +103,8 @@ clause does not decide).
 Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
 finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
 that holds everywhere gets one judgment.
+A comment on a value left open or provisional is a QUESTION to the vendor ("appears above the limit of ...; please confirm"),
+never a statement that it fails.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for a limit, give "numbers" and code will compare them (do not compare
 yourself); items marked "not from a held standard" may only be "Question", "AI opinion" or "Does not apply".
@@ -115,6 +117,19 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
  "comment": "the comment a senior engineer would send the vendor, at most 35 words"}]}
 THE ITEMS:
 %(items)s"""
+
+EDIT_TASK = """TASK S5 - EDIT THE COMMENT SHEET. Below are the comments that would be sent to the vendor about the paper above
+(one per line: n, field, page, comment, quote). You may ONLY take a comment OFF the sheet (it stays in the full list of points).
+You never add, rewrite or relabel a comment. Take one off for one of two reasons only:
+ "repeats": it makes the same point as another comment on this sheet (the same value, the same concern, other words); keep
+     the clearer one and give its n as "of";
+ "paper_states_otherwise": the paper contradicts what the comment claims (it says a value is not stated and the paper states
+     it; it says the sheet shows an entry the paper's row leaves blank); give the exact paper words that show it (5 to 30
+     words from one page, character for character) and that page.
+Take nothing off for any other reason. Reply with ONE JSON object only:
+{"moves": [{"n": n, "reason": "repeats", "of": n} or {"n": n, "reason": "paper_states_otherwise", "page": p, "quote": "..."}]}
+THE COMMENTS:
+%(comments)s"""
 
 #: Added to S4 only when a long paper is judged in page windows (a paper that fits is judged whole, without this line).
 WINDOW_LINE = """THIS IS PART OF A LONGER PAPER: above are pages %(first)d to %(last)d of %(count)d pages. If what an item needs is

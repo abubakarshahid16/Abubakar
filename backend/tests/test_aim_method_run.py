@@ -135,7 +135,14 @@ def test_a_saved_checklist_is_reused_and_no_build_call_is_made(aim_db):
     second, model, _s = _run(aim_db, store=store)
     assert second.checklist_reused and second.checklist_sha256 == first.checklist_sha256
     assert [
-        c["step"] for c in model.asked if c["step"] not in ("aim_identify", "aim_judge")
+        c["step"]
+        for c in model.asked
+        if c["step"]
+        not in (
+            "aim_identify",
+            "aim_judge",
+            "aim_edit",
+        )  # no BUILD call; the editor is no build step
     ] == []
     assert len(store.puts) == 1
     assert [ln["item_id"] for ln in second.lines] == [
@@ -458,4 +465,12 @@ def test_an_item_that_fails_in_two_places_gives_two_lines_through_run_and_the_st
     assert (
         len(stored) == len(r.lines)
         and [s["item_id"] for s in stored][:2] == [items[0]["id"]] * 2
+    )
+
+
+def test_the_editor_is_one_call_per_paper_after_the_judge(aim_db):
+    r, model, _s = _run(aim_db)
+    steps = [c["step"] for c in model.asked]
+    assert (
+        steps.count("aim_edit") == 1 and steps[-1] == "aim_edit" and r.status == "done"
     )

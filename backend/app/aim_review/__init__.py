@@ -91,7 +91,10 @@ PROVISIONAL_UNCHECKED = "provisional_unchecked"
 #: Two values of the PAPER compared by code and they PASSED, with the rule's operator (or the AI's, when the AI itself did not say
 #: Not met): an AI opinion that is no finding, kept in "All points", never sent. Appended to the line's other notes.
 PAPER_COMPARE_PASSED = "paper_compare_passed"
-NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED)
+#: `code_note` part of a line the editor step (S5) took off the comment sheet: "edited: repeats line 3", "edited: paper states
+#: otherwise (page 2: ...)". Its label is unchanged; it stays in "All points" with its reason.
+EDITED = "edited"
+NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED, EDITED)
 
 
 def sendable(line: dict) -> bool:
@@ -99,6 +102,9 @@ def sendable(line: dict) -> bool:
     NOT_SENT_NOTES: a Question whose only content is "not judged" (RISKS 2), a provisional figure that code compared and that
     passed, or a passed compare of two paper values. Such a line stays in "All points" and is counted there, never sent."""
     parts = {p.strip() for p in str(line.get("code_note") or "").split(";")}
+    parts |= {
+        p.split(":", 1)[0].strip() for p in parts
+    }  # "edited: repeats line 3" -> "edited"
     return line.get("label") in SENDABLE and not parts & set(NOT_SENT_NOTES)
 
 
@@ -144,6 +150,7 @@ def run(
 
 
 __all__ = [
+    "EDITED",
     "LABELS",
     "MAX_BOOKS",
     "METHOD_VERSION",

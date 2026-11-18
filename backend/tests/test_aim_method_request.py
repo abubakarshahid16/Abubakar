@@ -90,6 +90,10 @@ def _step_of(body: dict) -> str:
         ("TASK S3", "aim_checklist"),
         ("ATTACK THIS CHECKLIST", "aim_attack"),
         ("TASK S4", "aim_judge"),
+        (
+            "TASK S5",
+            "aim_edit",
+        ),  # the editor after S4: it may only take a comment off the sheet
         ("was NOT found", "aim_checklist_retry"),
     ):
         if words in prompt:

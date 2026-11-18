@@ -587,6 +587,9 @@ def _steps(
         say,
         cancelled,
     )
+    if not state.stop_reason:
+        say(96, "judge")
+        S.s5_edit(mdl, paper, state.decided, lead)
 
 
 def _known_keys(store) -> list[str]:
