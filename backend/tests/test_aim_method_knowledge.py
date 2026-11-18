@@ -636,3 +636,19 @@ def test_a_requirement_a_schedule_of_the_package_carries_is_set_aside_for_the_ma
     ]
     assert aside == [{"topic": "Insurance", "why": "for Schedule of insurance paper"}]
     assert CL.CHECKLIST_METHOD == "2026-11-19.1"
+
+
+def test_a_long_set_aside_reason_is_never_cut():
+    """F's contract run of 19 Nov: a reason read "...schedules of  paper" (cut at 80 characters, no mark). Kept whole now."""
+    from app.aim_review import carried
+
+    long = "the Insurance Requirements schedule and the Health, Safety and Environment schedule of the same contract package"
+    _kept, aside = carried.set_aside(
+        [{"topic": "t", "source": "not from a held standard", "carried_by": long}]
+    )
+    assert aside[0]["why"] == f"for {long} paper"
+    rows = [{"topic": "t", "what_to_check": "w", "carried_by": long}]
+    _added, elsewhere = carried.knowledge_rows(
+        rows, 5, CL._clean_item, CL.KNOWLEDGE_NOT_HELD
+    )
+    assert elsewhere[0]["why"] == f"for {long} paper"

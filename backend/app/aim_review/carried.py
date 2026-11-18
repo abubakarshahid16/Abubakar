@@ -22,7 +22,9 @@ def knowledge_rows(
             {**r, "source": source}
         )  # labelled first: no book, no quote, no clause number
         it["stands_in_for"] = it["stands_in_for"] or "engineering practice"
-        carried = " ".join(str(r.get("carried_by") or "").split())[:80]
+        carried = " ".join(
+            str(r.get("carried_by") or "").split()
+        )  # whole: never cut without a mark
         if carried and not carried.lower().startswith(HERE):
             elsewhere.append(
                 {
@@ -78,7 +80,7 @@ def set_aside(items: list[dict]) -> tuple[list[dict], list[dict]]:
             aside.append(
                 {
                     "topic": it.get("topic") or "",
-                    "why": f"for {carried.removesuffix(' paper')[:80]} paper",
+                    "why": f"for {carried.removesuffix(' paper')} paper",
                 }
             )
         else:
