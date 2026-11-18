@@ -88,7 +88,7 @@ export function InboxList(
     );
   }, [loadReadyCounts, wantedKey]);
   const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
-  const boundary = truncationNote(documents.length, submittalsTotal, "contractor submittals");
+  const boundary = truncationNote(documents.length, submittalsTotal, "papers");
 
   if (rows.length === 0) {
     return (

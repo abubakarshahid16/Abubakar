@@ -30,13 +30,13 @@ export function StartReviewBar({ documents, submittalsTotal, runs, onStarted }: 
   );
   const shown = sorted.filter((d) => matchesName(d.filename, query) || d.id === chosen);
   const chosenDoc = documents.find((d) => d.id === chosen) ?? null;
-  const boundary = truncationNote(documents.length, submittalsTotal, "contractor submittals");
+  const boundary = truncationNote(documents.length, submittalsTotal, "papers");
 
   return (
     <div className="space-y-2" data-testid="start-review-bar">
-      <label htmlFor={selectId} className="block text-sm font-medium text-slateish-200">Choose a submittal</label>
+      <label htmlFor={selectId} className="block text-sm font-medium text-slateish-200">Choose a paper</label>
       {documents.length === 0 ? (
-        <p className="text-sm text-slateish-300">There are no contractor submittals to choose from yet. Drop a file below instead.</p>
+        <p className="text-sm text-slateish-300">There are no papers to choose from yet. Drop a file below instead.</p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -44,7 +44,7 @@ export function StartReviewBar({ documents, submittalsTotal, runs, onStarted }: 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Type to find a file"
-            aria-label="Find a submittal by file name"
+            aria-label="Find a paper by file name"
             className="min-w-[12rem] flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-1.5 text-sm text-slateish-100"
           />
           <select

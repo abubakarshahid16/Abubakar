@@ -4,7 +4,7 @@
  * mounts this.)
  *
  *   +- New review ------------------------------------------------------+
- *   | Choose a submittal [find...] [select v] [Start review]      (L1)  |
+ *   | Choose a paper [find...] [select v] [Start review]          (L1)  |
  *   | or drop a contractor's file here                       (drop zone) |
  *   +--------------------------------------------------------------------+
  *   [Review all not reviewed (N of the contractor documents listed here)]
@@ -128,7 +128,7 @@ export function WorkspaceLanding({
   const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
   /** Rule 4: the not-reviewed count comes from the contractor documents
    *  list, which may be cut short; say so where that count is shown. */
-  const documentsCut = truncationNote(documents.length, submittalsTotal, "contractor submittals");
+  const documentsCut = truncationNote(documents.length, submittalsTotal, "papers");
   const anyCountKnown = Object.values(counts).some((c) => c !== null);
   // The same rule as the count lines themselves: the rows show theirs only in
   // Detailed view (LandingDocumentRow `simple`); the flat list always does.
@@ -207,7 +207,7 @@ export function WorkspaceLanding({
           <>
             {documentsFailed && (
               <p role="alert" className="text-sm text-danger-500">
-                The list of contractor submittals could not be loaded, so there is nothing to choose from. You can still drop a file.
+                The list of papers could not be loaded, so there is nothing to choose from. You can still drop a file.
               </p>
             )}
             <StartReviewBar documents={documents} submittalsTotal={submittalsTotal} runs={runs} onStarted={onOpenRun} />

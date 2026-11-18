@@ -17,7 +17,9 @@ describe("a paper with no role recorded", () => {
   it("is offered in the list and says how it will be reviewed once chosen", async () => {
     render(<StartReviewBar documents={[doc("a", null), doc("b", "CONTRACTOR_SUBMITTAL")]} submittalsTotal={2} runs={[]} onStarted={vi.fn()} />);
     expect(screen.queryByTestId("start-no-role")).toBeNull();
-    const select = screen.getByLabelText("Choose a submittal");
+    // the bar lists every paper that is not a rule book (G2), so it says "paper", never "submittal"
+    const select = screen.getByLabelText("Choose a paper");
+    expect(screen.queryByText(/submittal/i)).toBeNull();
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose one of 2", "a.pdf", "b.pdf"]);
     await userEvent.selectOptions(select, "a");
     expect(screen.getByTestId("start-no-role")).toHaveTextContent(NO_ROLE_LINE);
