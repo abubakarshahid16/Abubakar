@@ -46,6 +46,8 @@ def test_below_target_says_so_with_the_denominator_and_the_old_engine():
     assert got["sentence"] == (
         "Measured on planted test copies of this kind: 5.7 of 10 mistakes found (target 7): below target."
         " The earlier version found 1.5 of 10."
+        # H3 (reason: the page now says which row it used when the type has none of its own)
+        " Row used: the datasheet row for every type; this paper's equipment type is valve, which has no number of its own."
     )
 
 
@@ -267,3 +269,45 @@ def test_the_summary_sheet_carries_the_wrong_share_too(world, monkeypatch):
         and "A strict reader judged 23 of 124 comments wrong (19%; target 10% or less)."
         in cells[0]
     )
+
+
+# ---------------------------------------------------------------------------------- the row a type is measured on (piece H)
+FAMILY_TABLE = {
+    "out_of": 10,
+    "target": 7.0,
+    "kinds": {
+        "datasheet": {
+            "label": "datasheet",
+            "found_mean": None,
+            "equipment_types": {
+                "pump": {"label": "pump datasheet", "found_mean": 6.5},
+                "centrifugal pump": {"label": "centrifugal pump datasheet", "found_mean": 8.0},
+                "pressure vessel": {"label": "pressure vessel datasheet", "found_mean": 6.67},
+            },
+        }
+    },
+}  # fmt: skip
+
+
+def test_a_taxonomy_type_is_measured_on_its_family_row_and_says_so(monkeypatch):
+    """The identify step names a type from the taxonomy ("dosing_pump"); the table row is the family ("pump"). Not "not measured"."""
+    monkeypatch.setattr(M, "_table", lambda: FAMILY_TABLE)
+    got = M.for_run({"kind": "datasheet", "equipment_type": "dosing_pump"})
+    assert got["found"] == 6.5 and got["verdict"] == "below target"
+    assert got["sentence"].endswith(
+        " Row used: pump datasheet; this paper's equipment type is dosing pump."
+    )
+
+
+def test_an_exact_type_row_wins_over_the_family_row_and_needs_no_note(monkeypatch):
+    monkeypatch.setattr(M, "_table", lambda: FAMILY_TABLE)
+    got = M.for_run({"kind": "datasheet", "equipment_type": "centrifugal_pump"})
+    assert got["found"] == 8.0 and "Row used" not in got["sentence"]
+    got = M.for_run({"kind": "datasheet", "equipment_type": "pressure_vessel"})
+    assert got["found"] == 6.67 and "Row used" not in got["sentence"]
+
+
+def test_a_type_with_no_row_and_a_kind_with_no_number_is_not_measured(monkeypatch):
+    monkeypatch.setattr(M, "_table", lambda: FAMILY_TABLE)
+    got = M.for_run({"kind": "datasheet", "equipment_type": "gate_valve"})
+    assert got["verdict"] == "not measured" and got["found"] is None

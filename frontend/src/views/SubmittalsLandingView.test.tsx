@@ -313,4 +313,38 @@ describe("SubmittalsLandingView", () => {
       expect(reviewRuns).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("H5: /review?document=<id> opens that paper's newest review once the list has loaded, and only once", async () => {
+    documents.mockResolvedValue({ ok: true, data: [{ id: "doc-1", filename: "psv.pdf", document_role: "CONTRACTOR_SUBMITTAL" }] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [{
+      review_run_id: "run-1", submittal_document_id: "doc-1", submittal_filename: "psv.pdf", equipment_tags: [], status: "completed",
+      created_at: "2026-10-01T00:00:00Z", standards_in_scope: 1, findings_total: 0, by_status: {},
+    }] } });
+    const onOpenRun = vi.fn();
+    const { rerender } = render(<SubmittalsLandingView onOpenRun={onOpenRun} openDocumentId="doc-1" />);
+    await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("run-1"));
+    rerender(<SubmittalsLandingView onOpenRun={onOpenRun} openDocumentId="doc-1" />);
+    expect(onOpenRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("H5: a paper with no review yet opens its pre-start step, and one with only a general review opens that", async () => {
+    documents.mockResolvedValue({ ok: true, data: [{ id: "doc-2", filename: "vessel.pdf", document_role: "CONTRACTOR_SUBMITTAL" }] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    const first = render(<SubmittalsLandingView onOpenRun={vi.fn()} openDocumentId="doc-2" />);
+    expect(await screen.findByTestId("start-review-step")).toBeInTheDocument();
+    expect(startReviewRun).not.toHaveBeenCalled(); // opening a paper never starts a review by itself
+    first.unmount();
+    latestGeneralRun.mockResolvedValue("gen-9");
+    const onOpenRun = vi.fn();
+    render(<SubmittalsLandingView onOpenRun={onOpenRun} openDocumentId="doc-2" />);
+    await waitFor(() => expect(onOpenRun).toHaveBeenCalledWith("gen-9"));
+  });
+
+  it("H5: without the parameter nothing opens by itself", async () => {
+    documents.mockResolvedValue({ ok: true, data: [{ id: "doc-2", filename: "vessel.pdf", document_role: "CONTRACTOR_SUBMITTAL" }] });
+    reviewRuns.mockResolvedValue({ ok: true, data: { runs: [] } });
+    render(<SubmittalsLandingView onOpenRun={vi.fn()} />);
+    await screen.findByRole("button", { name: "Review" });
+    expect(screen.queryByTestId("start-review-step")).toBeNull();
+  });
 });
