@@ -609,14 +609,21 @@ def _known_keys(store) -> list[str]:
 
 def _wanted_not_held(not_held) -> frozenset[str]:
     """The governing and method books a checklist was written WITHOUT (`checklist.wanted`'s not-held part, by name): when this set
-    changes (a book is now held, or the governing table changed), a saved checklist is not reused."""
+    changes (a book is now held, or the governing table changed), a saved checklist is not reused. Told apart by the explicit
+    `source` key (`checklist.WANTED_SOURCES`), never by the words of `why`: an AI's "needed" name never forces a rebuild. A name
+    saved before the key existed has no `source` at all (an AI name always had one): it is read by its `why`."""
     from . import WHY_GOVERNS, WHY_METHOD
+    from . import checklist as CL
+
+    def table_name(n: dict) -> bool:
+        if "source" in n:
+            return n.get("source") in CL.WANTED_SOURCES
+        return str(n.get("why") or "").startswith((WHY_GOVERNS, WHY_METHOD))
 
     return frozenset(
         str(n.get("name") or "")
         for n in not_held or []
-        if isinstance(n, dict)
-        and str(n.get("why") or "").startswith((WHY_GOVERNS, WHY_METHOD))
+        if isinstance(n, dict) and table_name(n)
     )
 
 
