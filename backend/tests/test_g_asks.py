@@ -73,9 +73,9 @@ def test_a_comment_with_any_request_or_named_gap_is_kept(text):
 def test_only_a_question_on_a_stated_value_is_judged():
     quiet = "The value is within the limit."
     assert asks.asks_nothing(decided(quiet, ask="confirm"))
-    assert asks.asks_nothing(
+    assert not asks.asks_nothing(
         decided(quiet, ask="concern")
-    )  # a concern that only states a pass asks nothing (changed 18 Nov: the strict judges called such comments WRONG)
+    )  # the judge suspects the value: never taken off
     assert not asks.asks_nothing(decided(quiet, ask="open"))  # a blank IS the question
     assert not asks.asks_nothing(decided(quiet, ask="confirm", deferred=True))
     assert not asks.asks_nothing(
@@ -207,30 +207,16 @@ def test_no_chain_a_comment_spanning_two_places_stays_alone():
 @pytest.mark.parametrize(
     "text",
     [
-        "Inlet flange rating is Class 150 RF on all sheets, which meets the minimum.",
-        "The coating system is acceptable for the stated service.",
-    ],
-)
-def test_a_concern_that_only_states_a_pass_asks_nothing(text):
-    """Invented one-sentence pass statements of the kind the strict judges marked WRONG on the valve copies."""
-    assert asks.states_a_pass(text) and asks.asks_nothing(decided(text, ask="concern"))
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "The set pressure is well above the design pressure of the vessel.",  # review of d4dceeeb: these four were held back
+        "The set pressure is well above the design pressure of the vessel.",
         "Operating temperature is well above the rated temperature of the lining.",
         "Material is consistent with sheet 2 while the corrosion allowance is zero for sour service.",
         "Two capacities are stated: 40 and 55; 55 meets the duty.",
-        "The flange rating meets the minimum but not the set pressure on sheet 2.",
-        "The rating is acceptable only for the first stage.",
-        "The margin is adequate. Please confirm the design pressure.",
-        "Does the rating meet the minimum?",
-        "The stated set pressure exceeds the vessel rating.",
-        "The rating meets the minimum. The other sheets show the same.",  # two sentences
-        "A 300 bar rating is within the limit.",  # a figure beside a comparison word
+        "The stated grade is acceptable for sweet service and this line is in sour service.",
+        "Carbon steel is adequate for water, the fluid here being acid.",
+        "The rating conforms to the superseded edition of the code.",
     ],
 )
-def test_a_pass_word_beside_a_contrast_a_comparison_or_a_request_is_kept(text):
+def test_a_concern_is_never_held_back_whatever_its_words(text):
+    """Review rounds 1 to 3 of 18 Nov: each sentence states a real conflict in words a pass-word list read as a pass. A concern
+    is the judge's own suspicion and is always sent; only a "confirm" that asks nothing is held back."""
     assert not asks.asks_nothing(decided(text, ask="concern"))
