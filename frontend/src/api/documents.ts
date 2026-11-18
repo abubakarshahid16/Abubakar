@@ -238,7 +238,7 @@ export const documentsApi = {
   documents: (opts: {
     limit?: number; offset?: number; sort?: string; direction?: string;
     q?: string; status?: string;
-    document_role?: string[]; discipline?: string[];
+    document_role?: string[]; exclude_role?: string[]; discipline?: string[];
     equipment_type?: string[]; project?: string[];
   } = {}) => {
     const q = new URLSearchParams();

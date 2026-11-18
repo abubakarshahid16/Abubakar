@@ -18,6 +18,7 @@ import { WorkerPanel } from "../components/WorkerPanel";
 import { useDocumentClassifications } from "../components/classification/useDocumentClassifications";
 import { useTypeVocabularyLoad } from "../components/classification/TypeFilter";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
+import { keepScroll } from "../keepScroll";
 import type { ApiError, DocumentClassification, DocumentKindOption, DocumentRecord, DocumentRole, WorkerStatus } from "../types/api";
 import {
   AWAITING_TYPE,
@@ -395,16 +396,19 @@ export function DocumentsView({
   }, []);
 
   const confirmKind = useCallback(
-    async (doc: DocumentRecord, kind: string) => {
+    async (doc: DocumentRecord, kind: string): Promise<string | null> => {
       const result = await classification.confirmKind(doc.id, kind);
       if (result.ok) {
         setOneClassification(doc.id, result.data);
         setNotice(`Confirmed ${doc.filename} as ${kinds.find((k) => k.id === kind)?.label ?? kind}`);
-      } else if (!result.disconnected && result.error.code === "not_found") {
-        setNotice("You do not have permission to confirm this document's kind.");
-      } else {
-        setNotice(`Could not confirm the kind for ${doc.filename}. Try again.`);
+        return null;
       }
+      // The problem is returned to the card (shown beside the picker, where the reader is looking) AND kept as the page notice.
+      const problem = !result.disconnected && result.error.code === "not_found"
+        ? "You do not have permission to confirm this document's kind."
+        : `Could not save the kind for ${doc.filename}${result.error?.message ? `: ${result.error.message}` : ""}. Try again.`;
+      setNotice(problem);
+      return problem;
     },
     [setOneClassification, kinds],
   );
@@ -423,11 +427,12 @@ export function DocumentsView({
 
   const actions: DocumentActions = {
     busy,
-    onInspect: (doc) => setDrawer({ kind: "chunks", doc }),
-    onExcluded: (doc) => setDrawer({ kind: "excluded", doc }),
-    onPages: (doc) => setDrawer({ kind: "pages", doc }),
-    onPreview: (doc) => setDrawer({ kind: "preview", doc }),
-    onDetails: (doc) => setDrawer({ kind: "details", doc }),
+    // Opening a drawer keeps the reader's place on a long list (G2).
+    onInspect: (doc) => keepScroll(document.activeElement, () => setDrawer({ kind: "chunks", doc })),
+    onExcluded: (doc) => keepScroll(document.activeElement, () => setDrawer({ kind: "excluded", doc })),
+    onPages: (doc) => keepScroll(document.activeElement, () => setDrawer({ kind: "pages", doc })),
+    onPreview: (doc) => keepScroll(document.activeElement, () => setDrawer({ kind: "preview", doc })),
+    onDetails: (doc) => keepScroll(document.activeElement, () => setDrawer({ kind: "details", doc })),
     onExtract: (doc) => void run(doc, "Extract", () => api.extract(doc.id)),
     onChunk: (doc) => void run(doc, "Chunk", () => api.chunk(doc.id)),
     onEmbed: (doc) => void run(doc, "Embed", () => api.embed(doc.id)),

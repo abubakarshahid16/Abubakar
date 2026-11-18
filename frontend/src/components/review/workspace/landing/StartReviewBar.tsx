@@ -12,7 +12,7 @@ import { useId, useMemo, useState } from "react";
 import type { DocumentRecord, ReviewRunSummary } from "../../../../types/api";
 import { truncationNote } from "../../reviewFormat";
 import { ReviewAgainButton } from "../ReviewAgainButton";
-import { matchesName } from "./landingRows";
+import { NO_ROLE_LINE, matchesName } from "./landingRows";
 
 export function StartReviewBar({ documents, submittalsTotal, runs, onStarted }: {
   /** Every CONTRACTOR_SUBMITTAL document the page loaded. */
@@ -69,6 +69,7 @@ export function StartReviewBar({ documents, submittalsTotal, runs, onStarted }: 
           />
         </div>
       )}
+      {chosenDoc && !chosenDoc.document_role && <p data-testid="start-no-role" className="text-xs text-slateish-300">{NO_ROLE_LINE}</p>}
       <p className="text-xs text-slateish-400">Start review always starts a fresh review. Earlier reviews stay as they are.</p>
       {boundary && <p className="text-xs text-slateish-400">{boundary}</p>}
     </div>

@@ -101,9 +101,14 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
 
   const fetchBoth = async () => {
     // Order 14 lane E: the roles this page lists come from the suggested-role switch: off, contractor submittals only (as before).
-    const roles = (await roleSuggestionSwitch()).review_roles;
+    const listing = await roleSuggestionSwitch();
+    // Order 14 (G2): the general review takes every kind of paper, so the list is every paper that is not a rule book (a paper
+    // with no role recorded included); the earlier engine keeps the roles it always listed.
+    const exclude = listing.exclude_roles ?? [];
     const [subs, runsResult] = await Promise.all([
-      api.documents({ document_role: roles, limit: LIST_MAX }),
+      exclude.length > 0
+        ? api.documents({ exclude_role: exclude, limit: LIST_MAX })
+        : api.documents({ document_role: listing.review_roles, limit: LIST_MAX }),
       reviewsApi.reviewRuns(),
     ]);
     if (!runsResult.ok) {

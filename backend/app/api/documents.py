@@ -146,13 +146,14 @@ def list_documents(request: Request, response: Response,
     q: str | None = Query(None, max_length=200),
     status: str | None = Query(None),
     document_role: list[str] | None = Query(None),
+    exclude_role: list[str] | None = Query(None),
     discipline: list[str] | None = Query(None),
     equipment_type: list[str] | None = Query(None),
     project: list[str] | None = Query(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     reject_unknown_params(request, {"limit", "offset", "sort", "direction", "q",
-                                    "status", "document_role", "discipline",
+                                    "status", "document_role", "exclude_role", "discipline",
                                     "equipment_type", "project"})
     sort_columns = {"uploaded_at": "uploaded_at", "filename": "filename",
                     "status": "status", "size_bytes": "size_bytes"}
@@ -165,7 +166,7 @@ def list_documents(request: Request, response: Response,
     if status is not None and status not in schemas.DocStatus.__args__:
         raise HTTPException(status_code=422, detail=errors.safe_error(
             errors.INVALID_PARAMETER, "unknown document status"))
-    for role in document_role or ():
+    for role in (*(document_role or ()), *(exclude_role or ())):
         # Refused at the boundary, like every other vocabulary on this route.
         # An unknown role would otherwise match nothing and read to the user as
         # "there are no contractor submittals" rather than "that is not a role".
@@ -225,6 +226,15 @@ def list_documents(request: Request, response: Response,
     if status:
         where.append("status = ?")
         params.append(status)
+    if exclude_role:
+        # Only ever NARROWS what the scope allowed (an extra AND). A paper with no role recorded has no classification row or an
+        # empty role, so it stays in the list: a review page that excludes only rule books still shows it.
+        marks = ",".join("?" * len(exclude_role))
+        where.append(
+            "id NOT IN (SELECT document_id FROM document_classification"
+            f" WHERE document_role IN ({marks}))"
+        )
+        params.extend(exclude_role)
     where_sql = " AND ".join(where) or "1 = 1"
     total = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where_sql}", params).fetchone()[0]
     order = f"{sort_columns[sort]} {'ASC' if direction == 'asc' else 'DESC'}"
