@@ -34,6 +34,8 @@ JUDGE_BATCH = 8
 MAX_FINDINGS = 6
 #: The judge's output room: 8 items x up to 6 findings each.
 JUDGE_MAX_TOKENS = 24000
+#: At most this many judge calls in flight at once (the one setting; `aim_review.parallel`).
+JUDGE_PARALLEL = 3
 CLAUSE_WINDOW = 900
 #: In a windowed judgment, the order in which one item's answers from several windows are kept: a verified quote first, then
 #: the label that asks the most of the vendor (a firm finding is never hidden behind a "met" read in another part of the paper).
@@ -349,50 +351,58 @@ def s4_judge(
 
     One window (the paper fits): the measured method exactly. Several windows (a long paper): every batch is judged in each
     window; an item's answers are merged by `_merge`. A batch never asked (cancelled, or the run stopped) is 'not judged'."""
+    from . import parallel
+
     books = {b["alias"]: b for b in checklist.get("books") or []}
     windowed = len(windows) > 1
     answers: dict[str, list[dict]] = {it["id"]: [] for it in items}
     errors: dict[str, str] = {}
-    stop = ""
     batches = [items[k : k + JUDGE_BATCH] for k in range(0, len(items), JUDGE_BATCH)]
-    total = max(1, len(batches) * max(1, len(windows)))
-    done = 0
+    jobs: list[
+        tuple[list[dict], dict]
+    ] = []  # (batch, request) in window, then batch order: the one-at-a-time order
     for win in windows or [sorted(paper.pages)]:
         cached = paper_block(paper, win if windowed else None)
         head = (
-            (
-                P.WINDOW_LINE
-                % {"first": win[0], "last": win[-1], "count": len(paper.pages)}
-            )
+            P.WINDOW_LINE
+            % {"first": win[0], "last": win[-1], "count": len(paper.pages)}
             if windowed
             else ""
         ) + _scope_line(scope)
-        for batch in batches:
-            if stop:
-                break
-            if cancelled is not None and cancelled():
-                stop = "cancelled"
-                break
-            try:
-                got = _ask_batch(model, paper, batch, books, text, cached, head, lead)
-            except StepFailed as exc:
-                code = str(exc)
-                for it in batch:
-                    errors.setdefault(it["id"], code)
-                if exc.stops_run:
-                    stop = code
-                continue
+        jobs += [
+            (b, _batch_request(paper, b, books, text, cached, head, lead))
+            for b in batches
+        ]
+    total, finished = max(1, len(jobs)), [0]
+
+    def tick() -> None:
+        finished[0] += 1
+        if progress is not None:
+            progress(int(100 * finished[0] / total), "judge")
+
+    results, stop = parallel.run_calls(
+        model,
+        [r for _b, r in jobs],
+        workers=JUDGE_PARALLEL,
+        cancelled=cancelled,
+        done=tick,
+    )
+    for (batch, _r), got in zip(
+        jobs, results, strict=True
+    ):  # merged in the one-at-a-time order
+        if got is None:
+            continue  # never asked (cancelled, or the run stopped): its items are "not judged"
+        if got[0] == "failed":
             for it in batch:
-                # N1: the guard reads the MODEL's own label, before code relabels anything (fix check 961f7126, B1)
-                answers[it["id"]].extend(
-                    _scope_unverified(j, bool(_scope_line(scope)))
-                    for j in got.get(it["id"]) or []
-                )
-            done += 1
-            if progress is not None:
-                progress(int(100 * done / total), "judge")
-        if stop:
-            break
+                errors.setdefault(it["id"], str(got[1]))
+            continue
+        rows = _rows(got[1])
+        for it in batch:
+            # N1: the guard reads the MODEL's own label, before code relabels anything (fix check 961f7126, B1)
+            answers[it["id"]].extend(
+                _scope_unverified(j, bool(_scope_line(scope)))
+                for j in rows.get(it["id"]) or []
+            )
     lines = [
         line
         for it in items
@@ -500,8 +510,7 @@ def _scope_line(identity: dict | None) -> str:
     )
 
 
-def _ask_batch(
-    model,
+def _batch_request(
     paper,
     batch: list[dict],
     books: dict,
@@ -510,24 +519,28 @@ def _ask_batch(
     head: str,
     lead: str,
 ) -> dict:
-    """One judge call for one batch: {item id: [the model's findings]}, one per place (a row per place with the item's id, or
-    one row with a "findings" list). Declares the paper and the batch's books only."""
+    """One judge call's request for one batch, built on the calling thread (it reads rule books). Declares the paper and the
+    batch's books only."""
     carries = (
         {paper.paper_id}
         | {b for b in (item_book(it, books) for it in batch) if b}
         | {str(c) for it in batch for c in it.get("carries") or ()}
     )
-    out = model.ask(
-        step="aim_judge",
-        model=lead,
-        system="",
-        cached=cached,
-        prompt=head
+    return {
+        "step": "aim_judge",
+        "model": lead,
+        "system": "",
+        "cached": cached,
+        "prompt": head
         + P.S4_TASK
         % {"items": "\n".join(_dumps(_shown_item(it, books, text)) for it in batch)},
-        carries=carries,
-        max_tokens=JUDGE_MAX_TOKENS,
-    )
+        "carries": carries,
+        "max_tokens": JUDGE_MAX_TOKENS,
+    }
+
+
+def _rows(out) -> dict[str, list[dict]]:
+    """{item id: [the model's findings]}, one per place (a row per place with the item's id, or one row with a "findings" list)."""
     rows = (out or {}).get("judgments") or [] if isinstance(out, dict) else []
     got: dict[str, list[dict]] = {}
     for j in rows:

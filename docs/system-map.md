@@ -475,7 +475,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `aim_review.checklist` | The general review's checklist of a paper TYPE: S2 chooses books among the listed ones, S3 writes items from their clauses only (no paper), the attack by a stronger model (order 14) |
 | `aim_review.editor` | The general review's S5 editor: it may only take a sent comment off the sheet (a repeat of the same place, or a claim the paper answers), every move checked by code (order 14) |
 | `aim_review.engine` | The general review's run and its model: Claude through the one lane (carrying -> metered -> transport, inside the run's spend and review context), the fake model for tests (order 14) |
+| `aim_review.fake` | The general review's fake model (tests and the dry run): no network, fixed answers built from the prompt (order 14) |
 | `aim_review.library` | The general review's library metadata (governing and method books, rule labels, citations) and the plan-time book list (`candidates`); reads only (order 14) |
+| `aim_review.parallel` | The general review's judge calls side by side: at most N in flight, each counted on the run meter before it starts, results by position (order 14) |
 | `aim_review.paper` | The paper the general review reads: its stored pages (text, else OCR) and its page windows (order 14) |
 | `aim_review.prompts` | The general review's task texts and the request-shape check run before every send (order 14) |
 | `aim_review.steps` | The general review's S1 identify and S4 judge by page windows; `_decide`: code verifies every quote and compares every number (order 14) |
