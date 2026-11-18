@@ -15,6 +15,7 @@ from typing import Any
 from . import (
     aim_review,
     aim_review_book_why,
+    aim_review_card,
     aim_review_gate,
     aim_review_measured,
     aim_review_store,
@@ -124,6 +125,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "book_document_id": _blank(row.get("book_document_id")),
         "compared": "" if hidden else _compared(row),
         "compare_kind": _compare_kind(row),
+        "compare_result": _compare_result(row),
         # recorded state (18 Nov 2026): what a Question asks ("" when not recorded: an older run), whether its value is left
         # open, and the judge's numbers (none for a book the viewer may not open: rule 5)
         "ask": row.get("ask") or "",
@@ -157,6 +159,14 @@ def _provisional_kind(code_note) -> str:
     """The provisional part of a code note ("provisional_unchecked", "provisional_fails", ...), or ""."""
     parts = (x.strip() for x in str(code_note or "").split(";"))
     return next((x for x in parts if x.startswith(aim_review.PROVISIONAL)), "")
+
+
+def _compare_result(row: dict) -> str:
+    """The result of code's comparison at this place ("pass", "fail", "unclear"), or "" when code compared nothing."""
+    cmp_ = row.get("code_compare")
+    if cmp_ is None:
+        cmp_ = _json(row.get("code_compare_json"), {})
+    return str(cmp_.get("result") or "") if isinstance(cmp_, dict) else ""
 
 
 def _compared(row: dict) -> str:
@@ -548,6 +558,8 @@ def build(conn, run: dict, scope=None) -> dict:
     # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
     # lines of one point make ONE comment listing every place (`group_comments`)
     comments, confirmations = comments_and_confirmations(points)
+    # each comment's card: severity by code, a short title, paper says / rule says / we ask (`aim_review_card`)
+    by_severity = aim_review_card.add(comments, confirmations, points)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
@@ -576,6 +588,8 @@ def build(conn, run: dict, scope=None) -> dict:
         "counts": {
             "points": len(points),
             "comments": len(comments),
+            # the summary tiles: comments per severity (decided by code; "Please confirm" = the confirmations)
+            "by_severity": by_severity,
             # the confirmations not sent (`comments_and_confirmations`): counted apart; comment lines + these = sent lines
             "confirmations": len(confirmations),
             "comment_lines": sum(len(c["lines"]) for c in comments),

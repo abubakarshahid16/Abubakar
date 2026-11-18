@@ -139,6 +139,8 @@ def test_the_page_json_has_the_contract_shape(world):
     )
     assert body["counts"] == {
         "points": 6, "comments": 3, "confirmations": 0, "comment_lines": 3, "confirmation_lines": 0,
+        # by code: the fixture's lines carry no stored comparison, none is open: all three are "Check a value"
+        "by_severity": {"Must fix": 0, "Check a value": 3, "Missing information": 0, "Please confirm": 0},
         "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
         "by_shown_label": body["counts"]["by_shown_label"], "boundary": "this paper, this review",
     }  # fmt: skip
@@ -1529,3 +1531,93 @@ def test_a_merged_comments_field_cell_names_every_members_field(world):
         row[aim_review_sheet.COMMENT_HEADERS.index("Field")]
         == "Invented field one; Invented field two"
     )
+
+
+# ---- the comment card (planner 19:00, 18 Nov 2026): severity by CODE, a short title, the card's parts as fields ----------------
+
+FAIL_RULE = json.dumps(
+    {"result": "fail", "why": "25 bar <= 20 bar: false", "read_from": "verified quotes"}
+)
+FAIL_PAIR = json.dumps(
+    {
+        "result": "fail",
+        "why": "25 bar <= 20 bar: false",
+        "read_from": "verified paper quotes",
+    }
+)
+
+
+def _cards(run_id, rows):
+    make_run(run_id, rows, created="2026-11-19T06:00:00Z")
+    return (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id={run_id}")
+        .json()
+    )
+
+
+def test_the_severity_of_a_card_is_decided_by_code_never_by_its_words(world):
+    rows = [
+        _line(1, "Not met", "Fail, compared by code", item_id="C01", code_compare_json=FAIL_RULE),  # against a held rule
+        _line(2, "AI opinion", "AI opinion", item_id="C02", code_compare_json=FAIL_PAIR),  # the paper against itself
+        _line(3, "Question", "Question", item_id="C03", code_compare_json=FAIL_RULE, code_note="provisional_fails"),
+        _line(4, "Not met", "AI opinion: not met", item_id="C04", comment="Must fix: this is plainly wrong."),  # words decide nothing
+        _line(5, "Question", "Question", item_id="C05", deferred=1),
+        _line(6, "Question", "Question", item_id="C06", ask="open"),
+        _line(7, "Question", "Question", item_id="C07", code_note="not_on_any_page"),
+        _line(8, "Question", "Question", item_id="C08", ask="confirm", quote_unverified=""),  # a confirmation
+    ]  # fmt: skip
+    body = _cards("gen_cards", rows)
+    sev = {
+        cm["lines"][0]: cm["severity"]
+        for cm in body["comments"] + body["confirmations"]
+    }
+    assert sev == {1: "Must fix", 2: "Must fix", 3: "Check a value", 4: "Check a value", 5: "Missing information",
+                   6: "Missing information", 7: "Missing information", 8: "Please confirm"}  # fmt: skip
+    assert body["counts"]["by_severity"] == {
+        "Must fix": 2,
+        "Check a value": 2,
+        "Missing information": 3,
+        "Please confirm": 1,
+    }
+    proven = {cm["lines"][0]: cm["proven"] for cm in body["comments"]}
+    assert proven[1] == "compared by code" and proven[4] == aim_review_gate.AI_MARK
+
+
+def test_a_card_takes_its_most_severe_point(world):
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", deferred=1, comment="Left open."),  # Missing information
+        _line(2, "Question", "Question", item_id="C01", comment="A value to check."),  # Check a value
+    ]  # fmt: skip
+    body = _cards("gen_card_max", rows)
+    assert [(cm["lines"], cm["severity"]) for cm in body["comments"]] == [
+        ([1, 2], "Check a value")
+    ]
+
+
+def test_a_card_has_a_short_title_and_its_parts_as_fields(world):
+    long_topic = "an invented topic of many words that goes well past the eleven word title limit here"
+    rows = [
+        _line(1, "Not met", "Fail, compared by code", item_id="C01", code_compare_json=FAIL_RULE, topic="Design pressure limit",
+              comment="State a design pressure within the limit."),
+        _line(2, "Question", "Question", item_id="C02", topic=long_topic),
+        _line(3, "AI opinion", "AI opinion", item_id="C03", topic="", field="Invented field three",
+              source="engineering knowledge (book not held)", standard="", clause=""),
+    ]  # fmt: skip
+    body = _cards("gen_card_parts", rows)
+    by = {cm["lines"][0]: cm for cm in body["comments"]}
+    one = by[1]
+    assert (
+        one["title"] == "Design pressure limit"
+        and one["paper_says"] == "invented quote 1"
+    )
+    assert one["rule_says"] == "STD-X clause 4.1: 25 bar <= 20 bar: false"
+    assert one["we_ask"] == "State a design pressure within the limit."
+    assert one["applies_to"] == [
+        {"page": 3, "field": "Invented field 1", "quote": "invented quote 1"}
+    ]
+    assert len(by[2]["title"].replace(" ...", "").split()) < 12 and by[2][
+        "title"
+    ].endswith(" ...")
+    assert by[3]["title"] == "Invented field three"
+    assert by[3]["rule_says"] == "Engineering knowledge (no held rule book)"
