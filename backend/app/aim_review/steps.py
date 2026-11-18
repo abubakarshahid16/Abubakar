@@ -12,10 +12,9 @@ import logging
 import re
 
 from . import (
+    CONTRACTOR_FILLED,
     PAPER_COMPARE_PASSED,
-    PROVISIONAL,
     PROVISIONAL_FAILS,
-    PROVISIONAL_UNCHECKED,
 )
 from . import library as L
 from . import prompts as P
@@ -243,44 +242,6 @@ _FAILS_AS = {
     "==": ("is not", "required value"),
     "!=": ("is", "excluded value"),
 }
-
-
-def _provisional(
-    it: dict, j: dict, quote: str, page: int, base: dict, paper_doc=None
-) -> dict:
-    """A PROVISIONAL figure (a stated figure beside a who-supplies note; verified quote): code checks it from the verified quotes
-    as for any value, but the label is ALWAYS Question (the standing order: a value left to the vendor is a Question, nothing
-    unproven is a Pass or Fail). A failed check is a sent Question that states the check in numbers (`PROVISIONAL_FAILS`); a
-    check code could not run is a sent Question with the AI's comment (`PROVISIONAL_UNCHECKED`); only a PASSED check stays in
-    "All points" (`PROVISIONAL`, never sent). The limit may be the rule's or one the paper states (`_paper_numbers`)."""
-    nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
-    code_cmp = None
-    if nums and it["source"] == HELD:
-        _label, code_cmp = _numbers(
-            nums, quote, str(it.get("rule_quote") or ""), [], paper_doc
-        )
-    _paper_compare(code_cmp, page)
-    result = code_cmp.get("result") if isinstance(code_cmp, dict) else None
-    fails = result == "fail"
-    note = {"fail": PROVISIONAL_FAILS, "pass": PROVISIONAL}.get(
-        str(result), PROVISIONAL_UNCHECKED
-    )
-    return {
-        **base,
-        "field": str(j.get("field") or "")[:100],
-        "page": page,
-        "label": "Question",
-        "quote": quote,
-        "quote_unverified": "",
-        "comment": _fails_comment(code_cmp, quote, base, asking=True)
-        if fails
-        else str(j.get("comment") or "")[:400],
-        "code": note,
-        "numbers": nums,
-        "code_compare": code_cmp,
-        "deferred": False,
-        "ask": _ask(j, "Question", False, code_cmp, nums, note),
-    }
 
 
 def _num(v) -> str:
@@ -681,9 +642,12 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         label, _ = "Question", notes.append("no paper quote for a verdict")
     if j.get("scope_unverified"):
         notes.append(SCOPE_NOT_VERIFIED)
-    if page is not None and _provisional_figure(quote):
-        return _provisional(it, j, quote, page, base, paper)
-    deferred = bool(j.get("deferred")) or _deferred(quote)
+    # a figure the contractor FILLED IN beside a who-supplies note is a stated value, judged as any value (owner, 18 Nov 2026 after
+    # live); the note says so on the line. Pass/Fail only when code compares it with a held rule; else an AI verdict (to be checked)
+    filled = page is not None and _provisional_figure(quote)
+    if filled:
+        notes.append(CONTRACTOR_FILLED)
+    deferred = (bool(j.get("deferred")) and not filled) or _deferred(quote)
     if (
         deferred and label != "Question"
     ):  # ANY label (owner, 18 Nov): a value left to the vendor is a Question
