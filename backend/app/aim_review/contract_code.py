@@ -135,11 +135,11 @@ def _line(
         "item_id": IDS[check],
         "finding_no": n,
         "label": label,
-        "field": field[:100],
+        "field": field,  # code's own short words: never cut
         "page": page,
         "quote": quote,
         "quote_unverified": "",
-        "comment": comment[:400],
+        "comment": comment,  # never cut (completeness rule 3): the whole sentence or nothing
         "standard": "",
         "clause": "",
         "source": SOURCE,
@@ -184,20 +184,26 @@ def _question(
 # ------------------------------------------------------------------------------------------------ schedules
 
 
-#: a line of this many words or more between two Schedule lines is a body sentence: the list ended (a title or a page header is shorter)
+#: a line of this many words or more that ENDS a sentence ('.' or ':') between two Schedule lines is a body sentence: the list
+#: ended. A long title that wraps (no full stop) does not end it (review B2).
 LIST_BREAK_WORDS = 10
 
 
 def _schedule_list(pages: dict[int, str]) -> list[tuple[str, int, str]]:
     """The Schedules the contract lists as its parts: (label, page, the line) of every line that STARTS with a Schedule label and is
     not an item of a numbered list (its line, or the line before it, is not a list number), in the longest run of three or more
-    such lines with no body sentence (LIST_BREAK_WORDS words or more) between them."""
+    such lines with no body sentence (LIST_BREAK_WORDS words or more, ending with '.' or ':') between them. A layout reading:
+    what it misses is never a proof (`check_schedules` asks, never says Not met)."""
     lines = CC.lines_of(sorted(pages.items()))
     runs, cur = [], []
     for i, (page, ln) in enumerate(lines):
         part = CC._heading_part(ln)
         if not part or part[0][0] != "schedule":
-            if cur and len(_WORD.findall(ln)) >= LIST_BREAK_WORDS:
+            if (
+                cur
+                and len(_WORD.findall(ln)) >= LIST_BREAK_WORDS
+                and ln.rstrip().endswith((".", ":"))
+            ):
                 runs.append(cur)
                 cur = []
             continue
@@ -220,7 +226,9 @@ def _rank_line(pages: dict[int, str], page: int, label: str) -> str:
 
 
 def check_schedules(pages: dict[int, str], held: set[str] | None = None) -> list[dict]:
-    """The order of precedence against the list of Schedules (both read whole), and the listed Schedules against the package.
+    """The order of precedence against the list of Schedules, and the listed Schedules against the package; Schedules matched by
+    their label (letter or number), never by title words. Every line is a QUESTION: the two lists are read by a layout rule, and
+    an absence from a parsed list is not a comparison of two verified values (review B2: a wrapped title once cut the list).
     `held`: the labels of the Schedules the package holds and a recorded link ties to the paper; None = not known (no line)."""
     ranks = [
         (r, k, p)
@@ -231,6 +239,8 @@ def check_schedules(pages: dict[int, str], held: set[str] | None = None) -> list
     out = []
     if len(ranks) >= 3 and len(listed) >= 3:
         names = {lab for lab, _p, _l in listed}
+        lo, hi = min(p for _l, p, _x in listed), max(p for _l, p, _x in listed)
+        list_pages = f"{lo}" if lo == hi else f"{lo}-{hi}"
         ranked: dict[str, list[tuple[int, int]]] = {}
         for r, (_w, lab), p in ranks:
             ranked.setdefault(lab, []).append((r, p))
@@ -240,22 +250,21 @@ def check_schedules(pages: dict[int, str], held: set[str] | None = None) -> list
                 continue
             if lab not in names:
                 out.append(
-                    _firm(
+                    _question(
                         "schedules", len(out) + 1, places[0][1], q,
-                        f"Schedule {lab} is ranked {places[0][0]} in the order of precedence (page {places[0][1]}) but is not "
-                        f"among the Schedules the contract lists as its parts ({', '.join(sorted(names))}); add it to the list "
-                        "or remove it from the order.",
-                        "order of precedence against the list of Schedules", f"Schedule {lab}", "listed Schedules",
-                        "a ranked Schedule is not listed",
+                        f"Schedule {lab} is ranked {places[0][0]} in the order of precedence (page {places[0][1]}), but it was "
+                        f"not found in the list of Schedules on page {list_pages} ({', '.join(sorted(names))}); please confirm "
+                        "it is a part of the contract and add it to the list, or remove it from the order.",
+                        "order of precedence against the list of Schedules",
                     )
                 )  # fmt: skip
             if len(places) > 1:
                 out.append(
-                    _firm(
+                    _question(
                         "schedules", len(out) + 1, places[0][1], q,
-                        f"Schedule {lab} is ranked more than once in the order of precedence (ranks "
-                        f"{', '.join(str(r) for r, _p in places)}); rank it once.",
-                        "order of precedence", f"ranks {[r for r, _p in places]}", "one rank", "a Schedule ranked twice",
+                        f"Schedule {lab} appears more than once in the order of precedence (ranks "
+                        f"{', '.join(str(r) for r, _p in places)}); please confirm its one rank.",
+                        "order of precedence",
                     )
                 )  # fmt: skip
         for lab, page, ln in listed:
@@ -263,12 +272,11 @@ def check_schedules(pages: dict[int, str], held: set[str] | None = None) -> list
             if lab in ranked or not quote_in(q, pages[page]):
                 continue
             out.append(
-                _firm(
+                _question(
                     "schedules", len(out) + 1, page, q,
-                    f"Schedule {lab} is listed as a part of the contract (page {page}) but has no rank in the order of "
-                    "precedence; give it a rank.",
-                    "list of Schedules against the order of precedence", f"Schedule {lab}", "ranked Schedules",
-                    "a listed Schedule is not ranked",
+                    f"Schedule {lab} is listed as a part of the contract (page {page}), but it was not found in the order of "
+                    f"precedence (page {ranks[0][2]}); please confirm its rank.",
+                    "list of Schedules against the order of precedence",
                 )
             )  # fmt: skip
     if held is not None and listed:

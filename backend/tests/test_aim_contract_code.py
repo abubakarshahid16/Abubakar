@@ -133,11 +133,12 @@ def _bond(cap_a: str, cap_b: str, subject_b: str = "total bond") -> dict[int, st
     }  # fmt: skip
 
 
-def test_two_caps_for_the_same_item_proven_or_asked():
+def test_two_caps_for_the_same_item_are_asked_never_proven():
     same = _bond("four percent (4%)", "eight percent (8%)")
     lines = _only(K.lines(same, C), "percent_values")
-    assert len(lines) == 1
-    _firm(lines[0])
+    assert (
+        len(lines) == 1 and lines[0]["label"] == "Question"
+    )  # the same item is a layout reading (review B2)
     other = _bond(
         "four percent (4%)", "eight percent (8%)", subject_b="total cash bond"
     )
@@ -181,12 +182,14 @@ def _deal(ranked: list[str], listed: list[str]) -> dict[int, str]:
     }  # fmt: skip
 
 
-def test_schedule_ranked_but_not_listed_and_listed_but_not_ranked_are_proven():
+def test_schedule_ranked_but_not_listed_and_listed_but_not_ranked_are_questions():
     pages = _deal(["A", "B", "Z"], ["A", "B", "C"])
     lines = _only(K.lines(pages, C, held={"A", "B", "C"}), "schedules")
     assert len(lines) == 2
-    for ln in lines:
-        _firm(ln)
+    for (
+        ln
+    ) in lines:  # an absence from a list read by layout is never a proof (review B2)
+        assert ln["label"] == "Question" and PROVEN_FAIL not in ln["comment"]
     assert (
         "Schedule Z is ranked" in lines[0]["comment"]
         and "Schedule C is listed" in lines[1]["comment"]
