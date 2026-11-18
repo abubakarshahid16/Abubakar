@@ -472,6 +472,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `aim_review_store` | The general review's storage: its runs, lines and saved checklists (`aim_runs`, `aim_lines`, `aim_checklists`), and `exclude`, which keeps a general run out of every old reader of `review_runs` (order 14) |
 | `aim_review_history` | A paper's review history, general and earlier, newest first (read only; earlier runs keep their own download routes; a paper outside the caller's scope has none) (order 14) |
 | `aim_review.always` | The general review's three always-on method items of every review: G1 cited standards, G2 internal consistency, G3 required entries (order 14) |
+| `aim_review.answered` | The general review's whole-paper check (S4b): a comment on no held rule that the paper answers on some page (a quote code finds there) stays a point, not sent (order 14) |
 | `aim_review.checklist` | The general review's checklist of a paper TYPE: S2 chooses books among the listed ones, S3 writes items from their clauses only (no paper), the attack by a stronger model (order 14) |
 | `aim_review.editor` | The general review's S5 editor: it may only take a sent comment off the sheet (a repeat of the same place, or a claim the paper answers), every move checked by code (order 14) |
 | `aim_review.engine` | The general review's run and its model: Claude through the one lane (carrying -> metered -> transport, inside the run's spend and review context), the fake model for tests (order 14) |
