@@ -2855,6 +2855,11 @@ class ReviewRunSummary(BaseModel):
     review_run_id: str
     submittal_document_id: str
     submittal_filename: str | None = None
+    #: Order 14: "general" for a run of the general review (the one Review button's method); null for an earlier review.
+    method: str | None = None
+    #: A general review's own numbers {points, comments, confirmations, stopped}; null for an earlier review and for a general run
+    #: that has not ended. Never the earlier method's findings tiers.
+    general_counts: dict | None = None
     #: Every distinct equipment tag the run's findings name, in order; empty
     #: (shown as nothing, never a guess) when the datasheet states none.
     equipment_tags: list[str] = []

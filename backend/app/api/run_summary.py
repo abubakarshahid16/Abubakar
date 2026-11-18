@@ -27,6 +27,7 @@ from .. import (
 )
 from .. import ai_engineering_check as ai_engineering_check_mod
 from .. import ai_numbers as ai_numbers_mod
+from .. import aim_review_runs as aim_review_runs_mod
 from .. import clause_coverage as clause_coverage_mod
 from .. import clause_review as clause_review_mod
 from .. import comparison as comparison_mod
@@ -241,13 +242,25 @@ class RunSummary(BaseModel):
     sheet: SheetCounts | None = None
 
 
+class GeneralRunCounts(BaseModel):
+    """A general review's own numbers (order 14): the points it reviewed and the comments it sent, and the confirmations held back
+    (absent on a run that has none counted). Never the earlier method's tiers."""
+
+    points: int
+    comments: int
+    confirmations: int | None = None
+    stopped: bool = False
+
+
 class RunCountsBatch(BaseModel):
     """`GET /api/reviews/runs/counts`: the tier counts of many runs in one
     call, each the same as that run's `/summary` `counts`. A run that is not
-    there, or that the caller may not read, is absent, never zeros."""
+    there, or that the caller may not read, is absent, never zeros. A GENERAL
+    review has no tiers: its own numbers are in `general`, never in `counts`."""
 
     boundary: str
     counts: dict[str, TierCounts]
+    general: dict[str, GeneralRunCounts] = {}
 
 
 def reader_timed_out_pages(split: dict | None) -> list[int] | None:
@@ -305,7 +318,11 @@ def review_run_counts(
     reject_unknown_params(request, {"ids"})
     allowed = scope.allowed_document_ids
     counts: dict[str, dict] = {}
-    for review_run_id in dict.fromkeys(ids):
+    wanted = list(dict.fromkeys(ids))
+    general = aim_review_runs_mod.counts_for(connect(), wanted, allowed)
+    for review_run_id in wanted:
+        if review_run_id in general or aim_review_runs_mod.is_general(connect(), review_run_id):
+            continue  # a general review has no tiers: its numbers are `general`, a run not yet ended has none
         if (
             submittal_review_mod.get_review_run(
                 review_run_id, allowed_document_ids=allowed
@@ -314,7 +331,7 @@ def review_run_counts(
         ):
             continue
         counts[review_run_id] = _tiers(review_run_id, allowed)[0]["counts"]
-    return {"boundary": BOUNDARY, "counts": counts}
+    return {"boundary": BOUNDARY, "counts": counts, "general": general}
 
 
 @router.get(
@@ -435,12 +452,20 @@ def list_review_runs(
         allowed_document_ids=scope.allowed_document_ids,
         submittal_document_id=document_id,
     )
-    page = runs[offset : offset + limit]
+    # order 14: the general reviews of the papers the caller may read, merged in, newest first (their own numbers, not tiers)
+    general = aim_review_runs_mod.entries(connect(), scope.allowed_document_ids, document_id)
+    merged = sorted(
+        [(str(r.get("created_at") or ""), str(r["id"]), r) for r in runs]
+        + [(str(g.get("created_at") or ""), g["review_run_id"], g) for g in general],
+        key=lambda x: (x[0], x[1]),
+        reverse=True,
+    )
+    page = merged[offset : offset + limit]
     from .. import main as main_mod  # main imports this module
 
     return {
-        "runs": [main_mod._run_summary(run, scope) for run in page],
-        "total": len(runs),
+        "runs": [row if "method" in row else main_mod._run_summary(row, scope) for _a, _b, row in page],
+        "total": len(merged),
         "limit": limit,
         "offset": offset,
     }

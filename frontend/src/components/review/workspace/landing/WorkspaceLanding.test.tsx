@@ -221,6 +221,15 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     await waitFor(() => expect(onReload).toHaveBeenCalled());
   });
 
+  it("H7: a general review's line is its own numbers, labelled, not '0 findings'", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: null, needs_you: null, general: { points: 129, comments: 66, confirmations: 20 } } });
+    renderLanding();
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts"))
+      .toHaveTextContent("General review: 129 points reviewed, 66 comments sent (20 confirmations not sent)"));
+    expect(within(rowOf("Pump")).getByTestId("row-counts")).not.toHaveTextContent(/0 findings|needing your judgement/);
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/); // no tiers: nothing "waiting for you"
+  });
+
   it("W5: All reviews of this file (N), the latest included, folds out under a reviewed row", async () => {
     reviewRunCounts.mockResolvedValue({ ok: true, data: { boundary: "", counts: { "run-1": { comment: 4, needs_you: 2 } } } });
     renderLanding();
