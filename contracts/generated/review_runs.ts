@@ -72,6 +72,8 @@ export interface ReviewRunSummary {
   method?: string | null;
   /** A general review's own numbers {points, comments, confirmations, stopped}; null for an earlier review and for a general run that has not ended. Never the earlier method's findings tiers. */
   general_counts?: Record<string, unknown> | null;
+  /** A general review's sign-off: "signed", "changed" (a decision came after the sign-off) or "not_signed"; null for an earlier review and for a general run that has not ended. */
+  general_signoff?: string | null;
   /** Every distinct equipment tag the run's findings name, in order; empty (shown as nothing, never a guess) when the datasheet states none. */
   equipment_tags: string[];
   status: string;
