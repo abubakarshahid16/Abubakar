@@ -47,7 +47,7 @@ NOT_HELD, AMBIGUOUS, NOT_READABLE, NOT_LINKED = (
     "not held",
     "held more than once: not chosen",
     "held, not on the list shown",
-    "held, but not recorded as part of this paper's project: not compared",
+    "held, but not linked to this paper: not compared",
 )
 #: A line's code note when a reference paper settled or changed it (`sendable` reads the label, never this note).
 NOTE_CHECKED = "reference_checked"
@@ -70,7 +70,8 @@ class Resolution:
     refs: list[Ref] = field(default_factory=list)
     not_held: list[str] = field(default_factory=list)
     ambiguous: list[str] = field(default_factory=list)
-    #: A held contract paper IS the Schedule, but no recorded project says it belongs with this paper: said, never compared.
+    #: A held contract paper IS the Schedule, but no recorded link ties it to this paper (same recorded project, or on the run's shown list):
+    #: said, never compared.
     unlinked: list[str] = field(default_factory=list)
 
 
@@ -106,11 +107,11 @@ def project_of(conn, doc_id: str) -> str | None:
 
 
 def held_schedules(
-    conn, paper_id: str
+    conn, paper_id: str, shown: frozenset[str] = frozenset()
 ) -> tuple[dict[Key, list[str]], dict[Key, list[str]]]:
-    """({Schedule: the held contract papers that ARE that Schedule AND are recorded in the SAME project as the paper},
-    {Schedule: those recorded in another project or in none}). A part counts as a Schedule when its first heading lines say so (page 1
-    only). With no project recorded on the paper nothing is linked."""
+    """({Schedule: the held contract papers that ARE that Schedule AND are tied to the paper by a RECORDED link: the same recorded
+    project, or the engineer's choice at the start (the run's shown list, `shown`)}, {Schedule: those with neither link}). A part counts
+    as a Schedule when its first heading lines say so (page 1 only). Never a likeness of names or numbers."""
     linked: dict[Key, list[str]] = {}
     other: dict[Key, list[str]] = {}
     mine = project_of(conn, paper_id)
@@ -129,18 +130,22 @@ def held_schedules(
         ).fetchone()
         if row is None:
             continue
-        home = (
-            linked if mine is not None and project_of(conn, doc_id) == mine else other
+        tied = doc_id in shown or (
+            mine is not None and project_of(conn, doc_id) == mine
         )
+        home = linked if tied else other
         for key, parent in CC.package_part([(int(row[0]), row[1] or "")]):
             if parent is None and CC.DEPTH[key[0]] == 0:
                 home.setdefault(key, []).append(doc_id)
     return linked, other
 
 
-def resolve(conn, paper_id: str, pages: dict[int, str]) -> Resolution:
-    """The reference papers of a paper: each cited Schedule that exactly ONE held contract paper of the SAME RECORDED PROJECT is. The rest are said, not guessed."""
-    held, elsewhere = held_schedules(conn, paper_id)
+def resolve(
+    conn, paper_id: str, pages: dict[int, str], shown: frozenset[str] = frozenset()
+) -> Resolution:
+    """The reference papers of a paper: each cited Schedule that exactly ONE held contract paper is AND a recorded link ties to the paper (the same
+    recorded project, or the run's shown list: the engineer's choice at the start). The rest are said, not guessed."""
+    held, elsewhere = held_schedules(conn, paper_id, shown)
     res = Resolution()
     for key in paper_cites(pages):
         ids = held.get(key, [])
@@ -537,7 +542,7 @@ def check(
     try:
         if not claude_auto_approve.is_contract_paper(paper.paper_id):
             return [], set()
-        res = resolve(conn, paper.paper_id, paper.pages)
+        res = resolve(conn, paper.paper_id, paper.pages, allowed_books)
     except sqlite3.Error as exc:
         log.info("reference papers not resolved (%s)", type(exc).__name__)
         return [], set()
