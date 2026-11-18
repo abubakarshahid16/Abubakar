@@ -209,12 +209,33 @@ def with_cited_not_held(conn, paper_id: str, cited, not_held: list[dict]) -> lis
             L.resolve(lib, name) is not None
         ):  # held (a rule book, or a paper of another role): never "not held"
             continue
-        out.append(
-            {
-                "name": name,
-                "why": WHY_CITED_NOT_HELD,
-                "source": "the paper cites it (read on the paper, verified)",
-            }
-        )
+        page = c.get("page") if isinstance(c.get("page"), int) else None
+        out.append({"name": name, "why": WHY_CITED_NOT_HELD, "source": "the paper cites it (read on the paper, verified)",
+                    "page": page, "quote": str(c.get("quote") or "")[:300]})  # fmt: skip
         have.add(folded)
+    return out
+
+
+def cited_points(not_held: list[dict]) -> list[dict]:
+    """One point per standard the paper cites that is not held (lead 4, 18 Nov 2026: "the check left open"): a Question on All
+    points, "Cited by the paper (page N); the book is not held, so its requirements were not checked.", with the verified quote
+    and its page; never a sent comment (`CITED_NOT_HELD` is a not-sent note), so the contractor sees no noise. Completeness
+    counts it like any point."""
+    from . import CITED_NOT_HELD
+
+    out = []
+    for n, nh in enumerate(
+        [
+            x
+            for x in not_held or []
+            if isinstance(x, dict) and x.get("why") == WHY_CITED_NOT_HELD
+        ],
+        1,
+    ):
+        page = nh.get("page")
+        where = f" (page {page})" if page else ""
+        out.append({"item_id": f"CNH{n:02d}", "label": "Question", "field": nh["name"], "page": page, "quote": nh.get("quote") or "",
+                    "comment": f"Cited by the paper{where}; the book is not held, so its requirements were not checked.",
+                    "standard": nh["name"], "source": "cited by the paper (book not held)", "topic": f"Cited standard {nh['name']}",
+                    "code": CITED_NOT_HELD, "code_compare": None, "deferred": False, "ask": ""})  # fmt: skip
     return out

@@ -226,3 +226,34 @@ def test_the_identify_step_asks_for_every_cited_standard():
         "EVERY one the paper names ANYWHERE" in P.S1_TASK
         and "numbers you do not recognise" in P.S1_TASK
     )
+
+
+def test_a_cited_book_not_held_is_one_point_on_all_points_never_sent_and_the_run_keeps_what_s1_cited(
+    aim_db,
+):
+    """Lead 4's decision ("the check left open"): one Question point per cited book not held, with the page of its verified
+    quote, never a sent comment; S1's cited names and pages are kept in the run record (no quote)."""
+    _cite(aim_db)
+    ident = {"kind": "datasheet", "equipment_type": None, "subject": "invented item", "subject_key": "test_item", "service": "",
+             "evidence": [], "cited": [{"name": NUMBER, "page": 1, "quote": f"The nameplate follows {NUMBER} in full."}],
+             "scope": None}  # fmt: skip
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_identify": ident}
+    )
+    r = aim_review.run(aim_db, run_id="run_zq_pt", paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}),
+                       store=MemoryStore(), max_usd=5.0, model=model)  # fmt: skip
+    points = [
+        ln for ln in r.lines if aim_review.CITED_NOT_HELD in (ln["code_note"] or "")
+    ]
+    assert (
+        len(points) == 1 and points[0]["label"] == "Question" and points[0]["page"] == 1
+    )
+    assert (
+        points[0]["comment"]
+        == "Cited by the paper (page 1); the book is not held, so its requirements were not checked."
+    )
+    assert not aim_review.sendable(points[0])
+    assert (
+        r.identity["cited"] == [{"name": NUMBER, "page": 1}]
+        and "quote" not in r.identity["cited"][0]
+    )
