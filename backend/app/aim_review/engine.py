@@ -409,6 +409,8 @@ def to_line(n: int, d: dict) -> dict:
         "deferred": bool(
             d.get("deferred")
         ),  # the store's shown_label reads it: a deferred value is always a Question
+        "ask": d.get("ask")
+        or None,  # what a Question asks (`steps._ask`); recorded only
     }
 
 

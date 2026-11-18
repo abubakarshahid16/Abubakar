@@ -140,6 +140,26 @@ def _clause_context(text: L.BookText, it: dict) -> str:
     return flat[max(0, i - CLAUSE_WINDOW // 2) : i + CLAUSE_WINDOW]
 
 
+#: What a sent Question asks, as recorded on its line (`_ask`; recorded only, nothing leaves the comments because of it).
+ASK_CONCERN, ASK_CONFIRM, ASK_OPEN = "concern", "confirm", "open"
+
+
+def _ask(j: dict, label: str, deferred: bool, code_cmp, nums, note: str = "") -> str:
+    """The mark of a Question line, decided by code from the judge's "ask" and the run's state; "" for any other label.
+    "concern" when code saw a conflict (a failed compare, a provisional figure that fails, numbers the judge gave) or the judge
+    suspects the value; "open" when the value is left open (the judge's deferred flag or code reading the quote as open: a judge's
+    "confirm" there stays a question to the vendor, never "confirm"); "confirm" only on the judge's own word; any other answer
+    (missing, unknown) is "concern" (the safe side)."""
+    if label != "Question":
+        return ""
+    failed = isinstance(code_cmp, dict) and code_cmp.get("result") == "fail"
+    if failed or nums or PROVISIONAL_FAILS in note or j.get("ask") == ASK_CONCERN:
+        return ASK_CONCERN
+    if deferred:
+        return ASK_OPEN
+    return ASK_CONFIRM if j.get("ask") == ASK_CONFIRM else ASK_CONCERN
+
+
 def _deferred(quote: str) -> bool:
     """THE one decision "the paper leaves this value open" for a quote: `blank_markers.value_left_open` (the one list; the lead's
     decision of 18 Nov 2026). A pending marker (TBA, TBC, TBD, later, VTA, a lone "*"), a blank form, or a who-supplies note
@@ -259,6 +279,7 @@ def _provisional(
         "numbers": nums,
         "code_compare": code_cmp,
         "deferred": False,
+        "ask": _ask(j, "Question", False, code_cmp, nums, note),
     }
 
 
@@ -296,10 +317,11 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict, asking: bool = False)
         else (verb, "contractor to confirm the value")
     )
     if code_cmp.get("read_from") == "verified paper quotes":
-        # the AI chose which paper number is the limit: said as the AI's reading, never as a fact
+        # the AI chose which paper number is the other value: the sentence states both values and the page, no verdict
         page = code_cmp.get("limit_page")
         where = f"on page {page}" if page else "on this paper"
-        return f"The stated {stated} {verb} {rule}, which the AI read as the {noun} {where}; {ask}."
+        # what the paper shows, with its page (light check of the valve sheet: no "the AI read ... as" narration)
+        return f"The stated {stated} {verb} the {rule} stated {where}; {ask}."
     if base.get("standard"):
         where = f"{base['standard']} clause {base['clause']}".strip()
     else:
@@ -688,6 +710,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     ):  # any knowledge item (not held, or not from a held standard)
         label = "AI opinion" if label == "Not met" else "Does not apply"
         notes.append("not from a held standard: never Met or Not met")
+    code_note = _code_note(notes, code_cmp, j.get("label"))
     return {
         **base,
         "field": str(j.get("field") or "")[:100],
@@ -696,10 +719,11 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         "quote": quote if page is not None else "",
         "quote_unverified": quote if (quote and page is None) else "",
         "comment": _comment(j, code_cmp, quote, base, page),
-        "code": _code_note(notes, code_cmp, j.get("label")),
+        "code": code_note,
         "numbers": nums,
         "code_compare": code_cmp,
         "deferred": deferred,
+        "ask": _ask(j, label, deferred, code_cmp, nums, code_note),
     }
 
 
