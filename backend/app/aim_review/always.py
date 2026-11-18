@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 
+from . import library as L
 from .steps import HELD, KNOWLEDGE, item_book
 
 log = logging.getLogger(__name__)
@@ -66,7 +67,19 @@ def items(
         for it in checklist.get("items") or []
         if isinstance(it, dict) and it.get("source") == HELD
     ]
-    listed = [(it, b) for it, b in listed if b and b in allowed_books]
+    # two locks: the book is on the shown list AND it may be used for this paper (public, or a company book the paper cites)
+    listed = [
+        (it, b)
+        for it, b in listed
+        if b
+        and b in allowed_books
+        and (
+            b in cited
+            or L.is_public_name(
+                (books.get(it.get("book") or "") or {}).get("identifier")
+            )
+        )
+    ]
     facts, named = _library_facts(conn, identity, allowed_books, text, cited)
     g3_named = {
         b: str((books.get(it.get("book") or "") or {}).get("identifier") or "")

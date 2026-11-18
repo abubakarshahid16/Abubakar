@@ -146,3 +146,25 @@ def test_the_page_json_carries_the_measured_sentence_of_the_runs_kind(
         "sentence",
     }
     assert got["measured"]["verdict"] in M.VERDICTS and got["measured"]["sentence"]
+
+
+def test_a_score_is_never_rounded_up_and_a_missing_denominator_or_target_is_not_measured(
+    monkeypatch,
+):
+    """Final light check, S2: 6.96 is "6.9 of 10 ... below target", never "7.0"; out_of or target missing or 0: not measured."""
+    table = {
+        "out_of": 10,
+        "target": 7.0,
+        "kinds": {"datasheet": {"label": "datasheet", "found_mean": 6.96}},
+    }
+    monkeypatch.setattr(M, "_table", lambda: table)
+    got = M.for_run({"kind": "datasheet"})
+    assert (
+        got["verdict"] == "below target"
+        and "6.9 of 10 mistakes found" in got["sentence"]
+        and "7.0" not in got["sentence"]
+    )
+    for bad in ({"out_of": 0}, {"target": 0}, {"out_of": None}, {"target": None}):
+        monkeypatch.setattr(M, "_table", lambda bad=bad: {**table, **bad})
+        got = M.for_run({"kind": "datasheet"})
+        assert got["verdict"] == "not measured" and got["found"] is None, bad

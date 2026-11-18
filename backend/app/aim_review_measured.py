@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -71,7 +72,18 @@ def _row(kind: str, equipment_type: str) -> dict | None:
 
 
 def _fmt(number: float) -> str:
-    return f"{number:.1f}"
+    """One decimal, NEVER rounded up (6.96 -> "6.9"): a score is never shown above what was measured."""
+    return f"{math.floor(round(number * 10, 6)) / 10:.1f}"
+
+
+def _not_measured(label: str, target) -> dict:
+    return {
+        "kind_label": label,
+        "found": None,
+        "target": target,
+        "verdict": NOT_MEASURED,
+        "sentence": "This kind has not been measured on test copies yet.",
+    }
 
 
 def for_run(identity: dict | None) -> dict | None:
@@ -83,18 +95,16 @@ def for_run(identity: dict | None) -> dict | None:
         return None
     equipment_type = _word(identity.get("equipment_type"))
     row = _row(kind, equipment_type)
-    top = _number(_table().get("out_of"), 1000) or 10.0
-    target = _number(_table().get("target"), top) or 7.0
     label = _word((row or {}).get("label")) or kind
+    top = _number(_table().get("out_of"), 1000)
+    target = _number(_table().get("target"), top) if top else None
+    if (
+        not top or not target
+    ):  # a denominator or target missing or 0: not measured, never a silent default
+        return _not_measured(label, target or None)
     found = _number((row or {}).get("found_mean"), top)
     if found is None:
-        return {
-            "kind_label": label,
-            "found": None,
-            "target": target,
-            "verdict": NOT_MEASURED,
-            "sentence": "This kind has not been measured on test copies yet.",
-        }
+        return _not_measured(label, target)
     verdict = AT_OR_ABOVE if found >= target else BELOW
     sentence = (
         f"Measured on planted test copies of this kind: {_fmt(found)} of {_fmt(top).rstrip('0').rstrip('.')} "

@@ -788,7 +788,7 @@ def _judge(
         for line in own:
             line["book_document_id"] = S.item_book(it, books)
             V.keep_clause_if_found(
-                line, text, it.get("page")
+                line, text
             )  # a clause the book does not print is not shown
             state.decided.append(line)
     if stop:
