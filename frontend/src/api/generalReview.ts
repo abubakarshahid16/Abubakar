@@ -55,6 +55,9 @@ export interface GeneralReview {
     points: number; comments: number; by_label: Record<string, number>; by_shown_label?: Record<string, number>; boundary: string;
     /** Comments whose points all only ask the vendor to confirm a stated value: counted apart, not sent (18 Nov 2026). */
     confirmations?: number;
+    /** The points inside the comments sent, and inside the confirmations: comment_lines + confirmation_lines = the points that qualified to be sent. */
+    comment_lines?: number;
+    confirmation_lines?: number;
   };
   comments: GeneralLine[];
   /** The confirmations not sent (absent on an older answer). */

@@ -140,4 +140,20 @@ describe("H: How this review was made", () => {
   it("totalsByStep keeps a step with no cost at null, not 0", () => {
     expect(totalsByStep([{ step: "aim_edit", model: "m", usd: null, seconds: 3 }])[0].usd).toBeNull();
   });
+
+  it("7 counts the confirmations beside the comments, when the server counted them", () => {
+    const base = review();
+    render(<HowReviewMade review={{ ...base, counts: { ...base.counts, comments: 51, confirmations: 20, comment_lines: 64, confirmation_lines: 33 } }} />);
+    expect(screen.getByTestId("how-confirmations")).toHaveTextContent(
+      '51 comments sent (covering 64 points) and 20 confirmations not sent (covering 33 points); together 97 points qualified to be sent. Every point stays in "Every check".');
+  });
+
+  it("7 says nothing about confirmations for an older run, and never 0 for a count it lacks", () => {
+    const { rerender } = render(<HowReviewMade review={review()} />);
+    expect(screen.queryByTestId("how-confirmations")).toBeNull();
+    const base = review();
+    rerender(<HowReviewMade review={{ ...base, counts: { ...base.counts, comments: 1, confirmations: 1 } }} />);
+    const line = screen.getByTestId("how-confirmations").textContent ?? "";
+    expect(line).toBe('1 comment sent and 1 confirmation not sent. Every point stays in "Every check".');
+  });
 });
