@@ -96,6 +96,9 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
             "clause": "",
             "book_document_id": None,
             "comment": comment,
+            # code's note may hold the rule's words or numbers: only its state words stay (they decide whether the line is sent
+            # and how it groups, the same for every viewer); the comparison's words are not served either (`compared`)
+            "code_note": _state_words(row.get("code_note")),
         }
     page = row.get("page")
     return {
@@ -118,7 +121,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         ),
         "quote_unverified": bool(row.get("quote_unverified")),
         "book_document_id": _blank(row.get("book_document_id")),
-        "compared": _compared(row),
+        "compared": "" if hidden else _compared(row),
         "compare_kind": _compare_kind(row),
         # recorded state (18 Nov 2026): what a Question asks ("" when not recorded: an older run), whether its value is left
         # open, and the judge's numbers (none for a book the viewer may not open: rule 5)
@@ -136,6 +139,25 @@ def _numbers(row: dict) -> dict | None:
     return nums if isinstance(nums, dict) and nums else None
 
 
+#: The code-note words that are STATE, not text: whether a line is sent (`aim_review.NOT_SENT_NOTES`) and its provisional kind.
+_STATE_WORDS = frozenset(aim_review.NOT_SENT_NOTES) | {
+    aim_review.PROVISIONAL_FAILS,
+    aim_review.PROVISIONAL_UNCHECKED,
+}
+
+
+def _state_words(code_note) -> str:
+    """A code note cut to its state words ("edited: repeats line 3" -> "edited"); every other part is dropped."""
+    words = (x.split(":", 1)[0].strip() for x in str(code_note or "").split(";"))
+    return "; ".join(dict.fromkeys(w for w in words if w in _STATE_WORDS))
+
+
+def _provisional_kind(code_note) -> str:
+    """The provisional part of a code note ("provisional_unchecked", "provisional_fails", ...), or ""."""
+    parts = (x.strip() for x in str(code_note or "").split(";"))
+    return next((x for x in parts if x.startswith(aim_review.PROVISIONAL)), "")
+
+
 def _compared(row: dict) -> str:
     """The words of code's comparison at this place ("25 bar <= 20 bar: false"), or ""."""
     cmp_ = row.get("code_compare")
@@ -145,8 +167,8 @@ def _compared(row: dict) -> str:
 
 
 def _compare_kind(row: dict) -> str:
-    """What code's comparison at this place read its values from (`code_compare.read_from`), or "": the editor's group check
-    (`aim_review.editor._accept_groups`) and the view's second lock (`group_comments`) compare it."""
+    """What code's comparison at this place read its values from (`code_compare.read_from`), or "": part of the key of a comment
+    (`_keys`), so lines code compared differently never share one comment."""
     cmp_ = row.get("code_compare")
     if cmp_ is None:
         cmp_ = _json(row.get("code_compare_json"), {})
@@ -169,13 +191,15 @@ def _field_key(field) -> str:
 
 
 def _keys(sent: list[dict]) -> dict[int, tuple]:
-    """{line number: the key of its comment}. ONE comment per CHECK: the lines of one checklist item that show the same label
-    and the same compare kind, across tags, lines, sheets and pages (the repeats a strict judge marks WEAK). Lines of DIFFERENT
+    """{line number: the key of its comment}. ONE comment per CHECK: the lines of one checklist item that show the same label,
+    the same compare kind and the same provisional kind (a provisional figure never joins an ordinary Question), across tags,
+    lines, sheets and pages (the repeats a strict judge marks WEAK). Lines of DIFFERENT
     items are never merged, whatever their label or rule book (18 Nov 2026: long lists of different points buried findings a
     senior engineer would raise one by one), so a code-compared Fail never joins a Question. A line with no item stays alone.
     Every sent line is in exactly one comment, which keeps each place's own words; every line stays a point."""
     return {
-        p["n"]: ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "")
+        p["n"]: ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
+                 _provisional_kind(p.get("code_note")))
         for p in sent
     }  # fmt: skip
 
@@ -227,7 +251,39 @@ def _places_of(members: list[dict]) -> dict:
                             for m in members if m["quote"]),
         "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
         "quote_unverified": any(m["quote_unverified"] for m in members),
+        **_state(members),
     }  # fmt: skip
+
+
+def _state(members: list[dict]) -> dict:
+    """A merged comment's own state, never one member's: what it asks by the safe rule (any concern -> concern; else any value left
+    open -> open; "confirm" only when every member says confirm; else unknown ""), left open when any member is, the judge's
+    numbers only when every member has the same, and every member's comparison with its page. Each point keeps its own on
+    "All points"."""
+    asks = {m.get("ask") or "" for m in members}
+    ask = (
+        "concern"
+        if "concern" in asks
+        else "open"
+        if "open" in asks
+        else "confirm"
+        if asks == {"confirm"}
+        else ""
+    )
+    nums = [m.get("numbers") for m in members]
+    compared = " | ".join(
+        f"page {m['page']}: {m['compared']}"
+        if m.get("page") is not None
+        else m["compared"]
+        for m in members
+        if m.get("compared")
+    )
+    return {
+        "ask": ask,
+        "deferred": any(m.get("deferred") for m in members),
+        "numbers": nums[0] if all(n == nums[0] for n in nums) else None,
+        "compared": compared,
+    }
 
 
 def _member(m: dict) -> str:
@@ -247,11 +303,13 @@ def _same_point(members: list[dict]) -> dict:
         **first,
         "lines": [m["n"] for m in members],
         "pages": pages,
-        "comment": f"{first['comment']}\nThe same point at: " + "; ".join(_member(m) for m in others),
+        "comment": f"{first['comment']}\nThe same point at {len(others)} more place{'' if len(others) == 1 else 's'}: "
+        + "; ".join(_member(m) for m in others),
         "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
                             for m in members if m["quote"]),
         "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
         "quote_unverified": any(m["quote_unverified"] for m in members),
+        **_state(members),
     }  # fmt: skip
 
 
