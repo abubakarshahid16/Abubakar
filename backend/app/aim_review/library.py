@@ -200,8 +200,7 @@ def cited_company(conn, paper_id: str) -> frozenset[str]:
     """The ids of the cited held RULE BOOKS that are neither public nor the client's own: with today's roles (the company-
     standard role is the only rule-book role) this set is EMPTY by construction, so the checklist key keeps its plain form. Kept
     as the one home of "cited ids" (`run(cited_books=...)`, `cited_key`) should another rule-book role be recorded."""
-    lib = library(conn, exclude=frozenset({str(paper_id)}))
-    found = (resolve(lib, name) for name in _paper_citations(conn, str(paper_id)))
+    found = (e for e, _n in cited_rule_books(conn, str(paper_id)))
     return frozenset(
         e["id"]
         for e in found
@@ -560,6 +559,23 @@ def _paper_citations(conn, paper_id: str) -> list[str]:
     return names
 
 
+def cited_rule_books(
+    conn, paper_id: str, lib: list[dict] | None = None
+) -> list[tuple[dict | None, str]]:
+    """(the held RULE BOOK a citation names, or None when nothing held answers it; the name) for each name the paper cites. A
+    name is resolved against the rule books ONLY (`is_rule_book`), before any reader's narrowing: a held specification or
+    contract sharing the number is never taken for a cited rule book (integrator's check of d03d62c9). A name only another
+    kind of held document answers is left out: it is neither a cited rule book nor "not held"."""
+    lib = library(conn, exclude=frozenset({str(paper_id)})) if lib is None else lib
+    rules = [e for e in lib if is_rule_book(e)]
+    out = []
+    for name in _paper_citations(conn, str(paper_id)):
+        found = resolve(rules, name)
+        if found is not None or resolve(lib, name) is None:
+            out.append((found, name))
+    return out
+
+
 def _number_in(number: str, text: str) -> bool:
     """The recorded number stands in the text as a whole token, case ignored, its parts apart by spaces, hyphens, dots,
     slashes or underscores or by nothing (the variants `resolve` folds away); never a number under `NUMBER_MIN` or with no
@@ -695,7 +711,7 @@ def _saved_order(
     not_held: list[dict] = []
     for e, name, why in [(e, n, WHY_GOVERNS) for e, n in governing_books(lib, type_id) if not e or role_applies(e, kind)] + [
         (e, n, WHY_METHOD) for e, n in method_books(lib, kind)
-    ] + [(resolve(lib, n), n, WHY_CITED) for n in _paper_citations(conn, paper_id)]:  # fmt: skip
+    ] + [(e, n, WHY_CITED) for e, n in cited_rule_books(conn, paper_id, lib)]:  # fmt: skip
         if e is None:
             not_held.append({"name": name, "why": f"{why}; not held"})
         elif e["id"] not in {d for d, _w in order}:
@@ -738,8 +754,8 @@ def _ordered_books(
     for b in sorted(earlier):
         if b in by_id:
             add(b, WHY_LAST)
-    for name in _paper_citations(conn, paper_id):
-        named(resolve(lib, name), name, WHY_CITED)
+    for e, name in cited_rule_books(conn, paper_id, lib):
+        named(e, name, WHY_CITED)
     if kind:
         for c in catalog(by_id, rule_pool(conn, kind, type_id, subjects=False)):
             if role_applies(by_id[c["book"]], kind):

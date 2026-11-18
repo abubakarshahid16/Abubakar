@@ -129,8 +129,9 @@ def apply_needed(
 def paper_cited(conn, paper_id: str, within: frozenset[str]) -> frozenset[str]:
     """The held books the paper's own stored citations name (resolved by code, `library.resolve`; ids only, as the plan lists them
     "cited by the paper"), among `within`: never cut by the checklist's book cap."""
-    lib = L.library(conn, exclude=frozenset({str(paper_id)}))
-    found = (L.resolve(lib, name) for name in L._paper_citations(conn, str(paper_id)))
+    found = (
+        e for e, _n in L.cited_rule_books(conn, str(paper_id))
+    )  # rule books only, before the reader's narrowing
     return frozenset(e["id"] for e in found if e and e["id"] in within)
 
 
