@@ -487,9 +487,18 @@ def _steps(
         state.references, state.reference_ids = R.check(
             conn, mdl, paper, state.decided, allowed_books, lead
         )
-        say(96, "judge")
+        say(95, "whole-paper check and second reader")
+        from .answered import s4b_answered
         from .editor import s5_edit
+        from .second_read import s4c_second_read
 
+        s4b_answered(
+            mdl, paper, state.decided, lead
+        )  # a line on no held rule that the paper answers is not sent
+        s4c_second_read(
+            mdl, paper, state.decided, checklist, lead
+        )  # a finding the AI alone decided needs two readers
+        say(96, "judge")
         s5_edit(mdl, paper, state.decided, lead)
 
 
@@ -528,8 +537,10 @@ def _checklist(
     strong: str,
 ) -> dict:
     """The saved checklist of the paper's type, else one built from the listed books (standards only) and saved."""
+    from . import book_names as BN
     from . import checklist as CL
     from . import library as L
+    from . import scope_books as SB
 
     saved = store.get(state.key) if store is not None else None
     if (
@@ -540,13 +551,18 @@ def _checklist(
         want = CL.wanted(
             conn, state.paper_id, CL.type_identity(ident), allowed_books, state.cited
         )
-        if L.wanted_not_held(saved.get("not_held")) == L.wanted_not_held(
-            want["not_held"]
+        # the saved AI "needed" names sorted again: a held book now on the list means build again; held, not listed: unlisted
+        use, unlisted, still = BN.resort_saved(conn, state.paper_id, saved.get("not_held"), allowed_books, ident.get("kind"), gate_checker())  # fmt: skip
+        if (
+            L.wanted_not_held(saved.get("not_held"))
+            == L.wanted_not_held(want["not_held"])
+            and SB.saved_fits_scope(conn, saved, ident, state.cited or frozenset())
+            and not use
         ):
             state.reused = True
             state.sha = str(saved.get("sha256") or "")
-            state.not_held = list(saved.get("not_held") or [])
-            state.unlisted |= set(want["unlisted"])
+            state.not_held = still
+            state.unlisted |= set(want["unlisted"]) | set(unlisted)
             return saved
         # a book the saved checklist was written without is now held (or the governing table changed): build again
         log.info(

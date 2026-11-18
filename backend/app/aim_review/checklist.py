@@ -20,8 +20,10 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
     BUILT_FROMS,  # noqa: F401
 )
 
+from . import book_names as BN
 from . import library as L
 from . import prompts as P
+from . import scope_books as SB
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
     FLOOR_ITEMS,
@@ -186,10 +188,11 @@ def s2_select(
     gate_ok,
     lead: str,
     cited: frozenset[str] = frozenset(),
+    scope: str = "",
 ) -> dict:
     want = wanted(conn, paper_id, ident, allowed_books, cited)
     cat, pool, required, refused = _catalog(
-        conn, paper_id, ident, allowed_books, want, gate_ok, cited
+        conn, paper_id, ident, allowed_books, want, gate_ok, cited, scope
     )
     result = {
         "books": [],
@@ -234,15 +237,8 @@ def s2_select(
     )
     out = out if isinstance(out, dict) else {}
     result["books"] = _chosen(out, cat, required)
-    result["not_held"] = want["not_held"] + [
-        {
-            "name": str(r.get("name") or "")[:80],
-            "why": str(r.get("why") or "")[:80],
-            "source": "AI: needed, not in the catalog",
-        }
-        for r in out.get("not_held_needed") or []
-        if isinstance(r, dict) and str(r.get("name") or "").strip()
-    ]
+    # a held book is never "not held": by the identifier in its name (`book_names`); on the list it is used, else counted unlisted
+    BN.apply_needed(conn, paper_id, out, result, want, cat, allowed_books, ident.get("kind"), gate_ok)  # fmt: skip
     return result
 
 
@@ -254,8 +250,10 @@ def _catalog(
     want: dict,
     gate_ok,
     cited: frozenset[str] = frozenset(),
+    scope: str = "",
 ):
-    """(catalog lines with aliases, the rule pool, required books {id: why}, refused {id: code}): ONLY listed books."""
+    """(catalog lines with aliases, the rule pool, required books {id: why}, refused {id: code}): ONLY listed books; for a contract
+    only the books its scope names or it cites (`scope_books.keep`; `scope`: S1's verified scope quote, read by code only)."""
     lib = L.library(
         conn, exclude=frozenset({str(paper_id)}), within=frozenset(allowed_books)
     )
@@ -291,6 +289,14 @@ def _catalog(
     # cited ids, no text)
     cat = [c for c in cat if L.usable(by_id[c["book"]])]
     cat = [c for c in cat if c["book"] in required or not gate_ok(c["book"])]
+    cited = frozenset(cited) | BN.paper_cited(
+        conn, paper_id, frozenset(by_id)
+    )  # the paper's own citations too
+    required |= {c["book"]: L.WHY_CITED for c in cat if c["book"] in cited and c["book"] not in required}  # fmt: skip
+    cat, required = SB.keep(cat, required, kind, scope, cited)
+    cat.sort(
+        key=lambda c: c["book"] not in required
+    )  # governing, method and cited books first (never cut)
     for i, c in enumerate(cat):
         c["alias"] = f"B{i + 1:02d}"
         c["required"] = c["book"] in required
@@ -318,14 +324,12 @@ def _chosen(out: dict, cat: list[dict], required: dict[str, str]) -> list[dict]:
             "why": str(row.get("why") or "")[:120],
             "chosen_subjects": subj,
         }
-    for c in cat:  # required books stay, whatever the model said
-        if c["required"] and c["book"] not in chosen:
-            chosen[c["book"]] = {
-                **c,
-                "why": required[c["book"]],
-                "chosen_subjects": "all",
-            }
-    return list(chosen.values())[: SELECT_MAX_BOOKS + len(required)]
+    first = {c["book"]: {**c, "why": required[c["book"]], "chosen_subjects": "all"} | chosen.get(c["book"], {})
+             for c in cat if c["required"]}  # fmt: skip
+    rest = [
+        v for b, v in chosen.items() if b not in first
+    ]  # the required first, never cut by the cap
+    return [*first.values(), *rest[:SELECT_MAX_BOOKS]]
 
 
 # ------------------------------------------------------------------ S3 checklist
@@ -769,7 +773,8 @@ def build(
     """The checklist of the paper's TYPE from the listed books' clauses only. (checklist, selection summary). Raises StepFailed."""
     guarded = NoPaper(model, conn, paper_id)
     typed = type_identity(ident)
-    sel = s2_select(guarded, conn, paper_id, typed, allowed_books, gate_ok, lead, cited)
+    scope = str(ident.get("scope_quote") or "")  # the paper's verified scope: code only
+    sel = s2_select(guarded, conn, paper_id, typed, allowed_books, gate_ok, lead, cited, scope)  # fmt: skip
     made = s3_checklist(guarded, typed, sel, text, lead)
     made = s3_knowledge(guarded, typed, sel, made, lead)
     cl = s3_attack(guarded, typed, sel, made, text, strong)

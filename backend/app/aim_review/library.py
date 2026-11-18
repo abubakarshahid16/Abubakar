@@ -568,7 +568,10 @@ def stored_reading(
     except Exception as exc:  # noqa: BLE001 - an unreadable equipment reading is none
         log.info("general review plan: equipment unreadable (%s)", type(exc).__name__)
         equipment = None
-    return kind, type_id_of(equipment), source
+    from .book_names import last_run_type
+
+    # no stored equipment: the type the paper's last review named (S1), so its governing books lead the plan
+    return kind, type_id_of(equipment) or last_run_type(conn, paper_id), source
 
 
 def checklist_key(
@@ -647,15 +650,22 @@ def _saved_order(
     wanted, in that order (the caller intersects with `allowed` and caps). The not-held governing / method names are said."""
     lib = library(conn, exclude=frozenset({paper_id}))
     by_id = {e["id"]: e for e in lib}
-    order = [(b, WHY_SAVED) for b in saved_books(saved) if b != paper_id]
+    order: list[
+        tuple[str, str]
+    ] = []  # governing, method and cited books FIRST (never cut by the cap), then the saved ones
     not_held: list[dict] = []
     for e, name, why in [(e, n, WHY_GOVERNS) for e, n in governing_books(lib, type_id) if not e or role_applies(e, kind)] + [
         (e, n, WHY_METHOD) for e, n in method_books(lib, kind)
-    ]:  # fmt: skip
+    ] + [(resolve(lib, n), n, WHY_CITED) for n in _paper_citations(conn, paper_id)]:  # fmt: skip
         if e is None:
             not_held.append({"name": name, "why": f"{why}; not held"})
         elif e["id"] not in {d for d, _w in order}:
             order.append((e["id"], why))
+    order += [
+        (b, WHY_SAVED)
+        for b in saved_books(saved)
+        if b != paper_id and b not in {d for d, _w in order}
+    ]
     for b in sorted(earlier):
         if b in by_id and b not in {d for d, _w in order}:
             order.append((b, WHY_LAST))

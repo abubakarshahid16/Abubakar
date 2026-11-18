@@ -139,16 +139,21 @@ def test_a_saved_checklist_is_reused_and_no_build_call_is_made(aim_db):
     first, _m, _s = _run(aim_db, store=store)
     second, model, _s = _run(aim_db, store=store)
     assert second.checklist_reused and second.checklist_sha256 == first.checklist_sha256
-    assert [
-        c["step"]
-        for c in model.asked
-        if c["step"]
-        not in (
-            "aim_identify",
-            "aim_judge",
-            "aim_edit",
-        )  # no BUILD call; the editor is no build step
-    ] == []
+    assert (
+        [
+            c["step"]
+            for c in model.asked
+            if c["step"]
+            not in (
+                "aim_identify",
+                "aim_judge",
+                "aim_answered",
+                "aim_second_read",
+                "aim_edit",
+            )  # no BUILD call; the whole-paper check, the second reader and the editor are no build steps
+        ]
+        == []
+    )
     assert len(store.puts) == 1
     assert [ln["item_id"] for ln in second.lines] == [
         ln["item_id"] for ln in first.lines
@@ -539,3 +544,34 @@ def test_ids_the_job_passes_never_make_another_role_a_rule_book(aim_db):
         cited_books=frozenset({COMPANY}),
     )
     assert COMPANY not in r.books
+
+
+def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(aim_db):
+    """S4b runs after the judge and before the editor: a line on no held rule that the paper answers (a quote code finds on the
+    named page) stays a point, not sent; every other line is unchanged."""
+    import json
+    import re
+
+    def check(step, cached, prompt):
+        pages = re.findall(r"=== PAGE (\d+) ===\n(.*?)(?=\n=== PAGE|\Z)", cached, re.S)
+        page, text = pages[0]
+        quote = max(text.splitlines(), key=len).strip()
+        rows = [json.loads(x) for x in prompt.splitlines() if x.startswith('{"n"')]
+        first = (
+            [{"n": rows[0]["n"], "answered": True, "page": int(page), "quote": quote}]
+            if rows
+            else []
+        )
+        return {
+            "verdicts": first + [{"n": x["n"], "answered": False} for x in rows[1:]]
+        }
+
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_answered": check}
+    )
+    r, model, _s = _run(aim_db, model=model)
+    steps = [c["step"] for c in model.asked]
+    assert r.status == "done" and steps.index("aim_answered") < steps.index("aim_edit")
+    answered = [ln for ln in r.lines if aim_review.ANSWERED in (ln["code_note"] or "")]
+    assert len(answered) == 1 and not aim_review.sendable(answered[0])
+    assert answered[0]["source"] != S.HELD
