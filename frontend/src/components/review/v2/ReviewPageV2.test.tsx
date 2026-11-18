@@ -915,12 +915,29 @@ function general(over: Partial<GeneralReview> = {}): GeneralReview {
 }
 
 describe("12 the general review's results page (order 14)", () => {
+  it("counts the confirmations apart and shows them only in a closed part, not among the comments (18 Nov 2026)", async () => {
+    const g = general();
+    api.general.mockResolvedValue(ok({ ...g, counts: { ...g.counts, comments: 1, confirmations: 1 }, comments: [g.points[0]], confirmations: [g.points[2]] }));
+    mount();
+    const results = await screen.findByTestId("general-results");
+    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, 1 comments sent, 1 confirmations not sent");
+    const part = screen.getByTestId("general-confirmations");
+    expect(part.tagName).toBe("DETAILS");
+    expect(part).not.toHaveAttribute("open"); // closed until opened
+    expect(within(part).getByText(/Confirmations, not sent \(1\)/)).toBeInTheDocument();
+    const rows = within(results).getAllByTestId("general-row");
+    expect(rows.filter((r) => !part.contains(r))).toHaveLength(1); // the comments sent: the confirmation is not among them
+    expect(within(part).getAllByTestId("general-row")).toHaveLength(1);
+  });
+
+
   it("draws the general results: the mark, the counts, the comments with page links, and no old sections", async () => {
     api.general.mockResolvedValue(ok(general()));
     mount();
     const results = await screen.findByTestId("general-results");
     expect(screen.getByTestId("general-mark")).toHaveTextContent(MARK);
-    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, as 2 comments (this paper, this review)");
+    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, 2 comments sent (this paper, this review)");
+    expect(screen.queryByTestId("general-confirmations")).toBeNull(); // an answer with no confirmations shows no such part
     const rows = within(results).getAllByTestId("general-row");
     expect(rows).toHaveLength(2); // the comments only, until "All points" is ticked
     rows.forEach((r) => expect(r).toHaveTextContent(MARK)); // the mark is on every row

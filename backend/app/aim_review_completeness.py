@@ -4,8 +4,9 @@ Three counts of ONE general run are compared, and the file is refused when they 
   page       the points the page serves (`aim_review_view.build`),
   database   the lines stored for the run (a separate `COUNT(*)` on `aim_lines`),
   file rows  the rows on the sheet "All points" of the workbook AS BUILT, read back from the bytes (never the builder's own number);
-and the comments the page serves = the rows on the sheet "Comments" (one comment per point: `aim_review_view.group_comments`),
-and every sent line is in exactly one comment (its "Lines" cell, read back).
+and the comments the page serves = the rows on the sheet "Comments", the confirmations not sent = the rows on the sheet
+"Confirmations (not sent)" (`aim_review_view.comments_and_confirmations`), and every sent line is in exactly one comment or
+confirmation (its "Lines" cell, read back): comment lines + confirmation lines = sent lines.
 Also read back: every sheet carries the mark, the first sheet states "N points reviewed, N in this file", a cell cut on "Comments" is
 cut only with `crs_completeness.CUT_MARK` and is whole on "All points", and "All points" holds every text whole.
 
@@ -71,10 +72,12 @@ def _text(cell) -> str:
     return "" if cell is None else str(cell)
 
 
-def _cut_check(comments_rows: list[list], view: dict) -> tuple[int, list[str]]:
-    """(cells cut with the mark, problems). A Comments row is ONE comment (`aim_review_view.group_comments`): its cell must equal
-    that comment's text on the page, or be it cut with the mark and a note naming where each place's full text stands."""
-    by_n = {c["n"]: c for c in view["comments"]}
+def _cut_check(
+    comments_rows: list[list], view: dict, part: str = "comments"
+) -> tuple[int, list[str]]:
+    """(cells cut with the mark, problems). A Comments row is ONE comment (a Confirmations row ONE confirmation, `part`): its cell
+    must equal that comment's text on the page, or be it cut with the mark and a note naming where each place's full text stands."""
+    by_n = {c["n"]: c for c in view.get(part) or []}
     marked, problems = 0, []
     for r in comments_rows:
         n = r[0]
@@ -103,8 +106,8 @@ def _cut_check(comments_rows: list[list], view: dict) -> tuple[int, list[str]]:
 
 
 def _lines_check(comments_rows: list[list], view: dict) -> list[str]:
-    """Every SENT line belongs to exactly one comment: the "Lines" cells of the file, read back, cover the page's sent lines once
-    each and nothing else."""
+    """Every SENT line belongs to exactly one comment or confirmation: the "Lines" cells of the file (rows of both sheets), read
+    back, cover the page's sent lines once each and nothing else."""
     from . import aim_review
 
     sent = sorted(p["n"] for p in view["points"] if aim_review.sendable(p))
@@ -137,7 +140,9 @@ def _row_problems(
     mark = aim_review_gate.AI_MARK
     problems = [f"the sheet {s} does not carry the mark" for s in aim_review_sheet.SHEETS
                 if s not in wb.sheetnames or wb[s].cell(row=1, column=1).value != mark]  # fmt: skip
-    if any(r[-1] != mark for r in (*comments_rows, *points_rows)):
+    if any(
+        r[-1] != mark for r in (*comments_rows, *points_rows)
+    ):  # comments_rows: Comments and Confirmations
         problems.append("a row does not carry the mark")
     first = (
         wb[aim_review_sheet.SUMMARY]
@@ -145,9 +150,16 @@ def _row_problems(
         else None
     )
     statement = team_statement(view["counts"]["points"], view["counts"]["comments"])
-    if first is None or not any(
-        statement in _text(c) for r in first.iter_rows(values_only=True) for c in r
-    ):
+    counts = view["counts"]
+    sent = aim_review_sheet.sent_statement(
+        counts["points"], counts["comments"], counts.get("confirmations") or 0
+    )
+    cells = (
+        [_text(c) for r in first.iter_rows(values_only=True) for c in r]
+        if first is not None
+        else []
+    )
+    if not any(statement in c for c in cells) or not any(sent in c for c in cells):
         problems.append("the first sheet does not state the counts")
     for r in (
         points_rows
@@ -173,7 +185,8 @@ def _sentence(rep: dict) -> str:
     parts = [
         f"This general review's file is not complete and was not given out: the page has {rep['page']} points, "
         f"the database holds {rep['database']} lines, the file has {rep['file_rows']} rows on the sheet {aim_review_sheet.ALL_POINTS} "
-        f"and {rep['comment_rows']} on the sheet {aim_review_sheet.COMMENTS} (the page has {rep['comments']} comments)."
+        f"and {rep['comment_rows']} on the sheet {aim_review_sheet.COMMENTS} (the page has {rep['comments']} comments) and "
+        f"{rep['confirmation_rows']} on the sheet {aim_review_sheet.CONFIRMATIONS} (the page has {rep['confirmations']})."
     ]
     if rep["missing"]:
         shown = "; ".join(rep["missing"][:LIST_AT_MOST])
@@ -194,13 +207,16 @@ def checked(conn, run: dict, view: dict) -> tuple[bytes, dict]:
     wb = load_workbook(BytesIO(data))
     points_rows = _table(wb, aim_review_sheet.ALL_POINTS)
     comments_rows = _table(wb, aim_review_sheet.COMMENTS)
+    confirmation_rows = _table(wb, aim_review_sheet.CONFIRMATIONS)
     db_lines = _database_lines(conn, run["run_id"])
     in_file = {r[0] for r in points_rows if isinstance(r[0], int)}
     marked, cut_problems = _cut_check(comments_rows, view)
+    marked_c, cut_problems_c = _cut_check(confirmation_rows, view, "confirmations")
     problems = [
         *cut_problems,
-        *_lines_check(comments_rows, view),
-        *_row_problems(view, wb, comments_rows, points_rows),
+        *cut_problems_c,
+        *_lines_check([*comments_rows, *confirmation_rows], view),
+        *_row_problems(view, wb, [*comments_rows, *confirmation_rows], points_rows),
     ]
     rep = {
         "run_id": run["run_id"],
@@ -209,14 +225,17 @@ def checked(conn, run: dict, view: dict) -> tuple[bytes, dict]:
         "file_rows": len(points_rows),
         "comments": view["counts"]["comments"],
         "comment_rows": len(comments_rows),
+        "confirmations": view["counts"].get("confirmations") or 0,
+        "confirmation_rows": len(confirmation_rows),
         "missing": [_named(ln) for ln in db_lines if ln["n"] not in in_file],
-        "cut_cells_marked": marked,
+        "cut_cells_marked": marked + marked_c,
         "problems": problems,
         "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     same = (
         rep["page"] == rep["database"] == rep["file_rows"]
         and rep["comments"] == rep["comment_rows"]
+        and rep["confirmations"] == rep["confirmation_rows"]
     )
     rep["ok"] = same and not problems
     rep["sentence"] = None if rep["ok"] else _sentence(rep)

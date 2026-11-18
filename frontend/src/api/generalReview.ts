@@ -51,8 +51,14 @@ export interface GeneralReview {
   status: "completed" | "stopped";
   stop_reason?: string | null;
   identity: { kind: string | null; equipment_type: string | null; subject: string | null };
-  counts: { points: number; comments: number; by_label: Record<string, number>; by_shown_label?: Record<string, number>; boundary: string };
+  counts: {
+    points: number; comments: number; by_label: Record<string, number>; by_shown_label?: Record<string, number>; boundary: string;
+    /** Comments whose points all only ask the vendor to confirm a stated value: counted apart, not sent (18 Nov 2026). */
+    confirmations?: number;
+  };
   comments: GeneralLine[];
+  /** The confirmations not sent (absent on an older answer). */
+  confirmations?: GeneralLine[];
   points: GeneralLine[];
   books: { id: string; title: string; why: string }[];
   books_not_readable?: number;
