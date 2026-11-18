@@ -568,9 +568,12 @@ def _steps(
         k: ident.get(k)
         for k in ("kind", "equipment_type", "subject", "subject_key", "service")
     }
-    state.key = (
+    state.key = L.family_key(
         L.checklist_key(ident["kind"], ident["equipment_type"], ident["subject_key"])
-        or f"{ident['kind']}__other"
+        or f"{ident['kind']}__other",
+        L.relevant_families(
+            conn, state.paper_id, ident["kind"], ident["equipment_type"]
+        ),
     )
     text = L.BookText(conn)
     say(15, "checklist")
@@ -601,7 +604,9 @@ def _known_keys(store) -> list[str]:
     if not callable(keys):
         return []
     try:
-        return sorted(str(k) for k in keys())
+        from . import library as L
+
+        return sorted({L.base_key(str(k)) for k in keys()})  # the type names only
     except Exception as exc:  # noqa: BLE001 - a store that cannot list its keys gives none
         log.info("general review: checklist keys unreadable (%s)", type(exc).__name__)
         return []

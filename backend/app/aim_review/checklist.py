@@ -129,10 +129,15 @@ def wanted(conn, paper_id: str, ident: dict, allowed_books: frozenset[str]) -> d
     library, so a held book that is merely not on the list is never called "not held"."""
     lib = L.library(conn, exclude=frozenset({str(paper_id)}))
     kind, etype = ident.get("kind"), ident.get("equipment_type")
+    # a company book or name applies only when its family is active for the paper (code reads the families from the paper's
+    # own citations; family words only, no text reaches any prompt)
+    active = L.active_families(conn, str(paper_id))
     listed: dict[str, str] = {}
     unlisted: list[str] = []
     not_held: list[dict] = []
     for e, name in L.governing_books(lib, etype):
+        if not (L.applies(e, active) if e else L.name_applies(name, active)):
+            continue
         if not e:
             not_held.append(
                 {
@@ -148,6 +153,8 @@ def wanted(conn, paper_id: str, ident: dict, allowed_books: frozenset[str]) -> d
         elif e["id"] not in unlisted:
             unlisted.append(e["id"])
     for e, name in L.method_books(lib, kind):
+        if not (L.applies(e, active) if e else L.name_applies(name, active)):
+            continue
         if not e:
             not_held.append(
                 {

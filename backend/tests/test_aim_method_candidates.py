@@ -268,17 +268,54 @@ def test_a_company_standard_the_paper_cites_is_listed(
     assert {b["id"]: b["why"] for b in c.books}[COMPANY] == L.WHY_CITED
 
 
-def test_a_company_standard_a_table_names_is_listed(
-    aim_db, no_model, kind_datasheet, monkeypatch
-):
-    _company_book(aim_db)
+def _table_names_company(monkeypatch):
     monkeypatch.setattr(
         L,
         "method_books",
         lambda lib, kind: [(next(e for e in lib if e["id"] == COMPANY), "ZQ-ENG-501")],
     )
+
+
+def test_a_paper_citing_family_x_gets_xs_table_named_book(
+    aim_db, no_model, kind_datasheet, monkeypatch
+):
+    from app import standard_ids
+
+    _company_book(aim_db)
+    _table_names_company(monkeypatch)
+    monkeypatch.setattr(
+        standard_ids, "cited_standards", lambda text: ["ZQ-ENG-777"]
+    )  # another ZQ standard, not held
     c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
     assert {b["id"]: b["why"] for b in c.books}[COMPANY] == L.WHY_METHOD
+    assert c.checklist_key is None or "__family-zq" in c.checklist_key
+
+
+def test_a_paper_citing_only_family_y_does_not_get_xs_book(
+    aim_db, no_model, kind_datasheet, monkeypatch
+):
+    from app import standard_ids
+
+    _company_book(aim_db)
+    _table_names_company(
+        monkeypatch
+    )  # the table names it, but its family is not the paper's
+    monkeypatch.setattr(
+        standard_ids, "cited_standards", lambda text: ["YW-STD-12", "ISO 99101"]
+    )
+    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
+    ids = [b["id"] for b in c.books]
+    assert COMPANY not in ids and BOOK_A in ids  # public books unaffected
+    assert L.active_families(aim_db, PAPER) == frozenset({"YW"})
+
+
+def test_a_table_named_company_book_with_no_family_cited_is_not_listed(
+    aim_db, no_model, kind_datasheet, monkeypatch
+):
+    _company_book(aim_db)
+    _table_names_company(monkeypatch)
+    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
+    assert COMPANY not in [b["id"] for b in c.books]
 
 
 def test_s2s_catalog_holds_a_company_standard_only_when_a_table_names_it(

@@ -161,19 +161,67 @@ def identifier_of(entry: dict) -> str:
     )
 
 
+def family_of(name) -> str:
+    """A standard's family: the first word of its identifier or name, upper case ("ISO", "API", or a company's own prefix)."""
+    m = re.match(r"\s*([A-Za-z]+)", str(name or ""))
+    return m.group(1).upper() if m else ""
+
+
 def is_public(entry: dict | None) -> bool:
-    """Is this held book a PUBLIC standard: the first word of its identifier is one of the app's own publisher families
-    (`standards_web_search.FAMILIES`, the table the online search uses)? Else it is a COMPANY standard (an owner's own rule book):
-    offered only when the paper cites it or the app's governing / method tables name it (`company_ok`)."""
+    """Is this held book a PUBLIC standard: its family is one of the app's own publisher families (`standards_web_search.FAMILIES`,
+    the table the online search uses)? Else it is a COMPANY standard (an owner's own rule book), offered only when its family is
+    ACTIVE for the paper and the paper cites it or a governing / method table names it (`company_ok`)."""
     from app import standards_web_search
 
-    m = re.match(r"\s*([A-Za-z]+)", identifier_of(entry) if entry else "")
-    return bool(m) and m.group(1).upper() in standards_web_search.FAMILIES
+    return (
+        bool(entry) and family_of(identifier_of(entry)) in standards_web_search.FAMILIES
+    )
+
+
+def _company_families(names) -> frozenset[str]:
+    from app import standards_web_search
+
+    return frozenset(
+        f
+        for f in (family_of(n) for n in names)
+        if f and f not in standards_web_search.FAMILIES
+    )
+
+
+def active_families(conn, paper_id: str) -> frozenset[str]:
+    """The COMPANY families ACTIVE for this paper: those of the standards the paper cites (read by code; family words only)."""
+    return _company_families(_paper_citations(conn, paper_id))
+
+
+def active_families_of(text: dict[int, str]) -> frozenset[str]:
+    """The same, from the paper's page texts (G1, which holds them)."""
+    from app import standard_ids
+
+    return _company_families(
+        standard_ids.cited_standards("\n".join(text[n] for n in sorted(text)))
+    )
+
+
+def applies(entry: dict | None, active: frozenset[str]) -> bool:
+    """A held book may be offered at all for this paper: a public one always; a company one only when its family is active."""
+    return is_public(entry) or (
+        bool(entry) and family_of(identifier_of(entry)) in active
+    )
+
+
+def name_applies(name: str, active: frozenset[str]) -> bool:
+    """A standard NAME (one not held) applies: a public family, or an active company family."""
+    from app import standards_web_search
+
+    fam = family_of(name)
+    return fam in standards_web_search.FAMILIES or fam in active
 
 
 def company_ok(conn, paper_id: str, kind, type_id, lib: list[dict]) -> frozenset[str]:
     """The held books a company standard may be offered as for this paper: the ones the paper CITES (resolved by code) and the
-    ones the governing table (for the stored type) or the method table (for the kind) names."""
+    ones the governing table (for the stored type) or the method table (for the kind) names, and ONLY when the book's company
+    family is active for the paper (`active_families`): table-naming alone no longer suffices."""
+    active = active_families(conn, paper_id)
     ok = {e["id"] for e, _n in governing_books(lib, type_id) if e} | {
         e["id"] for e, _n in method_books(lib, kind) if e
     }
@@ -181,7 +229,35 @@ def company_ok(conn, paper_id: str, kind, type_id, lib: list[dict]) -> frozenset
         found = resolve(lib, name)
         if found:
             ok.add(found["id"])
-    return frozenset(ok)
+    by_id = {e["id"]: e for e in lib}
+    return frozenset(b for b in ok if b in by_id and applies(by_id[b], active))
+
+
+def relevant_families(conn, paper_id: str, kind, type_id) -> frozenset[str]:
+    """The active company families that change a type's checklist: those of the table-named held company books (governing for
+    the type, method for the kind). They go into the checklist key, so a checklist built with one company's books is never
+    reused for a paper of another family."""
+    lib = library(conn, exclude=frozenset({str(paper_id)}))
+    named = [e for e, _n in governing_books(lib, type_id) if e] + [
+        e for e, _n in method_books(lib, kind) if e
+    ]
+    fams = {family_of(identifier_of(e)) for e in named if not is_public(e)}
+    return frozenset(fams & active_families(conn, paper_id))
+
+
+FAMILY_MARK = "__family-"
+
+
+def family_key(key: str | None, families: frozenset[str]) -> str | None:
+    """The checklist key with the relevant company families: `<kind>__<type>__family-<a>+<b>` (none: the key as it was)."""
+    if not key or not families:
+        return key
+    return key + FAMILY_MARK + "+".join(sorted(f.lower() for f in families))
+
+
+def base_key(key: str) -> str:
+    """The key without its family part (what S1 is shown as a type already made)."""
+    return str(key).split(FAMILY_MARK, 1)[0]
 
 
 def not_offered_company(
@@ -512,7 +588,9 @@ def candidates(
 
     paper_id = str(paper_id)
     kind, type_id, source = stored_reading(conn, paper_id, allowed)
-    key = checklist_key(kind, type_id)
+    key = family_key(
+        checklist_key(kind, type_id), relevant_families(conn, paper_id, kind, type_id)
+    )
     saved = store.get(key) if key and store is not None else None
     order, not_held = (
         _saved_order(conn, paper_id, saved, kind, type_id, earlier_unlisted)
@@ -526,6 +604,8 @@ def candidates(
         company_ok(conn, paper_id, kind, type_id, lib),
     )
     order = [(d, w) for d, w in order if d in ok or is_public(by_id.get(d))]
+    active = active_families(conn, paper_id)
+    not_held = [n for n in not_held if name_applies(n["name"], active)]
     readable = [(d, w) for d, w in order if d in allowed]
     unreadable = sum(1 for d, _w in order if d not in allowed)
     books = [{"id": d, "why": w} for d, w in readable[:MAX_CANDIDATES]]

@@ -151,6 +151,9 @@ def _library_facts(
             rows.append(
                 f"- cited: {ident}" + (f" ({year})" if year else "") + f"; {where}"
             )
+        active = L.active_families_of(
+            text
+        )  # a company standard of a family the paper does not cite does not apply
         gov = [
             (
                 f"{name} (on this review's list as {L.identifier_of(entry)})"
@@ -158,11 +161,12 @@ def _library_facts(
                 else f"{name} (not among this review's books)"
             )
             for entry, name in L.governing_books(lib, identity.get("equipment_type"))
+            if (L.applies(entry, active) if entry else L.name_applies(name, active))
         ]
         named |= {
             str(entry["id"]): L.identifier_of(entry)
             for entry, _name in L.governing_books(lib, identity.get("equipment_type"))
-            if entry
+            if entry and L.applies(entry, active)
         }
     except Exception as exc:  # noqa: BLE001 - the facts are a help to the judge; without them G1 is judged on the paper alone
         log.info(
