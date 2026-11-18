@@ -65,12 +65,15 @@ class Paper:
 
 
 def _marked(n: int, text: str) -> str:
-    from .layout import halves
+    from .layout import halves, with_pairs
 
     two = halves(text)
     if two is None:
-        return f"=== PAGE {n} ===\n{text}"
-    return f"=== PAGE {n} (left half) ===\n{two[0]}\n=== PAGE {n} (right half) ===\n{two[1]}"
+        return f"=== PAGE {n} ===\n{with_pairs(text)}"
+    left, right = (with_pairs(x) for x in two)
+    return (
+        f"=== PAGE {n} (left half) ===\n{left}\n=== PAGE {n} (right half) ===\n{right}"
+    )
 
 
 def load_paper(conn, paper_id: str, data_dir=None) -> Paper:

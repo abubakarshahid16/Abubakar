@@ -9,6 +9,8 @@ is shown as it is. No document word is written here."""
 
 from __future__ import annotations
 
+import re
+
 #: The two halves are apart by at least this many spaces where a line is cut.
 GAP = 2
 #: A line is cut at its own gap nearest the page's split position, at most this many positions away (a form's right half does
@@ -92,3 +94,32 @@ def halves(text: str) -> tuple[str, str] | None:
         else:
             left.append(line.rstrip())
     return "\n".join(left), "\n".join(x for x in right if x)
+
+
+#: A field with two names and two values split by "/": "Name A/Name B   x / y". The names are words (no figure); the values
+#: are the first two "/"-separated parts after a gap of two spaces or more.
+_PAIR = re.compile(
+    r"(?P<head>[A-Za-z][A-Za-z .()]*?)?\b(?P<a>[A-Za-z][A-Za-z.]*)\s*/\s*(?P<b>[A-Za-z][A-Za-z.]*)\s*:?\s{2,}"
+    r"(?P<x>[^/\s](?:[^/\s]| (?! ))*?|-) ?/ {0,4}(?P<y>[^/\s]+)"  # a value holds no gap of two spaces
+)
+
+
+def pairs(line: str) -> str:
+    """The reading of a paired field on one line, "(read in pairs: A = x; B = y)", or "" when the line holds none."""
+    m = _PAIR.search(line or "")
+    if not m:
+        return ""
+    x, y = (v.strip(" _") for v in (m["x"], m["y"]))
+    x, y = (v if v not in ("", "-") else "blank" for v in (x, y))
+    return f"(read in pairs: {m['a']} = {x}; {m['b']} = {y})"
+
+
+def with_pairs(text: str) -> str:
+    """The text with the reading of each paired field on a line of its own below it; the line itself is unchanged."""
+    out = []
+    for line in str(text or "").split("\n"):
+        out.append(line)
+        reading = pairs(line)
+        if reading:
+            out.append("    " + reading)
+    return "\n".join(out)

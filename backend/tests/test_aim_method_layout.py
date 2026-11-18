@@ -64,3 +64,26 @@ def test_the_judge_is_told_a_question_carries_no_verdict_and_pairs_slash_fields_
         in P.S4_TASK
     )
     assert "pairs them in order" in P.S4_TASK and "SAME quantity" in P.S4_TASK
+
+
+def test_a_paired_field_is_read_in_pairs_by_code_on_a_line_below_it():
+    """ "Name A/Name B   x / y": the first value is the first name's. The line stays as it is (quotes are checked on it)."""
+    line = "Invented load. Steady/Peak   29 kN / -  By Seller"
+    assert LY.pairs(line) == "(read in pairs: Steady = 29 kN; Peak = blank)"
+    assert (
+        LY.pairs("Load Min/Max   10.15kN/97.18kN")
+        == "(read in pairs: Min = 10.15kN; Max = 97.18kN)"
+    )
+    shown = paper_block(
+        Paper(paper_id="d", pages={1: f"Invented sheet\n{line}\nNext field  7"})
+    )
+    assert (
+        f"{line}\n    (read in pairs: Steady = 29 kN; Peak = blank)\nNext field"
+        in shown
+    )
+
+
+def test_no_pair_reading_without_two_names_and_two_values_side_by_side():
+    for line in ("By Seller / Agent   12   Invented part / item", "Invented limit  25 kN", "Date 18/11/2026",
+                 "MAKER / MODEL NO.          Invented"):  # fmt: skip
+        assert LY.pairs(line) == "", line
