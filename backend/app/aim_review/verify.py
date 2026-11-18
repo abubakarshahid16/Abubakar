@@ -196,10 +196,12 @@ _OP_OF = {
 
 
 #: A limit written AFTER its number: "300 psig or less", "5 mm and above", "40 C max." (the words before a number are read by the
-#: app's comparator vocabulary; this reads the few words straight after it, so a plain "<value> <unit> or less" is a limit too).
+#: app's comparator vocabulary; this reads the few words straight after it, so a plain "<value> <unit> or less" is a limit too). A
+#: trailing max / min counts only when it ENDS the value phrase (end of text, punctuation, a closing bracket or a conjunction): a word
+#: after it makes it part of a noun phrase ("Class 150 maximum allowable pressure").
 _AFTER = re.compile(
-    r"^[\s,)]*(?:(?:or|and)\s+(?:(?P<low>less|lower|below|under|smaller|fewer)|(?P<high>more|greater|higher|above|over|larger))"
-    r"\b(?!\s+(?:than|often|frequent))|(?P<max>max(?:imum)?)\b|(?P<min>min(?:imum)?)\b)",
+    r"^[\s,()]*(?:(?:or|and)\s+(?:(?P<low>less|lower|below|under|smaller|fewer)|(?P<high>more|greater|higher|above|over|larger))"
+    r"\b(?!\s+(?:than|often|frequent))|(?P<max>max(?:imum)?)(?=\s*(?:$|[.,;:)\]]|(?:and|or|but)\b))|(?P<min>min(?:imum)?)(?=\s*(?:$|[.,;:)\]]|(?:and|or|but)\b)))",
     re.IGNORECASE,
 )
 
