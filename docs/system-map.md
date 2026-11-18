@@ -519,6 +519,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `structured_search` | Small, scope-aware search over EPC workflow records |
 | `submittal_fill` | Order 206.1: a contractor datasheet's empty title and equipment type filled from its own heading (the line that says DATA SHEET), at READY and again when its review starts |
 | `subject_scope` | What a requirement is ABOUT, and whether it applies to this submittal (#453) |
+| `clause_structure` | Numbered clauses written like body text, found from the book's own evidence (the immediate successor in the book's sequence, a sentence before it, no running line, no table row, no contents page); read only by `StandardText.spans` so a clause ends where the next one starts and "boundary not certain" is said when it cannot be known |
 | `submittal_review` | Schema and scoped read paths for the AI submittal review workflow |
 | `symbols` | Repair glyphs an old PDF's symbol font extracted as the wrong character |
 | `synthesis` | Stage 3 and stage 4: the consolidated summary, and the advisory recommendation |
