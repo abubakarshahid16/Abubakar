@@ -138,6 +138,17 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
 THE ITEMS:
 %(items)s"""
 
+SECOND_READ_TASK = """TASK S4C - SECOND READER. Judge each checklist item below against the paper above, at the place given (field
+and page), as an independent senior engineer. You are not told what anyone else decided. Read the clause words and the paper
+(any page where the thing is). For EACH line give: "label": "Not met" (the paper states something that breaks the item),
+"AI opinion" (a real concern the clause does not decide), "Met" (the paper states what the item requires), "Question" (the value
+is missing, unclear or left to the vendor) or "Does not apply"; "page" and "quote": the exact paper words (5 to 30 words from one
+page, character for character, no "..."); "reason": at most 25 words.
+Reply COMPACT, with ONE JSON object only and no other words:
+{"reads": [{"n": n, "label": "...", "page": p, "quote": "...", "reason": "..."}]}
+THE ITEMS:
+%(items)s"""
+
 EDIT_TASK = """TASK S5 - EDIT THE COMMENT SHEET. Below are the comments that would be sent to the vendor about the paper above
 (one per line: n, field, page, comment, quote). You may ONLY take a comment OFF the sheet (it stays in the full list of points).
 You never add, rewrite or relabel a comment. Take one off for one of two reasons only:

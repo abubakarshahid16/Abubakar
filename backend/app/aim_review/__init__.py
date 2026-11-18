@@ -94,6 +94,10 @@ PAPER_COMPARE_PASSED = "paper_compare_passed"
 #: `code_note` part of a line the editor step (S5) took off the comment sheet: "edited: repeats line 3", "edited: paper states
 #: otherwise (page 2: ...)". Its label is unchanged; it stays in "All points" with its reason.
 EDITED = "edited"
+#: `code_note` parts of the second reader (S4c, `second_read.py`): both readers find a fault, or they differ ("readers differ:
+#: first Not met, second Met"): a line the readers differ on is sent as a Question to be checked, with both readers' words.
+TWO_READERS_AGREE = "two readers agree"
+READERS_DIFFER = "readers differ"
 NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED, EDITED)
 
 
@@ -162,7 +166,9 @@ __all__ = [
     "PROVISIONAL",
     "PROVISIONAL_FAILS",
     "PROVISIONAL_UNCHECKED",
+    "READERS_DIFFER",
     "SENDABLE",
+    "TWO_READERS_AGREE",
     "WHYS",
     "WHY_CITED",
     "WHY_GOVERNS",

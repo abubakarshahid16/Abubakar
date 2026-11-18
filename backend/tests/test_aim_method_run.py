@@ -146,8 +146,9 @@ def test_a_saved_checklist_is_reused_and_no_build_call_is_made(aim_db):
         not in (
             "aim_identify",
             "aim_judge",
+            "aim_second_read",
             "aim_edit",
-        )  # no BUILD call; the editor is no build step
+        )  # no BUILD call; the second reader and the editor are no build steps
     ] == []
     assert len(store.puts) == 1
     assert [ln["item_id"] for ln in second.lines] == [
