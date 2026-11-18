@@ -69,6 +69,19 @@ KNOWLEDGE_ASK = (
     '(at most 12), labelled "not from a held standard".'
 )
 
+KNOWLEDGE_TASK = """TASK S3K - ENGINEERING KNOWLEDGE WHERE A RULE BOOK IS NOT HELD. The paper above was identified as:
+%(identity)s
+The library does NOT hold these standards, which govern or apply to this type of paper:
+%(not_held)s
+The checklist written so far from the held rule books has %(have)d items; their topics: %(topics)s
+Write the items a senior engineer checks on THIS paper from your knowledge of the public requirements of each standard
+above, and, until the checklist has at least %(floor)d items in all, from general engineering practice for this kind of
+paper. Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
+nothing can be checked against its words. At most %(most)d items. Reply with ONE JSON object only: {"items": [{
+ "topic": "at most 8 words", "what_to_check": "one line", "applies_when": "the condition, or always",
+ "paper_fields": ["the field(s) or section(s) of the paper it needs"], "kind": one of %(kinds)s,
+ "stands_in_for": "the standard's public name, or engineering practice"}]}"""
+
 S3_RETRY = """The rule_quote of these checklist items was NOT found in the book's stored text. For each, copy the exact words
 from the clause material below (8 to 40 words, character for character) and give the right book alias and page; drop an item
 whose requirement is not in the material. Reply with ONE JSON object only: {"items": [the corrected items, same fields]}
@@ -89,6 +102,8 @@ Item fields: topic, what_to_check, book, clause, page, rule_quote (exact words f
 paper_fields, paper_pages, kind (%(kinds)s), source ("held standard" or "not from a held standard" + stands_in_for).
 THE CHECKLIST:
 %(items)s
+STANDARDS NOT HELD (check that the checklist covers their main topics; add "engineering knowledge (book not held)" items,
+with no clause quote and no clause number, where it does not): %(not_held)s
 Books: %(books)s
 THE CLAUSES:
 %(material)s"""
@@ -107,7 +122,8 @@ A comment on a value left open or provisional is a QUESTION to the vendor ("appe
 never a statement that it fails.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for a limit, give "numbers" and code will compare them (do not compare
-yourself); items marked "not from a held standard" may only be "Question", "AI opinion" or "Does not apply".
+yourself); items whose source is not "held standard" (engineering knowledge) may only be "Question", "AI opinion" or
+"Does not apply".
 Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "field": "the paper field or section",
  "page": paper page, "quote": "exact paper words", "deferred": true if the vendor left the value open,
  "numbers": {"paper_value": "...", "paper_unit": "...", "operator": "<=|>=|<|>|==|!=", "rule_value": "...", "rule_unit": "...",

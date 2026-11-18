@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 
-from .steps import KNOWLEDGE, item_book
+from .steps import HELD, KNOWLEDGE, item_book
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def items(
     listed = [
         (it, item_book(it, books))
         for it in checklist.get("items") or []
-        if isinstance(it, dict) and it.get("source") != KNOWLEDGE
+        if isinstance(it, dict) and it.get("source") == HELD
     ]
     listed = [(it, b) for it, b in listed if b and b in allowed_books]
     facts, named = _library_facts(conn, identity, allowed_books, text)

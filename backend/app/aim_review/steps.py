@@ -550,7 +550,10 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     elif it["kind"] == "limit" and label in ("Met", "Not met") and it["source"] == HELD:
         label = "Question"
         notes.append("a limit with no numbers for code to compare")
-    if it["source"] == KNOWLEDGE and label in ("Met", "Not met"):
+    if it["source"] != HELD and label in (
+        "Met",
+        "Not met",
+    ):  # any knowledge item (not held, or not from a held standard)
         label = "AI opinion" if label == "Not met" else "Does not apply"
         notes.append("not from a held standard: never Met or Not met")
     return {

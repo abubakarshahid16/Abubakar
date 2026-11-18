@@ -25,6 +25,12 @@ LINES = "aim_lines"
 CHECKLISTS = "aim_checklists"
 #: The only `built_from` a saved checklist may have: it was written from the rule books alone, never from a paper.
 BUILT_FROM = "standards only, no paper"
+#: A checklist that also holds engineering-knowledge items where a governing book is not held (still no paper).
+BUILT_FROM_KNOWLEDGE = (
+    "standards only, no paper; engineering knowledge where a book is not held"
+)
+#: The only ways a saved checklist may have been built: never from the paper.
+BUILT_FROMS = (BUILT_FROM, BUILT_FROM_KNOWLEDGE)
 #: The key `DbChecklistStore.get` adds to the body: the current row's sha256 (ASK A -> D).
 SHA_KEY = "sha256"
 
@@ -441,7 +447,7 @@ class DbChecklistStore:
             f"SELECT sha256, body_json, built_from FROM {CHECKLISTS} WHERE key = ? AND current = 1",
             (key,),
         ).fetchone()
-        if row is None or row["built_from"] != BUILT_FROM:
+        if row is None or row["built_from"] not in BUILT_FROMS:
             return None
         body = _json_of(row["body_json"])
         return {**body, SHA_KEY: row["sha256"]} if isinstance(body, dict) else None
@@ -454,17 +460,22 @@ class DbChecklistStore:
         return [
             r["key"]
             for r in conn.execute(
-                f"SELECT key FROM {CHECKLISTS} WHERE current = 1 AND built_from = ? ORDER BY key",
-                (BUILT_FROM,),
+                f"SELECT key FROM {CHECKLISTS} WHERE current = 1 AND built_from IN (?, ?) ORDER BY key",
+                BUILT_FROMS,
             )
         ]
 
     def put(self, key: str, checklist: dict, *, run_id: str, usd: float) -> str:
         """Save a checklist as the current one for the key; returns its sha256. Refused (ValueError) unless it was built from the
-        standards alone: `built_from` must be exactly "standards only, no paper"."""
-        if not isinstance(checklist, dict) or checklist.get("built_from") != BUILT_FROM:
+        standards alone: `built_from` must be one of BUILT_FROMS (never the paper)."""
+        if (
+            not isinstance(checklist, dict)
+            or checklist.get("built_from") not in BUILT_FROMS
+        ):
             raise ValueError(
-                'a saved checklist must be built from "' + BUILT_FROM + '"'
+                'a saved checklist must be built from "'
+                + '" or "'.join(BUILT_FROMS)
+                + '"'
             )
         # the "sha256" that `get` adds is not part of the body: a body put back unchanged keeps its fingerprint
         checklist = {k: v for k, v in checklist.items() if k != SHA_KEY}
@@ -501,7 +512,7 @@ class DbChecklistStore:
                         ident.get("kind") or checklist.get("kind"),
                         ident.get("equipment_type") or checklist.get("equipment_type"),
                         ident.get("subject_key") or checklist.get("subject_key"),
-                        BUILT_FROM,
+                        checklist["built_from"],
                         json.dumps(checklist, ensure_ascii=False, sort_keys=True),
                         _dump(_book_ids(checklist.get("books"))),
                         len(items) if isinstance(items, list) else None,
