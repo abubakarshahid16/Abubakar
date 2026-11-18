@@ -1,0 +1,26 @@
+{
+  "_about": "The general review's MEASURED score per paper kind (order 14, piece G). Read only by app/aim_review_measured.py and shown on the results page and in the Excel file. found_mean = planted mistakes found out of 'out_of' (10): found by code minus chance hits on the original, averaged over the planted copies. A row with found_mean null is a PLACEHOLDER: the page says 'has not been measured yet'. The lead fills in real numbers from the score files; never type a number here that no score file shows. Keys are the app's kind words (document_kinds.json); a datasheet may also have a row per equipment type under 'equipment_types'.",
+  "out_of": 10,
+  "target": 7.0,
+  "kinds": {
+    "datasheet": {
+      "label": "datasheet",
+      "found_mean": null,
+      "copies": null,
+      "false_alarm_wrong": null,
+      "false_alarm_of": null,
+      "old_engine_mean": null,
+      "measured_on": null,
+      "code_head": null,
+      "note": "not measured yet",
+      "equipment_types": {
+        "relief valve": {"label": "relief valve datasheet", "found_mean": null, "copies": null, "false_alarm_wrong": null, "false_alarm_of": null, "old_engine_mean": null, "measured_on": null, "code_head": null, "note": "not measured yet"},
+        "pump": {"label": "pump datasheet", "found_mean": null, "copies": null, "false_alarm_wrong": null, "false_alarm_of": null, "old_engine_mean": null, "measured_on": null, "code_head": null, "note": "not measured yet"},
+        "pressure vessel": {"label": "pressure vessel datasheet", "found_mean": null, "copies": null, "false_alarm_wrong": null, "false_alarm_of": null, "old_engine_mean": null, "measured_on": null, "code_head": null, "note": "not measured yet"}
+      }
+    },
+    "procedure": {"label": "procedure", "found_mean": null, "copies": null, "false_alarm_wrong": null, "false_alarm_of": null, "old_engine_mean": null, "measured_on": null, "code_head": null, "note": "not measured yet"},
+    "study": {"label": "study", "found_mean": null, "copies": null, "false_alarm_wrong": null, "false_alarm_of": null, "old_engine_mean": null, "measured_on": null, "code_head": null, "note": "not measured yet"},
+    "contract": {"label": "contract document", "found_mean": null, "copies": null, "false_alarm_wrong": null, "false_alarm_of": null, "old_engine_mean": null, "measured_on": null, "code_head": null, "note": "not measured yet"}
+  }
+}
