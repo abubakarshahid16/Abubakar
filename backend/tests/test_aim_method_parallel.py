@@ -273,3 +273,140 @@ def test_a_cancel_mid_judging_closes_every_hold(aim_db, small_batches, lane):
         for e in claude_spend.entries()
         if e.get("run") == "run_par_cancel" and e.get("reserved")
     ]
+
+
+# ---- the spend ledger's caps: a call waits beside held siblings; only a refusal with nothing in flight stops the run --------
+
+
+@pytest.mark.parametrize("width", [1, 3])
+def test_a_judge_call_waits_for_the_ledgers_step_cap_and_side_by_side_judges_all_that_one_at_a_time_does(
+    aim_db, small_batches, lane, monkeypatch, width
+):
+    """The money reviewer's probe (18 Nov 2026): the spend ledger's step cap has room for two judge holds, not three. One at a
+    time judges all 7 items; side by side must judge all 7 too (a call waits for a sibling to settle, never refused only because
+    siblings hold). HAND-REVERT PROOF (money): with the ledger check taken out of `parallel._fits`, width 3 has a call refused
+    for money (and, with the retry also taken out, stops with items not judged) and this test fails; restored, it passes."""
+    from app import claude_spend, reader_transport
+    from app.config import settings
+
+    monkeypatch.setattr(claude_spend, "worst_case_usd", lambda *a, **k: 0.2)
+    monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.5)
+    monkeypatch.setattr(S, "JUDGE_PARALLEL", width)
+    good = reader_transport.transport()
+
+    def send(url, *, headers, body, timeout):
+        if _step_of(body["messages"][0]["content"][0]["text"]) == "aim_judge":
+            time.sleep(0.05)  # the holds overlap
+        return good(url, headers=headers, body=body, timeout=timeout)
+
+    monkeypatch.setattr(reader_transport, "transport", lambda: send)
+    run_id = f"run_par_cap_{width}"
+    r = aim_review.run(aim_db, run_id=run_id, paper_id=PAPER, allowed_books=LISTED, store=MemoryStore(), max_usd=5.0)  # fmt: skip
+    assert r.status == "done", r.stop_reason
+    assert len(r.lines) == 7 and not [
+        ln for ln in r.lines if ln["code_note"] == aim_review.NOT_JUDGED
+    ]
+    assert not [
+        e
+        for e in claude_spend.entries()
+        if e.get("run") == run_id and e.get("reserved")
+    ]
+    # the ledger check makes a call WAIT: no call is ever refused for money (the retry is only a second guard)
+    assert not [c for c in r.calls if "usd_cap_reached" in str(c.get("code"))]
+
+
+class _Refusing:
+    """A dry model: a call is refused for money ("stop usd_cap_reached") while another call is in flight, or always."""
+
+    dry = True
+
+    def __init__(self, always: bool = False):
+        self.always, self.lock, self.flying, self.asked = (
+            always,
+            threading.Lock(),
+            0,
+            [],
+        )
+
+    def ask(self, **kw):
+        with self.lock:
+            self.asked.append(kw["prompt"])
+            crowded = self.flying > 0
+            self.flying += 1
+        try:
+            if self.always or crowded:
+                raise E.StepFailed(f"{kw['step']}: stop usd_cap_reached")
+            time.sleep(0.03)
+            return {"judged": kw["prompt"]}
+        finally:
+            with self.lock:
+                self.flying -= 1
+
+
+def test_a_call_refused_for_money_beside_others_is_asked_once_more_alone():
+    m = _Refusing()
+    results, stop = parallel.run_calls(
+        m, [_request(f"p{i}") for i in range(5)], workers=3
+    )
+    assert stop == "" and [r[0] for r in results] == ["ok"] * 5
+    assert [r[1]["judged"] for r in results] == [
+        f"p{i}" for i in range(5)
+    ]  # by position
+
+
+def test_a_money_refusal_with_nothing_in_flight_stops_the_run_and_nothing_new_starts():
+    m = _Refusing(always=True)
+    results, stop = parallel.run_calls(
+        m, [_request(f"p{i}") for i in range(5)], workers=3
+    )
+    assert "usd_cap_reached" in stop and results[0][0] == "failed"
+    assert results[1:] == [None] * 4
+
+
+def test_nothing_new_starts_after_a_run_stopping_failure():
+    """Removing `and not stop` from the submit loop lets the third call start after the first one stopped the run."""
+    asked = []
+
+    class _M:
+        dry = True
+
+        def ask(self, **kw):
+            asked.append(kw["prompt"])
+            if kw["prompt"] == "p0":
+                raise E.StepFailed("aim_judge: gate_closed")
+            time.sleep(0.1)
+            return {}
+
+    results, stop = parallel.run_calls(
+        _M(), [_request(f"p{i}") for i in range(6)], workers=2
+    )
+    assert stop == "aim_judge: gate_closed" and sorted(asked) == ["p0", "p1"]
+    assert (
+        results[0][0] == "failed"
+        and results[1][0] == "ok"
+        and results[2:] == [None] * 4
+    )
+
+
+def test_each_worker_closes_its_own_database_connection(aim_db):
+    """One worker, three calls on its thread: each call gets a NEW connection, because the one before was closed when its call
+    ended (without the close, the thread's cached connection comes back every time)."""
+    from app import db
+
+    opened = []
+
+    class _M:
+        dry = True
+
+        def ask(self, **kw):
+            conn = db.connect()
+            conn.execute("SELECT 1")
+            opened.append(id(conn))
+            opened.append(conn)  # kept alive, so an id is never reused
+            return {}
+
+    _results, stop = parallel.run_calls(
+        _M(), [_request(f"p{i}") for i in range(3)], workers=1
+    )
+    ids = opened[0::2]
+    assert stop == "" and len(ids) == 3 and len(set(ids)) == 3
