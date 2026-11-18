@@ -211,7 +211,7 @@ def test_schedules_consistent_give_no_line_and_package_gap_is_one_question():
 
 
 def test_defined_term_in_another_form_is_one_question():
-    pages = {1: 'The firm Alpha Works ("SELLER") agrees to sell. The SELLER shall deliver.',
+    pages = {1: 'The firm Alpha Works (hereinafter referred to as "SELLER") agrees to sell. The SELLER shall deliver.',
              2: "The Seller shall then invoice. The SELLER is paid."}  # fmt: skip
     lines = _only(K.lines(pages, C), "terms")
     assert len(lines) == 1 and lines[0]["label"] == "Question" and lines[0]["page"] == 2
@@ -220,6 +220,20 @@ def test_defined_term_in_another_form_is_one_question():
         "The SELLER shall then invoice. The seller of spare parts is paid."  # lower case: the plain word, not the term
     )
     assert _only(K.lines(pages, C), "terms") == []
+
+
+def test_party_names_titles_and_bracket_words_are_not_defined_term_variants():
+    pages = {
+        1: 'Zeta Trading Company, a firm (hereinafter referred to as "COMPANY"), and Alpha Works ("SELLER") agree. '
+        "The COMPANY shall pay.",
+        2: 'SCHEDULE "R"\nCompany\u2019s Drawings Register\nThe Seller shall deliver. The COMPANY shall review.\n'
+        "9. Company Duties. More words follow here.",
+    }  # fmt: skip
+    # 'Trading Company' is a name, "Company's Drawings" a title; ("SELLER") alone is no definition, so 'Seller' is no variant
+    assert _only(K.lines(pages, C), "terms") == []
+    pages[2] += " Then the Company shall pay the rest."
+    lines = _only(K.lines(pages, C), "terms")
+    assert len(lines) == 1 and "'Company' 1 time(s)" in lines[0]["comment"]
 
 
 # ------------------------------------------------------------------ kind gate, checklist, hook
