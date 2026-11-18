@@ -27,6 +27,10 @@ KNOWLEDGE = "not from a held standard"
 NOT_JUDGED = "not_judged"
 NOT_ON_ANY_PAGE = "not_on_any_page"
 JUDGE_BATCH = 8
+#: At most this many places (findings) per item: an item that fails on several sheets of one paper gives one line per place.
+MAX_FINDINGS = 6
+#: The judge's output room: 8 items x up to 6 findings each.
+JUDGE_MAX_TOKENS = 24000
 CLAUSE_WINDOW = 900
 #: In a windowed judgment, the order in which one item's answers from several windows are kept: a verified quote first, then
 #: the label that asks the most of the vendor (a firm finding is never hidden behind a "met" read in another part of the paper).
@@ -311,7 +315,8 @@ def s4_judge(
     cancelled=None,
     progress=None,
 ) -> tuple[list[dict], str]:
-    """One decided line per item of `items`, in order, and a stop code ('' when every batch was asked).
+    """The decided lines of `items`, by item then by page, and a stop code ('' when every batch was asked). An item gives one
+    line, or one line per PLACE where it fails or is left open (a paper of several sheets of the same kind; `_lines_of`).
 
     One window (the paper fits): the measured method exactly. Several windows (a long paper): every batch is judged in each
     window; an item's answers are merged by `_merge`. A batch never asked (cancelled, or the run stopped) is 'not judged'."""
@@ -349,17 +354,18 @@ def s4_judge(
                     stop = code
                 continue
             for it in batch:
-                j = got.get(it["id"])
-                if j is not None:
-                    answers[it["id"]].append(j)
+                answers[it["id"]].extend(got.get(it["id"]) or [])
             done += 1
             if progress is not None:
                 progress(int(100 * done / total), "judge")
         if stop:
             break
     lines = [
-        _merge(it, answers[it["id"]], paper, books, errors.get(it["id"], ""), windowed)
+        line
         for it in items
+        for line in _lines_of(
+            it, answers[it["id"]], paper, books, errors.get(it["id"], ""), windowed
+        )
     ]
     return lines, stop
 
@@ -374,7 +380,8 @@ def _ask_batch(
     head: str,
     lead: str,
 ) -> dict:
-    """One judge call for one batch: {item id: the model's judgment}. Declares the paper and the batch's books only."""
+    """One judge call for one batch: {item id: [the model's findings]}, one per place (a row per place with the item's id, or
+    one row with a "findings" list). Declares the paper and the batch's books only."""
     carries = {paper.paper_id} | {
         b for b in (item_book(it, books) for it in batch) if b
     }
@@ -387,41 +394,80 @@ def _ask_batch(
         + P.S4_TASK
         % {"items": "\n".join(_dumps(_shown_item(it, books, text)) for it in batch)},
         carries=carries,
-        max_tokens=12000,
+        max_tokens=JUDGE_MAX_TOKENS,
     )
     rows = (out or {}).get("judgments") or [] if isinstance(out, dict) else []
-    return {str(j.get("id")): j for j in rows if isinstance(j, dict)}
-
-
-def _merge(
-    it: dict, js: list[dict], paper, books: dict, err: str, windowed: bool
-) -> dict:
-    if not windowed:
-        return _decide(it, js[0] if js else None, paper, books, err)
-    here = [j for j in js if not j.get("not_here")]
-    if not here:
-        if js and not err:  # every part of the paper was read and none shows it
-            line = _decide(
-                it,
-                {
-                    "label": "Question",
-                    "comment": "the paper does not show this on any page",
-                },
-                paper,
-                books,
-                "",
-            )
-            line["code"] = NOT_ON_ANY_PAGE
-            return line
-        return _decide(it, None, paper, books, err)
-    decided = [_decide(it, j, paper, books, "") for j in here]
-    decided.sort(
-        key=lambda d: (
-            not d.get("quote"),
-            _KEEP_ORDER.index(d["label"]) if d["label"] in _KEEP_ORDER else 9,
+    got: dict[str, list[dict]] = {}
+    for j in rows:
+        if not isinstance(j, dict):
+            continue
+        key = str(j.get("id"))
+        found = j.get("findings")
+        places = (
+            [f for f in found if isinstance(f, dict)]
+            if isinstance(found, list)
+            else [j]
         )
-    )
-    return decided[0]
+        got.setdefault(key, []).extend({**f, "id": key} for f in places)
+    return got
+
+
+def _lines_of(
+    it: dict, js: list[dict], paper, books: dict, err: str, windowed: bool
+) -> list[dict]:
+    """The lines of ONE item from all its findings (every window, every place). Each finding is decided by `_decide`, unchanged.
+    No finding: "not judged". A long paper whose every part said "not here": one Question, the paper shows it on no page."""
+    here = [j for j in js if not j.get("not_here")] if windowed else list(js)
+    if (
+        windowed and not here and js and not err
+    ):  # every part of the paper was read and none shows it
+        line = _decide(
+            it,
+            {
+                "label": "Question",
+                "comment": "the paper does not show this on any page",
+            },
+            paper,
+            books,
+            "",
+        )
+        line["code"] = NOT_ON_ANY_PAGE
+        return [dict(line, finding_no=1)]
+    if not here:
+        return [dict(_decide(it, None, paper, books, err), finding_no=1)]
+    return _places([_decide(it, j, paper, books, "") for j in here])
+
+
+def _places(decided: list[dict]) -> list[dict]:
+    """One line per PLACE where the item fails or is left open (a sent line with a verified quote), by page, the same place once,
+    at most MAX_FINDINGS (the rest counted in the first line's code note). None such: the one best line, as before (a verified
+    quote first, then the label that asks the most of the vendor)."""
+    from . import sendable
+
+    seen, places = set(), []
+    for d in decided:
+        key = (d.get("page"), norm(d.get("quote") or ""))
+        if (
+            d.get("quote")
+            and key not in seen
+            and sendable({"label": d["label"], "code_note": d.get("code")})
+        ):
+            seen.add(key)
+            places.append(d)
+    if not places:
+        decided.sort(
+            key=lambda d: (
+                not d.get("quote"),
+                _KEEP_ORDER.index(d["label"]) if d["label"] in _KEEP_ORDER else 9,
+            )
+        )
+        return [dict(decided[0], finding_no=1)]
+    places.sort(key=lambda d: d.get("page") or 0)
+    kept, extra = places[:MAX_FINDINGS], len(places) - MAX_FINDINGS
+    if extra > 0:
+        more = f"{extra} more place(s) of this item not listed (at most {MAX_FINDINGS} per item)"
+        kept[0]["code"] = "; ".join(x for x in (kept[0].get("code"), more) if x)
+    return [dict(d, finding_no=n) for n, d in enumerate(kept, 1)]
 
 
 def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:

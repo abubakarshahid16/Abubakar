@@ -70,7 +70,7 @@ class Result:
     unlisted_count: int
     lines: list[
         dict
-    ]  # ONE per checklist item, in order: section D's `aim_lines` columns (D adds `shown_label`)
+    ]  # per checklist item in order: one line, or one per place where it fails (by page, <= 6): D's `aim_lines` columns + finding_no
     calls: list[dict] = field(
         default_factory=list
     )  # {step, model, usd, input_tokens, output_tokens, seconds, ok, code}
