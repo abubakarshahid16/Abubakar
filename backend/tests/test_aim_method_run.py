@@ -376,10 +376,11 @@ def test_an_item_no_window_shows_is_a_question_that_says_so(aim_db, monkeypatch)
         ),
     )
     assert r.lines and all(
-        ln["label"] == "Question" and ln["code_note"] == S.NOT_ON_ANY_PAGE
+        ln["label"] == "Question" and ln["code_note"].startswith(S.NOT_ON_ANY_PAGE)
         for ln in r.lines
     )
-    assert all(aim_review.sendable(ln) for ln in r.lines)
+    # changed 19 Nov (lead 4, the spec review): code's own filler with no field, page or quote is kept on All points, not sent
+    assert not any(aim_review.sendable(ln) for ln in r.lines)
 
 
 def test_a_firm_finding_in_one_window_is_kept_over_a_met_in_another():

@@ -36,6 +36,8 @@ HELD = "held standard"
 KNOWLEDGE = "not from a held standard"
 NOT_JUDGED = "not_judged"
 NOT_ON_ANY_PAGE = "not_on_any_page"
+#: The words code writes on such a line (code's own filler: no field, page or quote of the paper is named by it).
+NOT_ON_ANY_PAGE_WORDS = "the paper does not show this on any page"
 JUDGE_BATCH = 8
 #: At most this many places (findings) per item: an item that fails on several sheets of one paper gives one line per place.
 MAX_FINDINGS = 6
@@ -546,7 +548,7 @@ def _lines_of(
             it,
             {
                 "label": "Question",
-                "comment": "the paper does not show this on any page",
+                "comment": NOT_ON_ANY_PAGE_WORDS,
             },
             paper,
             books,
