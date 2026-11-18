@@ -149,6 +149,8 @@ def _summary(ws: Worksheet, model: dict) -> None:
         ("Equipment type", model["identity"].get("equipment_type")),
         ("Subject", model["identity"].get("subject")),
         ("Method", model["method"]),
+        # piece G: the measured score of this paper's kind; a null prints as an empty cell ("below target" / "not measured yet")
+        ("Measured score of this kind", (model.get("measured") or {}).get("sentence")),
     ]
     row = 4
     for label, value in lines:

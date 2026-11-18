@@ -830,3 +830,24 @@ def test_every_sent_line_is_in_exactly_one_comment_or_the_file_is_refused():
         "not sent lines in a comment: [3]"
         in aim_review_completeness._lines_check([row("1, 2, 3")], view)[0]
     )
+
+
+def test_the_summary_sheet_states_the_measured_score_of_the_papers_kind(world):
+    """Piece G: the page's `measured` sentence is on the Summary sheet too (here the shipped table holds no score for the kind, so it
+    says "not measured"); a run that names no kind leaves the cell empty, never a number."""
+    make_run(
+        "gen_run_measured", created="2026-11-18T16:00:00Z"
+    )  # identity kind "datasheet" (make_run's default)
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_run_measured").json()
+    measured = body["measured"]
+    assert measured is not None and measured["sentence"]
+    wb = _sheet(
+        c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_run_measured")
+    )
+    rows = [
+        row
+        for row in wb["Summary"].iter_rows(values_only=True)
+        if row and row[0] == "Measured score of this kind"
+    ]
+    assert rows and rows[0][1] == measured["sentence"]

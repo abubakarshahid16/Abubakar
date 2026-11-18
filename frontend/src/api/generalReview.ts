@@ -2,6 +2,7 @@
  * The general review's calls (order 14, piece C): the stored review of a paper as the results page draws it, its Excel file, and the
  * paper's history of reviews (piece D's route). Reads only; every file is the TEAM copy: there is no contractor copy and no sign-off.
  */
+import type { GeneralMeasured } from "../components/review/general/MeasuredBadge";
 import { BASE, failureOf, markSession, request, type Result } from "./core";
 
 export interface GeneralLine {
@@ -45,6 +46,8 @@ export interface GeneralReview {
   not_held: { name: string; why: string }[];
   unlisted_books: { count: number; sentence: string | null };
   checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };
+  /** Piece G: the measured score of this paper's kind (found of 10 on planted test copies, target 7); null when no kind is named. */
+  measured?: GeneralMeasured | null;
   cost: { usd: number | null };
   completeness: GeneralCompleteness;
   /** False when an earlier-engine review of the paper is newer: the page then draws the older sections. */

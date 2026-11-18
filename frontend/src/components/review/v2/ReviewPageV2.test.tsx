@@ -1012,3 +1012,20 @@ describe("12 the general review's results page (order 14)", () => {
     expect(await screen.findByTestId("general-stopped")).toHaveTextContent("the spend limit was reached");
   });
 });
+
+describe("13 the measured score of the paper's kind on the general results (order 14, piece G)", () => {
+  it("shows the kind's measured score under the mark, and nothing when the run names no kind", async () => {
+    const measured = { kind_label: "relief valve", found: 6.5, target: 7, verdict: "below target", sentence: "Invented: 6.5 of 10 found, below target" };
+    api.general.mockResolvedValue(ok(general({ measured } as Partial<GeneralReview>)));
+    mount();
+    await screen.findByTestId("general-results");
+    expect(screen.getByTestId("general-measured-sentence")).toHaveTextContent("6.5 of 10 found, below target");
+  });
+
+  it("shows no measured line for a run with no kind", async () => {
+    api.general.mockResolvedValue(ok(general({ measured: null } as Partial<GeneralReview>)));
+    mount();
+    await screen.findByTestId("general-results");
+    expect(screen.queryByTestId("general-measured-sentence")).toBeNull();
+  });
+});

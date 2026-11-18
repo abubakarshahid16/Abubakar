@@ -9,6 +9,7 @@
 import { type ReactNode, useState } from "react";
 
 import { type GeneralLine, type GeneralReview, downloadGeneralSheet } from "../../../api/generalReview";
+import { MeasuredBadge } from "./MeasuredBadge";
 
 const MARK_FALLBACK = "AI, to be checked";
 
@@ -67,6 +68,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
         <strong>{mark}</strong>
         <span className="ml-2 text-slateish-300">General review. This is the AI's opinion, for the team: nothing here is signed off or ready for the contractor.</span>
       </div>
+      <MeasuredBadge measured={review.measured} />
 
       {review.status === "stopped" && (
         <p role="alert" data-testid="general-stopped" className="text-sm text-danger-500">
