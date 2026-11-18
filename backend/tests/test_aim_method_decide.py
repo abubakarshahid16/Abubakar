@@ -749,3 +749,130 @@ def test_a_hold_time_a_hold_down_bolt_and_a_later_revision_are_values(quote):
     from app import blank_markers
 
     assert not blank_markers.value_left_open(quote)
+
+
+# ---- several sheets of the same kind in one paper: one line per failing place (the lead, 18 Nov 2026; invented values) ---------
+
+SHEETS = {
+    n: f"Sheet {n} of 3, item tag QX-{n}0\nDesign pressure of the test item: {v} bar gauge at the inlet\n"
+    for n, v in ((1, 12), (2, 25), (3, 30))
+}
+SHEET_PAPER = Paper(paper_id="doc_sheets", pages=SHEETS)
+RULE_20_ANY = (
+    "The design pressure of the item shall not exceed 20 bar gauge in any case."
+)
+
+
+def _on_sheet(n, value, label):
+    quote = f"Design pressure of the test item: {value} bar gauge at the inlet"
+    return {"label": label, "page": n, "quote": quote, "comment": f"sheet {n}",
+            "numbers": {"paper_value": str(value), "paper_unit": "bar", "operator": "<=", "rule_value": "20", "rule_unit": "bar"}}  # fmt: skip
+
+
+def test_an_item_that_fails_on_two_sheets_gives_two_sent_lines_each_with_its_own_quote():
+    js = [
+        _on_sheet(1, 12, "Met"),
+        _on_sheet(3, 30, "Not met"),
+        _on_sheet(2, 25, "Not met"),
+    ]
+    lines = S._lines_of(
+        _item(kind="limit", rule_quote=RULE_20_ANY), js, SHEET_PAPER, BOOKS, "", False
+    )
+    assert [ln["page"] for ln in lines] == [2, 3] and [
+        ln["finding_no"] for ln in lines
+    ] == [1, 2]
+    assert [ln["quote"] for ln in lines] == [
+        "Design pressure of the test item: 25 bar gauge at the inlet",
+        "Design pressure of the test item: 30 bar gauge at the inlet",
+    ]
+    assert all(
+        ln["label"] == "Not met"
+        and ln["code_compare"]["result"] == "fail"
+        and _sent(ln)
+        for ln in lines
+    )
+
+
+def test_an_item_that_holds_on_every_sheet_gives_one_line():
+    js = [_on_sheet(1, 12, "Met"), _on_sheet(2, 12, "Met"), _on_sheet(3, 12, "Met")]
+    pages = {n: SHEETS[1].replace("Sheet 1", f"Sheet {n}") for n in (1, 2, 3)}
+    lines = S._lines_of(
+        _item(kind="limit", rule_quote=RULE_20_ANY),
+        js,
+        Paper("doc_h", pages),
+        BOOKS,
+        "",
+        False,
+    )
+    assert (
+        len(lines) == 1 and lines[0]["label"] == "Met" and lines[0]["finding_no"] == 1
+    )
+
+
+def test_the_same_place_from_two_windows_is_one_line():
+    js = [
+        _on_sheet(2, 25, "Not met"),
+        _on_sheet(2, 25, "Not met"),
+        {"id": "C001", "not_here": True},
+    ]
+    lines = S._lines_of(
+        _item(kind="limit", rule_quote=RULE_20_ANY), js, SHEET_PAPER, BOOKS, "", True
+    )
+    assert len(lines) == 1 and lines[0]["page"] == 2
+
+
+def test_at_most_six_places_per_item_and_the_rest_are_counted():
+    pages = {
+        n: f"Sheet {n}\nDesign pressure of the test item: {20 + n} bar gauge at the inlet\n"
+        for n in range(1, 9)
+    }
+    js = [_on_sheet(n, 20 + n, "Not met") for n in range(1, 9)]
+    lines = S._lines_of(
+        _item(kind="limit", rule_quote=RULE_20_ANY),
+        js,
+        Paper("doc_cap", pages),
+        BOOKS,
+        "",
+        False,
+    )
+    assert len(lines) == S.MAX_FINDINGS == 6 and [ln["page"] for ln in lines] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+    ]
+    assert "2 more place(s) of this item not listed (at most 6 per item)" in lines[0][
+        "code"
+    ] and _sent(lines[0])
+
+
+def test_a_findings_list_in_one_row_is_read_as_places():
+    class _Model:
+        def ask(self, **_kw):
+            return {"judgments": [{"id": "C001", "findings": [_on_sheet(2, 25, "Not met"), _on_sheet(3, 30, "Not met")]},
+                                  {"id": "C002", **_on_sheet(1, 12, "Met")}]}  # fmt: skip
+
+    class _Text:
+        def pages(self, _doc):
+            return {}
+
+        def page(self, _doc, _n):
+            return None
+
+    full = {
+        "what_to_check": "x",
+        "applies_when": "always",
+        "paper_fields": [],
+        "paper_pages": [],
+    }
+    one = _item(kind="limit", rule_quote=RULE_20_ANY, **full)
+    items = [one, dict(one, id="C002")]
+    lines, stop = S.s4_judge(_Model(), SHEET_PAPER, {"books": list(BOOKS.values())}, _Text(), items=items,
+                             windows=[[1, 2, 3]], lead="claude-sonnet-5-5")  # fmt: skip
+    assert stop == "" and [(ln["item_id"], ln["page"]) for ln in lines] == [
+        ("C001", 2),
+        ("C001", 3),
+        ("C002", 1),
+    ]

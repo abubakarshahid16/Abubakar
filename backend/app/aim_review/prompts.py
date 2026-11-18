@@ -100,6 +100,9 @@ Labels: "Met" (the paper states what the clause requires), "Not met" (the paper 
 vendor/contractor"; a figure stated beside a note of who supplies it, such as "380 psig (By Contractor)", is provisional: give
 its "numbers" so code can check it, and label it "Question", never Met or Not met), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
 clause does not decide).
+Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
+finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
+that holds everywhere gets one judgment.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for a limit, give "numbers" and code will compare them (do not compare
 yourself); items marked "not from a held standard" may only be "Question", "AI opinion" or "Does not apply".

@@ -386,7 +386,10 @@ def test_a_firm_finding_in_one_window_is_kept_over_a_met_in_another():
             "quote": "words that are on no page of the paper at all",
         },
     ]
-    got = S._merge(it, js, paper, {}, "", True)
+    # one line per failing place (the item's findings, `_lines_of`); the Met place and the unverified quote are no such place
+    lines = S._lines_of(it, js, paper, {}, "", True)
+    assert len(lines) == 1
+    got = lines[0]
     assert got["label"] == "Not met" and got["page"] == 2 and got["quote"]
 
 
@@ -397,4 +400,62 @@ def test_a_paper_that_fits_is_one_window_with_no_window_line(aim_db):
     assert all(
         "=== PAGE 1 ===" in c["cached_text"] and "=== PAGE 2 ===" in c["cached_text"]
         for c in judges
+    )
+
+
+def test_an_item_that_fails_in_two_places_gives_two_lines_through_run_and_the_store(
+    aim_db,
+):
+    """Several sheets of one kind in one paper (the lead, 18 Nov 2026): the judge reports each failing place; `run` keeps one
+    line per place (same item id, finding 1 and 2, by page), and the store takes them as two lines."""
+    import re
+
+    from app import aim_review_store
+
+    places = [
+        (1, "Design pressure of the test item: 12 bar gauge at the inlet"),
+        (2, "Noise level of the test item: to be advised by the vendor later"),
+    ]
+
+    def judge(_step, _cached, prompt):
+        ids = re.findall(r'"id": "(C\d+)"', prompt)
+        rows = [
+            {
+                "id": ids[0],
+                "label": "Question",
+                "page": p,
+                "quote": q,
+                "comment": f"place {p}",
+            }
+            for p, q in reversed(places)
+        ]
+        rows += [
+            {"id": i, "label": "Met", "page": 1, "quote": places[0][1], "comment": "ok"}
+            for i in ids[1:]
+        ]
+        return {"judgments": rows}  # fmt: skip
+
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_judge": judge}
+    )
+    r, _m, store = _run(aim_db, model=model)
+    assert r.status == "done", r.stop_reason
+    items = store.get(r.checklist_key)["items"]
+    first = [ln for ln in r.lines if ln["item_id"] == items[0]["id"]]
+    assert [(ln["page"], ln["finding_no"]) for ln in first] == [(1, 1), (2, 2)]
+    assert len(r.lines) == len(items) + 1 and all(
+        aim_review.sendable(ln) for ln in first
+    )
+    assert [ln["item_id"] for ln in r.lines][:2] == [
+        items[0]["id"]
+    ] * 2  # by item, then by page
+    aim_review_store.ensure_schema(aim_db)
+    aim_review_store.start_run(aim_db, "run_aim_t1", PAPER, "2026-11-18T00:00:00Z")
+    aim_review_store.finish_run(
+        aim_db, "run_aim_t1", {**r.__dict__, "lines": r.lines}, "2026-11-18T00:01:00Z"
+    )
+    stored = aim_review_store.lines(aim_db, "run_aim_t1")
+    assert (
+        len(stored) == len(r.lines)
+        and [s["item_id"] for s in stored][:2] == [items[0]["id"]] * 2
     )

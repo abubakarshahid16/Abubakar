@@ -481,6 +481,8 @@ def to_line(n: int, d: dict) -> dict:
     return {
         "line_no": n,
         "item_id": d.get("item_id") or "",
+        "finding_no": d.get("finding_no")
+        or 1,  # the place's index within its item (1 when the item has one line)
         "label": d.get("label") or "Question",
         "field": d.get("field") or "",
         "page": d.get("page") if isinstance(d.get("page"), int) else None,
@@ -639,7 +641,8 @@ def _judge(
     say,
     cancelled,
 ) -> None:
-    """One decided line per checklist item, in order. An item whose book is not on the list shown is never sent: it is
+    """The decided lines of every checklist item, in order: one per item, or one per place where it fails (by page, at most
+    `steps.MAX_FINDINGS`). An item whose book is not on the list shown is never sent: it is
     "not judged" and its book is counted as unlisted."""
     from . import steps as S
 
@@ -668,13 +671,16 @@ def _judge(
         cancelled=cancelled,
         progress=lambda pct, _w: say(25 + int(pct * 0.7), "judge"),
     )
-    by_id = {ln["item_id"]: ln for ln in lines}
+    by_id: dict[str, list[dict]] = {}
+    for ln in lines:
+        by_id.setdefault(ln["item_id"], []).append(ln)
     for it in items:
         if it["id"] in held_back:
-            line = S._decide(it, None, paper, books, NOT_ON_LIST)
+            own = [dict(S._decide(it, None, paper, books, NOT_ON_LIST), finding_no=1)]
         else:
-            line = by_id[it["id"]]
-        line["book_document_id"] = S.item_book(it, books)
-        state.decided.append(line)
+            own = by_id[it["id"]]
+        for line in own:
+            line["book_document_id"] = S.item_book(it, books)
+            state.decided.append(line)
     if stop:
         state.stop(stop)
