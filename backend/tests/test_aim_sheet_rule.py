@@ -1228,7 +1228,6 @@ def test_answered_and_edited_points_are_counted_apart_and_every_point_stays_a_ro
     assert (
         rep["ok"] is True
         and rep["page"] == rep["database"] == rep["file_rows"] == 3
-        and rep["comment_rows"] == 3
         and rep["comment_rows"] == 1
     )
     wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_answered"))
