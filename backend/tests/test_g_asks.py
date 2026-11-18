@@ -222,6 +222,30 @@ def test_a_concern_is_never_held_back_whatever_its_words(text):
     assert not asks.asks_nothing(decided(text, ask="concern"))
 
 
+def test_a_line_that_only_confirms_a_stated_value_leaves_the_sent_comment_of_its_check():
+    """Per line, before the lines of one check are grouped (the stored v3 sheets: 44 confirm lines rode inside sent comments)."""
+    confirm = point(1, item="C1", page=1, ask="confirm")
+    concern = point(
+        2, item="C1", page=2, ask="concern", comment="The value is wrong, revise it."
+    )
+    comments, confirmations = aim_review_view.comments_and_confirmations(
+        [confirm, concern]
+    )
+    assert [c["lines"] for c in comments] == [[2]] and [
+        c["lines"] for c in confirmations
+    ] == [[1]]
+    assert (
+        "Please confirm" not in comments[0]["comment"]
+    )  # the confirm line's words are on the confirmations sheet, not in the comment
+    # an older line with no recorded mark, an unverified quote or a compared figure stays in the comment, as before
+    keep = [
+        point(3, item="C2", page=1, ask="confirm", quote_unverified="x"),
+        point(4, item="C2", page=2, ask="concern"),
+    ]
+    comments, confirmations = aim_review_view.comments_and_confirmations(keep)
+    assert [c["lines"] for c in comments] == [[3, 4]] and confirmations == []
+
+
 @pytest.mark.parametrize(
     "line",
     [

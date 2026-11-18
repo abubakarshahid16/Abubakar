@@ -5,6 +5,9 @@ from __future__ import annotations
 
 from . import PROVISIONAL
 
+#: The process note a paper-vs-paper comparison sentence carries (the AI chose the pairing). A card's "We ask" is read without it (the card's
+#: own `proven` field says how the comment is proven); the stored comment and the team file's Comment cell keep it whole.
+PAIRED_NOTE = " (the AI paired these two values; code compared them)"
 #: What a failed check says of the stated figure, by the rule's operator.
 _FAILS_AS = {
     "<=": ("is above", "limit"),
@@ -56,7 +59,9 @@ def _fails_comment(
         page = code_cmp.get("limit_page")
         where = f"on page {page}" if page else "on this paper"
         # what the paper shows, with its page; the pairing is the AI's choice and says so (a guess is shown as a guess)
-        return f"The stated {stated} {verb} the {rule} stated {where} (the AI paired these two values; code compared them); {ask}."
+        return (
+            f"The stated {stated} {verb} the {rule} stated {where}{PAIRED_NOTE}; {ask}."
+        )
     if base.get("standard"):
         where = f"{base['standard']} clause {base['clause']}".strip()
     else:

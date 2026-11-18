@@ -21,6 +21,7 @@ from . import library as L
 from . import prompts as P
 from .engine import StepFailed
 from .fail_words import (  # noqa: F401 - one home: fail_words
+    PAIRED_NOTE,
     PROVEN_FAIL,
     _fails_comment,
     _num,

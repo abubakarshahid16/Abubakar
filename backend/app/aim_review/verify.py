@@ -163,34 +163,36 @@ _OP_OF = {
 }
 
 
-#: The comparison words that FOLLOW a value in a rule's verified quote ("300 psig or less", "300 psig maximum", "300 psig max."):
-#: the app's comparator vocabulary reads the words BEFORE a number only (18 Nov 2026: "300 psig or less" gave no comparison).
+#: A limit written AFTER its number: "300 psig or less", "5 mm and above", "40 C max." (the words before a number are read by the
+#: app's comparator vocabulary; this reads the few words straight after it, so a plain "<value> <unit> or less" is a limit too).
 _AFTER = re.compile(
-    r"\s*(?:,\s*)?(?P<w>or\s+less|or\s+lower|or\s+below|or\s+under|maximum|max\b\.?|at\s+most|or\s+more|or\s+greater|"
-    r"or\s+higher|or\s+above|or\s+over|minimum|min\b\.?|at\s+least)",
+    r"^[\s,)]*(?:(?:or|and)\s+(?:(?P<low>less|lower|below|under|smaller|fewer)|(?P<high>more|greater|higher|above|over|larger))"
+    r"\b(?!\s+(?:than|often|frequent))|(?P<max>max(?:imum)?)\b|(?P<min>min(?:imum)?)\b)",
     re.IGNORECASE,
 )
-_AFTER_OP = {"less": "<=", "lower": "<=", "below": "<=", "under": "<=", "maximum": "<=", "max": "<=", "most": "<=",
-             "more": ">=", "greater": ">=", "higher": ">=", "above": ">=", "over": ">=", "minimum": ">=", "min": ">=",
-             "least": ">="}  # fmt: skip
 
 
-def _op_after(quote: str, raw_value: str, raw_unit: str) -> str | None:
-    """The operator the words right AFTER "<value> <unit>" in the quote name, or None."""
-    head = re.escape(str(raw_value)) + (
-        r"\s*" + re.escape(str(raw_unit)) if raw_unit else ""
-    )
-    m = re.search(r"(?<![\d.])" + head + _AFTER.pattern, quote or "", re.IGNORECASE)
+def op_after(quote: str, end: int) -> str | None:
+    """The operator the few words right after position `end` of `quote` give ("or less" -> "<=", "or more" -> ">="), else None."""
+    m = _AFTER.match(quote[end:])
     if not m:
         return None
-    last = re.findall(r"[a-z]+", m.group("w").lower())[-1]
-    return _AFTER_OP.get(last)
+    return "<=" if (m.group("low") or m.group("max")) else ">="
+
+
+def _span_end(quote: str, raw_value: str, raw_unit: str) -> int | None:
+    """Where the number as written (with its unit) ends in the quote; None when it is not found as written."""
+    pat = re.escape(str(raw_value)) + (
+        r"\s?" + re.escape(str(raw_unit)) if raw_unit else ""
+    )
+    m = re.search(r"(?<![\w.,/])" + pat + r"(?![\w])", quote)
+    return m.end() if m else None
 
 
 def quoted_value(value, quote: str) -> dict | None:
     """The number `value` as the verified `quote` itself states it: {"value", "unit", "op"} read by code from the quote's own
     words (`claims.extract_measurements` for a number with its unit, else `numparse.find_numbers` for a bare number; the operator
-    from the words before it, `claims.comparator_ending`). None when the quote does not state that number. Nothing is taken from
+    from the words before it, `claims.comparator_ending`, else the few words right after it, `op_after`). None when the quote does not state that number. Nothing is taken from
     the model here: a code stamp rests only on what the quotes say."""
     from app import claims, numparse
 
@@ -200,11 +202,12 @@ def quoted_value(value, quote: str) -> dict | None:
     for m in claims.extract_measurements(quote):
         got = numparse.parse_value(str(m.raw_value))
         if got is not None and abs(got - target) < 1e-9:
+            end = _span_end(quote, m.raw_value, m.raw_unit or "")
             return {
                 "value": str(m.raw_value),
                 "unit": str(m.raw_unit or ""),
                 "op": _OP_OF.get(str(m.comparator or ""))
-                or _op_after(quote, str(m.raw_value), str(m.raw_unit or "")),
+                or (op_after(quote, end) if end is not None else None),
             }
     for n in numparse.find_numbers(quote):
         if n.value is not None and abs(n.value - target) < 1e-9 and n.sign != "-":
@@ -212,8 +215,7 @@ def quoted_value(value, quote: str) -> dict | None:
             return {
                 "value": quote[n.start : n.end].strip(),
                 "unit": "",
-                "op": _OP_OF.get(words)
-                or _op_after(quote, quote[n.start : n.end].strip(), ""),
+                "op": _OP_OF.get(words) or op_after(quote, n.end),
             }
     return None
 
