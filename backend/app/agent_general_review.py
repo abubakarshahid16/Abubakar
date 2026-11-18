@@ -52,6 +52,14 @@ PART_WORDS = {
     5: "engineering comment",
 }
 PARTS = tuple(PART_WORDS)
+#: Each part in plain words, for the line that says it did not run (order 14 W-C3).
+PART_PLAIN = {
+    1: "the rule books the paper cites",
+    2: "the completeness checklist",
+    3: "the paper against itself",
+    4: "the paper against the project papers",
+    5: "the AI engineering comments",
+}
 TEXT_FROM_MODEL = "the model's words"
 TEXT_FROM_QUOTE = "quote"
 MODE_WORD = "general review"
@@ -140,6 +148,16 @@ def finalize_line(line: Mapping) -> dict:
     return out
 
 
+def not_reviewed_words(line: Mapping) -> str:
+    """THE words of a "Not reviewed" line on every surface (order 14 W-C3): "Not reviewed: <which part>: <why>". A status of the
+    review, never a question: it is counted under not reviewed and asks nothing of the contractor."""
+    why = " ".join(str(line.get("text") or "").split())
+    if why.casefold().startswith("not reviewed:"):
+        why = why[len("not reviewed:") :].strip()
+    part = PART_PLAIN.get(line.get("part"), "a part of the review")
+    return f"Not reviewed: {part}: {why or 'no reason was recorded'}"
+
+
 # ---------------------------------------------------------------- small helpers
 
 
@@ -147,10 +165,10 @@ def tokens_of(text: str) -> int:
     return len(text) // 4 + 1
 
 
-def words_cut(text: Any, limit: int) -> str:
-    """At most `limit` WORDS (the prompt's own word limit), never a character cut: the text a line stores is whole."""
-    w = " ".join(str(text or "").split()).split()
-    return " ".join(w[:limit])
+def whole_words(text: Any) -> str:
+    """The AI's words WHOLE, spaces made single. Never cut (order 14 W-C6: they were cut at the prompt's word limit with no mark, so
+    a stored note ended mid-sentence; completeness rule 3). The prompt's word limit is the model's to keep, not code's to enforce."""
+    return " ".join(str(text or "").split())
 
 
 def window_pages(

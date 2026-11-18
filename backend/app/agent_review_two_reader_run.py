@@ -28,7 +28,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from . import agent_claude, agent_run_second
-from . import agent_review_crs as crs_lines
 from . import agent_review_local as local_mod
 from . import agent_review_pass_guards as pass_guards
 from . import agent_review_two_reader as two
@@ -329,7 +328,6 @@ class TwoReaderMixin:
             absent=ev["absent"],
             model=model,
             usd=share,
-            two_sentences=crs_lines.two_sentences,
             spans=two.evidence_spans(
                 pages.get(verdict._page_no(answer.get("paper_page")) or 0),
                 self.lines[iid].get("paper_quote"),

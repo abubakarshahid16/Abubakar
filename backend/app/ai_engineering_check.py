@@ -446,6 +446,18 @@ def _held_clause(item: dict, held: dict[str, list[str]]) -> tuple[str, str] | No
     return None
 
 
+def page_verified(finding: dict, page_text: str | None) -> bool:
+    """Is the page a stored finding names proven by code? (order 14 W-C9: a point showed the page the AI named although nothing
+    on that page was checked.) For this part: its value passed `accept` ON that page, or the field it names is written on that
+    page. A finding of any other part keeps its page (code's own)."""
+    if finding.get("origin") != ORIGIN:
+        return True
+    if str(finding.get("contractor_evidence_text") or "").strip():
+        return True  # `accept` refused a value that is not on the page it names
+    field = _fold(str(finding.get("contractor_section") or ""))
+    return bool(field.strip()) and field in _fold(page_text or "")
+
+
 def from_memory(item: dict, held: dict[str, list[str]]) -> bool:
     """W5b-11 (#559): does the item rest on a standard the library does not
     hold? True when it names a standard and none of the names is a held one.
@@ -903,9 +915,10 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
     with conn:
         conn.execute("DELETE FROM review_findings WHERE review_run_id = ? AND origin = ?"
                      f" AND {review_mod.UNDECIDED_SQL}", (review_run_id, ORIGIN))
+    # order 14 W-C6: every text is stored WHOLE (it was sliced at 400 or 4000 characters with no mark); `accept` bounds the prose
     for item in all_kept:
-        if _item_identity(str(item["observation"])[:4000], str(item["action"])[:4000],
-                          item["page"], str(item["field"])[:400]) in rejected_items:
+        if _item_identity(str(item["observation"]), str(item["action"]),
+                          item["page"], str(item["field"])) in rejected_items:
             continue
         verified = _held_clause(item, held)
         unverified = from_memory(item, held)
@@ -915,9 +928,9 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
             "category": "technical_query",
             "severity": "minor",
             "confidence": "low" if unverified else item["confidence"],
-            "requirement": str(item["topic"])[:4000],
-            "finding": str(item["observation"])[:4000],
-            "required_action": str(item["action"])[:4000],
+            "requirement": str(item["topic"]),
+            "finding": str(item["observation"]),
+            "required_action": str(item["action"]),
             "status": "open",
             "approval_status": "pending",
         }, created_by=None)
@@ -927,8 +940,8 @@ def run_check(review_run_id: str, *, allowed_document_ids: frozenset[str],
                        contractor_page = ?, contractor_section = ?,
                        contractor_evidence_text = ?, standard_clause = ?, ai_rationale = ?
                    WHERE id = ?""",
-                (review_run_id, ORIGIN, item["page"], str(item["field"])[:400],
-                 str(item.get("value") or "")[:400] or None,
+                (review_run_id, ORIGIN, item["page"], str(item["field"]),
+                 str(item.get("value") or "") or None,
                  None if unverified else (verified[1] if verified else None),
                  (f"{UNVERIFIED_LABEL}. {LABEL}. Relates to: {relates}." if unverified
                   else f"{LABEL}. Relates to: {relates or 'no standard named'}."),
@@ -1031,8 +1044,8 @@ def run_datasheet_opinion(review_run_id: str, *, allowed_document_ids: frozenset
                  "SELECT finding, required_action, contractor_page, contractor_section"
                  " FROM review_findings WHERE review_run_id = ? AND origin = ?", (review_run_id, ORIGIN))}
     for item in kept:
-        identity = _item_identity(str(item["observation"])[:4000], str(item["action"])[:4000],
-                                  item["page"], str(item["field"])[:400])
+        identity = _item_identity(str(item["observation"]), str(item["action"]),
+                                  item["page"], str(item["field"]))
         if identity in known:               # already raised (or rejected by an engineer): not twice
             continue
         known.add(identity)
@@ -1040,16 +1053,16 @@ def run_datasheet_opinion(review_run_id: str, *, allowed_document_ids: frozenset
         finding = review_mod.create({
             "document_id": submittal, "category": "technical_query", "severity": "minor",
             "confidence": "low" if from_memory(item, {}) else item["confidence"],
-            "requirement": str(item["topic"])[:4000], "finding": str(item["observation"])[:4000],
-            "required_action": str(item["action"])[:4000], "status": "open",
+            "requirement": str(item["topic"]), "finding": str(item["observation"]),
+            "required_action": str(item["action"]), "status": "open",
             "approval_status": "pending"}, created_by=None)
         with conn:
             conn.execute(
                 """UPDATE review_findings SET review_run_id = ?, origin = ?, contractor_page = ?,
                        contractor_section = ?, contractor_evidence_text = ?, ai_rationale = ?
                    WHERE id = ?""",
-                (review_run_id, ORIGIN, item["page"], str(item["field"])[:400],
-                 str(item.get("value") or "")[:400] or None,
+                (review_run_id, ORIGIN, item["page"], str(item["field"]),
+                 str(item.get("value") or "") or None,
                  f"{LABEL}. Relates to: {relates or 'no standard named'}."
                  f"{_written_by(outcome['engine'])[:-1]}, {DATASHEET_ONLY}.",
                  finding["id"]))

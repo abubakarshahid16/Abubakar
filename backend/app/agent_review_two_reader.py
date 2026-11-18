@@ -172,7 +172,6 @@ def second_answer(
     absent: bool,
     model: str,
     usd: float,
-    two_sentences: Any = None,
     spans: Mapping | None = None,
     base: Mapping | None = None,
 ) -> dict:
@@ -198,8 +197,8 @@ def second_answer(
         "paper_page": verdict._page_no(answer.get("paper_page")),
         "clause_quote": answer.get("clause_quote") or None,
         "field_label": str(answer.get("field_label") or "").strip() or None,
-        "reasoning": (two_sentences(reasoning) if two_sentences else reasoning[:300])
-        or None,
+        # WHOLE (order 14 W-C6: it was cut at 300 characters or two "sentences", with no mark)
+        "reasoning": reasoning or None,
         "quotes_checked": checks.to_json(),
         "says_absent": bool(absent),
         "spans": dict(spans) if spans else None,
