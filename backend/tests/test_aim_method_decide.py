@@ -1687,3 +1687,63 @@ def test_by_contractor_with_no_figure_stays_a_question_never_proven():
         and d["deferred"]
         and not d["comment"].startswith(S.PROVEN_FAIL)
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        (
+            'Reading the items {n} in turn. {"reads": [{"n": 1}]}',
+            {"reads": [{"n": 1}]},
+        ),  # a brace in the words before it
+        (
+            'Clause [3] applies. {"reads": []}',
+            {"reads": []},
+        ),  # an object is preferred to a bracket in the words
+        ('```json\n{"a": 1}\n```', {"a": 1}),
+        ("[1, 2]", [1, 2]),
+        ("no json here at all", None),
+    ],
+)
+def test_the_answer_is_read_from_the_first_opener_that_decodes(text, want):
+    from app.aim_review.prompts import parse_json
+
+    assert parse_json(text) == want
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        (
+            'An example looks like {"n": 1, "label": "Met"}. Answer: {"reads": [{"n": 1}]}',
+            {"reads": [{"n": 1}]},
+        ),
+        (
+            'Reading "{x}" and {"note": "a foreign object"} first. {"reads": []}',
+            {"reads": []},
+        ),
+        (
+            '{"note": "only a foreign object"}',
+            None,
+        ),  # no object holds the step's key: no JSON for this step
+        ('[{"n": 1}]', None),  # a step that names its keys never takes a bare list
+    ],
+)
+def test_a_step_takes_only_the_first_object_holding_its_own_answer_key(text, want):
+    """Trying every opener could take a small valid but foreign object (an example in the reasoning): a step's answer is the first
+    object that holds one of its own answer keys (`ANSWER_KEYS`), else nothing (no_json, as before)."""
+    from app.aim_review.prompts import ANSWER_KEYS, parse_json
+
+    assert parse_json(text, ANSWER_KEYS["aim_second_read"]) == want
+
+
+def test_every_model_step_of_the_package_names_its_answer_keys():
+    """A new model step without an entry would fall back to "the first object", so every step the package asks is listed."""
+    import pathlib
+    import re as _re
+
+    from app.aim_review.prompts import ANSWER_KEYS
+
+    src = "".join(f.read_text() for f in pathlib.Path("app/aim_review").glob("*.py"))
+    asked = set(_re.findall(r'step="(aim_[a-z_]+)"', src)) | {"aim_judge"}
+    assert asked - {"aim_read_pages"} <= set(ANSWER_KEYS), asked - set(ANSWER_KEYS)

@@ -699,6 +699,7 @@ def build(conn, run: dict, scope=None) -> dict:
         },
         "checklist": _checklist(conn, run, points),
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
+        "steps_not_applied": steps_not_applied(_json(run.get("calls_json"), [])),
         "cost": _cost(run),
         "seconds": run.get("seconds"),
         "created_at": run.get("created_at"),
@@ -722,3 +723,40 @@ def served(conn, paper_id: str, scope, run_id: str | None = None) -> dict | None
     view["completeness"] = aim_review_completeness.report_for(conn, run, view)
     view["is_latest"] = is_latest(conn, paper_id, run)
     return view
+
+
+#: What a run's checking step that did not run means for the sheet, in plain words (a failed AI step is shown and never makes a
+#: comment more confident: its lines stay as the step before left them).
+_NOT_APPLIED_WORDS = {
+    "aim_second_read": "The second reader did not run on this sheet ({why}): its findings are sent as the first reader judged "
+    'them, none is marked "two readers agree".',
+    "aim_answered": "The whole-paper check did not run on this sheet ({why}): no comment was taken off for a claim the paper "
+    "contradicts.",
+    "aim_edit": "The editor did not run on this sheet ({why}): repeated comments are not grouped or taken off.",
+}
+
+
+def steps_not_applied(calls) -> list[dict]:
+    """[{step, why, sentence}] for each checking step whose answer was not applied (its code note "<step> not applied: <why>"),
+    once per step, in run order. Read from the run's calls only; no document words."""
+    out: dict[str, dict] = {}
+    for c in calls if isinstance(calls, list) else []:
+        if (
+            not isinstance(c, dict)
+            or c.get("ok") is not False
+            or " not applied" not in str(c.get("code") or "")
+        ):
+            continue
+        step = str(c.get("step") or "")
+        why = (
+            str(c.get("code")).split(":", 1)[-1].strip()
+            if ":" in str(c.get("code"))
+            else "no reason recorded"
+        )
+        words = _NOT_APPLIED_WORDS.get(
+            step, "The step " + step + " did not run on this sheet ({why})."
+        )
+        out.setdefault(
+            step, {"step": step, "why": why, "sentence": words.format(why=why)}
+        )
+    return list(out.values())

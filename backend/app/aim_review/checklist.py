@@ -61,7 +61,8 @@ SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the require
 #: the catalog gets an alias.
 #: "2026-11-18.2": one item per table of values that checks EVERY row (order across categories, consistent units and decades,
 #: values within the order of magnitude of public practice).
-CHECKLIST_METHOD = "2026-11-18.2"
+#: "2026-11-18.3": one item per stated operating or service condition that checks the values the same paper chooses for it.
+CHECKLIST_METHOD = "2026-11-18.3"
 
 
 def _dumps(o) -> str:
@@ -562,6 +563,7 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
         "most": most,
         "kinds": _dumps(list(ITEM_KINDS)),
         "table_rows": P.TABLE_ROWS_ASK,
+        "conditions": P.CONDITIONS_ASK,
     }
     try:
         out = model.ask(

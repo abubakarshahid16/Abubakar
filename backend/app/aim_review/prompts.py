@@ -78,9 +78,21 @@ TABLE_ROWS_ASK = (
     "(a more severe category never gets a looser target), units and decades are consistent, and each value is within the order "
     "of magnitude that public practice gives for that quantity."
 )
+#: One item per stated condition that other values on the same paper must suit (18 Nov 2026: vessel copies missed a design
+#: specific gravity below the operating one, a corrosion allowance against the stated service, and a shell material against
+#: chlorides in the service: every item asked whether a value is stated, none set one stated condition against another value).
+CONDITIONS_ASK = (
+    "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
+    "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
+    '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
+    "value it covers, and each material, allowance or rating suits the stated condition."
+)
 KNOWLEDGE_ASK = (
     "ALSO add the items a senior engineer always checks on this kind of paper that NO clause below covers "
-    '(at most 12), labelled "not from a held standard". ' + TABLE_ROWS_ASK
+    '(at most 12), labelled "not from a held standard". '
+    + TABLE_ROWS_ASK
+    + " "
+    + CONDITIONS_ASK
 )
 
 KNOWLEDGE_TASK = """TASK S3K - ENGINEERING KNOWLEDGE WHERE A RULE BOOK IS NOT HELD. The paper above was identified as:
@@ -90,7 +102,7 @@ The library does NOT hold these standards, which govern or apply to this type of
 The checklist written so far from the held rule books has %(have)d items; their topics: %(topics)s
 Write the items a senior engineer checks on THIS paper from your knowledge of the public requirements of each standard
 above, and, until the checklist has at least %(floor)d items in all, from general engineering practice for this kind of
-paper. %(table_rows)s Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
+paper. %(table_rows)s %(conditions)s Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
 nothing can be checked against its words. At most %(most)d items. Reply with ONE JSON object only: {"items": [{
  "topic": "at most 8 words", "what_to_check": "one line", "applies_when": "the condition, or always",
  "paper_fields": ["the field(s) or section(s) of the paper it needs"], "kind": one of %(kinds)s,
@@ -232,19 +244,49 @@ not on these pages, reply for it {"id": "C..", "not_here": true} and nothing els
 # ------------------------------------------------------------------ the request shape
 
 
-def parse_json(text: str):
+#: At most this many opening braces are tried in one answer (a long answer of words is not scanned without end).
+PARSE_TRIES = 200
+#: The top-level key(s) each step's answer carries, as its prompt asks ("Reply with ONE JSON object only: {...}"). Only an object
+#: holding one of them is that step's answer: a small valid example or a quoted "{...}" in words before it is never taken.
+ANSWER_KEYS: dict[str, frozenset[str]] = {
+    "aim_identify": frozenset({"kind"}),
+    "aim_select": frozenset({"books", "not_held_needed"}),
+    "aim_checklist": frozenset({"items"}),
+    "aim_checklist_retry": frozenset({"items"}),
+    "aim_checklist_knowledge": frozenset({"items"}),
+    "aim_attack": frozenset({"remove", "fix", "add"}),
+    "aim_judge": frozenset({"judgments"}),
+    "aim_answered": frozenset({"verdicts"}),
+    "aim_second_read": frozenset({"reads"}),
+    "aim_edit": frozenset({"moves", "groups"}),
+    "aim_reference": frozenset({"checks", "compare"}),
+}
+
+
+def parse_json(text: str, keys: frozenset[str] | None = None):
+    """The JSON answer in a model's reply: inside a fenced block when there is one, else the FIRST object, from any opening brace,
+    that decodes and (with `keys`, the step's `ANSWER_KEYS`) holds one of the step's answer keys; without `keys`, the first object,
+    else the first list. Every opener is tried in order, at most `PARSE_TRIES` (18 Nov 2026: a second reader's answer opening with
+    words that held a brace was read as no JSON; trying every opener alone could take a foreign example object, hence the keys).
+    The prompts ask for the answer only, so the first matching object is it. None: no such object (the step's "no_json")."""
     s = (text or "").strip()
     fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.S)
     if fence:
         s = fence.group(1).strip()
-    for opener in ("{", "["):
-        i = s.find(opener)
-        if i >= 0:
+    decoder = json.JSONDecoder()
+    for opener, kind in (
+        ("{", dict),
+        ("[", list),
+    ):  # an object first: words like "clause [3]" never hide it
+        if keys and kind is list:
+            break  # a step that names its keys answers with an object, never a bare list
+        for i in [m.start() for m in re.finditer(re.escape(opener), s)][:PARSE_TRIES]:
             try:
-                obj, _ = json.JSONDecoder().raw_decode(s[i:])
-                return obj
+                obj, _ = decoder.raw_decode(s[i:])
             except ValueError:
                 continue
+            if isinstance(obj, kind) and (not keys or keys & set(obj)):
+                return obj
     return None
 
 
