@@ -19,6 +19,7 @@ from . import (
     aim_review_decisions,
     aim_review_gate,
     aim_review_measured,
+    aim_review_merge,
     aim_review_signoff,
     aim_review_store,
     review_shown,
@@ -272,7 +273,9 @@ def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dic
     by_n = {p["n"]: p for p in points}
     confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
     sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
-    return _same_group(_same_place(_same_finding(sent, by_n), by_n), by_n), confirm
+    return aim_review_merge.same_group(
+        aim_review_merge.same_place(_same_finding(sent, by_n), by_n), by_n
+    ), confirm
 
 
 def _confirm_only(p: dict) -> bool:
@@ -345,93 +348,6 @@ def _same_finding(comments: list[dict], by_n: dict) -> list[dict]:
     out = []
     for c in comments:
         keys = {_finding_key(by_n[n]) for n in c["lines"]}
-        if len(keys) == 1 and None not in keys:
-            groups.setdefault(keys.pop(), []).append(c)
-        else:
-            out.append(c)
-    for cs in groups.values():
-        if len(cs) == 1:
-            out.append(cs[0])
-            continue
-        members = sorted(
-            (by_n[n] for c in cs for n in c["lines"]),
-            key=lambda m: (m["page"] is None, m["page"] or 0, m["n"]),
-        )
-        out.append(_same_point(members))
-    return sorted(out, key=lambda g: g["n"])
-
-
-def _place_key(p: dict) -> tuple | None:
-    """The PLACE a sent line speaks about: its field (folded) and its page, with its shown label and compare kind. None without a
-    field or a page, and ALWAYS None for a Not met or a Fail (two findings of different items are never merged)."""
-    shown = str(p.get("shown_label") or "").lower()
-    field, page = _field_key(p.get("field")), p.get("page")
-    if p.get("label") == "Not met" or "not met" in shown or "fail" in shown:
-        return None
-    if not field or not isinstance(page, int):
-        return None
-    return (
-        p["shown_label"],
-        p.get("compare_kind") or "",
-        _provisional_kind(p.get("code_note")),
-        field,
-        page,
-    )
-
-
-def _same_place(comments: list[dict], by_n: dict) -> list[dict]:
-    """The same point sent under several rules (repeats a strict judge marks WEAK): comments whose lines ALL speak about ONE
-    field on the SAME pages (`_place_key`, the same shown label) become one comment that keeps every line's own words and
-    lists every rule (`_same_point`). NO CHAIN: a comment whose lines are in different places stays as it is."""
-    groups: dict[tuple, list[dict]] = {}
-    out = []
-    for c in comments:
-        keys = {_place_key(by_n[n]) for n in c["lines"]}
-        if len(keys) == 1 and None not in keys:
-            groups.setdefault(keys.pop(), []).append(c)
-        else:
-            out.append(c)
-    for cs in groups.values():
-        if len(cs) == 1:
-            out.append(cs[0])
-            continue
-        members = sorted(
-            (by_n[n] for c in cs for n in c["lines"]),
-            key=lambda m: (m["page"] is None, m["page"] or 0, m["n"]),
-        )
-        out.append(_same_point(members))
-    return sorted(out, key=lambda g: g["n"])
-
-
-def _group_key(p: dict) -> tuple | None:
-    """The editor's GROUP of a sent line (its mark `same_point_as`) with its shown label, compare kind and provisional kind; None
-    without a mark, and ALWAYS None for a Not met or a Fail (a firm finding never joins a Question)."""
-    group = p.get("same_point_as")
-    shown = str(p.get("shown_label") or "").lower()
-    if (
-        not isinstance(group, int)
-        or p.get("label") == "Not met"
-        or "not met" in shown
-        or "fail" in shown
-    ):
-        return None
-    return (
-        group,
-        p["shown_label"],
-        p.get("compare_kind") or "",
-        _provisional_kind(p.get("code_note")),
-    )
-
-
-def _same_group(comments: list[dict], by_n: dict) -> list[dict]:
-    """The comments the editor (S5) grouped as ONE point (repeats under several rules, fields or pages that no code key sees): the
-    comments whose lines ALL carry the same group mark, the same shown label and compare kind become one comment, lossless
-    (`_same_point`: every rule's own words, every page, every quote). Code re-checks the kind here, so a mark that crosses kinds
-    merges nothing. NO CHAIN: a comment whose lines are in different groups stays as it is."""
-    groups: dict[tuple, list[dict]] = {}
-    out = []
-    for c in comments:
-        keys = {_group_key(by_n[n]) for n in c["lines"]}
         if len(keys) == 1 and None not in keys:
             groups.setdefault(keys.pop(), []).append(c)
         else:
@@ -542,16 +458,17 @@ def _member(m: dict) -> str:
     return f"{m.get('field') or 'no field'} ({where}){rule}: {m.get('comment') or ''}{quote}{numbers}"
 
 
-def _same_point(members: list[dict]) -> dict:
+def _same_point(members: list[dict], keep_order: bool = False) -> dict:
     """ONE comment for the lines of one point, LOSSLESS: the first line's words, then every other line's field, page, rule and
     clause, own comment in full, quote and value; the Standard and Clause cells list every rule cited (the first line's book
     link only when every line cites the same book). Lines stay one per place (All points keeps each)."""
-    members = sorted(members, key=lambda m: m["n"])
+    members = members if keep_order else sorted(members, key=lambda m: m["n"])
     first, others = members[0], members[1:]
     pages = sorted({m["page"] for m in members if m["page"] is not None})
     return {
         **first,
-        "lines": [m["n"] for m in members],
+        "n": min(m["n"] for m in members),
+        "lines": sorted(m["n"] for m in members),
         "pages": pages,
         "comment": f"{first['comment']}\nThe same point at {len(others)} more place{'' if len(others) == 1 else 's'}: "
         + "; ".join(_member(m) for m in others),

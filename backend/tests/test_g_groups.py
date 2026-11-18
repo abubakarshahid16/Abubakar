@@ -138,3 +138,31 @@ def test_the_editor_is_asked_for_groups_with_the_rule_of_each_comment():
         Spy(), Paper(paper_id="doc_edit", pages={1: "Invented page."}), lines, "lead"
     )
     assert '"rule": "BOOK-1 3.1"' in Spy.asked[0]
+
+
+def test_in_a_merged_group_the_concern_comes_first_and_an_approving_member_after():
+    pts = grouped(
+        point(
+            1, field="F1", page=1, comment="The rating is acceptable.", ask="concern"
+        ),
+        point(
+            2,
+            field="F2",
+            page=2,
+            comment="The value is blank, state it.",
+            ask="concern",
+        ),
+        point(
+            3, field="F3", page=3, comment="The value is blank here too.", ask="concern"
+        ),
+    )
+    comments, _ = aim_review_view.comments_and_confirmations(pts)
+    one = comments[0]
+    assert (
+        one["lines"] == [1, 2, 3] and one["n"] == 1
+    )  # the comment keeps its place on the sheet
+    assert one["comment"].startswith("The value is blank, state it.")  # a concern leads
+    assert one["comment"].index("blank here too") < one["comment"].index(
+        "acceptable"
+    )  # the approving member is last
+    assert one["pages"] == [1, 2, 3]  # nothing is dropped
