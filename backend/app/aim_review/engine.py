@@ -475,10 +475,14 @@ def _steps(
         cancelled,
     )
     if not state.stop_reason:
-        say(95, "second reader")
+        say(95, "whole-paper check and second reader")
+        from .answered import s4b_answered
         from .editor import s5_edit
         from .second_read import s4c_second_read
 
+        s4b_answered(
+            mdl, paper, state.decided, lead
+        )  # a line on no held rule that the paper answers is not sent
         s4c_second_read(
             mdl, paper, state.decided, checklist, lead
         )  # a finding the AI alone decided needs two readers

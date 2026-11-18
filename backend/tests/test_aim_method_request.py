@@ -97,6 +97,10 @@ def _step_of(body: dict) -> str:
             "TASK S4C",
             "aim_second_read",
         ),  # before "TASK S4": the second reader's name starts with it
+        (
+            "TASK S4B",
+            "aim_answered",
+        ),  # before "TASK S4": the whole-paper check's name starts with it
         ("TASK S4", "aim_judge"),
         (
             "TASK S5",

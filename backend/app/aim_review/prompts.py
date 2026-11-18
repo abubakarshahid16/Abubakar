@@ -143,6 +143,16 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
 THE ITEMS:
 %(items)s"""
 
+ANSWERED_TASK = """TASK S4B - CHECK THE WHOLE PAPER. Below are comments on the paper above that rest on no held rule book (one
+per line: n, field, page, comment). Read the WHOLE paper, every page. Name ONLY the comments that the paper already answers (it
+states what the comment asks for, or it states the opposite of what the comment claims), on ANY page: give that page and the
+exact paper words that answer it (5 to 30 words from that one page, character for character, no "..."). Name nothing else; when
+in doubt, name nothing (a comment you do not name is sent as it is).
+Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
+{"answered": [{"n": n, "page": p, "quote": "..."}]}
+THE COMMENTS:
+%(comments)s"""
+
 SECOND_READ_TASK = """TASK S4C - SECOND READER. Judge each checklist item below against the paper above, at the place given (field
 and page), as an independent senior engineer. You are not told what anyone else decided. Read the clause words and the paper
 (any page where the thing is). For EACH line give: "label": "Not met" (the paper states something that breaks the item),
