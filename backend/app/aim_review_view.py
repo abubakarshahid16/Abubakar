@@ -15,8 +15,11 @@ from typing import Any
 from . import (
     aim_review,
     aim_review_book_why,
+    aim_review_card,
+    aim_review_decisions,
     aim_review_gate,
     aim_review_measured,
+    aim_review_signoff,
     aim_review_store,
     review_shown,
 )
@@ -124,6 +127,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "book_document_id": _blank(row.get("book_document_id")),
         "compared": "" if hidden else _compared(row),
         "compare_kind": _compare_kind(row),
+        "compare_result": _compare_result(row),
         # recorded state (18 Nov 2026): what a Question asks ("" when not recorded: an older run), whether its value is left
         # open, and the judge's numbers (none for a book the viewer may not open: rule 5)
         "ask": row.get("ask") or "",
@@ -157,6 +161,14 @@ def _provisional_kind(code_note) -> str:
     """The provisional part of a code note ("provisional_unchecked", "provisional_fails", ...), or ""."""
     parts = (x.strip() for x in str(code_note or "").split(";"))
     return next((x for x in parts if x.startswith(aim_review.PROVISIONAL)), "")
+
+
+def _compare_result(row: dict) -> str:
+    """The result of code's comparison at this place ("pass", "fail", "unclear"), or "" when code compared nothing."""
+    cmp_ = row.get("code_compare")
+    if cmp_ is None:
+        cmp_ = _json(row.get("code_compare_json"), {})
+    return str(cmp_.get("result") or "") if isinstance(cmp_, dict) else ""
 
 
 def _compared(row: dict) -> str:
@@ -535,6 +547,15 @@ def resolve(conn, paper_id: str, run_id: str | None = None) -> dict | None:
     return aim_review_store.latest_run(conn, paper_id, ended=True)
 
 
+def _cost(run: dict) -> dict:
+    """The contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)."""
+    usd = run.get("usd")
+    note = _cost_note(run)
+    return {"usd": None if usd is None else float(usd)} | (
+        {"note": note} if usd is None and note else {}
+    )
+
+
 def build(conn, run: dict, scope=None) -> dict:
     """The page's JSON for ONE stored general run, without the completeness answer (that needs the built file). Raises
     `NotFinished` for a run that has not ended."""
@@ -545,9 +566,10 @@ def build(conn, run: dict, scope=None) -> dict:
     points = [
         line_view(r, i, book_hidden(conn, r, scope)) for i, r in enumerate(rows, 1)
     ]
-    # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
-    # lines of one point make ONE comment listing every place (`group_comments`)
+    # a "not judged" Question stays a point, never a comment; one point's lines make ONE comment; each comment gets its card
     comments, confirmations = comments_and_confirmations(points)
+    by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
+    aim_review_decisions.attach(conn, run["run_id"], comments, confirmations)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
@@ -558,8 +580,7 @@ def build(conn, run: dict, scope=None) -> dict:
     identity = _json(run.get("identity_json"), {})
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
-    usd = run.get("usd")
-    return {
+    view = {
         "paper_document_id": run["paper_document_id"],
         "run_id": run["run_id"],
         "method": run.get("method_version") or aim_review.METHOD_VERSION,
@@ -576,6 +597,7 @@ def build(conn, run: dict, scope=None) -> dict:
         "counts": {
             "points": len(points),
             "comments": len(comments),
+            "by_severity": by_severity,  # the summary tiles
             # the confirmations not sent (`comments_and_confirmations`): counted apart; comment lines + these = sent lines
             "confirmations": len(confirmations),
             "comment_lines": sum(len(c["lines"]) for c in comments),
@@ -605,13 +627,15 @@ def build(conn, run: dict, scope=None) -> dict:
         },
         "checklist": _checklist(conn, run, points),
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
-        # the contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)
-        "cost": {"usd": None if usd is None else float(usd)}
-        | ({"note": _cost_note(run)} if usd is None and _cost_note(run) else {}),
+        "cost": _cost(run),
         "seconds": run.get("seconds"),
         "created_at": run.get("created_at"),
         "finished_at": run.get("finished_at"),
     }
+    view["signoff"] = aim_review_signoff.status(
+        conn, run, view, bool(getattr(scope, "is_admin", False))
+    )
+    return view
 
 
 def served(conn, paper_id: str, scope, run_id: str | None = None) -> dict | None:

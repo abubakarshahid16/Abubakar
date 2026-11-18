@@ -6,9 +6,11 @@
  * contractor button, NO sign row and NO review code here (no sign-off is connected to the general review); the one Download button
  * gives the team file and the server refuses it when the page, the database and the file rows differ, and this page says so.
  */
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
-import { type GeneralLine, type GeneralReview, downloadGeneralSheet } from "../../../api/generalReview";
+import { type GeneralLine, type GeneralReview, downloadGeneralSheet, generalReview } from "../../../api/generalReview";
+import { CommentCards } from "./CommentCards";
+import { SignBar } from "./SignBar";
 import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
 
@@ -46,14 +48,23 @@ function Row({ line, mark, onViewPage }: { line: GeneralLine; mark: string; onVi
   );
 }
 
-export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
+export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onReload }: {
   review: GeneralReview; howTab: ReactNode; onViewPage: (page: number) => void; onDownloaded?: () => void;
+  /** Read the whole review again (after "accept the rest": the cards then show the accepted comments). */
+  onReload?: () => void | Promise<void>;
 }) {
   const mark = review.mark || MARK_FALLBACK;
   const [tab, setTab] = useState<"comments" | "how">("comments");
   const [showAll, setShowAll] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [signoff, setSignoff] = useState(review.signoff ?? null);
+  useEffect(() => { setSignoff(review.signoff ?? null); }, [review.signoff]);
   const c = review.completeness;
+  /** Read the sign-off state again (a decision or "accept the rest" changed what is undecided, or the sign-off itself went stale). */
+  async function refreshSignoff() {
+    const r = await generalReview.get(review.paper_document_id, review.run_id);
+    if (r.ok && r.data.signoff) setSignoff(r.data.signoff);
+  }
   const lines = showAll ? review.points : review.comments;
 
   async function download() {
@@ -99,6 +110,8 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
       </div>
       {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
 
+      {signoff && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
+
       <div role="tablist" aria-label="General review" className="flex gap-1 border-b border-ink-600">
         {([["comments", `Comments (${review.counts.comments})`], ["how", "How this review was made"]] as const).map(([t, label]) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
@@ -114,18 +127,14 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} data-testid="general-all-toggle" />
             All points ({review.counts.points})
           </label>
-          {lines.length === 0 && <p className="text-sm text-slateish-300">{showAll ? "This review has no points." : "This review has no comments."}</p>}
-          <ul className="space-y-2">{lines.map((l) => <Row key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}</ul>
-          {!showAll && (review.confirmations?.length ?? 0) > 0 && (
-            <details data-testid="general-confirmations" className="rounded-[var(--radius-sm)] border border-ink-600 p-3">
-              <summary className="cursor-pointer text-sm text-slateish-200">
-                Confirmations, not sent ({review.confirmations!.length}): the value is stated and nothing is suspected; the vendor
-                is only asked to confirm it
-              </summary>
-              <ul className="mt-2 space-y-2">
-                {review.confirmations!.map((l) => <Row key={`c-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}
-              </ul>
-            </details>
+          {showAll ? (
+            <>
+              {lines.length === 0 && <p className="text-sm text-slateish-300">This review has no points.</p>}
+              <ul className="space-y-2">{lines.map((l) => <Row key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}</ul>
+            </>
+          ) : (
+            <CommentCards review={review} mark={mark} onDecided={() => void refreshSignoff()} onViewPage={onViewPage}
+              renderPlain={(l) => <Row key={`p-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />} />
           )}
         </div>
       )}

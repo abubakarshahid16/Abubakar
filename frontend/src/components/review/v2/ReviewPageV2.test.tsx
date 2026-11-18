@@ -932,6 +932,18 @@ describe("12 the general review's results page (order 14)", () => {
   });
 
 
+  it("H9: a general answer with card fields draws comment cards and the severity tiles on the page", async () => {
+    const g = general();
+    const withCard = (l: (typeof g.points)[number], severity: string, title: string) =>
+      ({ ...l, severity, title, paper_says: "paper value", rule_says: "STD-X clause 4.1", we_ask: "please confirm it", applies_to: [{ page: l.page, field: l.field, quote: l.quote }], proven: "compared by code" });
+    const comments = [withCard(g.points[0], "Must fix", "Invented problem one"), withCard(g.points[2], "Missing information", "Invented problem two")];
+    api.general.mockResolvedValue(ok({ ...g, comments, counts: { ...g.counts, by_severity: { "Must fix": 1, "Missing information": 1 } } } as never));
+    mount();
+    await screen.findByTestId("general-results");
+    expect(screen.getAllByTestId("card-title").map((t) => t.textContent)).toEqual(["Invented problem one", "Invented problem two"]);
+    expect(screen.getByTestId("severity-tiles")).toHaveTextContent("Must fix");
+  });
+
   it("draws the general results: the mark, the counts, the comments with page links, and no old sections", async () => {
     api.general.mockResolvedValue(ok(general()));
     mount();

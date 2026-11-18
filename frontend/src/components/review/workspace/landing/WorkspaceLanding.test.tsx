@@ -231,6 +231,15 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     expect(text).not.toBe(`Started ${fmt(new Date("2026-11-18T12:53:29Z"))}`);
   });
 
+  it("H11: the Simple view says a general review's comments as a chip; the Detailed view keeps the long line", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: null, needs_you: null, general: { points: 193, comments: 73, confirmations: 5 } } });
+    localStorage.setItem(VIEW_MODE_KEY, "simple");
+    renderLanding();
+    const chip = await waitFor(() => within(rowOf("Pump")).getByTestId("row-general-chip"));
+    expect(chip).toHaveTextContent("General review: 73 comments");
+    expect(within(rowOf("Pump")).queryByTestId("row-counts")).toBeNull(); // the long line stays folded away in Simple
+  });
+
   it("H7: a general review's line is its own numbers, labelled, not '0 findings'", async () => {
     loadCounts.mockResolvedValue({ "run-1": { findings: null, needs_you: null, general: { points: 129, comments: 66, confirmations: 20 } } });
     renderLanding();
