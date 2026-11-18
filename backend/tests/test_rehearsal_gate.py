@@ -46,6 +46,9 @@ def _kww(path: Path, **wrong) -> str:
 def _run(tmp_path, live, rehearsal, wrong_live=5, wrong_rehearsal=5, accept=()):
     argv = [
         "compare",
+        # these tests measure one paper's rows; the valve-and-pump requirement (review S3) has its own tests below
+        "--require",
+        "PUMP",
         "--live",
         _snap(tmp_path / "live.json", PUMP=live),
         "--rehearsal",
@@ -133,6 +136,9 @@ def test_missing_on_both_sides_never_passes(tmp_path, capsys):
 def test_a_paper_missing_from_the_rehearsal_refuses(tmp_path, capsys):
     argv = [
         "compare",
+        # these tests measure one paper's rows; the valve-and-pump requirement (review S3) has its own tests below
+        "--require",
+        "PUMP",
         "--live",
         _snap(tmp_path / "live.json", PUMP=_paper(), VALVE=_paper()),
         "--rehearsal",
@@ -164,6 +170,9 @@ def test_wrong_up_refuses(tmp_path, capsys):
 def test_wrong_without_tables_refuses_as_not_measured(tmp_path, capsys):
     argv = [
         "compare",
+        # these tests measure one paper's rows; the valve-and-pump requirement (review S3) has its own tests below
+        "--require",
+        "PUMP",
         "--live",
         _snap(tmp_path / "live.json", PUMP=_paper()),
         "--rehearsal",
@@ -187,6 +196,9 @@ def test_wrong_is_read_from_kww_markdown_files(tmp_path, capsys):
     )
     argv = [
         "compare",
+        # these tests measure one paper's rows; the valve-and-pump requirement (review S3) has its own tests below
+        "--require",
+        "PUMP",
         "--live",
         _snap(tmp_path / "live.json", PUMP=_paper()),
         "--rehearsal",
@@ -658,3 +670,74 @@ def test_n1_snapshot_records_the_commit_of_a_checkout(tmp_path, monkeypatch):
     )
     assert json.loads(out.read_text())["commit"] == "d" * 40
     assert calls == [["git", "-C", str(tmp_path), "rev-parse", "HEAD"]]
+
+
+# ------------------------------------------------------------------ S3: compare carries the same guards as history
+
+
+def test_s3_compare_needs_the_valve_and_the_pump(tmp_path, capsys):
+    argv = [
+        "compare",
+        "--live",
+        _snap(tmp_path / "l.json", PUMP=_paper()),
+        "--rehearsal",
+        _snap(tmp_path / "r.json", PUMP=_paper(runs=NEW_RUNS)),
+        "--kww-live",
+        _kww(tmp_path / "kl.json", PUMP=1),
+        "--kww-rehearsal",
+        _kww(tmp_path / "kr.json", PUMP=1),
+    ]
+    assert gate.main(argv) == 1
+    assert "VALVE is not in the live snapshot" in capsys.readouterr().out
+
+
+def test_s3_compare_checks_commit_and_age(tmp_path, capsys):
+    papers_live = {"PUMP": _paper(), "VALVE": _paper(runs=("rc-v", "ai-v"))}
+    papers_reh = {
+        "PUMP": _paper(runs=NEW_RUNS),
+        "VALVE": _paper(runs=("rc-v2", "ai-v2")),
+    }
+    argv = [
+        "compare",
+        "--live",
+        _bound(tmp_path / "l.json", papers_live, "c" * 40, 3.0),
+        "--rehearsal",
+        _bound(tmp_path / "r.json", papers_reh, "a" * 40),
+        "--kww-live",
+        _kww(tmp_path / "kl.json", PUMP=1, VALVE=1),
+        "--kww-rehearsal",
+        _kww(tmp_path / "kr.json", PUMP=1, VALVE=1),
+        "--live-commit",
+        "c" * 40,
+        "--rehearsal-commit",
+        "b" * 40,
+        "--max-age-hours",
+        "2",
+    ]
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert (
+        "the live snapshot is 3.0 h old" in out
+        and "taken on aaaaaaaa, expected bbbbbbbb" in out
+    )
+
+
+def test_s3_require_with_no_value_is_an_error(tmp_path):
+    with pytest.raises(SystemExit):
+        gate.main(["history", "--live", "x", "--rehearsal", "y", "--require"])
+
+
+@pytest.mark.parametrize("with_age_limit", [True, False])
+def test_s3_a_snapshot_dated_in_the_future_is_refused(tmp_path, capsys, with_age_limit):
+    papers = {"PUMP": _old(), "VALVE": _old(runs=("rc-v", "ai-v"))}
+    argv = [
+        "history",
+        "--live",
+        _bound(tmp_path / "l.json", papers, "c" * 40, -3.0),
+        "--rehearsal",
+        _bound(tmp_path / "r.json", papers, "b" * 40),
+    ]
+    if with_age_limit:
+        argv += ["--max-age-hours", "2"]
+    assert gate.main(argv) == 1
+    assert "the live snapshot's time is 3.0 h in the future" in capsys.readouterr().out

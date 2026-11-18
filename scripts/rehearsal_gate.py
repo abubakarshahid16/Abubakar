@@ -563,6 +563,54 @@ def missing_required(live: dict, rehearsal: dict, required) -> list[str]:
     return out
 
 
+#: A snapshot dated more than this far in the future is refused (a clock-skew allowance, not a window).
+FUTURE_SKEW_HOURS = 5 / 60
+
+
+def gate_problems(live: dict, rehearsal: dict, args) -> list[str]:
+    """The checks `history` and `compare` both make before any row (review S3): the required papers on both sides, each
+    snapshot taken on its expected commit, not older than --max-age-hours, and never dated in the future."""
+    problems = missing_required(live, rehearsal, args.require)
+    for side, snap, commit in (
+        ("live", live, args.live_commit),
+        ("rehearsal", rehearsal, args.rehearsal_commit),
+    ):
+        problems += snapshot_problems(snap, side, commit, args.max_age_hours)
+        if args.max_age_hours is None and snap.get(
+            "taken_at"
+        ):  # the future check stands even without an age limit
+            problems += [
+                x for x in snapshot_problems(snap, side, None, 1e9) if "future" in x
+            ]
+    return problems
+
+
+def _guard_args(cmd) -> None:
+    """The snapshot guards shared by `history` and `compare` (review S3)."""
+    cmd.add_argument(
+        "--require",
+        nargs="+",
+        default=list(REQUIRED_PAPERS),
+        help="papers that must be in both snapshots (at least one name; default VALVE PUMP)",
+    )
+    cmd.add_argument(
+        "--live-commit",
+        default=None,
+        help="the live snapshot must have been taken on this commit",
+    )
+    cmd.add_argument(
+        "--rehearsal-commit",
+        default=None,
+        help="the rehearsal snapshot must have been taken on this commit",
+    )
+    cmd.add_argument(
+        "--max-age-hours",
+        type=float,
+        default=None,
+        help="refuse a snapshot older than this (the live script passes 2)",
+    )
+
+
 def snapshot_problems(
     snap: dict, side: str, commit: str | None, max_age_hours: float | None
 ) -> list[str]:
@@ -585,7 +633,9 @@ def snapshot_problems(
         except (TypeError, ValueError):
             out.append(f"the {side} snapshot has no readable time")
         else:
-            if age > max_age_hours:
+            if age < -FUTURE_SKEW_HOURS:
+                out.append(f"the {side} snapshot's time is {-age:.1f} h in the future")
+            elif age > max_age_hours:
                 out.append(
                     f"the {side} snapshot is {age:.1f} h old (limit {max_age_hours:g} h)"
                 )
@@ -638,11 +688,7 @@ def cmd_history(args) -> int:
     if not (live.get("papers") or rehearsal.get("papers")):
         print("REFUSED: NOT MEASURED: neither snapshot names a paper")
         return 1
-    problems = missing_required(live, rehearsal, args.require)
-    problems += snapshot_problems(live, "live", args.live_commit, args.max_age_hours)
-    problems += snapshot_problems(
-        rehearsal, "rehearsal", args.rehearsal_commit, args.max_age_hours
-    )
+    problems = gate_problems(live, rehearsal, args)
     if problems:
         print("REFUSED: NOT MEASURED: " + "; ".join(problems) + ". No live update.")
         return 1
@@ -745,6 +791,10 @@ def cmd_compare(args) -> int:
     if not labels:
         print("REFUSED: NOT MEASURED: neither snapshot names a paper")
         return 1
+    problems = gate_problems(live, rehearsal, args)
+    if problems:
+        print("REFUSED: NOT MEASURED: " + "; ".join(problems) + ". No live update.")
+        return 1
     rows = gate_rows(live, rehearsal, kww_live, kww_rehearsal, accepts)
     print(render(rows))
     print_accepted(rows)
@@ -819,28 +869,8 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="<paper>:<row>:<reason>, one refusal accepted (a NOT MEASURED row only when the reason names it)",
     )
-    h.add_argument(
-        "--require",
-        nargs="*",
-        default=list(REQUIRED_PAPERS),
-        help="papers that must be in both snapshots",
-    )
-    h.add_argument(
-        "--live-commit",
-        default=None,
-        help="the live snapshot must have been taken on this commit",
-    )
-    h.add_argument(
-        "--rehearsal-commit",
-        default=None,
-        help="the rehearsal snapshot must have been taken on this commit",
-    )
-    h.add_argument(
-        "--max-age-hours",
-        type=float,
-        default=None,
-        help="refuse a snapshot older than this (the seal uses 2)",
-    )
+    _guard_args(h)
+    _guard_args(c)
     args = ap.parse_args(argv)
     return {"snapshot": cmd_snapshot, "compare": cmd_compare, "history": cmd_history}[
         args.cmd
