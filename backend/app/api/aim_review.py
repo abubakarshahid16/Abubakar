@@ -318,7 +318,12 @@ class SignoffOut(BaseModel):
 @router.post(
     "/api/reviews/papers/{document_id}/general/accept-rest",
     response_model=AcceptRestOut,
-    responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409},
+    responses={
+        **schemas.ERRORS_401,
+        **_SUPER_USER_ONLY,
+        **schemas.ERRORS_404,
+        **schemas.ERRORS_409,
+    },
 )
 def accept_rest(
     document_id: str,
