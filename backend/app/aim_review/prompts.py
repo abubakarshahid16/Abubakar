@@ -180,7 +180,7 @@ THE ITEMS:
 %(items)s"""
 
 EDIT_TASK = """TASK S5 - EDIT THE COMMENT SHEET. Below are the comments that would be sent to the vendor about the paper above
-(one per line: n, field, page, comment, quote). You may ONLY take a comment OFF the sheet (it stays in the full list of points).
+(one per line: n, field, page, rule, comment, quote). You may ONLY take a comment OFF the sheet (it stays in the full list of points).
 You never add, rewrite or relabel a comment. Take one off for one of two reasons only:
  "repeats": it makes the same point as another comment on this sheet (the same value, the same concern, other words); keep
      the clearer one and give its n as "of";
@@ -188,9 +188,13 @@ You never add, rewrite or relabel a comment. Take one off for one of two reasons
      exact paper words that show the field's label with its value (5 to 30 words, character for character, no "...") and
      that page.
 Take nothing off for any other reason.
-Also GROUP the comments that make the SAME POINT (the same value against the same limit, the same missing data, the same
-concern) on other sheets, pages or fields: list their n together. A group is shown as ONE comment that keeps every member's own
-words, field, page and quote; group only comments of the same kind (never a firm finding with a question).
+GROUPING IS YOUR MAIN JOB after that. Strict readers mark a sheet down when ONE point is sent several times. List together EVERY
+comment that makes the SAME POINT, however it is worded and wherever it sits: the same value against the same limit cited under
+several rules or standards (one "value A is below value B" finding sent three times), the same missing or blank value on several
+sheets or pages, the same concern about one item under different field names. Give ALL their n in ONE group, the first being the clearest. A
+group is shown as ONE comment that keeps every member's own words, rule, field, page and quote, so grouping loses nothing; code
+refuses a group that mixes kinds (a firm finding with a question, a comparison code made with one it did not make). Two comments
+about different items or different concerns are not a group, even on the same page.
 Reply COMPACT, with ONE JSON object only and no other words: groups as lists of numbers only; a move as {"n", "reason", "of"}
 or {"n", "reason", "page", "quote"}; never repeat a comment's text:
 {"moves": [{"n": n, "reason": "repeats", "of": n} or {"n": n, "reason": "paper_states_otherwise", "page": p, "quote": "..."}],
