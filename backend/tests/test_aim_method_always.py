@@ -112,7 +112,7 @@ def test_g2_two_paper_values_that_disagree_are_a_sent_ai_opinion_compared_as_pap
         "read_from"
     ] == "verified paper quotes" and aim_review.sendable(E.to_line(1, d))
     assert d["comment"].startswith(
-        "The stated 120 m3/h is above the 100 m3/h stated on page 2;"
+        "The stated 120 m3/h is above the 100 m3/h stated on page 2 (the AI paired these two values; code compared them);"
     )
     assert _shown(d) not in (
         aim_review_store.PASS_BY_CODE,

@@ -320,8 +320,8 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict, asking: bool = False)
         # the AI chose which paper number is the other value: the sentence states both values and the page, no verdict
         page = code_cmp.get("limit_page")
         where = f"on page {page}" if page else "on this paper"
-        # what the paper shows, with its page (light check of the valve sheet: no "the AI read ... as" narration)
-        return f"The stated {stated} {verb} the {rule} stated {where}; {ask}."
+        # what the paper shows, with its page; the pairing is the AI's choice and says so (a guess is shown as a guess)
+        return f"The stated {stated} {verb} the {rule} stated {where} (the AI paired these two values; code compared them); {ask}."
     if base.get("standard"):
         where = f"{base['standard']} clause {base['clause']}".strip()
     else:

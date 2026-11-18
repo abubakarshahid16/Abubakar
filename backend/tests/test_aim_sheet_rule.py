@@ -1034,3 +1034,22 @@ def test_the_page_and_all_points_carry_the_ask_the_open_flag_and_the_numbers(wor
     assert [r[h.index("Value left open")] for r in table] == [None, "yes", None]
     assert table[0][h.index("Numbers")] == "paper 25 bar <= rule 20 bar"
     assert body["completeness"]["ok"] is True
+
+
+def test_the_editors_same_point_mark_is_not_shown_in_the_code_note(world):
+    rows = [
+        _line(1, "Question", "Question", code_note="same point as line 1"),
+        _line(2, "Question", "Question", item_id="C02", code_note="provisional_unchecked; same point as line 1"),
+    ]  # fmt: skip
+    make_run("gen_mark_note", rows, created="2026-11-18T22:30:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_mark_note").json()
+    assert [p["code_note"] for p in body["points"]] == ["", "provisional_unchecked"]
+    wb = _sheet(
+        c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_mark_note")
+    )
+    note = aim_review_sheet.POINT_HEADERS.index("Code note")
+    assert [r[note] for r in aim_review_completeness._table(wb, "All points")] == [
+        None,
+        "provisional_unchecked",
+    ]
