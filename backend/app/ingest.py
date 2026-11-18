@@ -211,7 +211,9 @@ class IngestionWorker(ReviewDrain):
         pending, oldest_age = self.backlog()
 
         dead = not self.alive
-        hung = beat_age > STALL_AFTER_SECONDS
+        # A review on this one thread may wait minutes on a model: while it has reported within `REVIEW_SILENCE_SECONDS` (`in_review`)
+        # the worker is busy, not hung; past that silence it is hung again (the badge turns red).
+        hung = beat_age > STALL_AFTER_SECONDS and not self.in_review()
         # Documents wait behind a review on this one thread: not ignored work.
         ignoring_work = (
             pending > 0 and progress_age > NO_PROGRESS_SECONDS and not self.in_review()
