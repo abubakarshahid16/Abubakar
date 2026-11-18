@@ -43,10 +43,11 @@ KIND_WORDS = "reference paper"
 PACKAGE_ROLE = "CONTRACT_DOCUMENT"
 #: Statuses of a reference in the run's record.
 READ, READ_IN_PART, NOT_SENT, FAILED = "read", "read in part", "not sent", "failed"
-NOT_HELD, AMBIGUOUS, NOT_READABLE = (
+NOT_HELD, AMBIGUOUS, NOT_READABLE, NOT_LINKED = (
     "not held",
     "held more than once: not chosen",
     "held, not on the list shown",
+    "held, but not recorded as part of this paper's project: not compared",
 )
 #: A line's code note when a reference paper settled or changed it (`sendable` reads the label, never this note).
 NOTE_CHECKED = "reference_checked"
@@ -69,6 +70,8 @@ class Resolution:
     refs: list[Ref] = field(default_factory=list)
     not_held: list[str] = field(default_factory=list)
     ambiguous: list[str] = field(default_factory=list)
+    #: A held contract paper IS the Schedule, but no recorded project says it belongs with this paper: said, never compared.
+    unlinked: list[str] = field(default_factory=list)
 
 
 def name_of(key: Key) -> str:
@@ -91,10 +94,26 @@ def paper_cites(pages: dict[int, str]) -> list[Key]:
     return out
 
 
-def held_schedules(conn, paper_id: str) -> dict[Key, list[str]]:
-    """{Schedule: the held contract papers whose first heading lines say they ARE that Schedule}. Reads page 1 of each held contract
-    paper only."""
-    out: dict[Key, list[str]] = {}
+def project_of(conn, doc_id: str) -> str | None:
+    """The project RECORDED for a document (the classification's `project`), blank-normalised; None when none is recorded. This is the
+    link between the parts of one package: never a likeness of names or numbers."""
+    row = conn.execute(
+        "SELECT project FROM document_classification WHERE document_id = ?",
+        (str(doc_id),),
+    ).fetchone()
+    text = " ".join(str(row[0] or "").split()).casefold() if row else ""
+    return text or None
+
+
+def held_schedules(
+    conn, paper_id: str
+) -> tuple[dict[Key, list[str]], dict[Key, list[str]]]:
+    """({Schedule: the held contract papers that ARE that Schedule AND are recorded in the SAME project as the paper},
+    {Schedule: those recorded in another project or in none}). A part counts as a Schedule when its first heading lines say so (page 1
+    only). With no project recorded on the paper nothing is linked."""
+    linked: dict[Key, list[str]] = {}
+    other: dict[Key, list[str]] = {}
+    mine = project_of(conn, paper_id)
     ids = [
         r[0]
         for r in conn.execute(
@@ -110,20 +129,23 @@ def held_schedules(conn, paper_id: str) -> dict[Key, list[str]]:
         ).fetchone()
         if row is None:
             continue
+        home = (
+            linked if mine is not None and project_of(conn, doc_id) == mine else other
+        )
         for key, parent in CC.package_part([(int(row[0]), row[1] or "")]):
             if parent is None and CC.DEPTH[key[0]] == 0:
-                out.setdefault(key, []).append(doc_id)
-    return out
+                home.setdefault(key, []).append(doc_id)
+    return linked, other
 
 
 def resolve(conn, paper_id: str, pages: dict[int, str]) -> Resolution:
-    """The reference papers of a paper: each cited Schedule that exactly ONE held contract paper is. The rest are said, not guessed."""
-    held = held_schedules(conn, paper_id)
+    """The reference papers of a paper: each cited Schedule that exactly ONE held contract paper of the SAME RECORDED PROJECT is. The rest are said, not guessed."""
+    held, elsewhere = held_schedules(conn, paper_id)
     res = Resolution()
     for key in paper_cites(pages):
         ids = held.get(key, [])
         if not ids:
-            res.not_held.append(name_of(key))
+            (res.unlinked if elsewhere.get(key) else res.not_held).append(name_of(key))
         elif len(ids) > 1:
             res.ambiguous.append(name_of(key))
         else:
@@ -522,6 +544,7 @@ def check(
     record: list[dict] = [
         {"part": n, "status": NOT_HELD, "reason": "", "questions": 0, "settled": 0} for n in res.not_held
     ] + [{"part": n, "status": AMBIGUOUS, "reason": "", "questions": 0, "settled": 0} for n in res.ambiguous]  # fmt: skip
+    record += [{"part": n, "status": NOT_LINKED, "reason": "", "questions": 0, "settled": 0} for n in res.unlinked]  # fmt: skip
     carried: set[str] = set()
     for ref in res.refs:
         if ref.doc_id not in allowed_books:

@@ -60,6 +60,9 @@ def world(conn):
             "CONTRACT_DOCUMENT",
             {1: "SCHEDULE Z\nOTHER\nSomething the agreement never cites."},
         )
+        conn.execute(  # the parts of ONE package carry one RECORDED project (the link is never a likeness of names)
+            "UPDATE document_classification SET project = 'Invented Project One' WHERE document_role = 'CONTRACT_DOCUMENT'"
+        )
     return conn
 
 
@@ -119,6 +122,67 @@ def test_exactly_one_held_paper_is_a_reference_the_rest_are_said_not_guessed(wor
     ]  # two held papers are Schedule B: neither is chosen
     assert res.not_held == ["Schedule D"]
     assert SCHED_Z not in {r.doc_id for r in res.refs}  # held but never cited
+
+
+def test_a_schedule_of_another_package_is_never_a_reference_of_this_paper(world):
+    """Two invented packages are held. The agreement of project one cites Schedule C and Schedule B; a Schedule C of project TWO is held
+    too, and so is a Schedule D of a paper with NO recorded project. Neither is compared as this paper's: said, with no guess."""
+    with world:
+        world.execute(
+            "UPDATE document_classification SET project = 'Invented Project Two' WHERE document_id = ?",
+            (SCHED_C,),
+        )
+        _doc(
+            world,
+            "doc_rf_p1_d",
+            "d.pdf",
+            "CONTRACT_DOCUMENT",
+            {1: "SCHEDULE D\nOTHER\nSomething held with no recorded project."},
+        )
+        world.execute(
+            "UPDATE document_classification SET project = NULL WHERE document_id = 'doc_rf_p1_d'"
+        )
+        _doc(
+            world,
+            "doc_rf_p1_c",
+            "c1.pdf",
+            "CONTRACT_DOCUMENT",
+            {1: "SCHEDULE C\nMILESTONES\nProject one's own Schedule C."},
+        )
+        world.execute(
+            "UPDATE document_classification SET project = 'Invented Project One' WHERE document_id = 'doc_rf_p1_c'"
+        )
+    res = R.resolve(world, AGREEMENT, AGREEMENT_PAGES)
+    assert [(r.doc_id, r.name) for r in res.refs] == [
+        ("doc_rf_p1_c", "Schedule C")
+    ]  # only the one of project one
+    assert (
+        res.unlinked == ["Schedule D"] and res.not_held == []
+    )  # held, but in no recorded project: said
+    # the paper with no recorded project links nothing at all
+    with world:
+        world.execute(
+            "UPDATE document_classification SET project = '  ' WHERE document_id = ?",
+            (AGREEMENT,),
+        )
+    res = R.resolve(world, AGREEMENT, AGREEMENT_PAGES)
+    assert res.refs == [] and sorted(res.unlinked) == [
+        "Schedule B",
+        "Schedule C",
+        "Schedule D",
+    ]
+    # and the run's record says so, never "not held"
+    carried = R.check(
+        world,
+        Part({}),
+        _paper(world),
+        [_line(1, "Please confirm (Schedule C).")],
+        frozenset(),
+        "lead",
+    )
+    assert {e["status"] for e in carried[0] if e["part"] == "Schedule C"} == {
+        R.NOT_LINKED
+    }
 
 
 def test_a_paper_is_never_its_own_reference(world):

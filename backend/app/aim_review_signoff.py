@@ -55,8 +55,8 @@ def _has(conn) -> bool:
     )
 
 
-def digest(conn, run_id: str) -> str:
-    """A fingerprint of every comment's LATEST decision: it changes when any decision is made after it was taken."""
+def _latest_ids(conn, run_id: str) -> dict[tuple[str, str], str]:
+    """{(part, comment key): the id of its LATEST decision row} for the run, in the same order the page reads them."""
     latest: dict[tuple[str, str], str] = {}
     if conn.execute(
         "SELECT 1 FROM sqlite_master WHERE name = ?", (DECISIONS,)
@@ -66,8 +66,32 @@ def digest(conn, run_id: str) -> str:
             (run_id,),
         ):
             latest[(r["part"], r["comment_key"])] = r["id"]
-    raw = "|".join(f"{p}:{k}:{i}" for (p, k), i in sorted(latest.items()))
+    return latest
+
+
+def digest(conn, run_id: str) -> str:
+    """A fingerprint of every comment's LATEST decision: it changes when any decision is made after it was taken."""
+    raw = "|".join(
+        f"{p}:{k}:{i}" for (p, k), i in sorted(_latest_ids(conn, run_id).items())
+    )
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _stale(conn, run_id: str, view: dict) -> list[dict]:
+    """The comments whose latest decision in the database is not the one the view (the contractor copy's source) holds."""
+    ids = _latest_ids(conn, run_id)
+    out = []
+    for part, group in (
+        ("comment", view["comments"]),
+        ("confirmation", view.get("confirmations") or []),
+    ):
+        out += [
+            {"part": part, "n": c["n"], "title": c.get("title") or ""}
+            for c in group
+            if (c.get("decision") or {}).get("id")
+            != ids.get((part, aim_review_decisions.key_of(c)))
+        ]
+    return out
 
 
 def undecided(view: dict) -> list[dict]:
@@ -198,6 +222,16 @@ def sign(
         ) from exc
     signoff_id = str(uuid.uuid4())
     with conn:
+        if not conn.in_transaction:
+            conn.execute(
+                "BEGIN IMMEDIATE"
+            )  # no decision can land between the check below and the sign-off row
+        moved = _stale(conn, run["run_id"], view)
+        if moved:
+            raise Refused(
+                "a decision changed while you were signing: look at the comments again, then sign",
+                moved,
+            )
         conn.execute(
             f"INSERT INTO {SIGNOFFS} (id, run_id, paper_document_id, signed_by, signed_at, review_code, statement, counts_json, decisions_digest, team_sha256)"
             " VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -225,7 +259,9 @@ def sign(
             {"run": run["run_id"], "code": code, **counts},
             at=at,
         )
-    return status(conn, run, view)
+    return status(
+        conn, run, view, may_sign=True
+    )  # only a super user reaches this point
 
 
 def issued_copy(conn, run: dict, view: dict) -> bytes:
