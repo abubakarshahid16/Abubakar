@@ -139,8 +139,8 @@ def test_the_page_json_has_the_contract_shape(world):
     )
     assert body["counts"] == {
         "points": 6, "comments": 3, "confirmations": 0, "comment_lines": 3, "confirmation_lines": 0,
-        # by code: the fixture's lines carry no stored comparison, none is open: all three are "Check a value"
-        "by_severity": {"Must fix": 0, "Check a value": 3, "Missing information": 0, "Please confirm": 0},
+        # by code's own verdict: line 1 is shown "Fail, compared by code" (Must fix); the others are "Check a value"
+        "by_severity": {"Must fix": 1, "Check a value": 2, "Missing information": 0, "Please confirm": 0},
         "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
         "by_shown_label": body["counts"]["by_shown_label"], "boundary": "this paper, this review",
     }  # fmt: skip
@@ -1579,11 +1579,11 @@ def test_the_severity_of_a_card_is_decided_by_code_never_by_its_words(world):
         cm["lines"][0]: cm["severity"]
         for cm in body["comments"] + body["confirmations"]
     }
-    assert sev == {1: "Must fix", 2: "Must fix", 3: "Check a value", 4: "Check a value", 5: "Missing information",
+    assert sev == {1: "Must fix", 2: "Check a value", 3: "Check a value", 4: "Check a value", 5: "Missing information",
                    6: "Missing information", 7: "Missing information", 8: "Please confirm"}  # fmt: skip
     assert body["counts"]["by_severity"] == {
-        "Must fix": 2,
-        "Check a value": 2,
+        "Must fix": 1,
+        "Check a value": 3,
         "Missing information": 3,
         "Please confirm": 1,
     }
