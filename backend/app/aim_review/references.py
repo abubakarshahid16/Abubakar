@@ -158,11 +158,74 @@ def resolve(
             (res.unlinked if elsewhere.get(key) else res.not_held).append(name_of(key))
             if len(elsewhere.get(key, [])) == 1:
                 res.offers.append(Ref(elsewhere[key][0], key, name_of(key)))
-        elif len(ids) > 1:
+        elif len(chosen := pick(conn, ids, shown)) == 1:
+            res.refs.append(Ref(chosen[0], key, name_of(key)))
+        else:  # still tied: said, never merged; each offered on the plan so the engineer chooses one
             res.ambiguous.append(name_of(key))
-        else:
-            res.refs.append(Ref(ids[0], key, name_of(key)))
+            res.offers += [Ref(i, key, f"{name_of(key)} ({TIED})") for i in chosen]
     return res
+
+
+#: The words a plan offer carries when several held papers are one cited Schedule and code could not choose.
+TIED = "held more than once: choose one"
+#: A held paper whose recorded title or file name says it is an attachment of a part, not the part itself.
+_LOWER_WORDS = re.compile(
+    r"\b(attachment|annex|appendix|exhibit|enclosure)s?\b", re.IGNORECASE
+)
+
+
+def pick(conn, ids: list[str], shown: frozenset[str] = frozenset()) -> list[str]:
+    """Several held papers are one cited Schedule: [the one chosen] or the papers still tied (never merged, never guessed).
+    In order: the engineer's choice (exactly one of them on the run's shown list); the main schedule over papers that are its
+    attachments (a lower part heading their first page, or named so in their recorded title or file name); the highest
+    RECORDED revision (all numbers, or all letters; a mix or a missing one is no order)."""
+    mine = [i for i in ids if i in shown]
+    if len(mine) == 1:
+        return mine
+    main = [i for i in ids if not _is_lower_part(conn, i)]
+    ids = main or list(ids)
+    revs = {i: _revision(conn, i) for i in ids}
+    if (
+        len(ids) > 1
+        and all(r is not None for r in revs.values())
+        and len({type(r) for r in revs.values()}) == 1
+    ):
+        top = max(revs.values())
+        ids = [i for i in ids if revs[i] == top]
+    return ids
+
+
+def _is_lower_part(conn, doc_id: str) -> bool:
+    row = conn.execute(
+        "SELECT d.filename, c.title FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
+        " WHERE d.id = ?",
+        (str(doc_id),),
+    ).fetchone()
+    if row and any(_LOWER_WORDS.search(str(x or "")) for x in row):
+        return True
+    first = conn.execute(
+        "SELECT text FROM pages WHERE document_id = ? ORDER BY page_no LIMIT 1",
+        (str(doc_id),),
+    ).fetchone()
+    opening = [
+        ln.strip() for ln in str((first or [""])[0] or "").splitlines() if ln.strip()
+    ]
+    heads = [CC._heading_part(ln) for ln in opening[: CC.HEADING_LINES * CC.LIST_SPAN]]
+    return any(h and CC.DEPTH.get(h[0][0], 0) > 0 for h in heads)
+
+
+def _revision(conn, doc_id: str) -> int | str | None:
+    """The RECORDED revision as a number or a letter code ("Rev. 2" -> 2, "B" -> "B"); None when none is recorded or unreadable."""
+    row = conn.execute(
+        "SELECT revision FROM document_classification WHERE document_id = ?",
+        (str(doc_id),),
+    ).fetchone()
+    text = re.sub(
+        r"(?i)^\s*(rev(ision)?\.?)\s*", "", str((row or [""])[0] or "")
+    ).strip()
+    if re.fullmatch(r"\d+", text):
+        return int(text)
+    return text.upper() if re.fullmatch(r"[A-Za-z]{1,2}", text) else None
 
 
 def plan_entries(conn, paper_id: str, allowed: frozenset[str]) -> tuple[list[Ref], int]:

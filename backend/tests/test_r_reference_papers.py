@@ -643,3 +643,80 @@ def test_a_call_that_stops_after_settled_questions_says_how_many_not_failed():
     assert (
         RR._failed(ref, "gate_closed", questions=5, settled=0)["status"] == RR.NOT_SENT
     )
+
+
+# ---- several held papers are one cited Schedule (planner note 20:48): main over attachment, then the highest revision ---------
+
+
+def _set(conn, doc_id, **cols):
+    with conn:
+        for k, v in cols.items():
+            conn.execute(
+                f"UPDATE document_classification SET {k} = ? WHERE document_id = ?",
+                (v, doc_id),
+            )
+
+
+def test_the_main_schedule_is_chosen_over_its_attachment_by_recorded_title(world):
+    _set(world, SCHED_B2, title="Invented Schedule B Attachment 1 Rates")
+    res = R.resolve(world, AGREEMENT, AGREEMENT_PAGES)
+    assert (SCHED_B1, "Schedule B") in [
+        (r.doc_id, r.name) for r in res.refs
+    ] and "Schedule B" not in res.ambiguous
+
+
+def test_a_paper_whose_first_page_heads_an_attachment_is_not_the_main_schedule(conn):
+    with conn:
+        _doc(conn, AGREEMENT, "agreement.pdf", "CONTRACT_DOCUMENT", AGREEMENT_PAGES)
+        _doc(
+            conn,
+            SCHED_B1,
+            "b-main.pdf",
+            "CONTRACT_DOCUMENT",
+            {1: "SCHEDULE B\nPAYMENT\nPayment is made monthly."},
+        )
+        _doc(conn, SCHED_B2, "b-two.pdf", "CONTRACT_DOCUMENT",
+             {1: "SCHEDULE B\nPAYMENT\nINVENTED HEADER\nNOTES\nATTACHMENT 2\nRates table."})  # fmt: skip
+        conn.execute(
+            "UPDATE document_classification SET project = 'Invented Project One'"
+        )
+    assert R.pick(conn, [SCHED_B1, SCHED_B2]) == [SCHED_B1]
+
+
+@pytest.mark.parametrize(
+    ("revs", "chosen"),
+    [
+        (("1", "Rev. 2"), [SCHED_B2]),
+        (("B", "A"), [SCHED_B1]),
+        (
+            ("1", "B"),
+            [SCHED_B1, SCHED_B2],
+        ),  # a number and a letter: no order, still tied
+        (("3", None), [SCHED_B1, SCHED_B2]),  # one revision not recorded: no order
+        (("2", "2"), [SCHED_B1, SCHED_B2]),
+    ],
+)
+def test_the_highest_recorded_revision_is_chosen_else_still_tied(world, revs, chosen):
+    _set(world, SCHED_B1, revision=revs[0])
+    _set(world, SCHED_B2, revision=revs[1])
+    assert R.pick(world, [SCHED_B1, SCHED_B2]) == chosen
+
+
+def test_a_tie_is_never_merged_and_is_offered_on_the_plan_for_the_engineer_to_choose(
+    world,
+):
+    res = R.resolve(world, AGREEMENT, AGREEMENT_PAGES)
+    assert res.ambiguous == ["Schedule B"] and not [
+        r for r in res.refs if r.name == "Schedule B"
+    ]
+    tied = [(r.doc_id, r.name) for r in res.offers if r.key == ("schedule", "B")]
+    assert tied == [
+        (SCHED_B1, f"Schedule B ({R.TIED})"),
+        (SCHED_B2, f"Schedule B ({R.TIED})"),
+    ]
+    chosen = R.resolve(
+        world, AGREEMENT, AGREEMENT_PAGES, shown=frozenset({SCHED_B2})
+    )  # the engineer ticked one
+    assert [(r.doc_id, r.name) for r in chosen.refs if r.key == ("schedule", "B")] == [
+        (SCHED_B2, "Schedule B")
+    ]
