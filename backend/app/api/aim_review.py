@@ -31,8 +31,7 @@ from .. import (
     errors,
     schemas,
 )
-from ..api_utils import reject_unknown_params, require_document
-from ..claude_api import _require_identity_to_write
+from ..api_utils import reject_unknown_params, require_document, require_named_user
 from ..db import connect
 
 router = APIRouter()
@@ -153,16 +152,28 @@ class CommentDecisionIn(BaseModel):
     """One decision on one comment. The caller's identity and the time are the server's, never the body's."""
 
     run_id: str | None = None
-    comment: int = Field(..., ge=1, description="the comment's number on the page (`n`)")
+    comment: int = Field(
+        ..., ge=1, description="the comment's number on the page (`n`)"
+    )
     part: Literal["comment", "confirmation"] = "comment"
     state: Literal["accept", "edit", "reject"]
     text: str | None = Field(None, max_length=aim_review_decisions.MAX_TEXT)
     reason: str | None = Field(None, max_length=300)
 
 
+class CommentDecisionOut(BaseModel):
+    """The comment's latest decision, as the page draws it (`aim_review_decisions.attach`)."""
+
+    run_id: str
+    comment: int
+    part: Literal["comment", "confirmation"]
+    decision: dict
+
+
 @router.post(
     "/api/reviews/papers/{document_id}/general/decision",
-    responses={**schemas.ERRORS_404},
+    response_model=CommentDecisionOut,
+    responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_422},
 )
 def decide_comment(
     document_id: str,
@@ -173,12 +184,7 @@ def decide_comment(
     """Accept, edit or reject one comment of a general review. Only a signed-in user who may read the paper (404 otherwise, like every
     route here); append-only: the answer is the comment's latest decision. No sign-off or contractor copy comes from this."""
     reject_unknown_params(request, set())
-    _require_identity_to_write(scope)
-    if scope.user_id is None:
-        raise HTTPException(
-            status_code=401,
-            detail=errors.safe_error(errors.UNAUTHENTICATED, "a decision must name the engineer who made it"),
-        )
+    actor = require_named_user(scope, "a decision must name the engineer who made it")
     require_document(document_id, scope)
     conn = connect()
     run = aim_review_view.resolve(conn, document_id, body.run_id)
@@ -188,23 +194,42 @@ def decide_comment(
         view = aim_review_view.build(conn, run, scope)
     except aim_review_view.NotFinished as exc:
         raise _not_finished(exc) from exc
-    group = view["comments"] if body.part == "comment" else view.get("confirmations") or []
+    group = (
+        view["comments"] if body.part == "comment" else view.get("confirmations") or []
+    )
     comment = next((c for c in group if c["n"] == body.comment), None)
     if comment is None:
         raise HTTPException(
             status_code=404,
-            detail=errors.safe_error(errors.NOT_FOUND, "no such comment in this review", document_id=document_id),
+            detail=errors.safe_error(
+                errors.NOT_FOUND,
+                "no such comment in this review",
+                document_id=document_id,
+            ),
         )
     try:
         with conn:
             aim_review_decisions.record(
                 conn, run["run_id"], document_id, comment, body.part, body.state,
-                actor=scope.user_id, text=body.text, reason=body.reason,
+                actor=actor, text=body.text, reason=body.reason,
             )  # fmt: skip
     except aim_review_decisions.Refused as exc:
-        raise HTTPException(status_code=422, detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc))) from exc
-    aim_review_decisions.attach(conn, run["run_id"], [comment] if body.part == "comment" else [], [comment] if body.part == "confirmation" else [])
-    return {"run_id": run["run_id"], "comment": comment["n"], "part": body.part, "decision": comment["decision"]}
+        raise HTTPException(
+            status_code=422,
+            detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc)),
+        ) from exc
+    aim_review_decisions.attach(
+        conn,
+        run["run_id"],
+        [comment] if body.part == "comment" else [],
+        [comment] if body.part == "confirmation" else [],
+    )
+    return {
+        "run_id": run["run_id"],
+        "comment": comment["n"],
+        "part": body.part,
+        "decision": comment["decision"],
+    }
 
 
 class SignoffIn(BaseModel):
@@ -218,40 +243,54 @@ class RunIn(BaseModel):
 
 
 def _signing_context(document_id: str, run_id: str | None, request: Request, scope: access.AccessScope):
-    """The caller (a signed-in user who may read the paper), the connection, the run and its view; 404/409 as the other routes."""
+    """The caller's user id (a signed-in user who may read the paper), the connection, the run and its view; 404/409 as the other routes."""
     reject_unknown_params(request, set())
-    _require_identity_to_write(scope)
-    if scope.user_id is None:
-        raise HTTPException(
-            status_code=401,
-            detail=errors.safe_error(errors.UNAUTHENTICATED, "a sign-off must name the engineer who signs"),
-        )
+    actor = require_named_user(scope, "a sign-off must name the engineer who signs")
     require_document(document_id, scope)
     conn = connect()
     run = aim_review_view.resolve(conn, document_id, run_id)
     if run is None:
         raise _not_found(document_id)
     try:
-        return conn, run, aim_review_view.build(conn, run, scope)
+        return actor, conn, run, aim_review_view.build(conn, run, scope)
     except aim_review_view.NotFinished as exc:
         raise _not_finished(exc) from exc
 
 
-@router.post("/api/reviews/papers/{document_id}/general/accept-rest", responses={**schemas.ERRORS_404})
+class AcceptRestOut(BaseModel):
+    run_id: str
+    accepted: int
+    signoff: str
+
+
+class SignoffOut(BaseModel):
+    run_id: str
+    signoff: dict
+
+
+@router.post(
+    "/api/reviews/papers/{document_id}/general/accept-rest",
+    response_model=AcceptRestOut,
+    responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409},
+)
 def accept_rest(document_id: str, body: RunIn, request: Request, scope: access.AccessScope = Depends(access.current_scope)):
     """Accept every comment and confirmation that has no decision yet, each as its own (append-only) decision."""
-    conn, run, view = _signing_context(document_id, body.run_id, request, scope)
-    n = aim_review_signoff.accept_rest(conn, run, view, scope.user_id)
+    actor, conn, run, view = _signing_context(document_id, body.run_id, request, scope)
+    n = aim_review_signoff.accept_rest(conn, run, view, actor)
     return {"run_id": run["run_id"], "accepted": n, "signoff": aim_review_signoff.status(conn, run, aim_review_view.build(conn, run, scope))["state"]}
 
 
-@router.post("/api/reviews/papers/{document_id}/general/signoff", responses={**schemas.ERRORS_404})
+@router.post(
+    "/api/reviews/papers/{document_id}/general/signoff",
+    response_model=SignoffOut,
+    responses={**schemas.ERRORS_401, **schemas.ERRORS_404, **schemas.ERRORS_409},
+)
 def sign_off(document_id: str, body: SignoffIn, request: Request, scope: access.AccessScope = Depends(access.current_scope)):
     """The engineer signs the review off (their own choice of the review code); the contractor copy is built and kept with it. 409 names
     each comment that stands in the way; nothing is written then."""
-    conn, run, view = _signing_context(document_id, body.run_id, request, scope)
+    actor, conn, run, view = _signing_context(document_id, body.run_id, request, scope)
     try:
-        status = aim_review_signoff.sign(conn, run, view, scope.user_id, body.review_code, body.statement)
+        status = aim_review_signoff.sign(conn, run, view, actor, body.review_code, body.statement)
     except aim_review_signoff.Refused as exc:
         detail = {**errors.safe_error(errors.CRS_NOT_FINISHED, str(exc)), "message": str(exc), "blockers": exc.blockers}
         raise HTTPException(status_code=409, detail=detail) from exc

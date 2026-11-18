@@ -7,7 +7,7 @@
  * tiles filter the list; "Please confirm" cards are the confirmations, not sent, in their own closed part.
  *
  * Each card has Accept / Edit / Reject: the engineer's decision, stored append-only on the server (the latest one is shown; the earlier
- * ones stay). Edit needs the engineer's text (the original is kept), Reject a one-line reason. Only a signed-in user who may read the
+ * ones stay). Edit needs the engineer's text, Reject a one-line reason. Only a signed-in user who may read the
  * paper can decide; the server's own sentence is shown when it refuses. No contractor copy follows from a decision here.
  */
 import { useMemo, useState } from "react";
@@ -90,7 +90,7 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
       </div>
       {open === "edit" && (
         <div className="space-y-1">
-          <label className="block text-xs text-slateish-400" htmlFor={`edit-${line.n}`}>Your text for this comment (the original is kept)</label>
+          <label className="block text-xs text-slateish-400" htmlFor={`edit-${line.n}`}>Your text for this comment</label>
           <textarea id={`edit-${line.n}`} value={text} onChange={(e) => setText(e.target.value)} rows={3}
             className="w-full rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 p-2 text-sm text-slateish-100" />
           <div className="flex gap-2">

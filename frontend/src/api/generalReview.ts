@@ -55,7 +55,6 @@ export interface CommentDecision {
   state: DecisionState;
   words: string;
   text: string | null;
-  original: string | null;
   reason: string | null;
   by: string;
   at: string;

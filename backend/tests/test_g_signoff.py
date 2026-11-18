@@ -345,16 +345,21 @@ def test_only_a_signed_in_user_who_may_read_the_paper_can_sign_or_accept_the_res
 
 
 def test_the_audit_names_the_sign_off_by_ids_and_counts_only(world):
+    with db.connect() as conn, conn:
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, password_hash, created_at) VALUES ('eng', 'eng@example.test', 'Eng', 'x', '2026-11-18T00:00:00+00:00')"
+        )
     c = client(PAPER, BOOK)
     _decide(c, 1, "edit", text="A private engineering remark.")
     _accept_all(c)
     _sign(c, statement="A private statement.")
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT action, detail FROM audit_events WHERE action IN ('general_review_signed','general_comments_accepted_rest')"
+            "SELECT action, detail, actor_user_id, actor_username FROM audit_events WHERE action IN ('general_review_signed','general_comments_accepted_rest')"
         ).fetchall()
     assert {r["action"] for r in rows} == {
         "general_review_signed",
         "general_comments_accepted_rest",
     }
     assert all("private" not in r["detail"] for r in rows)
+    assert all(r["actor_user_id"] == "eng" and r["actor_username"] == "eng@example.test" for r in rows)

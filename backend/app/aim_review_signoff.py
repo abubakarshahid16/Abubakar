@@ -1,6 +1,6 @@
 """The engineer's SIGN-OFF of a general review, and the contractor copy issued with it (order 14; lead's design, approved 18 Nov 2026).
 
-SIGNER: the earlier engine's own rule: a signed-in user who may read the paper (`claude_api._require_identity_to_write` in the route); the
+SIGNER: the earlier engine's own rule: a signed-in user who may read the paper (`api_utils.require_named_user` in the route); the
 signer is the server's user, never the body's. Append-only: a re-sign is a new row, the older ones stay.
 
 BEFORE SIGNING (every refusal says what is wrong, in words and comment numbers): the run finished (not stopped early); its three counts
@@ -150,16 +150,8 @@ def accept_rest(conn, run: dict, view: dict, actor: str) -> int:
                 actor=actor, text=None, reason=None,
             )  # fmt: skip
         if todo:
-            conn.execute(
-                "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail)"
-                " VALUES (?, NULL, ?, ?, 'document', ?, 'ok', ?)",
-                (
-                    _now(),
-                    actor,
-                    AUDIT_ACCEPT_REST,
-                    run["paper_document_id"],
-                    json.dumps({"run": run["run_id"], "count": len(todo)}),
-                ),
+            aim_review_decisions.audit(
+                conn, actor, AUDIT_ACCEPT_REST, run["paper_document_id"], {"run": run["run_id"], "count": len(todo)}
             )
     return len(todo)
 
@@ -219,18 +211,8 @@ def sign(
                 at,
             ),
         )
-        conn.execute(
-            "INSERT INTO audit_events (at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail)"
-            " VALUES (?, NULL, ?, ?, 'document', ?, 'ok', ?)",
-            (
-                at,
-                actor,
-                AUDIT,
-                run["paper_document_id"],
-                json.dumps(
-                    {"run": run["run_id"], "code": code, **counts}, sort_keys=True
-                ),
-            ),
+        aim_review_decisions.audit(
+            conn, actor, AUDIT, run["paper_document_id"], {"run": run["run_id"], "code": code, **counts}, at=at
         )
     return status(conn, run, view)
 
