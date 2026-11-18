@@ -487,8 +487,9 @@ def _steps(
 def _after_judge(
     conn, state, mdl, paper, checklist: dict, allowed_books, lead: str, say
 ) -> None:
-    """After the judge, in order: the contract's reference papers (G), the whole-paper check (S4b: a line on no held rule that the
-    paper answers is not sent), the second reader (S4c: a finding the AI alone decided needs two readers), the editor (S5)."""
+    """After the judge, in order: the contract's reference papers (G), the second reader (S4c: a finding the AI alone decided
+    needs two readers), the whole-paper check (S4b, behind its switch: a line whose claim the paper contradicts is not sent), the
+    editor (S5)."""
     from . import references as R
     from .answered import s4b_answered
     from .editor import s5_edit
@@ -501,11 +502,13 @@ def _after_judge(
     say(95, "whole-paper check and second reader")
     from app import aim_review_gate
 
+    s4c_second_read(mdl, paper, state.decided, checklist, lead)
     if (
         aim_review_gate.answered_check_on()
     ):  # off by default (a way-back switch): code proves the quote, not the answer
-        s4b_answered(mdl, paper, state.decided, lead)
-    s4c_second_read(mdl, paper, state.decided, checklist, lead)
+        s4b_answered(
+            mdl, paper, state.decided, lead
+        )  # after the second reader: its words are claims too
     say(96, "judge")
     s5_edit(mdl, paper, state.decided, lead)
 

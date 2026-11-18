@@ -143,15 +143,17 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
 THE ITEMS:
 %(items)s"""
 
-ANSWERED_TASK = """TASK S4B - CHECK EACH COMMENT AGAINST THE WHOLE PAPER. Below are comments a reviewer would send about the paper
-above; none rests on a held rule book (one per line: n, field, page, comment). Read EVERY page of the paper. For EACH comment,
-decide as a strict senior engineer checking the reviewer's work: is this comment WRONG or NEEDLESS because the paper already
-covers it - the paper states what the comment asks for, or states the opposite of what the comment claims - on ANY page, not
-only the comment's own page (another section, a table, an annex, a note)? Give ONE verdict for EVERY comment:
-answered true, with the page and the exact paper words that answer it (5 to 30 words from that one page, character for
-character, no "..."); or answered false when the paper does not cover it. Code checks every quote on its page.
+ANSWERED_TASK = """TASK S4B - CHECK EACH COMMENT'S CLAIMS AGAINST THE WHOLE PAPER. Below are comments a reviewer would send about
+the paper above (one per line: n, field, page, comment). Read EVERY page of the paper. A comment often CLAIMS that the paper
+lacks something, leaves it blank or unstated, does not define or address it, or ONLY says X; it may also ask for something.
+For EACH comment, as a strict senior engineer checking the reviewer's work, check EVERY such claim and request against the whole
+paper, on ANY page, not only the comment's own page (another section, a table, an annex, an attachment, a note, a filled field):
+answered true when the paper states what the comment says is missing or asks for, or states the opposite of what it claims,
+for ANY ONE of its claims (a comment with one false claim is wrong as written, even when another part of it is right): give that
+claim in at most 12 words, the page, and the exact paper words that show it (5 to 30 words from that one page, character for
+character, no "..."); answered false when the paper covers none of its claims. Code checks every quote on its page.
 Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
-{"verdicts": [{"n": n, "answered": true, "page": p, "quote": "..."}, {"n": n, "answered": false}]}
+{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "..."}, {"n": n, "answered": false}]}
 THE COMMENTS:
 %(comments)s"""
 

@@ -1,8 +1,11 @@
-"""S4b, the whole-paper check of the general review (18 Nov 2026, after live): before a comment that rests on NO held rule book
-is sent, the model reads the whole paper once more (cached, as for the judge) and gives ONE verdict per comment: does the paper
-already answer it, or state the opposite, on some page (v2: a forced verdict per comment; "name only" named almost none). Code checks every answer: the quote is found by code on that page. Such a line stays in
-"All points" with the page and the quote (`ANSWERED`, a not-sent note) and is never a comment. Held-standard lines, code
-comparisons, provisional figures and values left open are never offered. One call per `ANSWER_CHUNK` lines, each applied whole
+"""S4b, the whole-paper check of the general review (18 Nov 2026, after live; v3 the same night): after the second reader, every
+sent line the AI alone decided (a Question, an AI opinion or a Not met, on a held rule or none) goes to the model with the whole
+paper (cached, as for the judge), which checks each CLAIM of the comment that the paper lacks, leaves blank or only says
+something, and each request, on every page (v2 asked whether the paper answers the WHOLE comment: a comment with one false claim
+beside a right one was never answered, so nothing was taken off). Code checks every answer: the quote is found by code on that
+page and is not the line's own evidence. Such a line stays in "All points" with the claim, the page and the quote (`ANSWERED`, a
+not-sent note: an engineer checks it) and is never a comment. Code comparisons, provisional figures, values left open and lines
+a reference paper checked are never offered. One call per `ANSWER_CHUNK` lines, each applied whole
 or not at all; a failed or cut call applies nothing and the run's calls say so."""
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ from . import ANSWERED, PROVISIONAL
 from . import prompts as P
 from .engine import StepFailed
 from .references import NOTE_CHECKED as REFERENCE_CHECKED
-from .steps import HELD, _dumps, paper_block
+from .steps import _dumps, paper_block
 from .verify import norm, quote_in
 
 log = logging.getLogger(__name__)
@@ -22,8 +25,8 @@ log = logging.getLogger(__name__)
 ANSWER_CHUNK = 80
 #: Room for the compact answer (only the answered lines: n, page, quote).
 ANSWER_MAX_TOKENS = 8000
-#: The labels offered: a question or an opinion on no held rule; never a verdict.
-OFFERED_LABELS = ("Question", "AI opinion")
+#: The labels offered: what the AI alone decided (a code comparison is never offered).
+OFFERED_LABELS = ("Question", "AI opinion", "Not met")
 #: What the run's calls say when an answer was not applied (no model, no cost).
 NOT_APPLIED = "whole-paper check not applied"
 #: A quote of the paper as code accepts it: words, at most this many.
@@ -31,8 +34,8 @@ QUOTE_WORDS = (3, 40)
 
 
 def offered(lines: list[dict]) -> dict[int, dict]:
-    """{line number: line} of the SENT lines the check may take off: no held standard, a Question or an AI opinion, not compared
-    by code, no provisional figure, no value left open."""
+    """{line number: line} of the SENT lines the check may take off: a Question, an AI opinion or a Not met (any source), not
+    compared by code, no provisional figure, no value left open, not checked against a reference paper."""
     from . import sendable
     from .engine import to_line
 
@@ -41,7 +44,6 @@ def offered(lines: list[dict]) -> dict[int, dict]:
         parts = [x.strip() for x in str(d.get("code") or "").split(";")]
         if (
             sendable(to_line(n, d))
-            and d.get("source") != HELD
             and d.get("label") in OFFERED_LABELS
             and not d.get("code_compare")
             and not d.get("deferred")
@@ -136,7 +138,9 @@ def answer_reason(a: dict, shown: dict, paper) -> str | None:
     own, said = norm(str(shown[n].get("quote") or "")), norm(quote)
     if page == shown[n].get("page") and own and (own in said or said in own):
         return None  # the line's own evidence (its quote, on its own page) is no answer: a value conflict is never dropped
-    return f'{ANSWERED}: the paper answers it on page {page}: "{quote[:300]}"'
+    claim = " ".join(str(a.get("claim") or "").split())[:120]
+    what = f'what it says ("{claim}")' if claim else "it"
+    return f'{ANSWERED}: the paper covers {what} on page {page}: "{quote[:300]}"; an engineer to check'
 
 
 def _apply(out: dict, shown: dict, paper) -> int:
