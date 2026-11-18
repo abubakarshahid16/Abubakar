@@ -613,7 +613,7 @@ def _steps(
         say(96, "judge")
         from .editor import s5_edit
 
-        s5_edit(mdl, paper, state.decided, lead, state.identity.get("kind"))
+        s5_edit(mdl, paper, state.decided, lead)
 
 
 def _known_keys(store) -> list[str]:
