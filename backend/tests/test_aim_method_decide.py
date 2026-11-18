@@ -571,7 +571,7 @@ def test_a_verified_rule_operator_with_a_paper_limit_never_yields_pass_or_fail(
             "code"
         ] and _sent(d)
         assert d["comment"] == (
-            "The stated 12 bar is above the 10 bar stated on page 3 (the AI paired these two values; code compared them); contractor to confirm the value. "
+            "The stated 12 bar is above the 10 bar stated on page 3; contractor to confirm the value. "
             "the model's words"
         )
 
@@ -591,7 +591,7 @@ def test_a_limit_in_the_judged_quote_itself_names_the_judged_page():
         and _sent(d)
     )
     assert d["comment"].startswith(
-        "The stated 18 bar is above the 15 bar stated on page 4 (the AI paired these two values; code compared them);"
+        "The stated 18 bar is above the 15 bar stated on page 4;"
     )
 
 
@@ -1857,3 +1857,42 @@ def test_a_pairing_of_two_paper_values_in_two_units_is_converted_and_stays_an_ai
     assert "23.5 barg is 340.8 psig" in d["comment"] and not d["comment"].startswith(
         S.PROVEN_FAIL
     )
+
+
+def test_no_sent_comment_of_a_whole_run_carries_the_ais_own_process_words(
+    tmp_path, monkeypatch
+):
+    """Owner, 19 Nov 2026: internal AI wording ("the AI paired ...", "first reader", "two readers", "code compared them") is never
+    comment text; it is the team file's note only. Walks every SENT comment of a whole fake run, with a paper-vs-paper pairing
+    that fails, against the ONE list the contractor copy's guard uses (`aim_review_contractor.INTERNAL`, process words entry)."""
+    import re as _re
+
+    from app import aim_review, aim_review_contractor
+    from tests.test_aim_method_helpers import (
+        BOOK_A,
+        BOOK_B,
+        MemoryStore,
+        open_aim_db,
+    )
+    from tests.test_aim_method_helpers import (
+        PAPER as P_ID,
+    )
+
+    conn = next(open_aim_db(tmp_path, monkeypatch))
+
+    def judge(step, cached, prompt):
+        ids = _re.findall(r'"id": "([CG]\d+)"', prompt)
+        q1 = "Design pressure of the test item: 12 bar gauge at the inlet"
+        return {"judgments": [{"id": i, "label": "Not met", "page": 1, "quote": q1, "field": "f", "comment": "Too high.",
+                               "numbers": {"paper_value": "12", "paper_unit": "bar", "operator": "<=", "rule_value": "10",
+                                           "rule_unit": "bar", "limit_quote": q1, "limit_page": 1}} for i in ids]}  # fmt: skip
+
+    r = aim_review.run(conn, run_id="run_words", paper_id=P_ID, allowed_books=frozenset({BOOK_A, BOOK_B}), store=MemoryStore(),
+                       max_usd=5.0, model=E.FakeModel(kind="datasheet", subject_key="test_item", answers={"aim_judge": judge}))  # fmt: skip
+    process = next(
+        p
+        for p, what in aim_review_contractor.INTERNAL
+        if what == "the AI's own process words"
+    )
+    sent = [ln["comment"] for ln in r.lines if aim_review.sendable(ln)]
+    assert sent and not [c for c in sent if _re.search(process, c)]

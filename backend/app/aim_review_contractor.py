@@ -63,6 +63,10 @@ INTERNAL = (
         "a recorded code note",
     ),
     (r"aim-1", "the method version"),
+    (
+        r"(?i)\bfirst reader\b|\bsecond reader\b|\btwo readers\b|readers differ|the AI paired|code compared them|AI chose which",
+        "the AI's own process words",
+    ),
 )
 #: The fixed words a page shows instead of a book or a package part the viewer may not read (the second is the reference-paper step's; it
 #: is repeated here so this module does not depend on that branch).
