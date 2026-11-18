@@ -257,3 +257,56 @@ def test_a_cited_book_not_held_is_one_point_on_all_points_never_sent_and_the_run
         r.identity["cited"] == [{"name": NUMBER, "page": 1}]
         and "quote" not in r.identity["cited"][0]
     )
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("API 527", "API \u2013 527"),
+        ("API RP 520 Pt-2", "API 520 Part II"),
+        ("API 526", "API 526 Flanged Steel Pressure Relief Valves"),
+        ("API Std 610 11th Ed.", "API 610"),
+        ("ZQ TEST STD 001, latest edition", "ZQ-TEST-STD-001"),
+    ],
+)
+def test_one_standard_has_one_key_whatever_its_spelling(a, b):
+    assert L.identifier_key(a) == L.identifier_key(b)
+
+
+def test_the_not_held_list_says_each_standard_once_the_first_kept():
+    rows = [{"name": "API 527", "why": "governs the equipment type; not held"},
+            {"name": "API 527 Seat Tightness of Pressure Relief Valves", "why": "Seat leakage acceptance"},
+            {"name": "API RP 520 Pt-2", "why": "x"}, {"name": "API 520 Part II", "why": "y"},
+            {"name": "ZQ TEST STD 001, latest edition", "why": BN.WHY_CITED_NOT_HELD}]  # fmt: skip
+    assert [r["name"] for r in BN.unique_not_held(rows)] == [
+        "API 527",
+        "API RP 520 Pt-2",
+        "ZQ TEST STD 001, latest edition",
+    ]
+
+
+def test_a_citation_with_edition_or_title_words_resolves_to_the_held_book_never_to_two(
+    aim_db,
+):
+    _hold(
+        aim_db, number=""
+    )  # no recorded number: the file name "doc_aimbookZQ1.pdf" holds no identifier
+    with aim_db:
+        aim_db.execute(
+            "UPDATE documents SET filename = ? WHERE id = ?", (f"{NUMBER}.pdf", NEW)
+        )
+    lib = L.library(aim_db, exclude=frozenset({PAPER}))
+    for cited in (
+        f"{NUMBER}, latest edition",
+        "ZQ TEST STD 001 Nameplates for invented items",
+        f"{NUMBER} (2019)",
+    ):
+        assert (L.resolve(lib, cited) or {}).get("id") == NEW, cited
+    assert L.resolve(lib, "ZQ-TEST-STD-0012") is None  # another number
+    assert BN.with_cited_not_held(aim_db, PAPER, [_cited(name=f"{NUMBER}, latest edition",
+                                                         quote=f"per {NUMBER}, latest edition")], []) == []  # fmt: skip
+    twins = [{"id": "doc_t1", "filename": f"{NUMBER}.pdf", "document_role": ""},
+             {"id": "doc_t2", "filename": f"{NUMBER}.pdf", "document_role": ""}]  # fmt: skip
+    assert (
+        L.resolve(twins, f"{NUMBER}, latest edition") is None
+    )  # two books answer: never guessed

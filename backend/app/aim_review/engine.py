@@ -471,6 +471,7 @@ def _steps(
     state.not_held = BN.with_cited_not_held(
         conn, state.paper_id, ident.get("cited"), state.not_held
     )
+    state.not_held = BN.unique_not_held(state.not_held)  # each standard said once
     say(25, "judge")
     _judge(
         state,

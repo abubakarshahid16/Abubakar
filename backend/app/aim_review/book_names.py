@@ -239,3 +239,19 @@ def cited_points(not_held: list[dict]) -> list[dict]:
                     "standard": nh["name"], "source": "cited by the paper (book not held)", "topic": f"Cited standard {nh['name']}",
                     "code": CITED_NOT_HELD, "code_compare": None, "deferred": False, "ask": ""})  # fmt: skip
     return out
+
+
+def unique_not_held(not_held: list[dict]) -> list[dict]:
+    """The not-held list with each standard said ONCE, by `library.identifier_key` (the same key as citation matching): one number spelled with or without a dash, a "Pt-2" and a "Part II", a table name and the AI's longer name of the same standard are one;
+    the first stays (the tables come first)."""
+    seen, out = set(), []
+    for n in not_held or []:
+        key = (
+            L.identifier_key(str((n or {}).get("name") or ""))
+            if isinstance(n, dict)
+            else ""
+        )
+        if not key or key not in seen:
+            seen.add(key)
+            out.append(n)
+    return out
