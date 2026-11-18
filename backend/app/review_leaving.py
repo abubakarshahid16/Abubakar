@@ -461,6 +461,7 @@ def _general_fill(conn, document_id, allowed, facts, out, explicit) -> None:
         else:
             out["leaving"].append({**entry, "contract": _is_contract(row["id"])})
     out["not_readable"] += int(found.unreadable or 0)
+    _reference_papers(conn, document_id, allowed, gate, seen, out)
     for n in found.not_held:
         out["not_sent"].append(
             {
@@ -470,6 +471,36 @@ def _general_fill(conn, document_id, allowed, facts, out, explicit) -> None:
                 "reason": NOT_HELD,
             }
         )
+
+
+def _reference_papers(conn, document_id, allowed, gate, seen, out) -> None:
+    """A contract's cited Schedules that ONE held paper of its package is, as reference papers (read, not rule books): listed before
+    the start with why "cited by the paper; same package", through the same send gate as any contract. A part the caller may not
+    read is counted, never named. Only for a contract paper; nothing for any other paper."""
+    from .aim_review import references
+
+    if not _is_contract(document_id):
+        return
+    refs, hidden = references.plan_entries(conn, document_id, allowed)
+    out["not_readable"] += hidden
+    rows = _doc_rows(conn, [r.doc_id for r in refs])
+    for ref in refs:
+        row = rows.get(ref.doc_id)
+        if row is None or row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        entry = {
+            "id": row["id"],
+            "title": _title(row),
+            "kind": references.KIND_WORDS,
+            "why": references.WHY_REFERENCE,
+            "part": ref.name,
+        }
+        reason = gate.why_not(row, references.KIND_WORDS)
+        if reason:
+            out["not_sent"].append({**entry, "reason": reason})
+        else:
+            out["leaving"].append({**entry, "contract": _is_contract(row["id"])})
 
 
 def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915

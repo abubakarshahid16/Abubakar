@@ -76,6 +76,8 @@ class Result:
     )  # {step, model, usd, input_tokens, output_tokens, seconds, ok, code}
     usd: float = 0.0
     seconds: float = 0.0
+    #: The reference papers of a contract review and what was done with each (`references.check`): not rule books, not in `books`.
+    references: list = field(default_factory=list)
 
 
 #: `code_note` of a line whose item was never answered (the run stopped, a batch failed, its book was not on the list).
