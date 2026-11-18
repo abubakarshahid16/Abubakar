@@ -9,9 +9,12 @@ import { request } from "./core";
 export interface RoleSuggestionSwitch {
   enabled: boolean;
   review_roles: string[];
+  /** Order 14 (G2): non-empty means the review page lists EVERY paper except these roles (the general review takes every kind of
+   *  paper; a paper with no role recorded is listed too). Absent or empty: the list of `review_roles`, as before. */
+  exclude_roles?: string[];
 }
 
-export const SWITCH_OFF: RoleSuggestionSwitch = { enabled: false, review_roles: ["CONTRACTOR_SUBMITTAL"] };
+export const SWITCH_OFF: RoleSuggestionSwitch = { enabled: false, review_roles: ["CONTRACTOR_SUBMITTAL"], exclude_roles: [] };
 
 let cached: Promise<RoleSuggestionSwitch> | null = null;
 
@@ -19,7 +22,11 @@ export function roleSuggestionSwitch(): Promise<RoleSuggestionSwitch> {
   cached ??= request<RoleSuggestionSwitch>("/document-kinds/role-suggestion")
     .then((r) =>
       r.ok && typeof r.data?.enabled === "boolean" && Array.isArray(r.data.review_roles)
-        ? { enabled: r.data.enabled, review_roles: r.data.review_roles }
+        ? {
+            enabled: r.data.enabled,
+            review_roles: r.data.review_roles,
+            exclude_roles: Array.isArray(r.data.exclude_roles) ? r.data.exclude_roles : [],
+          }
         : SWITCH_OFF,
     )
     .catch(() => SWITCH_OFF);

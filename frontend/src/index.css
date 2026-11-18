@@ -39,7 +39,9 @@ details:not([open]) > :not(summary) {
    scrollbar geometry stable as rows enter the viewport. */
 .virtual-list > li {
   content-visibility: auto;
-  contain-intrinsic-size: 0 180px;
+  /* `auto` remembers the size a card really had once it was drawn, so rows that scroll out of view keep their height: a fixed
+     180px guess made the page jump when a card above the pointer changed (Details, Choose kind). */
+  contain-intrinsic-size: auto 180px;
 }
 
 /* ── Typeface ───────────────────────────────────────────────────────────────

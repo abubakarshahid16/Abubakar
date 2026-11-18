@@ -27,7 +27,12 @@ export function KindLine({ documentId, pages, isAdmin }: { documentId: string | 
   return (
     <p data-testid="v2-kind-line" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
       {c && <DocumentKindChip classification={c} kinds={k?.kinds} isAdmin={isAdmin === true}
-        onConfirm={(kind) => { if (documentId) void classification.confirmKind(documentId, kind).then((r) => { if (r.ok) setCls(r); }); }} />}
+        onConfirm={async (kind) => {
+          if (!documentId) return null;
+          const r = await classification.confirmKind(documentId, kind);
+          if (r.ok) { setCls(r); return null; }
+          return "The kind could not be saved. Try again."; // shown beside the picker, never silent (G2)
+        }} />}
       {equipment && <span>· {equipment}</span>}
       {pages != null && <span>· {pages} page{pages === 1 ? "" : "s"}</span>}
       {how && <span>· kind decided by {how}</span>}

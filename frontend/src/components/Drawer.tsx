@@ -41,9 +41,10 @@ export function Drawer({
   // on close.
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
-    panel.current?.focus();
+    panel.current?.focus({ preventScroll: true });
     return () => {
-      if (opener && opener.isConnected) opener.focus();
+      // Giving focus back must not move the page: the reader is looking at the list behind the drawer.
+      if (opener && opener.isConnected) opener.focus({ preventScroll: true });
     };
   }, []);
 

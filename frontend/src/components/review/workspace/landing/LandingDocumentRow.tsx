@@ -16,7 +16,7 @@ import { AiMark } from "../../agent/AiMark";
 import { PastReviewsButton } from "../PastReviewsButton";
 import { ReviewAgainButton } from "../ReviewAgainButton";
 import { dayTimeWords } from "./dateWords";
-import { type ChipTone, type LandingRow, countsLine, hasFinishedReview, rowChip } from "./landingRows";
+import { type ChipTone, type LandingRow, NO_ROLE_LINE, countsLine, hasFinishedReview, rowChip } from "./landingRows";
 
 const TONE: Record<ChipTone, string> = {
   attention: "border-warn-500/50 bg-warn-500/10 text-warn-500",
@@ -72,6 +72,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
               earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {step && <span data-testid="row-step">Now: {step}</span>}
+            {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
             {dayTimeWords(row.activityAt) && <span data-testid="row-date">{dayTimeWords(row.activityAt)}</span>}
           </p>
         </div>

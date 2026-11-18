@@ -39,3 +39,14 @@ describe("the roles the review page lists", () => {
     expect(documents.mock.calls[0][0].document_role).toEqual(["CONTRACTOR_SUBMITTAL", "CONTRACT_DOCUMENT"]);
   });
 });
+
+describe("G2: the general review lists every paper that is not a rule book", () => {
+  it("asks for every paper except the excluded roles, not only the listed roles", async () => {
+    sw = { enabled: true, review_roles: ["CONTRACTOR_SUBMITTAL", "CONTRACT_DOCUMENT"], exclude_roles: ["COMPANY_STANDARD", "CRS_TEMPLATE"] } as typeof sw;
+    render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
+    await waitFor(() => expect(documents).toHaveBeenCalled());
+    const asked = documents.mock.calls[0][0];
+    expect(asked.exclude_role).toEqual(["COMPANY_STANDARD", "CRS_TEMPLATE"]);
+    expect(asked.document_role).toBeUndefined();
+  });
+});
