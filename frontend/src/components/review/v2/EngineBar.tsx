@@ -69,7 +69,7 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
           </button>
         ) : <span className="text-xs text-slateish-400">Only an administrator can start a review.</span>}
       </div>
-      {plan.state === "loading" && <p className="text-right text-xs text-slateish-400">Checking what this would do…</p>}
+      {plan.state === "loading" && documentId && <p className="text-right text-xs text-slateish-400">Checking what this would do…</p>}
       {plan.state === "error" && <p role="alert" className="text-right text-xs text-warn-500">{plan.message}</p>}
       {failedClosed && (
         <p role="alert" data-testid="v2-failed-closed" className="text-right text-xs text-warn-500">

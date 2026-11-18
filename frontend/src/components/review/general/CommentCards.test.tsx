@@ -38,6 +38,13 @@ const THREE = [
 ];
 
 describe("comment cards", () => {
+  it("shows a small tag when the two readers differ and never puts it in the comment's text", () => {
+    mount(review([card(1, { we_ask: "State the editions.", readers: { first: "AI opinion", second: "Met", reason: "Standards are stated." } })]));
+    expect(screen.getByTestId("card-readers")).toHaveTextContent("Two readers differ (AI opinion / Met)");
+    expect(screen.getByText("State the editions.")).toBeInTheDocument();
+    expect(screen.queryByText(/First reader/)).toBeNull();
+  });
+
   it("one card per comment: title, severity word, paper says, rule says, we ask, in that order", () => {
     mount(review(THREE));
     const first = screen.getAllByTestId("general-row")[0];
@@ -188,3 +195,39 @@ describe("H10: Accept / Edit / Reject on each card", () => {
     expect(screen.getByTestId("card-decision-state")).toHaveTextContent("3 decisions on record; the latest counts");
   });
 });
+
+describe("card chips (planner 18 Nov 23:30-3)", () => {
+  it("a chip shows the tag, the page and the value; a blank value reads blank", () => {
+    const c = card(1, { applies_to: [
+      { page: 1, field: "Set pressure (North skid)", quote: "340 psig", tag: "North skid", value: "340 psig" },
+      { page: 2, field: "Effective area", quote: "76 Effective area", tag: "", value: "Effective area: blank" },
+    ] });
+    mount(review([c]));
+    expect(screen.getByRole("button", { name: "page 1" })).toHaveTextContent("North skid · p1 · 340 psig");
+    expect(screen.getByRole("button", { name: "page 2" })).toHaveTextContent("Effective area · p2 · Effective area: blank");
+  });
+
+  it("a long value is cut with a mark and the whole text stays in the chip's title", () => {
+    const long = "340 psig (By Contractor, as per Code and the project rules for this unit)";
+    const c = card(1, { applies_to: [{ page: 1, field: "Set pressure (Skid one)", quote: long, tag: "Skid one", value: long }] });
+    mount(review([c]));
+    const chip = screen.getByRole("button", { name: "page 1" });
+    expect(chip.textContent).toContain("…");
+    expect(chip.getAttribute("title")).toContain(long);
+  });
+});
+
+describe("paired values tag (A's 1664fa01)", () => {
+  it("shows a small tag when the AI paired the values, never inside We ask", () => {
+    mount(review([card(1, { we_ask: "State the value on page 2; contractor to confirm the value.", paired: true })]));
+    expect(screen.getByTestId("card-paired")).toHaveTextContent("Values paired by the AI; compared by code");
+    expect(screen.getByText("State the value on page 2; contractor to confirm the value.")).toBeInTheDocument();
+    expect(screen.getByText("State the value on page 2; contractor to confirm the value.")).not.toHaveTextContent("paired");
+  });
+
+  it("shows no tag when the values were not paired", () => {
+    mount(review([card(1, { paired: false }), card(2)]));
+    expect(screen.queryByTestId("card-paired")).toBeNull();
+  });
+});
+

@@ -30,7 +30,7 @@ describe("dashboard picker limit", () => {
   it("asks for 200 and says where the list was cut", async () => {
     documents.mockResolvedValue({ ok: true, data: rows(200), response: { headers: new Headers({ "X-Total-Count": "450" }) } });
     render(<ReviewDashboardPanel onOpenReview={vi.fn()} onOpenDocuments={vi.fn()} />);
-    await userEvent.click(await screen.findByRole("button", { name: /Upload Datasheet and Run AI Review/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Upload a document and run AI review/ }));
     expect(documents).toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }));
     expect(await screen.findByTestId("submittals-boundary"))
       .toHaveTextContent("Showing the newest 200 of 450 contractor submittals");
@@ -39,7 +39,7 @@ describe("dashboard picker limit", () => {
   it("says nothing when the whole list fits", async () => {
     documents.mockResolvedValue({ ok: true, data: rows(3), response: { headers: new Headers({ "X-Total-Count": "3" }) } });
     render(<ReviewDashboardPanel onOpenReview={vi.fn()} onOpenDocuments={vi.fn()} />);
-    await userEvent.click(await screen.findByRole("button", { name: /Upload Datasheet and Run AI Review/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Upload a document and run AI review/ }));
     await screen.findByRole("option", { name: "SUB-A-0.pdf" });
     expect(screen.queryByTestId("submittals-boundary")).toBeNull();
   });

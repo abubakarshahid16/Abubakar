@@ -25,6 +25,13 @@ from pathlib import Path
 # The six reasons a book is on the plan's list, and the list's size: one home, the package (`app.aim_review`).
 from . import MAX_BOOKS as MAX_CANDIDATES
 from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED
+from .citations import (  # noqa: F401 - one home of citation matching: citations
+    NUMBER_MIN,
+    _number_in,
+    _starts_with_identifier,
+    citation_tokens,
+    identifier_key,
+)
 
 log = logging.getLogger(__name__)
 
@@ -200,8 +207,7 @@ def cited_company(conn, paper_id: str) -> frozenset[str]:
     """The ids of the cited held RULE BOOKS that are neither public nor the client's own: with today's roles (the company-
     standard role is the only rule-book role) this set is EMPTY by construction, so the checklist key keeps its plain form. Kept
     as the one home of "cited ids" (`run(cited_books=...)`, `cited_key`) should another rule-book role be recorded."""
-    lib = library(conn, exclude=frozenset({str(paper_id)}))
-    found = (resolve(lib, name) for name in _paper_citations(conn, str(paper_id)))
+    found = (e for e, _n in cited_rule_books(conn, str(paper_id)))
     return frozenset(
         e["id"]
         for e in found
@@ -330,6 +336,11 @@ def resolve(lib: list[dict], cited: str) -> dict | None:
             best is None or e.get("document_role") == "CONTRACT_DOCUMENT"
         ):
             best = e
+    if (
+        best is None
+    ):  # "ZQ TEST STD 001, latest edition" or "ZQ-TEST-STD-001 Nameplates": the identifier, then words
+        found = [e for e in lib if _starts_with_identifier(cited, identifier_of(e))]
+        best = found[0] if len(found) == 1 else None  # two books answer: never guessed
     return best
 
 
@@ -533,11 +544,43 @@ class BookText:
 
 
 def _paper_citations(conn, paper_id: str) -> list[str]:
-    """The standards the paper names, read by code (names of standards only, never the paper's text)."""
+    """The standards the paper names, read by code (names of standards only, never the paper's text): the known standard
+    families (`standard_ids.cited_standards`), and the identifiers of the held rule books (`is_rule_book`: never a submittal, a
+    contract, a drawing or the paper itself) that stand in the text as whole tokens: the RECORDED document number, else the
+    identifier its file name records (`identifier_of`; on 18 Nov no rule book of the library had a recorded number). 18 Nov 2026:
+    a company book with a new numbering could never be "cited by the paper". Every caller narrows the books to those it may
+    read. Counted on the real library before it was added: the ten scored papers cite 0 more books."""
     from app import agent_review_standards, standard_ids
 
     pages = agent_review_standards.read_book(conn, str(paper_id)).pages
-    return standard_ids.cited_standards("\n".join(t for _n, t in sorted(pages.items())))
+    text = "\n".join(t for _n, t in sorted(pages.items()))
+    names = standard_ids.cited_standards(text)
+    have = {_fold(n) for n in names}
+    for e in library(conn, exclude=frozenset({str(paper_id)})):
+        number = str(
+            identifier_of(e) or ""
+        ).strip()  # the recorded number, else the identifier its file name records
+        if is_rule_book(e) and _fold(number) not in have and _number_in(number, text):
+            names.append(number)
+            have.add(_fold(number))
+    return names
+
+
+def cited_rule_books(
+    conn, paper_id: str, lib: list[dict] | None = None
+) -> list[tuple[dict | None, str]]:
+    """(the held RULE BOOK a citation names, or None when nothing held answers it; the name) for each name the paper cites. A
+    name is resolved against the rule books ONLY (`is_rule_book`), before any reader's narrowing: a held specification or
+    contract sharing the number is never taken for a cited rule book (integrator's check of d03d62c9). A name only another
+    kind of held document answers is left out: it is neither a cited rule book nor "not held"."""
+    lib = library(conn, exclude=frozenset({str(paper_id)})) if lib is None else lib
+    rules = [e for e in lib if is_rule_book(e)]
+    out = []
+    for name in _paper_citations(conn, str(paper_id)):
+        found = resolve(rules, name)
+        if found is not None or resolve(lib, name) is None:
+            out.append((found, name))
+    return out
 
 
 def stored_reading(
@@ -656,7 +699,7 @@ def _saved_order(
     not_held: list[dict] = []
     for e, name, why in [(e, n, WHY_GOVERNS) for e, n in governing_books(lib, type_id) if not e or role_applies(e, kind)] + [
         (e, n, WHY_METHOD) for e, n in method_books(lib, kind)
-    ] + [(resolve(lib, n), n, WHY_CITED) for n in _paper_citations(conn, paper_id)]:  # fmt: skip
+    ] + [(e, n, WHY_CITED) for e, n in cited_rule_books(conn, paper_id, lib)]:  # fmt: skip
         if e is None:
             not_held.append({"name": name, "why": f"{why}; not held"})
         elif e["id"] not in {d for d, _w in order}:
@@ -699,8 +742,8 @@ def _ordered_books(
     for b in sorted(earlier):
         if b in by_id:
             add(b, WHY_LAST)
-    for name in _paper_citations(conn, paper_id):
-        named(resolve(lib, name), name, WHY_CITED)
+    for e, name in cited_rule_books(conn, paper_id, lib):
+        named(e, name, WHY_CITED)
     if kind:
         for c in catalog(by_id, rule_pool(conn, kind, type_id, subjects=False)):
             if role_applies(by_id[c["book"]], kind):

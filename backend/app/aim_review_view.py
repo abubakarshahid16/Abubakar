@@ -90,6 +90,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
     group = _group_of(
         row.get("code_note")
     )  # read from the STORED note: the same for every viewer
+    raw_note = row.get("code_note")
     if hidden:
         comment = str(row.get("comment") or "")
         names = [str(row.get("standard") or "")] + [
@@ -111,6 +112,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
             # and how it groups, the same for every viewer); the comparison's words are not served either (`compared`)
             "code_note": _state_words(row.get("code_note")),
         }
+    plain, readers = aim_review_card.split_readers(row.get("comment"), raw_note, hidden)
     page = row.get("page")
     return {
         "n": n,
@@ -118,7 +120,8 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "page": page if isinstance(page, int) else None,
         "label": row.get("label") or "",
         "shown_label": row.get("shown_label") or "",
-        "comment": row.get("comment") or "",
+        "comment": plain,
+        "readers": readers,
         "quote": row.get("quote") or "",
         "item_id": row.get("item_id") or "",
         "standard": row.get("standard") or "",
@@ -269,10 +272,11 @@ def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dic
          CONFIRMATION, not sent: counted apart, on its own sheet and in a closed part of the page. A run that recorded no mark
          (an older run) moves nothing;
       3. the comments left that make the SAME FINDING under different checklist items become one (`_same_finding`)."""
-    comments = _item_comments(points)
     by_n = {p["n"]: p for p in points}
-    confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
-    sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
+    # per LINE, before the lines of one check are grouped: a line that only asks to confirm a stated value never rides inside a comment
+    # that is sent for another line of its check (it is the same rule as a whole comment of such lines, applied to each line)
+    confirm = _item_comments([p for p in points if _confirm_only(p)])
+    sent = _item_comments([p for p in points if not _confirm_only(p)])
     return aim_review_merge.same_group(
         aim_review_merge.same_place(_same_finding(sent, by_n), by_n), by_n
     ), confirm
@@ -536,6 +540,9 @@ def _references(conn, run: dict, scope) -> list[dict]:
                 "reason": "" if hidden else str(r.get("reason") or ""),
                 "questions": r.get("questions"),
                 "settled": r.get("settled"),
+                # a page counts as read only when text came back for it (`references._check_ref`); None when not recorded
+                "pages_read": r.get("pages_read"),
+                "pages_held": r.get("pages_held"),
                 # the Form's sentences compared with the Schedule, and how many differ (absent on a run made before the comparison)
                 "compared": r.get("compared"),
                 "differs": r.get("differs"),
@@ -623,6 +630,18 @@ def _cost(run: dict) -> dict:
     )
 
 
+def _not_held(run: dict) -> list[dict]:
+    """The rule books not held, each standard said ONCE (the page and the team file read this one list; a run stored before the
+    engine de-duplicated them is read the same way: `book_names.unique_not_held`, the first of each key stays)."""
+    from .aim_review import book_names
+
+    named = [d for d in _json(run.get("not_held_json"), []) if isinstance(d, dict)]
+    return [
+        {"name": str(d.get("name") or ""), "why": str(d.get("why") or "")}
+        for d in book_names.unique_not_held(named)
+    ]
+
+
 def build(conn, run: dict, scope=None) -> dict:
     """The page's JSON for ONE stored general run, without the completeness answer (that needs the built file). Raises
     `NotFinished` for a run that has not ended."""
@@ -681,17 +700,14 @@ def build(conn, run: dict, scope=None) -> dict:
         "points_from_books_not_readable": sum(
             1 for p in points if p["standard"] == HIDDEN_BOOK_WORDS
         ),
-        "not_held": [
-            {"name": str(d.get("name") or ""), "why": str(d.get("why") or "")}
-            for d in _json(run.get("not_held_json"), [])
-            if isinstance(d, dict)
-        ],
+        "not_held": _not_held(run),
         "unlisted_books": {
             "count": len(unlisted),
             "sentence": UNLISTED_SENTENCE.format(n=len(unlisted)) if unlisted else None,
         },
         "checklist": _checklist(conn, run, points),
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
+        "steps_not_applied": steps_not_applied(_json(run.get("calls_json"), [])),
         "cost": _cost(run),
         "seconds": run.get("seconds"),
         "created_at": run.get("created_at"),
@@ -715,3 +731,40 @@ def served(conn, paper_id: str, scope, run_id: str | None = None) -> dict | None
     view["completeness"] = aim_review_completeness.report_for(conn, run, view)
     view["is_latest"] = is_latest(conn, paper_id, run)
     return view
+
+
+#: What a run's checking step that did not run means for the sheet, in plain words (a failed AI step is shown and never makes a
+#: comment more confident: its lines stay as the step before left them).
+_NOT_APPLIED_WORDS = {
+    "aim_second_read": "The second reader did not run on this sheet ({why}): its findings are sent as the first reader judged "
+    'them, none is marked "two readers agree".',
+    "aim_answered": "The whole-paper check did not run on this sheet ({why}): no comment was taken off for a claim the paper "
+    "contradicts.",
+    "aim_edit": "The editor did not run on this sheet ({why}): repeated comments are not grouped or taken off.",
+}
+
+
+def steps_not_applied(calls) -> list[dict]:
+    """[{step, why, sentence}] for each checking step whose answer was not applied (its code note "<step> not applied: <why>"),
+    once per step, in run order. Read from the run's calls only; no document words."""
+    out: dict[str, dict] = {}
+    for c in calls if isinstance(calls, list) else []:
+        if (
+            not isinstance(c, dict)
+            or c.get("ok") is not False
+            or " not applied" not in str(c.get("code") or "")
+        ):
+            continue
+        step = str(c.get("step") or "")
+        why = (
+            str(c.get("code")).split(":", 1)[-1].strip()
+            if ":" in str(c.get("code"))
+            else "no reason recorded"
+        )
+        words = _NOT_APPLIED_WORDS.get(
+            step, "The step " + step + " did not run on this sheet ({why})."
+        )
+        out.setdefault(
+            step, {"step": step, "why": why, "sentence": words.format(why=why)}
+        )
+    return list(out.values())

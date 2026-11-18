@@ -46,6 +46,9 @@ function Box({ label, children, wide = false }: { label: string; children: strin
 }
 
 const CHIPS_SHOWN = 12;
+const CHIP_VALUE = 36;
+/** A long value is cut with a mark; the whole text is under "Show evidence" and in the chip's title. */
+const clip = (v: string) => (v.length > CHIP_VALUE ? `${v.slice(0, CHIP_VALUE)}…` : v);
 const MIN_REASON = 10;
 
 export type DecideFn = (line: GeneralLine, state: DecisionState, text?: string, reason?: string) => Promise<string | null>;
@@ -142,9 +145,9 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <em className="mr-1 not-italic text-slateish-400">Applies to</em>
           {shownPlaces.map((a, i) => {
-            const text = [a.field, a.page != null ? `p${a.page}` : ""].filter(Boolean).join(" · ");
+            const text = [a.tag || a.field, a.page != null ? `p${a.page}` : "", a.value ? clip(a.value) : ""].filter(Boolean).join(" · ");
             return a.page != null
-              ? <button key={i} type="button" aria-label={`page ${a.page}`} title={`Open page ${a.page}`} onClick={() => onViewPage(a.page!)}
+              ? <button key={i} type="button" aria-label={`page ${a.page}`} title={`Open page ${a.page}${a.field ? `: ${a.field}` : ""}${a.value ? `: ${a.value}` : ""}`} onClick={() => onViewPage(a.page!)}
                   className="rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200 hover:bg-ink-700">{text}</button>
               : <span key={i} className="rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200">{text}</span>;
           })}
@@ -174,6 +177,15 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
           {mark}{line.proven && line.proven !== mark ? ` · ${line.proven}` : ""}
         </span>
         {line.shown_label && <span className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">{line.shown_label}</span>}
+        {line.paired && (
+          <span data-testid="card-paired" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">Values paired by the AI; compared by code</span>
+        )}
+        {line.readers && (
+          <span data-testid="card-readers" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5"
+            title={[line.readers.first && `First reader: ${line.readers.first}`, line.readers.second && `Second reader: ${line.readers.second}`, line.readers.reason].filter(Boolean).join(". ")}>
+            Two readers differ{line.readers.first || line.readers.second ? ` (${line.readers.first || "?"} / ${line.readers.second || "?"})` : ""}
+          </span>
+        )}
       </div>
       {onDecide && <DecisionBar line={line} decision={decision ?? line.decision} onDecide={onDecide} />}
     </li>

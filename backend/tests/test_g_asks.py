@@ -220,3 +220,83 @@ def test_a_concern_is_never_held_back_whatever_its_words(text):
     """Review rounds 1 to 3 of 18 Nov: each sentence states a real conflict in words a pass-word list read as a pass. A concern
     is the judge's own suspicion and is always sent; only a "confirm" that asks nothing is held back."""
     assert not asks.asks_nothing(decided(text, ask="concern"))
+
+
+def test_a_line_that_only_confirms_a_stated_value_leaves_the_sent_comment_of_its_check():
+    """Per line, before the lines of one check are grouped (the stored v3 sheets: 44 confirm lines rode inside sent comments)."""
+    confirm = point(1, item="C1", page=1, ask="confirm")
+    concern = point(
+        2, item="C1", page=2, ask="concern", comment="The value is wrong, revise it."
+    )
+    comments, confirmations = aim_review_view.comments_and_confirmations(
+        [confirm, concern]
+    )
+    assert [c["lines"] for c in comments] == [[2]] and [
+        c["lines"] for c in confirmations
+    ] == [[1]]
+    assert (
+        "Please confirm" not in comments[0]["comment"]
+    )  # the confirm line's words are on the confirmations sheet, not in the comment
+    # an older line with no recorded mark, an unverified quote or a compared figure stays in the comment, as before
+    keep = [
+        point(3, item="C2", page=1, ask="confirm", quote_unverified="x"),
+        point(4, item="C2", page=2, ask="concern"),
+    ]
+    comments, confirmations = aim_review_view.comments_and_confirmations(keep)
+    assert [c["lines"] for c in comments] == [[3, 4]] and confirmations == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        {
+            "comment": "",
+            "ask": "concern",
+        },  # update 5: an empty pass with numbers was marked "concern" and sent
+        {"comment": "   \n ", "ask": "confirm"},
+        {"comment": "", "label": "AI opinion", "ask": ""},
+        {"comment": "", "label": "Not met", "ask": ""},
+    ],
+)
+def test_a_line_whose_own_comment_has_no_words_is_never_sent(line):
+    """Kept on All points with the not-sent note and why; whatever its label or mark (an empty text is empty, no word list)."""
+    from app import aim_review
+    from app.aim_review.engine import to_line
+
+    d = decided(
+        **{
+            "comment": line["comment"],
+            "ask": line.get("ask", "concern"),
+            "label": line.get("label", "Question"),
+        }
+    )
+    assert asks.mark([d]) == 1 and asks.NO_WORDS_REASON in d["code"]
+    assert not aim_review.sendable(to_line(1, d))
+
+
+def test_a_line_with_words_or_an_open_value_is_not_held_for_having_no_words():
+    from app import aim_review
+    from app.aim_review.engine import to_line
+
+    for d in (
+        decided("The wall is thinner than the minimum."),
+        decided("x", ask="open", deferred=True),
+    ):
+        asks.mark([d])
+        assert aim_review.sendable(to_line(1, d))
+
+
+def test_a_line_with_only_codes_absence_filler_and_nothing_named_is_never_sent():
+    """The spec review of 19 Nov: code's own "not on any page" line, with no field, page or quote, asks nothing the contractor can
+    act on; it stays on All points. The same words beside a named field, a page or a quote are kept (a real missing value)."""
+    from app import aim_review
+    from app.aim_review.engine import to_line
+    from app.aim_review.steps import NOT_ON_ANY_PAGE_WORDS
+
+    bare = decided(NOT_ON_ANY_PAGE_WORDS, field="", page=None, quote="")
+    assert asks.mark([bare]) == 1 and not aim_review.sendable(to_line(1, bare))
+    for named in (decided(NOT_ON_ANY_PAGE_WORDS, field="Seal plan", page=None, quote=""),
+                  decided(NOT_ON_ANY_PAGE_WORDS, field="", page=2, quote=""),
+                  decided("The seal plan is not shown on any page.", field="", page=None, quote="")):  # fmt: skip
+        asks.mark([named])
+        assert aim_review.sendable(to_line(1, named))

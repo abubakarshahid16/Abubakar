@@ -27,7 +27,8 @@ S1_TASK = """TASK S1 - IDENTIFY THE PAPER. Read the paper above and say what it 
  "service": the service conditions the paper states (fluid, pressures, temperatures, location class), at most 30 words, or "",
  "evidence": [{"page": n, "quote": exact words copied from that page that show the kind and the subject}] (2 to 4),
  "cited": [{"name": a standard, code, specification or other document the paper names as applying to it, written as the paper
-     writes it, "page": n, "quote": exact words from that page naming it}] (every one the paper names; [] if none),
+     writes it, "page": n, "quote": exact words from that page naming it}] (EVERY one the paper names ANYWHERE: its notes, tables,
+     reference lists and fields, each once, including numbers you do not recognise; [] only when the paper names none),
  "scope": {"page": n, "quote": exact words where the paper states its own scope, purpose or life-cycle phase or stage (what it
      covers and what it does not)} or null when the paper states none}
 Quotes are copied character for character from the paper (a short span, 5 to 25 words). Do not explain.
@@ -66,13 +67,34 @@ Reply with ONE JSON object only: {"items": [{
  "paper_pages": [paper page numbers where those fields are], "kind": one of %(kinds)s,
  "source": "held standard"}]}
 For an item from engineering knowledge use "source": "not from a held standard", "book": "", "rule_quote": "", and add
-"stands_in_for": the unheld standard or practice it stands in for.
+"stands_in_for": the unheld standard or practice it stands in for, and "carried_by": "HERE" when THIS kind of paper states it,
+else the kind of paper or the schedule, annex or attachment of the same package that does. A paper that is the main part of a PACKAGE incorporating schedules, annexes or attachments (a Form of Agreement does) does not itself carry what such a part normally holds (permits, insurance, quality, HSE, deliverables and document review, commissioning, documentation and spares, compliance): carried_by is that schedule or annex, never HERE; what the main paper itself states (its price in words and figures, retention, dates, assignment, order of precedence, the parties) is HERE.
 THE CLAUSES:
 %(material)s"""
 
+#: One item per table of values (18 Nov 2026: every HAZOP copy missed a risk target out of order and a frequency an order of
+#: magnitude off: the checklist asked whether the table and its source exist, never whether each row's value holds).
+TABLE_ROWS_ASK = (
+    "For EACH table of numerical values this kind of paper states (targets, rates, frequencies, probabilities, ratings, limits, "
+    'categories), include ONE "consistency" item that checks EVERY row of it: the values keep one order across the categories '
+    "(a more severe category never gets a looser target), units and decades are consistent, and each value is within the order "
+    "of magnitude that public practice gives for that quantity."
+)
+#: One item per stated condition that other values on the same paper must suit (18 Nov 2026: vessel copies missed a design
+#: specific gravity below the operating one, a corrosion allowance against the stated service, and a shell material against
+#: chlorides in the service: every item asked whether a value is stated, none set one stated condition against another value).
+CONDITIONS_ASK = (
+    "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
+    "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
+    '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
+    "value it covers, and each material, allowance or rating suits the stated condition."
+)
 KNOWLEDGE_ASK = (
     "ALSO add the items a senior engineer always checks on this kind of paper that NO clause below covers "
-    '(at most 12), labelled "not from a held standard".'
+    '(at most 12), labelled "not from a held standard". '
+    + TABLE_ROWS_ASK
+    + " "
+    + CONDITIONS_ASK
 )
 
 KNOWLEDGE_TASK = """TASK S3K - ENGINEERING KNOWLEDGE WHERE A RULE BOOK IS NOT HELD. The paper above was identified as:
@@ -82,15 +104,15 @@ The library does NOT hold these standards, which govern or apply to this type of
 The checklist written so far from the held rule books has %(have)d items; their topics: %(topics)s
 Write the items a senior engineer checks on THIS paper from your knowledge of the public requirements of each standard
 above, and, until the checklist has at least %(floor)d items in all, from general engineering practice for this kind of
-paper. Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
+paper. %(table_rows)s %(conditions)s Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
 nothing can be checked against its words. At most %(most)d items. Reply with ONE JSON object only: {"items": [{
  "topic": "at most 8 words", "what_to_check": "one line", "applies_when": "the condition, or always",
  "paper_fields": ["the field(s) or section(s) of the paper it needs"], "kind": one of %(kinds)s,
  "stands_in_for": "the standard's public name, or engineering practice",
  "carried_by": "HERE" when THIS kind of paper, for THIS equipment or subject, is where the value or requirement is
  stated; otherwise the kind of paper that states it (another item's datasheet, a study, a calculation, a drawing, a
- procedure). A standard on the list above may govern a neighbouring paper: write its items only where THIS paper carries
- them, and an item another paper carries is not checked here.}]}"""
+ procedure, or a schedule, annex or attachment of the same package). A paper that is the main part of a PACKAGE incorporating schedules, annexes or attachments (a Form of Agreement does) does not itself carry what such a part normally holds (permits, insurance, quality, HSE, deliverables and document review, commissioning, documentation and spares, compliance): carried_by is that schedule or annex, never HERE; what the main paper itself states (its price in words and figures, retention, dates, assignment, order of precedence, the parties) is HERE. A standard on the list above may govern a
+ neighbouring paper: write its items only where THIS paper carries them, and an item another paper carries is not checked here.}]}"""
 
 S3_RETRY = """The rule_quote of these checklist items was NOT found in the book's stored text. For each, copy the exact words
 from the clause material below (8 to 40 words, character for character) and give the right book alias and page; drop an item
@@ -137,6 +159,13 @@ QUESTION to the vendor, never a statement that it fails. A "Question" ASKS: its 
 exceeds or meets a limit (code compares the numbers you give). Compare a value only with a limit for the SAME quantity: a field
 with two names and two values split by "/" pairs them in order (the first value is the first name's), and a limit for one kind
 of a quantity (one part, one case, one state) never judges another kind of it.
+Read each item's "applies_when" against THIS place of the paper (this sheet, this item, its stated type and service): when the
+condition does not hold there (the item is for a part, a type or a service this place does not have), the label is "Does not
+apply" with the paper words that show it; a blank field for a part the condition excludes is never a Question.
+A line whose words would only say that the paper meets the rule, is acceptable or adequate, or restate what the paper states,
+is NO COMMENT: give it "Met" with its quote when it rests on a held rule; for any other item give "Question" with "ask":
+"confirm" and an empty comment. Never send a pass as a "concern" or an "AI opinion": a comment must ask the vendor for something
+or name what is wrong, missing or in conflict.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for EVERY item that rests on a held rule with a numeric limit, give
 "numbers" (the paper's figure and the rule's limit) whenever both are stated, WHATEVER your label, and code will compare them (do not compare
@@ -217,19 +246,49 @@ not on these pages, reply for it {"id": "C..", "not_here": true} and nothing els
 # ------------------------------------------------------------------ the request shape
 
 
-def parse_json(text: str):
+#: At most this many opening braces are tried in one answer (a long answer of words is not scanned without end).
+PARSE_TRIES = 200
+#: The top-level key(s) each step's answer carries, as its prompt asks ("Reply with ONE JSON object only: {...}"). Only an object
+#: holding one of them is that step's answer: a small valid example or a quoted "{...}" in words before it is never taken.
+ANSWER_KEYS: dict[str, frozenset[str]] = {
+    "aim_identify": frozenset({"kind"}),
+    "aim_select": frozenset({"books", "not_held_needed"}),
+    "aim_checklist": frozenset({"items"}),
+    "aim_checklist_retry": frozenset({"items"}),
+    "aim_checklist_knowledge": frozenset({"items"}),
+    "aim_attack": frozenset({"remove", "fix", "add"}),
+    "aim_judge": frozenset({"judgments"}),
+    "aim_answered": frozenset({"verdicts"}),
+    "aim_second_read": frozenset({"reads"}),
+    "aim_edit": frozenset({"moves", "groups"}),
+    "aim_reference": frozenset({"checks", "compare"}),
+}
+
+
+def parse_json(text: str, keys: frozenset[str] | None = None):
+    """The JSON answer in a model's reply: inside a fenced block when there is one, else the FIRST object, from any opening brace,
+    that decodes and (with `keys`, the step's `ANSWER_KEYS`) holds one of the step's answer keys; without `keys`, the first object,
+    else the first list. Every opener is tried in order, at most `PARSE_TRIES` (18 Nov 2026: a second reader's answer opening with
+    words that held a brace was read as no JSON; trying every opener alone could take a foreign example object, hence the keys).
+    The prompts ask for the answer only, so the first matching object is it. None: no such object (the step's "no_json")."""
     s = (text or "").strip()
     fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.S)
     if fence:
         s = fence.group(1).strip()
-    for opener in ("{", "["):
-        i = s.find(opener)
-        if i >= 0:
+    decoder = json.JSONDecoder()
+    for opener, kind in (
+        ("{", dict),
+        ("[", list),
+    ):  # an object first: words like "clause [3]" never hide it
+        if keys and kind is list:
+            break  # a step that names its keys answers with an object, never a bare list
+        for i in [m.start() for m in re.finditer(re.escape(opener), s)][:PARSE_TRIES]:
             try:
-                obj, _ = json.JSONDecoder().raw_decode(s[i:])
-                return obj
+                obj, _ = decoder.raw_decode(s[i:])
             except ValueError:
                 continue
+            if isinstance(obj, kind) and (not keys or keys & set(obj)):
+                return obj
     return None
 
 

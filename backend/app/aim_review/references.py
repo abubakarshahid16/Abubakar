@@ -55,7 +55,9 @@ NOT_HELD, AMBIGUOUS, NOT_READABLE, NOT_LINKED = (
 #: A line's code note when a reference paper settled or changed it (`sendable` reads the label, never this note).
 NOTE_CHECKED = "reference_checked"
 HIDDEN_COMMENT = "Checked against a part of the contract package that you may not open."
-MAX_PART_CHARS = 100_000
+MAX_PART_CHARS = 100_000  # one window of a part for its questions
+#: A long Schedule is read in at most this many windows for its questions (a Job Specification of 190 000 characters takes two).
+MAX_PART_WINDOWS = 4
 MAX_QUESTIONS = 40
 REF_MAX_TOKENS = 8000
 MIN_QUOTE = 12  # a quote shorter than this proves nothing about a part
@@ -156,13 +158,79 @@ def resolve(
         ids = held.get(key, [])
         if not ids:
             (res.unlinked if elsewhere.get(key) else res.not_held).append(name_of(key))
-            if len(elsewhere.get(key, [])) == 1:
-                res.offers.append(Ref(elsewhere[key][0], key, name_of(key)))
-        elif len(ids) > 1:
+            if cand := pick(conn, elsewhere.get(key, []), shown):
+                # one held paper (or the main one of several: `pick`): offered by name; still tied: each offered, the engineer chooses
+                label = name_of(key) if len(cand) == 1 else f"{name_of(key)} ({TIED})"
+                res.offers += [Ref(i, key, label) for i in cand]
+        elif len(chosen := pick(conn, ids, shown)) == 1:
+            res.refs.append(Ref(chosen[0], key, name_of(key)))
+        else:  # still tied: said, never merged; each offered on the plan so the engineer chooses one
             res.ambiguous.append(name_of(key))
-        else:
-            res.refs.append(Ref(ids[0], key, name_of(key)))
+            res.offers += [Ref(i, key, f"{name_of(key)} ({TIED})") for i in chosen]
     return res
+
+
+#: The words a plan offer carries when several held papers are one cited Schedule and code could not choose.
+TIED = "held more than once: choose one"
+#: A held paper whose recorded title or file name says it is an attachment of a part, not the part itself.
+_LOWER_WORDS = re.compile(
+    r"\b(attachment|annex|appendix|exhibit|enclosure)s?\b", re.IGNORECASE
+)
+
+
+def pick(conn, ids: list[str], shown: frozenset[str] = frozenset()) -> list[str]:
+    """Several held papers are one cited Schedule: [the one chosen] or the papers still tied (never merged, never guessed).
+    In order: the engineer's choice (exactly one of them on the run's shown list); the main schedule over papers that are its
+    attachments (a lower part heading their first page, or named so in their recorded title or file name); the highest
+    RECORDED revision (all numbers, or all letters; a mix or a missing one is no order)."""
+    mine = [i for i in ids if i in shown]
+    if len(mine) == 1:
+        return mine
+    main = [i for i in ids if not _is_lower_part(conn, i)]
+    ids = main or list(ids)
+    revs = {i: _revision(conn, i) for i in ids}
+    if (
+        len(ids) > 1
+        and all(r is not None for r in revs.values())
+        and len({type(r) for r in revs.values()}) == 1
+    ):
+        top = max(revs.values())
+        ids = [i for i in ids if revs[i] == top]
+    return ids
+
+
+def _is_lower_part(conn, doc_id: str) -> bool:
+    row = conn.execute(
+        "SELECT d.filename, c.title FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
+        " WHERE d.id = ?",
+        (str(doc_id),),
+    ).fetchone()
+    if row and any(_LOWER_WORDS.search(str(x or "")) for x in row):
+        return True
+    first = conn.execute(
+        "SELECT text FROM pages WHERE document_id = ? ORDER BY page_no LIMIT 1",
+        (str(doc_id),),
+    ).fetchone()
+    opening = [
+        ln.strip() for ln in str((first or [""])[0] or "").splitlines() if ln.strip()
+    ]
+    heads = [CC._heading_part(ln) for ln in opening[: CC.HEADING_LINES * CC.LIST_SPAN]]
+    return any(h and CC.DEPTH.get(h[0][0], 0) > 0 for h in heads)
+
+
+def _revision(conn, doc_id: str) -> int | tuple[int, str] | None:
+    """The RECORDED revision as a number ("Rev. 2" -> 2) or a letter code ordered by length, then
+    letters ("Z" < "AA": (1, "Z") < (2, "AA")); None when none is recorded or unreadable."""
+    row = conn.execute(
+        "SELECT revision FROM document_classification WHERE document_id = ?",
+        (str(doc_id),),
+    ).fetchone()
+    text = re.sub(
+        r"(?i)^\s*(rev(ision)?\.?)\s*", "", str((row or [""])[0] or "")
+    ).strip()
+    if re.fullmatch(r"\d+", text):
+        return int(text)
+    return (len(text), text.upper()) if re.fullmatch(r"[A-Za-z]{1,2}", text) else None
 
 
 def plan_entries(conn, paper_id: str, allowed: frozenset[str]) -> tuple[list[Ref], int]:
@@ -290,50 +358,111 @@ def _status(
 
 def _ask_part(
     conn, mdl, paper, ref: Ref, mine: list[dict], lead: str
-) -> tuple[int, int, int, str]:
-    """One reference paper's questions asked in batches. Returns (settled, pages read, pages held, failure words or "")."""
+) -> tuple[int, set[int], int, str]:
+    """One reference paper's questions asked in batches over WINDOWS of the part (a long Schedule is read whole, not cut at its first
+    pages): a question settles in the first window that answers it ("agrees" / "differs" with a quote code finds on that page); a window
+    that does not state it leaves it for the next; only after the last window read does a question say "does not state this". Returns
+    (settled, the pages of the windows that were ANSWERED, pages held, failure words or ""): a page counts as read only when text came
+    back for it (a window whose call failed, or that was never needed because every question was settled, is not read)."""
     from app import agent_review_standards
 
     from . import steps as S
     from .engine import StepFailed
 
     part_pages = agent_review_standards.read_book(conn, ref.doc_id).pages
-    text, read, held = _part_text(part_pages)
-    partial = "" if read == held else f" (pages 1 to {read} of {held})"
+    windows = windows_of(part_pages, MAX_PART_CHARS, MAX_PART_WINDOWS)
+    held = len(part_pages)
+    answered: set[int] = (
+        set()
+    )  # the pages of the windows answered in full (every batch of its questions came back)
+    pending = list(mine)
+    said_not_stated: set[int] = (
+        set()
+    )  # ids of the lines a window said it does not state (cleared if a later answer is unusable)
     settled = 0
-    for i in range(0, len(mine), MAX_QUESTIONS):
-        by_n = dict(enumerate(mine[i : i + MAX_QUESTIONS], 1))
-        items = "\n".join(
-            S._dumps({"n": n, "field": ln.get("field"), "page": ln.get("page"), "paper_quote": ln.get("quote"),
-                      "question": ln.get("comment")}) for n, ln in by_n.items()
-        )  # fmt: skip
-        try:
-            out = mdl.ask(
-                step="aim_reference",
-                model=lead,
-                system="",
-                cached=S.paper_block(paper),
-                prompt=REF_TASK
-                % {
-                    "name": ref.name,
-                    "range": f": pages 1 to {read} of {held} only" if partial else "",
-                    "items": items,
-                    "part": text,
-                },
-                carries={paper.paper_id, ref.doc_id},
-                max_tokens=REF_MAX_TOKENS,
-            )
-        except StepFailed as exc:
-            return settled, read, held, str(exc)
-        answers = out.get("checks") if isinstance(out, dict) else None
-        for ans in answers if isinstance(answers, list) else []:
-            n = ans.get("n") if isinstance(ans, dict) else None
-            done = n in by_n and _apply(by_n[n], ref, ans, part_pages, partial)
-            settled += done in ("agrees", "differs")
-    return settled, read, held, ""
+    for window in windows:
+        if not pending:
+            break
+        win_text = _window_text(window)
+        first, last = min(window), max(window)
+        again: list[dict] = []
+        for i in range(0, len(pending), MAX_QUESTIONS):
+            batch = pending[i : i + MAX_QUESTIONS]
+            by_n = dict(enumerate(batch, 1))
+            try:
+                out = mdl.ask(
+                    step="aim_reference",
+                    model=lead,
+                    system="",
+                    cached=S.paper_block(paper),
+                    prompt=REF_TASK
+                    % {
+                        "name": ref.name,
+                        "range": f": pages {first} to {last} of {held} only"
+                        if len(windows) > 1
+                        or len(part_pages) > sum(len(w) for w in windows)
+                        else "",
+                        "items": _questions_text(by_n),
+                        "part": win_text,
+                    },
+                    carries={paper.paper_id, ref.doc_id},
+                    max_tokens=REF_MAX_TOKENS,
+                )
+            except StepFailed as exc:
+                return settled, answered, held, str(exc)
+            answers = out.get("checks") if isinstance(out, dict) else None
+            decided: set[int] = set()
+            for ans in answers if isinstance(answers, list) else []:
+                n = ans.get("n") if isinstance(ans, dict) else None
+                if n not in by_n:
+                    continue
+                if ans.get("result") == "not_stated":
+                    said_not_stated.add(
+                        id(by_n[n])
+                    )  # not stated HERE: the next window may state it
+                    continue
+                said_not_stated.discard(id(by_n[n]))
+                done = _apply(by_n[n], ref, ans, part_pages, "")
+                if done in ("agrees", "differs"):
+                    settled += 1
+                    decided.add(n)
+            again += [ln for n, ln in by_n.items() if n not in decided]
+        answered |= set(window)
+        pending = again
+    partial = "" if len(answered) == held else f" (pages {_ranges(answered)} of {held})"
+    for ln in (
+        pending
+    ):  # every window read and the last answer for the line was "does not state it"
+        if id(ln) in said_not_stated:
+            _apply(ln, ref, {"result": "not_stated"}, part_pages, partial)
+    return settled, answered, held, ""
 
 
-# ------------------------------------------------------------------ the Form against the cited Schedule (v2)
+def _questions_text(by_n: dict[int, dict]) -> str:
+    """The numbered questions of one batch, one JSON line each."""
+    from . import steps as S
+
+    return "\n".join(
+        S._dumps({"n": n, "field": ln.get("field"), "page": ln.get("page"), "paper_quote": ln.get("quote"),
+                  "question": ln.get("comment")}) for n, ln in by_n.items()
+    )  # fmt: skip
+
+
+def _ranges(pages) -> str:
+    """Page numbers as ranges: {1, 2, 3, 7} -> "1-3, 7"."""
+    out: list[str] = []
+    run: list[int] = []
+    for n in sorted(pages):
+        if run and n == run[-1] + 1:
+            run.append(n)
+            continue
+        if run:
+            out.append(f"{run[0]}-{run[-1]}" if len(run) > 1 else str(run[0]))
+        run = [n]
+    if run:
+        out.append(f"{run[0]}-{run[-1]}" if len(run) > 1 else str(run[0]))
+    return ", ".join(out)
+
 
 MAX_CITES = 40  # citing sentences compared per Schedule
 CITE_CHARS = 500
@@ -399,21 +528,24 @@ def citing_sentences(pages: dict[int, str], ref: Ref) -> list[Cite]:
     return out
 
 
-def windows_of(pages: dict[int, str]) -> list[dict[int, str]]:
-    """The Schedule's pages in order, cut into windows of at most WINDOW_CHARS (a page is never split); at most MAX_WINDOWS."""
+def windows_of(
+    pages: dict[int, str], size: int | None = None, most: int | None = None
+) -> list[dict[int, str]]:
+    """The Schedule's pages in order, cut into windows of at most `size` characters (a page is never split); at most `most` windows."""
+    size, most = size or WINDOW_CHARS, most or MAX_WINDOWS
     out: list[dict[int, str]] = []
     cur: dict[int, str] = {}
     used = 0
     for n in sorted(pages):
-        size = len(pages[n]) + 12
-        if cur and used + size > WINDOW_CHARS:
+        page_size = len(pages[n]) + 12
+        if cur and used + page_size > size:
             out.append(cur)
             cur, used = {}, 0
         cur[n] = pages[n]
-        used += size
+        used += page_size
     if cur:
         out.append(cur)
-    return out[:MAX_WINDOWS]
+    return out[:most]
 
 
 def _window_text(window: dict[int, str]) -> str:
@@ -463,7 +595,13 @@ def _compare(conn, mdl, paper, ref: Ref, lead: str) -> tuple[list[dict], dict, s
     from .engine import StepFailed
 
     cites = citing_sentences(paper.pages, ref)
-    stats = {"sentences": len(cites), "agrees": 0, "differs": 0, "windows": 0}
+    stats: dict = {
+        "sentences": len(cites),
+        "agrees": 0,
+        "differs": 0,
+        "windows": 0,
+        "pages": set(),
+    }
     if not cites:
         return [], stats, ""
     part_pages = agent_review_standards.read_book(conn, ref.doc_id).pages
@@ -484,6 +622,7 @@ def _compare(conn, mdl, paper, ref: Ref, lead: str) -> tuple[list[dict], dict, s
         except StepFailed as exc:
             return [], stats, str(exc)
         stats["windows"] += 1
+        stats["pages"] |= set(w)  # text came back for these pages
         answers = out.get("compare") if isinstance(out, dict) else None
         for ans in answers if isinstance(answers, list) else []:
             n = ans.get("n") if isinstance(ans, dict) else None
@@ -512,27 +651,40 @@ def _compare(conn, mdl, paper, ref: Ref, lead: str) -> tuple[list[dict], dict, s
 
 
 def _check_ref(conn, mdl, paper, ref: Ref, lines: list[dict], lead: str) -> dict:
-    """What the review does with ONE reference paper that is on the run's list: its open questions, then the Form against it."""
+    """What the review does with ONE reference paper that is on the run's list: its open questions, then the Form against it.
+    "Pages read" counts only the pages of windows that were ANSWERED (a page counts as read only if text came back)."""
+    from app import agent_review_standards
+
     mine = questions_for(lines, ref)
-    settled = read = held = 0
+    held_pages = set(agent_review_standards.read_book(conn, ref.doc_id).pages)
+    held = len(held_pages)
+    settled = 0
+    answered: set[int] = set()
     if mine:
-        settled, read, held, failure = _ask_part(conn, mdl, paper, ref, mine, lead)
+        settled, got, _held, failure = _ask_part(conn, mdl, paper, ref, mine, lead)
+        answered |= got
         if failure:
-            return _failed(ref, failure, len(mine), settled)
+            return _failed(ref, failure, len(mine), settled, answered, held_pages)
     new, stats, failure = _compare(conn, mdl, paper, ref, lead)
+    answered |= stats["pages"]
     if failure:
-        return _failed(ref, failure, len(mine), settled)
+        return _failed(ref, failure, len(mine), settled, answered, held_pages)
     lines.extend(new)
-    status = READ_IN_PART if held and read != held else READ
+    if not mine and not stats["sentences"]:
+        return {
+            **_status(ref, READ, "no open question and no sentence of the Form names it", 0, 0),
+            "compared": 0, "agrees": 0, "differs": 0,
+        }  # fmt: skip
+    unread = held_pages - answered
     out = _status(
         ref,
-        status,
-        ""
-        if (mine or stats["sentences"])
-        else "no open question and no sentence of the Form names it",
+        READ_IN_PART if unread else READ,
+        f"pages {_ranges(unread)} were not read: every question was settled before them"
+        if unread
+        else "",
         len(mine),
         settled,
-        read,
+        len(answered & held_pages),
         held,
     )
     return {
@@ -543,18 +695,28 @@ def _check_ref(conn, mdl, paper, ref: Ref, lines: list[dict], lead: str) -> dict
     }
 
 
-def _failed(ref: Ref, failure: str, questions: int, settled: int) -> dict:
-    """A call that failed: "failed" only when nothing was settled; after settled questions it is "read in part" and says how many
-    (those lines are already decided and stay so)."""
+def _failed(
+    ref: Ref,
+    failure: str,
+    questions: int,
+    settled: int,
+    answered=frozenset(),
+    held_pages=frozenset(),
+) -> dict:
+    """A call that failed: "failed" only when nothing was settled or read; otherwise "read in part", saying how many questions were
+    settled and WHICH PAGES WERE NOT READ (only windows that came back count as read; those lines are already decided and stay so)."""
     gate = "gate_closed" in failure or ": stop " in failure
     why = "the send gate did not allow it" if gate else failure[:200]
-    if settled:
+    read = len(set(answered) & set(held_pages))
+    if settled or read:
+        unread = set(held_pages) - set(answered)
+        said = (
+            f"{settled} of {questions} questions settled before a call stopped ({why})"
+        )
+        if unread:
+            said += f"; pages {_ranges(unread)} of {len(held_pages)} were not read"
         return _status(
-            ref,
-            READ_IN_PART,
-            f"{settled} of {questions} questions settled before a call stopped ({why})",
-            questions,
-            settled,
+            ref, READ_IN_PART, said, questions, settled, read, len(held_pages)
         )
     return _status(ref, NOT_SENT if gate else FAILED, why, questions, settled)
 

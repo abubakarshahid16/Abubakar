@@ -15,7 +15,10 @@ const root = join(process.cwd(), "dist", "assets");
 // confirmations count (H5); same way-back reason; retiring the earlier screens is on the after-proof list.
 // After live 3 (18 Nov 2026): 320000 -> 324000 bytes: the comment cards, the engineer's decisions, the sign-off bar and the
 // contractor copy (about 2.9 KB gzip); same way-back reason; retiring the earlier screens is on the after-proof list.
-const max = 324000;
+// Update 5 (19 Nov 2026): 324000 -> 325000 bytes: the contract parts read (How-made), the steps-not-run notice, the card / header /
+// banner wording, the card chips, the plan-check timeout and the dashboard's general reviews (G; lead 4 allowed it); the earlier
+// screens still ship as the way back; retiring them is on the after-proof list.
+const max = 325000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;

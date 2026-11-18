@@ -189,8 +189,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="put every run ever done in the Recent Reviews table, "
                     "which is the metrics dump rule 10 forbids",
         path=APP / "main.py",
-        anchor="    recent = [_run_summary(run, scope) for run in runs[:5]]",
-        replacement="    recent = [_run_summary(run, scope) for run in runs]",
+        anchor='    recent = [_run_summary(item, scope) if kind == "old" else item for kind, item in newest.ordered[:5]]',
+        replacement='    recent = [_run_summary(item, scope) if kind == "old" else item for kind, item in newest.ordered]',
         target="tests/test_review_dashboard.py",
         keyword="recent_table_stays_compact",
     ),

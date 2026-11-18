@@ -46,7 +46,7 @@ describe("H: How this review was made", () => {
     render(<HowReviewMade review={review()} />);
     const s = screen.getByTestId("how-paper");
     expect(s).toHaveTextContent("datasheet");
-    expect(s).toHaveTextContent("relief_valve");
+    expect(s).toHaveTextContent("relief valve"); // plain words, no underscore (planner 18 Nov 23:40-5)
     expect(s).toHaveTextContent("invented valve sheet");
   });
 
@@ -155,5 +155,23 @@ describe("H: How this review was made", () => {
     rerender(<HowReviewMade review={{ ...base, counts: { ...base.counts, comments: 1, confirmations: 1 } }} />);
     const line = screen.getByTestId("how-confirmations").textContent ?? "";
     expect(line).toBe('1 comment sent and 1 confirmation not sent. Every point stays in "Every check".');
+  });
+
+  it("lists each part of the contract with its pages read of held, the unread pages and why; nothing for a paper without parts", () => {
+    const refs = [
+      { part: "Schedule B", title: "invented-schedule-b.pdf", status: "read in part", reason: "pages 44-84 were not read: a call stopped", questions: 7, settled: 3, pages_read: 43, pages_held: 84, compared: 4, differs: 1 },
+      { part: "Schedule D", title: null, status: "not held", reason: "", questions: 0, settled: 0, pages_read: null, pages_held: null, compared: null, differs: null },
+    ];
+    const { unmount } = render(<HowReviewMade review={review({ references: refs })} />);
+    const rows = screen.getAllByTestId("how-reference");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Schedule B (invented-schedule-b.pdf)");
+    expect(rows[0]).toHaveTextContent("read in part; pages read 43 of 84; 3 of 7 questions settled; 4 sentences of the Form compared, 1 differ");
+    expect(rows[0]).toHaveTextContent("pages 44-84 were not read: a call stopped");
+    expect(rows[1]).toHaveTextContent("not held");
+    expect(rows[1]).not.toHaveTextContent("pages read");
+    unmount();
+    render(<HowReviewMade review={review()} />);
+    expect(screen.queryByTestId("how-references")).toBeNull();
   });
 });

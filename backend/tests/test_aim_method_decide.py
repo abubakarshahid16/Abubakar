@@ -532,7 +532,7 @@ def test_a_filled_figure_over_a_limit_the_paper_states_is_a_sent_ai_opinion_with
     )
     assert (
         S.CONTRACTOR_FILLED in d["code"]
-        and "23.5 barg stated on page 2" in d["comment"]
+        and "23.5 barg (23.5 barg is 340.8 psig) stated on page 2" in d["comment"]
     )
 
 
@@ -571,7 +571,7 @@ def test_a_verified_rule_operator_with_a_paper_limit_never_yields_pass_or_fail(
             "code"
         ] and _sent(d)
         assert d["comment"] == (
-            "The stated 12 bar is above the 10 bar stated on page 3 (the AI paired these two values; code compared them); contractor to confirm the value. "
+            "The stated 12 bar is above the 10 bar stated on page 3; contractor to confirm the value. "
             "the model's words"
         )
 
@@ -591,7 +591,7 @@ def test_a_limit_in_the_judged_quote_itself_names_the_judged_page():
         and _sent(d)
     )
     assert d["comment"].startswith(
-        "The stated 18 bar is above the 15 bar stated on page 4 (the AI paired these two values; code compared them);"
+        "The stated 18 bar is above the 15 bar stated on page 4;"
     )
 
 
@@ -1549,3 +1549,390 @@ def test_a_comparison_code_cannot_make_leaves_an_ai_opinion_as_it_is():
         "",
     )
     assert d["label"] == "AI opinion" and d["code_compare"] is None
+
+
+# ---- "Not met, proven by code" (lead 4, owner's order of 18 Nov): one home, firm words, never on anything code did not prove ----
+
+_LIMIT = "The pressure shall not exceed 10 bar."
+_NUMS = {
+    "paper_value": "12",
+    "paper_unit": "bar",
+    "operator": "<=",
+    "rule_value": "10",
+    "rule_unit": "bar",
+}
+
+
+def _judged(
+    label="Question", comment="Please confirm the design pressure.", quote=None, **nums
+):
+    return {"label": label, "ask": "confirm", "comment": comment, "page": 1, "field": "design pressure",
+            "quote": quote or "Design pressure of the test item: 12 bar gauge at the inlet", "numbers": {**_NUMS, **nums}}  # fmt: skip
+
+
+@pytest.mark.parametrize("label", ["Question", "AI opinion", "Met", "Not met"])
+def test_a_value_code_proves_breaks_a_held_limit_is_a_firm_not_met_whatever_the_ai_said(
+    label,
+):
+    d = S._decide(
+        _item(kind="limit", rule_quote=_LIMIT), _judged(label), PAPER, BOOKS, ""
+    )
+    assert (
+        d["label"] == "Not met" and d["code_compare"]["read_from"] == "verified quotes"
+    )
+    assert d["comment"].startswith(
+        S.PROVEN_FAIL + ": the stated 12 bar is above the 10 bar limit of"
+    )
+    assert "confirm" not in d["comment"].lower()
+
+
+def test_a_forged_value_never_makes_a_proven_fail():
+    """The model's numbers only point at a value: a figure that is not in the verified quote, or a limit that is not in the
+    rule's verified words, is never compared, so never "Not met, proven by code"."""
+    forged = S._decide(
+        _item(kind="limit", rule_quote=_LIMIT),
+        _judged(paper_value="99"),
+        PAPER,
+        BOOKS,
+        "",
+    )
+    assert forged["code_compare"] is None and not forged["comment"].startswith(
+        S.PROVEN_FAIL
+    )
+    no_rule = S._decide(
+        _item(kind="limit", rule_quote="The pressure shall be suitable."),
+        _judged(),
+        PAPER,
+        BOOKS,
+        "",
+    )
+    assert no_rule["label"] != "Not met" or not no_rule["comment"].startswith(
+        S.PROVEN_FAIL
+    )
+
+
+def test_a_value_left_to_the_vendor_is_never_a_proven_fail():
+    open_q = "Noise level of the test item: to be advised by the vendor later"
+    left = S._decide(
+        _item(kind="limit", rule_quote=_LIMIT),
+        _judged(quote=open_q, paper_value="12"),
+        PAPER,
+        BOOKS,
+        "",
+    )
+    assert left["label"] == "Question" and not left["comment"].startswith(S.PROVEN_FAIL)
+    assert not S.proven_fail(
+        "Not met", {"read_from": "verified quotes", "result": "fail"}, True, []
+    )  # left open
+    assert not S.proven_fail(
+        "Not met", {"read_from": "verified paper quotes", "result": "fail"}, False, []
+    )  # AI's pairing
+    assert not S.proven_fail("Not met", None, False, [])  # the AI's words alone
+    assert S.proven_fail(
+        "Not met", {"read_from": "verified quotes", "result": "fail"}, False, []
+    )
+
+
+def test_a_knowledge_item_never_says_proven_by_code():
+    d = S._decide(_item(kind="limit", source="engineering knowledge (book not held)", rule_quote=""), _judged("Not met"), PAPER,
+                  BOOKS, "")  # fmt: skip
+    assert d["label"] != "Not met" and not d["comment"].startswith(S.PROVEN_FAIL)
+
+
+_FILLED = Paper(
+    paper_id="doc_f",
+    pages={
+        1: "Set pressure of the invented valve: 380 psig (By Contractor)\nBack pressure of the invented valve: By Contractor\n"
+    },
+)
+_SET = {
+    "paper_value": "380",
+    "paper_unit": "psig",
+    "operator": "<=",
+    "rule_value": "300",
+    "rule_unit": "psig",
+}
+
+
+def test_a_figure_filled_in_beside_by_contractor_that_breaks_the_limit_is_proven_firmly():
+    """Owner's after-live order (18 Nov, item 5): a figure FILLED IN beside "By Contractor" is a stated value; code proves it."""
+    j = {"label": "Question", "comment": "Confirm.", "page": 1, "field": "set pressure", "numbers": _SET,
+         "quote": "Set pressure of the invented valve: 380 psig (By Contractor)"}  # fmt: skip
+    d = S._decide(
+        _item(kind="limit", rule_quote="The set pressure shall not exceed 300 psig."),
+        j,
+        _FILLED,
+        BOOKS,
+        "",
+    )
+    assert d["label"] == "Not met" and S.CONTRACTOR_FILLED in d["code"]
+    assert d["comment"].startswith(
+        S.PROVEN_FAIL
+        + ": the stated 380 psig (by contractor) is above the 300 psig limit"
+    )
+
+
+def test_by_contractor_with_no_figure_stays_a_question_never_proven():
+    j = {"label": "Not met", "comment": "Exceeds the limit.", "page": 1, "field": "back pressure", "numbers": _SET,
+         "quote": "Back pressure of the invented valve: By Contractor"}  # fmt: skip
+    d = S._decide(
+        _item(kind="limit", rule_quote="The set pressure shall not exceed 300 psig."),
+        j,
+        _FILLED,
+        BOOKS,
+        "",
+    )
+    assert (
+        d["label"] == "Question"
+        and d["deferred"]
+        and not d["comment"].startswith(S.PROVEN_FAIL)
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        (
+            'Reading the items {n} in turn. {"reads": [{"n": 1}]}',
+            {"reads": [{"n": 1}]},
+        ),  # a brace in the words before it
+        (
+            'Clause [3] applies. {"reads": []}',
+            {"reads": []},
+        ),  # an object is preferred to a bracket in the words
+        ('```json\n{"a": 1}\n```', {"a": 1}),
+        ("[1, 2]", [1, 2]),
+        ("no json here at all", None),
+    ],
+)
+def test_the_answer_is_read_from_the_first_opener_that_decodes(text, want):
+    from app.aim_review.prompts import parse_json
+
+    assert parse_json(text) == want
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        (
+            'An example looks like {"n": 1, "label": "Met"}. Answer: {"reads": [{"n": 1}]}',
+            {"reads": [{"n": 1}]},
+        ),
+        (
+            'Reading "{x}" and {"note": "a foreign object"} first. {"reads": []}',
+            {"reads": []},
+        ),
+        (
+            '{"note": "only a foreign object"}',
+            None,
+        ),  # no object holds the step's key: no JSON for this step
+        ('[{"n": 1}]', None),  # a step that names its keys never takes a bare list
+    ],
+)
+def test_a_step_takes_only_the_first_object_holding_its_own_answer_key(text, want):
+    """Trying every opener could take a small valid but foreign object (an example in the reasoning): a step's answer is the first
+    object that holds one of its own answer keys (`ANSWER_KEYS`), else nothing (no_json, as before)."""
+    from app.aim_review.prompts import ANSWER_KEYS, parse_json
+
+    assert parse_json(text, ANSWER_KEYS["aim_second_read"]) == want
+
+
+def test_every_model_step_of_the_package_names_its_answer_keys():
+    """A new model step without an entry would fall back to "the first object", so every step the package asks is listed."""
+    import pathlib
+    import re as _re
+
+    from app.aim_review.prompts import ANSWER_KEYS
+
+    src = "".join(f.read_text() for f in pathlib.Path("app/aim_review").glob("*.py"))
+    asked = set(_re.findall(r'step="(aim_[a-z_]+)"', src)) | {"aim_judge"}
+    assert asked - {"aim_read_pages"} <= set(ANSWER_KEYS), asked - set(ANSWER_KEYS)
+
+
+_PSV = Paper(
+    paper_id="doc_psv",
+    pages={1: "Set pressure of the invented valve: 340 psig at the inlet\n"},
+)
+_SETQ = "Set pressure of the invented valve: 340 psig at the inlet"
+
+
+def _psv(rule_value, rule_unit, paper_value="340"):
+    return {"label": "Question", "comment": "Confirm.", "page": 1, "field": "set pressure", "quote": _SETQ,
+            "numbers": {"paper_value": paper_value, "paper_unit": "psig", "operator": "<=", "rule_value": rule_value,
+                        "rule_unit": rule_unit}}  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("rule_quote", "rule_value", "rule_unit"),
+    [
+        (
+            "The set pressure shall be 300 psig or less.",
+            "300",
+            "psig",
+        ),  # the comparison words AFTER the value
+        ("The set pressure shall be 300 psig maximum.", "300", "psig"),
+        (
+            "The set pressure shall be 20 barg or less.",
+            "20",
+            "barg",
+        ),  # 20 barg is about 290 psig: converted by code
+        ("The set pressure shall not exceed 2 MPa.", "2", "MPa"),
+    ],
+)
+def test_a_limit_stated_after_its_value_or_in_another_unit_is_proven_by_code(
+    rule_quote, rule_value, rule_unit
+):
+    d = S._decide(
+        _item(kind="limit", rule_quote=rule_quote),
+        _psv(rule_value, rule_unit),
+        _PSV,
+        BOOKS,
+        "",
+    )
+    assert d["label"] == "Not met" and d["code_compare"]["result"] == "fail"
+    assert (
+        d["comment"].startswith(S.PROVEN_FAIL + ": the stated 340 psig is above the")
+        and "clause 4.1" in d["comment"]
+    )
+
+
+def test_gauge_against_absolute_is_compared_only_when_the_answer_cannot_change_and_then_says_so():
+    """The app's unit code compares a gauge value with an absolute limit only when the answer is the same for every atmospheric
+    pressure, and says so; when it would change (a borderline case), code does not compare and the line is never proven."""
+    clear = S._decide(_item(kind="limit", rule_quote="The set pressure shall be 20 bara or less."), _psv("20", "bara"), _PSV,
+                      BOOKS, "")  # fmt: skip
+    assert clear["label"] == "Not met" and "gauge against absolute" in clear["comment"]
+    near = S._decide(_item(kind="limit", rule_quote="The set pressure shall be 23.5 bara or less."), _psv("23.5", "bara"),
+                     _PSV, BOOKS, "")  # fmt: skip
+    assert near["label"] != "Not met" and not near["comment"].startswith(S.PROVEN_FAIL)
+
+
+def test_a_forged_figure_with_a_trailing_limit_is_never_compared():
+    d = S._decide(_item(kind="limit", rule_quote="The set pressure shall be 300 psig or less."),
+                  _psv("300", "psig", paper_value="390"), _PSV, BOOKS, "")  # fmt: skip
+    assert d["code_compare"] is None and not d["comment"].startswith(S.PROVEN_FAIL)
+
+
+@pytest.mark.parametrize(
+    ("args", "said"),
+    [
+        (("360", "psig", "<=", "23.5", "barg"), "23.5 barg is 340.8 psig"),
+        (("2.5", "MPa", "<=", "25", "bar"), "25 bar is 2.5 MPa"),
+        (("100", "mm", "<=", "4", "in"), "4 in is 101.6 mm"),
+    ],
+)
+def test_a_comparison_across_units_says_the_converted_limit(args, said):
+    from app.aim_review.verify import compare
+
+    got = compare(*args)
+    assert got.get("converted") == said and said in got["why"]
+
+
+def test_a_proven_fail_in_another_unit_names_the_converted_limit():
+    d = S._decide(
+        _item(kind="limit", rule_quote="The set pressure shall be 20 barg or less."),
+        _psv("20", "barg"),
+        _PSV,
+        BOOKS,
+        "",
+    )
+    assert d["comment"].startswith(
+        S.PROVEN_FAIL
+        + ": the stated 340 psig is above the 20 barg (20 barg is 290.1 psig) limit"
+    )
+
+
+def test_a_pairing_of_two_paper_values_in_two_units_is_converted_and_stays_an_ai_opinion():
+    """Set pressure in psig against the vessel's MAWP in barg on the same paper: code converts and compares, says the conversion,
+    and the line stays an AI opinion (the AI chose which paper value is the limit), never "proven by code"."""
+    paper = Paper(paper_id="p2", pages={1: "Set pressure of the invented valve: 360 psig at the inlet\nMAWP of the invented "
+                                            "vessel: 23.5 barg at 120 degC\n"})  # fmt: skip
+    j = {"label": "Not met", "comment": "Above the MAWP.", "page": 1, "field": "set pressure",
+         "quote": "Set pressure of the invented valve: 360 psig at the inlet",
+         "numbers": {"paper_value": "360", "paper_unit": "psig", "operator": "<=", "rule_value": "23.5", "rule_unit": "barg",
+                     "limit_quote": "MAWP of the invented vessel: 23.5 barg at 120 degC", "limit_page": 1}}  # fmt: skip
+    d = S._decide(_item(kind="limit", rule_quote="The set pressure shall not exceed the MAWP of the protected vessel."), j, paper,
+                  BOOKS, "")  # fmt: skip
+    assert d["label"] == "AI opinion" and d["code_compare"]["result"] == "fail"
+    assert "23.5 barg is 340.8 psig" in d["comment"] and not d["comment"].startswith(
+        S.PROVEN_FAIL
+    )
+
+
+def test_no_sent_comment_of_a_whole_run_carries_the_ais_own_process_words(
+    tmp_path, monkeypatch
+):
+    """Owner, 19 Nov 2026: internal AI wording ("the AI paired ...", "first reader", "two readers", "code compared them") is never
+    comment text; it is the team file's note only. Walks every SENT comment of a whole fake run, with a paper-vs-paper pairing
+    that fails, against the ONE list the contractor copy's guard uses (`aim_review_contractor.INTERNAL`, process words entry)."""
+    import re as _re
+
+    from app import aim_review, aim_review_contractor
+    from tests.test_aim_method_helpers import (
+        BOOK_A,
+        BOOK_B,
+        MemoryStore,
+        open_aim_db,
+    )
+    from tests.test_aim_method_helpers import (
+        PAPER as P_ID,
+    )
+
+    conn = next(open_aim_db(tmp_path, monkeypatch))
+
+    def judge(step, cached, prompt):
+        ids = _re.findall(r'"id": "([CG]\d+)"', prompt)
+        q1 = "Design pressure of the test item: 12 bar gauge at the inlet"
+        return {"judgments": [{"id": i, "label": "Not met", "page": 1, "quote": q1, "field": "f", "comment": "Too high.",
+                               "numbers": {"paper_value": "12", "paper_unit": "bar", "operator": "<=", "rule_value": "10",
+                                           "rule_unit": "bar", "limit_quote": q1, "limit_page": 1}} for i in ids]}  # fmt: skip
+
+    r = aim_review.run(conn, run_id="run_words", paper_id=P_ID, allowed_books=frozenset({BOOK_A, BOOK_B}), store=MemoryStore(),
+                       max_usd=5.0, model=E.FakeModel(kind="datasheet", subject_key="test_item", answers={"aim_judge": judge}))  # fmt: skip
+    process = next(
+        p
+        for p, what in aim_review_contractor.INTERNAL
+        if what == "the AI's own process words"
+    )
+    sent = [ln["comment"] for ln in r.lines if aim_review.sendable(ln)]
+    assert sent and not [c for c in sent if _re.search(process, c)]
+
+
+# ---- fresh review of update 5 (19 Nov): B1 and A's part of B4 ----------------------------------------------------------------
+
+
+def test_b1_a_quote_code_did_not_find_on_the_paper_is_never_a_fail_proven_by_code():
+    """The reviewer's test, as written: a forged quote ("400 psig" on a paper that says 250) is never compared, never firm."""
+    from types import SimpleNamespace as NS
+
+    paper = NS(pages={1: "Design pressure 250 psig."}, paper_id="p")
+    rule = "The design pressure shall not exceed 300 psig."
+    item = {
+        "id": "I1",
+        "book": "b",
+        "clause": "4.2",
+        "source": S.HELD,
+        "topic": "t",
+        "rule_quote": rule,
+        "kind": "limit",
+    }
+    for label in ("Question", "AI opinion", "Not met"):
+        j = {"label": label, "quote": "Design pressure 400 psig", "page": 1, "comment": "x", "field": "f",
+             "numbers": {"paper_value": 400, "rule_value": 300}}  # fmt: skip
+        d = S._decide(item, j, paper, {"b": {"identifier": "ZQ-STD-001"}}, "")
+        assert d["quote"] == "" and "paper quote not found by code" in d["code"]
+        assert d["label"] != "Not met", (label, d["label"])
+        assert S.PROVEN_FAIL not in d["comment"], d["comment"]
+        assert (d.get("code_compare") or {}).get("result") != "fail"
+
+
+def test_b4_a_long_firm_sentence_or_ai_comment_is_never_cut_without_a_mark():
+    long_words = (
+        "Please state the full basis. " * 30
+    )  # about 900 characters of the model's own words
+    j = {"label": "Question", "comment": long_words.strip(), "page": 1, "field": "f",
+         "quote": "Design pressure of the test item: 12 bar gauge at the inlet"}  # fmt: skip
+    d = S._decide(_item(kind="presence"), j, PAPER, BOOKS, "")
+    assert (
+        d["comment"] == long_words.strip()
+    )  # whole (the sheet cuts with its own mark and keeps the full text)

@@ -495,3 +495,160 @@ def test_the_guard_reaches_a_run_and_the_how_made_tab(aim_db):
     assert any(
         c.startswith("knowledge items: 0 of 1 expected (1 set aside") for c in codes
     ), codes
+
+
+def test_a_checklist_that_lost_every_knowledge_item_is_used_once_never_saved(aim_db):
+    """Books needed but not held and the knowledge step wrote NO item: the checklist serves this run only and is never saved, so
+    the next run builds again instead of reusing the loss (18 Nov: a HAZOP checklist saved with every knowledge item set aside)."""
+    from tests.test_aim_method_helpers import MemoryStore
+
+    def select(step, cached, prompt):
+        import re
+
+        ids = re.findall(r'"alias": "(B\d+)"', prompt)[:10]
+        return {"books": [{"alias": a, "why": "x", "subjects": "all"} for a in ids],
+                "not_held_needed": [{"name": "API 9990 invented practice", "why": "needed"}]}  # fmt: skip
+
+    lost = {
+        "items": [
+            {"topic": "t", "what_to_check": "w", "carried_by": "an invented study"}
+        ]
+    }
+    store = MemoryStore()
+    for run_id in ("run_lost1", "run_lost2"):
+        model = E.FakeModel(kind="procedure", subject_key="test_procedure",
+                            answers={"aim_select": select, "aim_checklist_knowledge": lost})  # fmt: skip
+        r = aim_review.run(aim_db, run_id=run_id, paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}), store=store,
+                           max_usd=5.0, model=model)  # fmt: skip
+        assert r.status == "done" and not r.checklist_reused and store.puts == []
+        assert any(c["step"] == "aim_checklist_knowledge" for c in model.asked)
+
+
+def test_every_table_of_values_gets_one_item_that_checks_every_row():
+    """One general instruction (no kind named) in both checklist asks: a table of values gets ONE consistency item over EVERY row
+    (order across categories, units and decades, the order of magnitude of public practice); the checklist method is bumped."""
+    assert CL.P.TABLE_ROWS_ASK in CL.P.KNOWLEDGE_ASK
+    prompt = CL._for_type(CL.P.KNOWLEDGE_TASK) % {"identity": "x", "not_held": "x", "have": 0, "topics": "[]", "floor": 1,
+                                                  "most": 1, "kinds": "[]", "table_rows": CL.P.TABLE_ROWS_ASK,
+                                                  "conditions": CL.P.CONDITIONS_ASK}  # fmt: skip
+    assert "checks EVERY row" in prompt and "order of magnitude" in prompt
+    assert CL.CHECKLIST_METHOD >= "2026-11-18.2"
+
+
+def test_a_newly_held_book_the_paper_cites_gets_a_checklist_built_with_it_once(aim_db):
+    """A company book uploaded after the type's checklist was saved, cited by the paper (never in the tables, never named by the
+    AI): the checklist key carries the paper's held cited books (`library.cited_key`), so the next review builds a checklist
+    WITH the book under its own key; the review after that reuses it (18 Nov, F's new-book test). A held book the paper does
+    not cite changes nothing."""
+    from tests.test_aim_method_helpers import MemoryStore, _doc
+
+    new_book = "doc_aimbookNEW"
+    store = MemoryStore()
+
+    def run(run_id, cited):
+        model = E.FakeModel(kind="datasheet", subject_key="test_item")
+        return aim_review.run(aim_db, run_id=run_id, paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B, new_book}),
+                              store=store, max_usd=5.0, model=model, cited_books=cited)  # fmt: skip
+
+    first = run("run_nb1", frozenset())
+    assert not first.checklist_reused and len(store.puts) == 1
+    with aim_db:
+        _doc(aim_db, new_book, "invented-company-book.pdf", "COMPANY_STANDARD",
+             {1: "Section heading of the invented company book\n4.1 The invented item shall carry a nameplate.\n"})  # fmt: skip
+    assert run(
+        "run_nb2", frozenset()
+    ).checklist_reused  # held, but not cited: nothing requires it
+    again = run("run_nb3", frozenset({new_book}))
+    assert (
+        not again.checklist_reused
+        and again.checklist_key != first.checklist_key
+        and len(store.puts) == 2
+    )
+    assert new_book in {
+        b["book"] for b in store.saved[again.checklist_key][-1][1]["books"]
+    }
+    assert run(
+        "run_nb4", frozenset({new_book})
+    ).checklist_reused  # built once, then reused
+
+
+def test_a_required_book_missing_from_the_saved_checklist_builds_it_again(aim_db):
+    """A governing or method book on this run's list that the saved checklist does not rest on (it was held but not listed when
+    the checklist was built) builds the checklist again; a book the build itself would leave out never does (no loop)."""
+    from app.aim_review import book_names as BN
+
+    saved = {"books": [{"book": BOOK_A}]}
+    assert BN.new_required(aim_db, PAPER, saved, {BOOK_B: "governs"}, frozenset(), frozenset({BOOK_A, BOOK_B}), "datasheet",
+                           lambda b: "") == [BOOK_B]  # fmt: skip
+    assert BN.new_required(aim_db, PAPER, saved, {BOOK_B: "governs"}, frozenset(), frozenset({BOOK_A, BOOK_B}), "datasheet",
+                           lambda b: "gate_closed") == []  # the gate refuses it: the build leaves it out too  # fmt: skip
+    assert BN.new_required(aim_db, PAPER, saved, {BOOK_B: "governs"}, frozenset(), frozenset({BOOK_A}), "datasheet",
+                           lambda b: "") == []  # not on this run's list  # fmt: skip
+
+
+def test_the_run_builds_again_when_a_required_book_is_missing_from_the_saved_checklist(
+    aim_db, monkeypatch
+):
+    """The run reads `new_required`: a required book the saved checklist does not rest on means build again, not reuse."""
+    from app.aim_review import book_names as BN
+    from tests.test_aim_method_helpers import MemoryStore
+
+    store = MemoryStore()
+
+    def run(run_id):
+        return aim_review.run(aim_db, run_id=run_id, paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}), store=store,
+                              max_usd=5.0, model=E.FakeModel(kind="datasheet", subject_key="test_item"))  # fmt: skip
+
+    run("run_rq1")
+    assert run("run_rq2").checklist_reused
+    monkeypatch.setattr(BN, "new_required", lambda *a, **k: ["doc_some_required_book"])
+    assert not run("run_rq3").checklist_reused and len(store.puts) == 2
+
+
+def test_every_stated_condition_gets_one_item_that_checks_the_values_chosen_for_it():
+    """One general instruction (no kind named) in both checklist asks: each stated operating or service condition gets ONE
+    consistency item over the values the same paper chooses for it (design never below operating; material, allowance and
+    rating suit it); the checklist method is bumped so every type is built again once."""
+    assert (
+        CL.P.CONDITIONS_ASK in CL.P.KNOWLEDGE_ASK
+        and "%(conditions)s" in CL.P.KNOWLEDGE_TASK
+    )
+    assert "a design value is never below the operating" in CL.P.CONDITIONS_ASK
+    assert CL.CHECKLIST_METHOD >= "2026-11-18.3"
+
+
+def test_a_requirement_a_schedule_of_the_package_carries_is_set_aside_for_the_main_paper():
+    """Contract quick score of 19 Nov: a Form of Agreement was asked for permits, insurance, quality ... that its incorporated
+    schedules hold. Both knowledge asks name the package, and the checklist step's own knowledge items are set aside too."""
+    from app.aim_review import carried
+
+    assert "schedule, annex or attachment of the same package" in CL.P.KNOWLEDGE_TASK
+    assert "carried_by" in CL.P.S3_TASK and "PACKAGE" in CL.P.S3_TASK
+    items = [{"topic": "Insurance", "source": "not from a held standard", "carried_by": "Schedule of insurance"},
+             {"topic": "Price words vs figures", "source": "not from a held standard", "carried_by": "HERE"},
+             {"topic": "Held clause", "source": "held standard", "carried_by": "Schedule X"},
+             {"topic": "No answer", "source": "not from a held standard", "carried_by": ""}]  # fmt: skip
+    kept, aside = carried.set_aside(items)
+    assert [i["topic"] for i in kept] == [
+        "Price words vs figures",
+        "Held clause",
+        "No answer",
+    ]
+    assert aside == [{"topic": "Insurance", "why": "for Schedule of insurance paper"}]
+    assert CL.CHECKLIST_METHOD == "2026-11-19.1"
+
+
+def test_a_long_set_aside_reason_is_never_cut():
+    """F's contract run of 19 Nov: a reason read "...schedules of  paper" (cut at 80 characters, no mark). Kept whole now."""
+    from app.aim_review import carried
+
+    long = "the Insurance Requirements schedule and the Health, Safety and Environment schedule of the same contract package"
+    _kept, aside = carried.set_aside(
+        [{"topic": "t", "source": "not from a held standard", "carried_by": long}]
+    )
+    assert aside[0]["why"] == f"for {long} paper"
+    rows = [{"topic": "t", "what_to_check": "w", "carried_by": long}]
+    _added, elsewhere = carried.knowledge_rows(
+        rows, 5, CL._clean_item, CL.KNOWLEDGE_NOT_HELD
+    )
+    assert elsewhere[0]["why"] == f"for {long} paper"

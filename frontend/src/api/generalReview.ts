@@ -29,9 +29,13 @@ export interface GeneralLine {
   paper_says?: string;
   rule_says?: string;
   we_ask?: string;
-  applies_to?: { page: number | null; field: string; quote: string }[];
+  applies_to?: { page: number | null; field: string; quote: string; /** The valve tag or sheet in the field's last bracket. */ tag?: string; /** What the paper says there, "<field>: blank" for a blank value. */ value?: string }[];
   /** "compared by code", or the mark when it is an AI reading. */
   proven?: string;
+  /** Set when the two readers of this comment differ: shown as a small tag, never part of the comment's text. */
+  readers?: { first: string; second: string; reason: string } | null;
+  /** The AI chose which two values of the paper to compare and code compared them: said as a small tag, never in the comment text. */
+  paired?: boolean;
   /** The engineer's latest decision on this comment (append-only on the server); null when undecided. */
   decision?: CommentDecision | null;
 }
@@ -85,6 +89,20 @@ export interface GeneralCompleteness {
   sentence: string | null;
 }
 
+/** One part (a Schedule) of the contract package: what the review did with it. A page counts as read only if text came back for it. */
+export interface GeneralReference {
+  part: string;
+  title: string | null;
+  status: string;
+  reason: string;
+  questions: number | null;
+  settled: number | null;
+  pages_read: number | null;
+  pages_held: number | null;
+  compared: number | null;
+  differs: number | null;
+}
+
 export interface GeneralReview {
   paper_document_id: string;
   run_id: string;
@@ -112,11 +130,15 @@ export interface GeneralReview {
   /** The documents listed before the start (besides the paper) and how many the run used; null for a run with no stored list. */
   documents_listed?: { listed: number; used: number; sentence: string } | null;
   not_held: { name: string; why: string }[];
+  /** The parts of the contract package a contract review read (a Schedule), and what was done with each; absent for other papers. */
+  references?: GeneralReference[];
   unlisted_books: { count: number; sentence: string | null };
   checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };
   /** Piece G: the measured score of this paper's kind (found of 10 on planted test copies, target 7); null when no kind is named. */
   measured?: GeneralMeasured | null;
   cost: { usd: number | null; note?: string };
+  /** A checking step whose answer was not applied to this sheet, in plain words (a failed AI step is shown in the run). */
+  steps_not_applied?: { step: string; why: string; sentence: string }[];
   /** Every call of the run, in order: the "How this review was made" view groups them by step. */
   calls?: GeneralCall[];
   seconds?: number | null;

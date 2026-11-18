@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 
 from .prompts import (
+    ANSWER_KEYS,
     _text_of,
     build_parts,
     check_body,
@@ -180,7 +181,7 @@ class ClaudeModel:
         if answer.get("stop_reason") in ("max_tokens", "refusal"):
             rec.ok, rec.code = False, "stop_" + str(answer.get("stop_reason"))
             raise StepFailed(f"{step}: {rec.code}")
-        out = parse_json(_text_of(answer))
+        out = parse_json(_text_of(answer), ANSWER_KEYS.get(step))
         if out is None:
             rec.ok, rec.code = False, "no_json"
             raise StepFailed(f"{step}: no_json")
@@ -319,6 +320,7 @@ def run(
         usd=ledger_usd,
         seconds=round(time.time() - t0, 2),
         references=state.references,
+        answered=state.answered,
         book_why=dict(state.book_why),
     )
 
@@ -365,6 +367,9 @@ class _RunState:
         self.key, self.sha, self.reused = "", "", False
         self.books: set[str] = set()
         self.references: list[dict] = []
+        self.answered: list[
+            dict
+        ] = []  # the whole-paper check's verdicts (local run record)
         self.reference_ids: set[str] = set()
         self.book_why: dict[str, str] = {}
         self.not_held: list[dict] = []
@@ -446,18 +451,7 @@ def _steps(
         raise StepFailed("no_pages: the paper has no stored page text")
     say(5, "name the paper")
     ident = S.s1_identify(mdl, paper, _known_keys(store), lead)
-    state.identity = {
-        k: ident.get(k)
-        for k in (
-            "kind",
-            "equipment_type",
-            "subject",
-            "subject_key",
-            "service",
-            "scope_quote",
-            "scope_page",
-        )
-    }
+    state.identity = _identity_record(ident)
     if state.cited is None:
         state.cited = L.cited_company(conn, state.paper_id)
     state.key = L.cited_key(
@@ -471,6 +465,13 @@ def _steps(
         conn, state, mdl, ident, allowed_books, store, text, lead, strong
     )
     state.book_why = _book_reasons(checklist)
+    # the standards the paper itself cites (S1, each verified in its quote) that no held document answers: said as not held
+    from . import book_names as BN
+
+    state.not_held = BN.with_cited_not_held(
+        conn, state.paper_id, ident.get("cited"), state.not_held
+    )
+    state.not_held = BN.unique_not_held(state.not_held)  # each standard said once
     say(25, "judge")
     _judge(
         state,
@@ -486,6 +487,9 @@ def _steps(
     )
     if not state.stop_reason:
         _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
+    state.decided += BN.cited_points(
+        state.not_held
+    )  # a cited book not held: one point each, on All points, never sent
 
 
 def _after_judge(
@@ -494,7 +498,7 @@ def _after_judge(
     """After the judge, in order: the contract's reference papers (G), the second reader (S4c: a finding the AI alone decided
     needs two readers), the whole-paper check (S4b, behind its switch: a line whose claim the paper contradicts is not sent), the
     editor (S5), and last the no-ask mark (code: a Question that asks nothing is kept on All points, not sent)."""
-    from . import asks
+    from . import asks, contract_code
     from . import references as R
     from .answered import s4b_answered
     from .editor import s5_edit
@@ -512,13 +516,16 @@ def _after_judge(
         aim_review_gate.answered_check_on()
     ):  # off by default (a way-back switch): code proves the quote, not the answer
         s4b_answered(
-            mdl, paper, state.decided, lead
+            mdl, paper, state.decided, lead, state.answered
         )  # after the second reader: its words are claims too
     say(96, "judge")
     s5_edit(mdl, paper, state.decided, lead)
     asks.mark(
         state.decided
     )  # last, after every AI step: a Question that asks nothing is kept on All points, not sent
+    contract_code.add_lines(
+        conn, state, paper, allowed_books
+    )  # a contract's code checks (builder C): after every AI step, so none rewrites a code line
 
 
 def _fault_at(exc: BaseException) -> str:
@@ -561,6 +568,59 @@ def _known_keys(store) -> list[str]:
         return []
 
 
+def _saved_current(store, state: _RunState) -> dict | None:
+    """The saved checklist of the run's key when it was built by THIS checklist method (`checklist.CHECKLIST_METHOD`); one from
+    another method is not reused (the run builds it again once; the old one stays in the store as history)."""
+    from . import checklist as CL
+
+    saved = store.get(state.key) if store is not None else None
+    if isinstance(saved, dict) and saved.get("method") != CL.CHECKLIST_METHOD:
+        log.info(
+            "general review %s: the saved checklist is from another checklist method: built again",
+            state.run_id,
+        )
+        return None
+    return saved
+
+
+def _lost_knowledge(checklist: dict, sel: dict, run_id: str) -> bool:
+    """True when books are needed but not held and the knowledge step wrote NO item (a failed call, every item set aside): such a
+    checklist is used for this run only and never saved, so no later run reuses the loss (18 Nov 2026: a HAZOP checklist built
+    with every knowledge item set aside was saved and would have been reused; HAZOP holds no rule book, so it lost its risk
+    items). The run's calls already say why (`carried.say_none`)."""
+    if not sel.get("not_held") or checklist.get("knowledge_items"):
+        return False
+    log.warning(
+        "general review %s: no knowledge item written while books are not held: checklist not saved",
+        run_id,
+    )
+    return True
+
+
+def _identity_record(ident: dict) -> dict:
+    """What the run record keeps of S1's answer: the paper's kind, type, subject, service and verified scope, and the standards
+    S1 read on the paper by name and page only (no quote), so a later test can show what it found."""
+    return {
+        # the standards S1 read on the paper, names and pages only (the run record shows what it found; no quote)
+        "cited": [
+            {"name": str(c.get("name") or ""), "page": c.get("page")}
+            for c in ident.get("cited") or []
+        ],
+        "cited_unverified": len(ident.get("cited_unverified") or []),
+    } | {
+        k: ident.get(k)
+        for k in (
+            "kind",
+            "equipment_type",
+            "subject",
+            "subject_key",
+            "service",
+            "scope_quote",
+            "scope_page",
+        )
+    }
+
+
 def _checklist(
     conn,
     state: _RunState,
@@ -578,7 +638,7 @@ def _checklist(
     from . import library as L
     from . import scope_books as SB
 
-    saved = store.get(state.key) if store is not None else None
+    saved = _saved_current(store, state)
     if (
         isinstance(saved, dict)
         and saved.get("built_from") in CL.BUILT_FROMS
@@ -589,6 +649,8 @@ def _checklist(
         )
         # the saved AI "needed" names sorted again: a held book now on the list means build again; held, not listed: unlisted
         use, unlisted, still = BN.resort_saved(conn, state.paper_id, saved.get("not_held"), allowed_books, ident.get("kind"), gate_checker())  # fmt: skip
+        # a book this run requires (governing, method, cited by the paper) that the saved checklist does not rest on: build again
+        use += BN.new_required(conn, state.paper_id, saved, want["listed"], state.cited, allowed_books, ident.get("kind"), gate_checker())  # fmt: skip
         if (
             L.wanted_not_held(saved.get("not_held"))
             == L.wanted_not_held(want["not_held"])
@@ -622,7 +684,7 @@ def _checklist(
     )
     state.not_held = list(sel["not_held"])
     state.unlisted |= set(sel["unlisted"])
-    if store is None:
+    if store is None or _lost_knowledge(checklist, sel, state.run_id):
         return checklist
     try:
         usd = round(mdl.meter.spent - usd_before, 6)

@@ -873,6 +873,8 @@ export interface ReviewDashboard {
   standards_referenced_missing: number;
   reviews_running: number;
   reviews_awaiting_decision: number;
+  /** Papers whose newest review is a general review an engineer has signed off (done; not in `reviews_awaiting_decision`). */
+  reviews_signed?: number;
   reviews_total: number;
   /** Papers that have a review: the denominator of the review cards (latest review of each paper). */
   papers_with_a_review?: number;

@@ -1017,14 +1017,20 @@ def test_an_editor_group_mark_merges_only_the_same_kind_and_one_item_splits_by_l
         .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_marks")
         .json()
     )
-    assert [c["lines"] for c in body["comments"]] == [
-        [1, 2],  # the editor's group: two items, the same label and kind: one comment keeping both lines' words
-        [3],
-        [4],
-        [5],
-        [6],
-        [7, 8],
-    ]
+    assert (
+        [c["lines"] for c in body["comments"]]
+        == [
+            [
+                1,
+                2,
+            ],  # the editor's group: two items, the same label and kind: one comment keeping both lines' words
+            [3],
+            [4],
+            [5],
+            [6],
+            [7, 8],
+        ]
+    )
     assert body["comments"][1]["shown_label"] == "Fail, compared by code"
     rep = body["completeness"]
     assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 8
@@ -1129,7 +1135,8 @@ def test_a_merged_comment_carries_the_safe_state_never_its_first_members(world):
         .json()
     )
     by = {tuple(cm["lines"]): cm for cm in body["comments"]}
-    assert by[(1, 2)]["ask"] == "open" and by[(1, 2)]["deferred"] is True
+    # a line that only confirms a stated value never rides inside the comment of another line of its check (per-line split)
+    assert by[(2,)]["ask"] == "open" and by[(2,)]["deferred"] is True
     assert (
         by[(3, 4)]["ask"] == "concern" and by[(3, 4)]["numbers"] is None
     )  # the members' numbers differ
@@ -1139,8 +1146,8 @@ def test_a_merged_comment_carries_the_safe_state_never_its_first_members(world):
     # every member "confirm": a confirmation, not sent (18 Nov 2026, after live), with its own state
     conf = {tuple(cm["lines"]): cm for cm in body["confirmations"]}
     assert conf[(5, 6)]["ask"] == "confirm" and conf[(5, 6)]["deferred"] is False
-    assert by[(7, 8)]["ask"] == ""  # one member unknown: never "confirm"
-    assert "The same point at 1 more place: " in by[(1, 2)]["comment"]
+    assert conf[(1,)]["ask"] == "confirm" and conf[(7,)]["ask"] == "confirm"  # the confirm lines of a mixed check left its comment
+    assert by[(8,)]["ask"] == ""  # a line with no recorded mark: never "confirm"
 
 
 def test_a_book_the_viewer_may_not_open_serves_no_numbers_comparison_or_note_words(
@@ -1208,30 +1215,31 @@ def test_a_comment_whose_lines_all_say_confirm_is_a_confirmation_not_sent_and_co
     make_run("gen_conf", rows, created="2026-11-19T00:00:00Z")
     c = client(PAPER, BOOK)
     body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_conf").json()
-    assert [cm["lines"] for cm in body["comments"]] == [[3, 4], [5]]
-    assert [cm["lines"] for cm in body["confirmations"]] == [[1, 2]]
+    # line 3 only confirms a stated value: it is a confirmation of its own, not a passenger of line 4's comment (lead 4, 19 Nov)
+    assert [cm["lines"] for cm in body["comments"]] == [[4], [5]]
+    assert [cm["lines"] for cm in body["confirmations"]] == [[1, 2], [3]]
     k = body["counts"]
     assert (
         k["comments"],
         k["confirmations"],
         k["comment_lines"],
         k["confirmation_lines"],
-    ) == (2, 1, 3, 2)
+    ) == (2, 2, 2, 3)
     rep = body["completeness"]
     assert (
         rep["ok"] is True
-        and rep["confirmations"] == rep["confirmation_rows"] == 1
+        and rep["confirmations"] == rep["confirmation_rows"] == 2
         and rep["comment_rows"] == 2
     )
     wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_conf"))
     first = " ".join(
         str(v) for r in wb["Summary"].iter_rows(values_only=True) for v in r if v
     )
-    assert "5 points reviewed, 2 comments sent, 1 confirmations not sent" in first
+    assert "5 points reviewed, 2 comments sent, 2 confirmations not sent" in first
     lines = aim_review_sheet.COMMENT_HEADERS.index("Lines")
     assert [
         r[lines] for r in aim_review_completeness._table(wb, "Confirmations (not sent)")
-    ] == ["1, 2"]
+    ] == ["1, 2", "3"]
     assert (
         len(aim_review_completeness._table(wb, "All points")) == 5
     )  # every point stays a row
@@ -1625,10 +1633,10 @@ def test_a_card_has_a_short_title_and_its_parts_as_fields(world):
         one["title"] == "Design pressure limit"
         and one["paper_says"] == "invented quote 1"
     )
-    assert one["rule_says"] == "STD-X clause 4.1: 25 bar <= 20 bar: false"
+    assert one["rule_says"] == "Design pressure limit (STD-X clause 4.1): 25 bar <= 20 bar: false"  # the requirement in a few words first (planner 18 Nov 23:30)
     assert one["we_ask"] == "State a design pressure within the limit."
     assert one["applies_to"] == [
-        {"page": 3, "field": "Invented field 1", "quote": "invented quote 1"}
+        {"page": 3, "field": "Invented field 1", "quote": "invented quote 1", "tag": "", "value": "invented quote 1"}
     ]
     assert len(by[2]["title"].replace(" ...", "").split()) < 12 and by[2][
         "title"
@@ -1708,4 +1716,48 @@ def test_answered_and_edited_points_are_counted_apart_and_every_point_stays_a_ro
     note = aim_review_sheet.POINT_HEADERS.index("Code note")
     assert aim_review_completeness._table(wb, "All points")[0][note].startswith(
         "answered: the paper answers it on page 4"
+    )
+
+
+def test_a_checking_step_that_did_not_run_is_said_on_the_page_and_the_first_sheet(
+    world,
+):
+    """A failed AI step is shown and never makes a comment more confident: the second reader's "not applied" note of the run's
+    calls is said in plain words in the page data and on the summary sheet; a run where every step ran says "none"."""
+    from app import aim_review_view
+
+    calls = [
+        {"step": "aim_second_read", "model": "m", "ok": False, "code": "no_json"},
+        {
+            "step": "aim_second_read",
+            "model": "code",
+            "ok": False,
+            "code": "second reader not applied: no_json",
+        },
+    ]
+    got = aim_review_view.steps_not_applied(calls)
+    assert [(x["step"], x["why"]) for x in got] == [("aim_second_read", "no_json")]
+    assert got[0]["sentence"].startswith(
+        "The second reader did not run on this sheet (no_json)"
+    )
+    assert (
+        aim_review_view.steps_not_applied(
+            [{"step": "aim_judge", "ok": True, "code": None}]
+        )
+        == []
+    )
+    with db.connect() as conn:
+        conn.execute(
+            f"UPDATE {aim_review_store.RUNS} SET calls_json = ? WHERE run_id = ?",
+            (json.dumps(calls), RUN),
+        )
+    page = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general").json()
+    assert [x["step"] for x in page["steps_not_applied"]] == ["aim_second_read"]
+    ws = _sheet(client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general/sheet"))[
+        aim_review_sheet.SUMMARY
+    ]
+    cells = [str(c) for row in ws.iter_rows(values_only=True) for c in row if c]
+    assert any(
+        c.startswith("The second reader did not run on this sheet (no_json)")
+        for c in cells
     )

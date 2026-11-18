@@ -23,7 +23,7 @@ from . import book_names as BN
 from . import library as L
 from . import prompts as P
 from . import scope_books as SB
-from .carried import knowledge_rows, say_none
+from .carried import knowledge_rows, say_none, set_aside
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
     FLOOR_ITEMS,
@@ -54,6 +54,17 @@ WANTED_GOVERNS, WANTED_METHOD = "governing table", "method table"
 WANTED_SOURCES = (WANTED_GOVERNS, WANTED_METHOD)
 ITEM_KINDS = ("limit", "presence", "consistency", "material", "procedure")
 SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the required ones)
+#: The version of HOW a checklist is built (the build's prompts and code). A saved checklist from another version is not reused:
+#: the first run after a change rebuilds it once, and the old one stays readable as history (18 Nov 2026: a live review reused a
+#: checklist saved before the night's checklist fixes). Change it with every change to S2, S3, S3K, the attack or their code.
+#: "2026-11-18.1": knowledge items say which paper carries them; a cut answer is asked again in halves; a needed book outside
+#: the catalog gets an alias.
+#: "2026-11-18.2": one item per table of values that checks EVERY row (order across categories, consistent units and decades,
+#: values within the order of magnitude of public practice).
+#: "2026-11-18.3": one item per stated operating or service condition that checks the values the same paper chooses for it.
+#: "2026-11-19.1": carried_by names the package: what a schedule, annex or attachment of the same package normally carries
+#: is set aside for a Form of Agreement (and its S3 knowledge items too, not only S3K's).
+CHECKLIST_METHOD = "2026-11-19.1"
 
 
 def _dumps(o) -> str:
@@ -269,6 +280,9 @@ def _catalog(
     )
     by_id = {e["id"]: e for e in lib}
     kind, etype = ident.get("kind"), ident.get("equipment_type")
+    # the paper's own citations too, BEFORE the cited books join the catalog: a cited book with no labelled rule (a book just
+    # uploaded) enters with its pages, as the job's cited ids do (18 Nov 2026: it was left out, so it was never used)
+    cited = frozenset(cited) | BN.paper_cited(conn, paper_id, frozenset(by_id))
     required = {b: w for b, w in want["listed"].items() if b in by_id}
     refused = {}
     for b in list(required):
@@ -299,9 +313,6 @@ def _catalog(
     # cited ids, no text)
     cat = [c for c in cat if L.usable(by_id[c["book"]])]
     cat = [c for c in cat if c["book"] in required or not gate_ok(c["book"])]
-    cited = frozenset(cited) | BN.paper_cited(
-        conn, paper_id, frozenset(by_id)
-    )  # the paper's own citations too
     required |= {c["book"]: L.WHY_CITED for c in cat if c["book"] in cited and c["book"] not in required}  # fmt: skip
     cat, required = SB.keep(cat, required, kind, scope, cited)
     cat.sort(
@@ -401,6 +412,9 @@ def _clean_item(it: dict) -> dict:
         "kind": kind if kind in ITEM_KINDS else "presence",
         "source": src,
         "stands_in_for": str(it.get("stands_in_for") or "")[:80] if src != HELD else "",
+        "carried_by": " ".join(str(it.get("carried_by") or "").split())
+        if src != HELD
+        else "",
     }
 
 
@@ -455,7 +469,10 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
         for x in _answers(model, ident, sel, whole, i == 0, carries, lead)
     ]
     for out, batch in answered:
-        got = _items_of(out)
+        got, aside = set_aside(
+            _items_of(out)
+        )  # a knowledge item another paper of the package carries: not checked here
+        dropped += aside
         bad = [
             it
             for it in got
@@ -553,6 +570,8 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
         "floor": floor,
         "most": most,
         "kinds": _dumps(list(ITEM_KINDS)),
+        "table_rows": P.TABLE_ROWS_ASK,
+        "conditions": P.CONDITIONS_ASK,
     }
     try:
         out = model.ask(
@@ -721,6 +740,7 @@ def build(
     cl.update(
         {
             "key": key,
+            "method": CHECKLIST_METHOD,
             "built_from": BUILT_FROM_KNOWLEDGE if knows else BUILT_FROM,
             "made_at": made_at,
             "identity": {

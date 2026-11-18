@@ -78,6 +78,8 @@ class Result:
     seconds: float = 0.0
     #: The reference papers of a contract review and what was done with each (`references.check`): not rule books, not in `books`.
     references: list = field(default_factory=list)
+    #: The whole-paper check's verdicts as answered and what code did with each (`answered._recorded`): the local run record only.
+    answered: list = field(default_factory=list)
     #: {book document id: the reason the scope step chose it} for the books in `books` (empty text: no reason was recorded).
     book_why: dict = field(default_factory=dict)
 
@@ -114,6 +116,8 @@ DIFFERENT_ITEMS = "different_items"
 #: `code_note` part of a Question that states a pass or repeats the paper and asks nothing (`asks.mark`, after every AI step): kept on
 #: "All points" with its reason, never sent.
 NO_ASK = "no_ask"
+#: A point that a standard the paper cites is not held, so its requirements were not checked: on All points, never sent.
+CITED_NOT_HELD = "cited_not_held"
 NOT_SENT_NOTES = (
     NOT_JUDGED,
     PROVISIONAL,
@@ -122,6 +126,7 @@ NOT_SENT_NOTES = (
     DIFFERENT_ITEMS,
     ANSWERED,
     NO_ASK,
+    CITED_NOT_HELD,
 )
 
 
@@ -181,6 +186,7 @@ def run(
 
 __all__ = [
     "ANSWERED",
+    "CITED_NOT_HELD",
     "CONTRACTOR_FILLED",
     "DIFFERENT_ITEMS",
     "EDITED",

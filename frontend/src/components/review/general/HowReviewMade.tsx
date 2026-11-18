@@ -139,7 +139,7 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
         why="The first step. Every later step depends on this answer: which rule books, which checklist.">
         <div className="flex flex-wrap gap-2">
           <Fact label="Kind of paper" value={id.kind} />
-          <Fact label="Equipment or subject" value={id.equipment_type} />
+          <Fact label="Equipment or subject" value={id.equipment_type?.replace(/_/g, " ")} />
           <Fact label="Subject in the paper's words" value={id.subject} />
         </div>
         {!id.kind && !id.equipment_type && !id.subject && <p className="text-slateish-400">This review did not record what the paper is.</p>}
@@ -161,6 +161,25 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
           <ul className="space-y-1" data-testid="how-not-held">
             {review.not_held.map((b) => <li key={b.name}><span className="text-slateish-100">{b.name}</span>{b.why ? <span className="block text-xs text-slateish-400">Why needed: {b.why}</span> : null}</li>)}
           </ul>
+        )}
+        {review.references && review.references.length > 0 && (
+          <>
+            <h4 className="pt-1 text-sm font-semibold text-slateish-100">Parts of the contract read ({review.references.length})</h4>
+            <ul className="space-y-1" data-testid="how-references">
+              {review.references.map((r, i) => (
+                <li key={`${r.part}-${i}`} data-testid="how-reference"><span className="text-slateish-100">{r.part}</span>
+                  {r.title ? <span className="text-slateish-300"> ({r.title})</span> : null}
+                  <span className="block text-xs text-slateish-400">
+                    {r.status}
+                    {r.pages_held ? `; pages read ${r.pages_read ?? 0} of ${r.pages_held}` : ""}
+                    {r.questions ? `; ${r.settled ?? 0} of ${r.questions} questions settled` : ""}
+                    {r.compared ? `; ${r.compared} sentence${r.compared === 1 ? "" : "s"} of the Form compared${r.differs ? `, ${r.differs} differ` : ""}` : ""}
+                  </span>
+                  {r.reason ? <span className="block text-xs text-slateish-300">{r.reason}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         {review.unlisted_books.sentence && <p data-testid="general-unlisted" className="text-slateish-200">{review.unlisted_books.sentence}</p>}
       </Section>

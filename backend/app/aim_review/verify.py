@@ -142,13 +142,45 @@ def compare(
                 return _cannot(f"unit {pu} or {ru}: {NOT_COMPARED}")
         ok = (not verdict) if op == "!=" else bool(verdict)
     shown = f"{paper_value} {pu}".strip() + f" {op} " + f"{rule_value} {ru}".strip()
+    converted = (
+        _converted(paper_value, pu, rule_value, ru)
+        if pu and ru and pu != ru and not note
+        else ""
+    )
+    note = note or converted
     why = f"{shown}: {'true' if ok else 'false'}" + (f" ({note})" if note else "")
     return {
         "result": "pass" if ok else "fail",
         "why": why,
         "paper": [pv, pu],
         "rule": [rv, ru],
+        **({"converted": converted} if converted else {}),
     }
+
+
+def _converted(paper_value: str, pu: str, rule_value: str, ru: str) -> str:
+    """The limit in the paper value's unit, as code converted it ("23.5 barg is 340.8 psig"), for two units of one quantity on
+    ONE scale (both gauge, both absolute, or neither: a linear factor); "" otherwise (temperatures carry the unit code's own
+    note). Said, so a comparison across units is never silent."""
+    from app import claims
+
+    try:
+        p, r = (
+            claims.normalise(str(paper_value), pu),
+            claims.normalise(str(rule_value), ru),
+        )
+        if (
+            p.normalized_unit != r.normalized_unit
+            or p.reference != r.reference
+            or not p.normalized_value
+        ):
+            return ""
+        per_unit = float(p.normalized_value) / float(str(paper_value).replace(",", ""))
+        if per_unit <= 0 or "deg" in pu.lower() or "°" in pu:
+            return ""
+        return f"{rule_value} {ru} is {float(r.normalized_value) / per_unit:.4g} {pu}"
+    except (TypeError, ValueError, ZeroDivisionError, AttributeError):
+        return ""
 
 
 #: The comparison words of the app's one comparator vocabulary (`claims`), as the operators `compare` takes.
@@ -163,10 +195,38 @@ _OP_OF = {
 }
 
 
+#: A limit written AFTER its number: "300 psig or less", "5 mm and above", "40 C max." (the words before a number are read by the
+#: app's comparator vocabulary; this reads the few words straight after it, so a plain "<value> <unit> or less" is a limit too). A
+#: trailing max / min counts only when it ENDS the value phrase (end of text, punctuation, a closing bracket or a conjunction): a word
+#: after it makes it part of a noun phrase ("Class 150 maximum allowable pressure").
+_AFTER = re.compile(
+    r"^[\s,()]*(?:(?:or|and)\s+(?:(?P<low>less|lower|below|under|smaller|fewer)|(?P<high>more|greater|higher|above|over|larger))"
+    r"\b(?!\s+(?:than|often|frequent))|(?P<max>max(?:imum)?)(?=\s*(?:$|[.,;:)\]]|(?:and|or|but)\b))|(?P<min>min(?:imum)?)(?=\s*(?:$|[.,;:)\]]|(?:and|or|but)\b)))",
+    re.IGNORECASE,
+)
+
+
+def op_after(quote: str, end: int) -> str | None:
+    """The operator the few words right after position `end` of `quote` give ("or less" -> "<=", "or more" -> ">="), else None."""
+    m = _AFTER.match(quote[end:])
+    if not m:
+        return None
+    return "<=" if (m.group("low") or m.group("max")) else ">="
+
+
+def _span_end(quote: str, raw_value: str, raw_unit: str) -> int | None:
+    """Where the number as written (with its unit) ends in the quote; None when it is not found as written."""
+    pat = re.escape(str(raw_value)) + (
+        r"\s?" + re.escape(str(raw_unit)) if raw_unit else ""
+    )
+    m = re.search(r"(?<![\w.,/])" + pat + r"(?![\w])", quote)
+    return m.end() if m else None
+
+
 def quoted_value(value, quote: str) -> dict | None:
     """The number `value` as the verified `quote` itself states it: {"value", "unit", "op"} read by code from the quote's own
     words (`claims.extract_measurements` for a number with its unit, else `numparse.find_numbers` for a bare number; the operator
-    from the words before it, `claims.comparator_ending`). None when the quote does not state that number. Nothing is taken from
+    from the words before it, `claims.comparator_ending`, else the few words right after it, `op_after`). None when the quote does not state that number. Nothing is taken from
     the model here: a code stamp rests only on what the quotes say."""
     from app import claims, numparse
 
@@ -176,10 +236,12 @@ def quoted_value(value, quote: str) -> dict | None:
     for m in claims.extract_measurements(quote):
         got = numparse.parse_value(str(m.raw_value))
         if got is not None and abs(got - target) < 1e-9:
+            end = _span_end(quote, m.raw_value, m.raw_unit or "")
             return {
                 "value": str(m.raw_value),
                 "unit": str(m.raw_unit or ""),
-                "op": _OP_OF.get(str(m.comparator or "")),
+                "op": _OP_OF.get(str(m.comparator or ""))
+                or (op_after(quote, end) if end is not None else None),
             }
     for n in numparse.find_numbers(quote):
         if n.value is not None and abs(n.value - target) < 1e-9 and n.sign != "-":
@@ -187,7 +249,7 @@ def quoted_value(value, quote: str) -> dict | None:
             return {
                 "value": quote[n.start : n.end].strip(),
                 "unit": "",
-                "op": _OP_OF.get(words),
+                "op": _OP_OF.get(words) or op_after(quote, n.end),
             }
     return None
 
