@@ -87,17 +87,17 @@ def test_two_readers_who_both_find_a_fault_send_the_line_as_it_is(second):
         },  # no answer for this line
     ],
 )
-def test_a_disagreement_is_a_sent_question_with_both_readers_words(read):
+def test_a_disagreement_is_a_sent_question_with_the_first_readers_plain_words_and_both_readers_in_the_note(
+    read,
+):
     lines = [_line()]
     assert _read(lines, [read]) == 1
     d = lines[0]
     assert d["label"] == "Question" and aim_review.sendable(to_line(1, d))
-    assert d["comment"].startswith(
-        "To be checked: the two readers differ. First reader (Not met): First reader's words."
-    )
-    assert "Second reader (" in d["comment"] and d["code"].startswith(
-        f"{aim_review.READERS_DIFFER}: first Not met, second "
-    )
+    # the comment is the first reader's own plain words: no reader names, no labels, no process wording
+    assert d["comment"] == "First reader's words."
+    assert "reader" not in d["comment"].replace("First reader's words.", "").lower()
+    assert d["code"].startswith(f"{aim_review.READERS_DIFFER}: first Not met, second ")
     assert d["quote"] == GOOD  # the first reader's evidence stays
 
 
@@ -187,11 +187,8 @@ def test_a_line_a_reference_paper_checked_never_goes_to_the_second_reader():
     assert differs["label"] == "AI opinion" and "readers" not in differs["code"]
 
 
-def test_a_long_disagreement_is_cut_with_the_visible_mark():
-    from app.crs_completeness import CUT_MARK
-
+def test_a_long_first_readers_comment_is_kept_whole_nothing_is_cut():
+    """The comment is the first reader's own words, unchanged: nothing is cut (so no cut needs a mark); the readers' words are in the note."""
     lines = [_line(comment="x" * 2000)]
     _read(lines, [{"n": 1, "label": "Met", "page": 1, "quote": GOOD, "reason": "r"}])
-    assert len(lines[0]["comment"]) == R.COMMENT_MAX and lines[0]["comment"].endswith(
-        CUT_MARK
-    )
+    assert lines[0]["comment"] == "x" * 2000 and "readers differ" in lines[0]["code"]

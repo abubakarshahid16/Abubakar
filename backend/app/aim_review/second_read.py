@@ -5,15 +5,14 @@ field and the page, never the first reader's label or comment. Code decides:
   agree    = the second reader also finds a fault (Not met or AI opinion) and its quote is found by code on a page of the paper;
              the line is sent as it is, with the note `TWO_READERS_AGREE`;
   disagree = anything else (another label, no answer for the line, a quote code cannot find): the line is sent as a QUESTION to
-             be checked, with BOTH readers' words, and the note `READERS_DIFFER`; never dropped (no find is lost), never Met.
+             be checked (the comment is the first reader's own plain words), and the note `READERS_DIFFER: first <label>, second <label>[: <reason>]`
+             carries what the readers said; never dropped (no find is lost), never Met.
 A comparison by code (any result), a Question and a Met are never offered. One call per `READ_CHUNK` lines, the paper cached as for
 the judge; each call applied whole or not at all (a failed call changes nothing and the run's calls say so)."""
 
 from __future__ import annotations
 
 import logging
-
-from app.crs_completeness import CUT_MARK
 
 from . import PROVISIONAL, READERS_DIFFER, TWO_READERS_AGREE
 from . import prompts as P
@@ -29,8 +28,6 @@ OFFERED_LABELS = ("Not met", "AI opinion")
 #: A second reader's label that agrees there is a fault.
 FAULT = frozenset({"Not met", "AI opinion"})
 READ_CHUNK = 60
-#: A differing line's words at most this long; a longer text is cut WITH the cut mark (the first reader's words stay on the line).
-COMMENT_MAX = 900
 READ_MAX_TOKENS = 8000
 NOT_APPLIED = "second reader not applied"
 
@@ -149,18 +146,18 @@ def _apply(out: dict, shown: dict, paper) -> int:
             d["code"] = "; ".join(x for x in (d.get("code"), TWO_READERS_AGREE) if x)
             continue
         second = str((read or {}).get("label") or "no answer")
-        why = str((read or {}).get("reason") or "")[:200]
+        why = " ".join(str((read or {}).get("reason") or "").replace(";", ",").split())[
+            :200
+        ]
         first = d.get("label") or ""
-        words = (f"To be checked: the two readers differ. First reader ({first}): {d.get('comment') or ''} "
-                 f"Second reader ({second}): {why or 'no reason given'}")  # fmt: skip
-        d["comment"] = (
-            words if len(words) <= COMMENT_MAX else words[: COMMENT_MAX - 1] + CUT_MARK
-        )  # a cut is marked
+        # The comment stays the FIRST reader's own plain words: process wording (reader names, labels) never enters a comment's text.
+        # What the readers said goes in the line's code note, shown as a small tag on the card and in the team copy only.
         d["code"] = "; ".join(
             x
             for x in (
                 d.get("code"),
-                f"{READERS_DIFFER}: first {first}, second {second}",
+                f"{READERS_DIFFER}: first {first}, second {second}"
+                + (f": {why}" if why else ""),
             )
             if x
         )

@@ -140,6 +140,9 @@ def _clause_context(text: L.BookText, it: dict) -> str:
     return flat[max(0, i - CLAUSE_WINDOW // 2) : i + CLAUSE_WINDOW]
 
 
+#: The process note a paper-vs-paper comparison sentence carries (the AI chose the pairing). A card's "We ask" is read without it (the card's
+#: own `proven` field says how the comment is proven); the stored comment and the team file's Comment cell keep it whole.
+PAIRED_NOTE = " (the AI paired these two values; code compared them)"
 #: What a sent Question asks, as recorded on its line (`_ask`; recorded only, nothing leaves the comments because of it).
 ASK_CONCERN, ASK_CONFIRM, ASK_OPEN = "concern", "confirm", "open"
 
@@ -325,7 +328,9 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict, asking: bool = False)
         page = code_cmp.get("limit_page")
         where = f"on page {page}" if page else "on this paper"
         # what the paper shows, with its page; the pairing is the AI's choice and says so (a guess is shown as a guess)
-        return f"The stated {stated} {verb} the {rule} stated {where} (the AI paired these two values; code compared them); {ask}."
+        return (
+            f"The stated {stated} {verb} the {rule} stated {where}{PAIRED_NOTE}; {ask}."
+        )
     if base.get("standard"):
         where = f"{base['standard']} clause {base['clause']}".strip()
     else:

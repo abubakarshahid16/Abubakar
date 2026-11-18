@@ -38,6 +38,13 @@ const THREE = [
 ];
 
 describe("comment cards", () => {
+  it("shows a small tag when the two readers differ and never puts it in the comment's text", () => {
+    mount(review([card(1, { we_ask: "State the editions.", readers: { first: "AI opinion", second: "Met", reason: "Standards are stated." } })]));
+    expect(screen.getByTestId("card-readers")).toHaveTextContent("Two readers differ (AI opinion / Met)");
+    expect(screen.getByText("State the editions.")).toBeInTheDocument();
+    expect(screen.queryByText(/First reader/)).toBeNull();
+  });
+
   it("one card per comment: title, severity word, paper says, rule says, we ask, in that order", () => {
     mount(review(THREE));
     const first = screen.getAllByTestId("general-row")[0];

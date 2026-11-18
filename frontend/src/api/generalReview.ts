@@ -32,6 +32,8 @@ export interface GeneralLine {
   applies_to?: { page: number | null; field: string; quote: string }[];
   /** "compared by code", or the mark when it is an AI reading. */
   proven?: string;
+  /** Set when the two readers of this comment differ: shown as a small tag, never part of the comment's text. */
+  readers?: { first: string; second: string; reason: string } | null;
   /** The engineer's latest decision on this comment (append-only on the server); null when undecided. */
   decision?: CommentDecision | null;
 }

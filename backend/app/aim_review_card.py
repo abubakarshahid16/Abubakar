@@ -12,6 +12,8 @@ Severity, most severe first (a comment takes its most severe point):
 
 from __future__ import annotations
 
+import re
+
 from . import aim_review
 from .aim_review import steps as _steps
 from .aim_review_gate import AI_MARK
@@ -99,7 +101,7 @@ def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict
         "title": title(first),
         "paper_says": comment.get("quote") or "",
         "rule_says": rule_says(first),
-        "we_ask": first.get("comment") or "",
+        "we_ask": (first.get("comment") or "").replace(_steps.PAIRED_NOTE, ""),
         "applies_to": [
             {
                 "page": m.get("page"),
@@ -109,6 +111,7 @@ def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict
             for m in members
         ],
         "proven": proven(members),
+        "readers": readers_of(members),
     }
 
 
@@ -124,3 +127,50 @@ def add(
             c.update(card(c, members or [c], confirm))
             counts[c["severity"]] += 1
     return counts
+
+
+#: The wording a run made before the readers moved out of the comment text: "To be checked: the two readers differ. First reader
+#: (<label>): <the ask> Second reader (<label>): <reason>". Read back so an older run shows the same plain ask and tag.
+_OLD_FRAME = re.compile(
+    r"^To be checked: the two readers differ\.\s*First reader \((?P<first>[^)]*)\):\s*(?P<ask>.*?)(?:\s*Second reader \((?P<second>[^)]*)\):\s*(?P<why>.*))?$",
+    re.DOTALL,
+)
+_NOTE = re.compile(
+    r"readers differ: first (?P<first>[^,;]*), second (?P<second>[^:;]*)(?::\s*(?P<why>[^;]*))?"
+)
+
+
+def split_readers(
+    comment: str, code_note, hidden: bool = False
+) -> tuple[str, dict | None]:
+    """(the comment's plain words, the readers' tag or None). A run made now keeps the first reader's plain ask as the comment and
+    the readers in its code note; an older run's comment carried them in its text and is read back here. The tag: {"first", "second",
+    "reason"}; for a line of a book the viewer may not open only {"first": "", "second": "", "reason": ""} (the words may hold rule
+    words, rule 5)."""
+    text = str(comment or "")
+    old = _OLD_FRAME.match(text)
+    found = _NOTE.search(str(code_note or ""))
+    tag = None
+    if old:
+        text = old.group("ask").strip()
+        tag = {
+            "first": old.group("first") or "",
+            "second": old.group("second") or "",
+            "reason": (old.group("why") or "").strip(),
+        }
+    if found:
+        tag = {
+            "first": found.group("first").strip(),
+            "second": found.group("second").strip(),
+            "reason": (found.group("why") or "").strip(),
+        }
+    elif tag is None and "readers differ" in str(code_note or ""):
+        tag = {"first": "", "second": "", "reason": ""}
+    if tag is not None and hidden:
+        tag = {"first": "", "second": "", "reason": ""}
+    return text, tag
+
+
+def readers_of(members: list[dict]) -> dict | None:
+    """The tag of a card: the first member that carries one."""
+    return next((m["readers"] for m in members if m.get("readers")), None)
