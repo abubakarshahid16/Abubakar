@@ -284,3 +284,19 @@ def test_a_line_with_words_or_an_open_value_is_not_held_for_having_no_words():
     ):
         asks.mark([d])
         assert aim_review.sendable(to_line(1, d))
+
+
+def test_a_line_with_only_codes_absence_filler_and_nothing_named_is_never_sent():
+    """The spec review of 19 Nov: code's own "not on any page" line, with no field, page or quote, asks nothing the contractor can
+    act on; it stays on All points. The same words beside a named field, a page or a quote are kept (a real missing value)."""
+    from app import aim_review
+    from app.aim_review.engine import to_line
+    from app.aim_review.steps import NOT_ON_ANY_PAGE_WORDS
+
+    bare = decided(NOT_ON_ANY_PAGE_WORDS, field="", page=None, quote="")
+    assert asks.mark([bare]) == 1 and not aim_review.sendable(to_line(1, bare))
+    for named in (decided(NOT_ON_ANY_PAGE_WORDS, field="Seal plan", page=None, quote=""),
+                  decided(NOT_ON_ANY_PAGE_WORDS, field="", page=2, quote=""),
+                  decided("The seal plan is not shown on any page.", field="", page=None, quote="")):  # fmt: skip
+        asks.mark([named])
+        assert aim_review.sendable(to_line(1, named))

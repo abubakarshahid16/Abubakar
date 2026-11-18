@@ -67,7 +67,7 @@ def mark(decided: list[dict]) -> int:
             continue
         why = (
             NO_WORDS_REASON
-            if has_no_words(d)
+            if has_no_words(d) or only_code_filler(d)
             else (NO_ASK_REASON if asks_nothing(d) else "")
         )
         if why:
@@ -79,6 +79,20 @@ def mark(decided: list[dict]) -> int:
 #: Why a line whose own comment has no words is not sent (update 5's quick score: the judge gave a pass as an empty comment and
 #: numbers, code marked it "concern", and the empty line was sent alone or as a group of empty members).
 NO_WORDS_REASON = "the comment has no words"
+
+
+def only_code_filler(line: dict) -> bool:
+    """The line's only words are code's own absence filler (`steps.NOT_ON_ANY_PAGE_WORDS`, written when every part of a long
+    paper said "not here") and it names no field, no page and no quote: it asks the contractor nothing it can act on (the spec
+    review of 19 Nov: 38 of 43 WRONG were such lines). Matched on code's own constant, never on the AI's words."""
+    from .steps import NOT_ON_ANY_PAGE_WORDS
+
+    return (
+        str(line.get("comment") or "").strip() == NOT_ON_ANY_PAGE_WORDS
+        and not str(line.get("field") or "").strip()
+        and line.get("page") is None
+        and not str(line.get("quote") or "").strip()
+    )
 
 
 def has_no_words(line: dict) -> bool:
