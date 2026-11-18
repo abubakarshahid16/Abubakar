@@ -388,3 +388,20 @@ def test_the_online_search_sends_only_public_standard_names():
     assert all(
         L.is_public_name(k) for k in known
     )  # every name that may leave is a public publisher's
+
+
+def test_a_book_gone_from_the_library_since_the_checklist_was_saved_is_not_usable(
+    aim_db,
+):
+    """Fix check a098e8f8, N3: a saved checklist's book re-roled to a submittal (so no longer in the library) is not used."""
+    _company_book(aim_db, role=OWN)
+    assert L.not_offered_company(aim_db, PAPER, {COMPANY}) == frozenset()
+    with aim_db:
+        aim_db.execute(
+            "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
+            ("CONTRACTOR_SUBMITTAL", COMPANY),
+        )
+    assert L.not_offered_company(aim_db, PAPER, {COMPANY}) == frozenset({COMPANY})
+    assert L.not_offered_company(aim_db, PAPER, {"doc_never_held"}) == frozenset(
+        {"doc_never_held"}
+    )

@@ -344,3 +344,27 @@ def test_through_s4_a_scope_reason_stands_only_with_the_verified_scope():
 
     assert judged({"scope_quote": SCOPE, "scope_page": 1})["label"] == "Does not apply"
     assert judged({"scope_quote": "", "scope_page": None})["label"] == "Question"
+
+
+@pytest.mark.parametrize(
+    "comment,claims",
+    [
+        ("The paper is for a single-stage pump.", False),  # a hyphen before "stage"
+        ("The document applies to a three phase induction motor.", False),  # a count word
+        ("The paper covers the three-phase induction motor.", False),
+        ("The study is about the second stage of the compressor.", False),  # an ordinal word
+        ("The procedure covers the 2nd stage only.", False),  # an ordinal number
+        ("Beyond the stated scope of supply of the vendor.", False),  # a supply scope
+        ("Outside the paper's stated scope of supply.", False),
+        ("The procedure covers the design phase only; this item is for operation.", True),
+        ("The study is limited to the construction stage.", True),
+        ("Outside the paper's stated scope: commissioning.", True),
+    ],
+)  # fmt: skip
+def test_the_scope_phrase_is_the_papers_phase_never_a_count_or_a_supply_scope(
+    comment, claims
+):
+    """Fix check a098e8f8, N1."""
+    assert S._scope_reason(comment) is claims
+    got = S._scope_unverified({"label": "Does not apply", "comment": comment}, False)
+    assert (got["label"] == "Question") is claims

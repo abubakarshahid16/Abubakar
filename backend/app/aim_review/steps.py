@@ -405,13 +405,74 @@ def s4_judge(
 
 #: A reason that says the PAPER'S scope, phase or stage differs ("outside the paper's stated scope", "the procedure covers the
 #: design phase only"): never a supply scope ("the vendor's scope of supply") nor the word "scope" alone.
-_SCOPE_REASON = re.compile(
+_SCOPE_OUTSIDE = re.compile(
     r"\b(?:outside|beyond|not\s+within|out\s+of)\s+(?:the\s+)?"
-    r"(?:(?:paper|document|procedure|study)'?s\s+(?:stated\s+)?|stated\s+)scope\b"
-    r"|\bthe\s+(?:paper|document|procedure|study)\s+(?:only\s+)?(?:covers|is\s+(?:for|about|limited\s+to)|applies\s+to)\b"
-    r"[^.;]*?\b(?:phase|stage)s?\b",
+    r"(?:(?:paper|document|procedure|study)'?s\s+(?:stated\s+)?|stated\s+)scope\b(?!\s+of\s+supply)",
     re.IGNORECASE,
 )
+_SCOPE_COVERS = re.compile(
+    r"\bthe\s+(?:paper|document|procedure|study)\s+(?:only\s+)?(?:covers|is\s+(?:for|about|limited\s+to)|applies\s+to)\b"
+    r"([^.;]*)",
+    re.IGNORECASE,
+)
+_PHASE_WORD = re.compile(r"\b(?:phase|stage)s?\b", re.IGNORECASE)
+#: A word before "phase" / "stage" that makes it a COUNT or an order ("three-phase", "the second stage of the item"),
+#: not a life-cycle phase of the paper.
+_COUNT_WORDS = frozenset(
+    [
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "single",
+        "double",
+        "triple",
+        "multi",
+        "multiple",
+        "first",
+        "second",
+        "third",
+        "fourth",
+        "fifth",
+        "sixth",
+        "final",
+        "last",
+        "next",
+        "each",
+        "every",
+        "several",
+        "many",
+        "both",
+    ]
+)
+
+
+def _scope_reason(comment: str) -> bool:
+    """Does the reason say the PAPER's scope, phase or stage differs? "outside the paper's (stated) scope" (never "... scope of
+    supply"), or "the paper / procedure / study covers / is for / applies to ... phase / stage" where that phase or stage is not
+    a count or an order: not after a hyphen ("single-stage"), a count word ("three phase") or an ordinal ("2nd stage")."""
+    text = str(comment or "")
+    if _SCOPE_OUTSIDE.search(text):
+        return True
+    for clause in (m.group(1) for m in _SCOPE_COVERS.finditer(text)):
+        for w in _PHASE_WORD.finditer(clause):
+            before = clause[: w.start()]
+            if before.endswith("-"):
+                continue
+            prev = re.search(r"(\w+)\W*$", before)
+            word = prev.group(1).lower() if prev else ""
+            if word in _COUNT_WORDS or re.fullmatch(r"\d+(?:st|nd|rd|th)?", word):
+                continue
+            return True
+    return False
+
+
 SCOPE_NOT_VERIFIED = (
     "a scope reason with no scope the paper states (verified): a question"
 )
@@ -423,7 +484,7 @@ def _scope_unverified(j: dict, verified: bool) -> dict:
     `_decide` notes why). Code's own relabels (a knowledge item's Met) are never touched: they happen later, in `_decide`."""
     if verified or not isinstance(j, dict) or j.get("label") != "Does not apply":
         return j
-    if not _SCOPE_REASON.search(str(j.get("comment") or "")):
+    if not _scope_reason(j.get("comment")):
         return j
     return {**j, "label": "Question", "scope_unverified": True}
 

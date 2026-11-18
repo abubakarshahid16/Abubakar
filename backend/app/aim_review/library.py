@@ -248,11 +248,12 @@ def base_key(key: str) -> str:
 
 
 def not_offered_company(conn, paper_id: str, ids: set[str]) -> frozenset[str]:
-    """Of `ids`, the held documents that are not usable rule books for this paper (`usable`)."""
+    """Of `ids`, the documents that are not usable rule books for this paper (`usable`). An id no longer in the library (re-roled,
+    for example to a submittal, since the checklist was saved) is NOT usable either."""
     if not ids:
         return frozenset()
     by_id = {e["id"]: e for e in library(conn, exclude=frozenset({str(paper_id)}))}
-    return frozenset(b for b in ids if b in by_id and not usable(by_id[b]))
+    return frozenset(b for b in ids if not usable(by_id.get(b)))
 
 
 def company_books_not_cited(conn, paper_id: str, books: dict) -> frozenset[str]:
