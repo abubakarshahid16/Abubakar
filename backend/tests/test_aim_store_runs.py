@@ -417,3 +417,25 @@ def test_old_runs_and_their_files_are_unchanged_by_the_schema_and_a_general_run(
     assert old_only["status"] == "running"
     assert before != after  # the new run's own review_runs row
     assert hashlib.sha256(old_file.read_bytes()).hexdigest() == before_file
+
+
+def test_a_line_table_made_before_the_named_books_column_is_upgraded_and_still_stores(
+    temp_storage,
+):
+    """A rehearsal or live database whose `aim_lines` was made before `named_books_json`: the start-up's `ensure_schema` adds the
+    column at the END (additive), so the positional insert of `finish_run` lands every value in its own column."""
+    conn = db.connect()
+    old = next(
+        c for c in store._SCHEMA if f"TABLE IF NOT EXISTS {store.LINES}" in c
+    ).replace("        named_books_json  TEXT,\n", "")
+    assert "named_books_json" not in old
+    conn.execute(old)
+    conn.commit()
+    store.ensure_schema(conn)
+    cols = [r[1] for r in conn.execute(f"PRAGMA table_info({store.LINES})")]
+    assert cols[-1] == "named_books_json"
+    run_id = _started("gen_old_table")
+    named = [{"id": "doc_inv_book", "name": "Invented Std 1"}]
+    store.finish_run(conn, run_id, _result([_line(named_books=named)]), NOW)
+    got = store.lines(conn, run_id)[0]
+    assert got["named_books"] == named and got["label"] == _line()["label"]
