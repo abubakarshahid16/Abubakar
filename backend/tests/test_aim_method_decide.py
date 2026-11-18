@@ -7,6 +7,7 @@ import json
 import pytest
 
 from app.aim_review import editor as ED
+from app.aim_review import engine as E
 from app.aim_review import steps as S
 from app.aim_review.paper import Paper
 
@@ -1284,3 +1285,80 @@ def test_a_group_with_a_fake_line_a_single_line_or_a_line_twice_is_refused():
         "same point as line 1",
         "",
     ]  # [2, 3] overlaps: refused
+
+
+# ---- a big sheet: a compact answer, at most two calls, each applied whole or not at all (valve rescore c5729d62) ---------------
+
+
+def _big_sheet(n=180):
+    return [_q(f"C{i:03d}", f"field {i}", 1 + i % 4) for i in range(1, n + 1)]
+
+
+class _Splitter:
+    """Answers each editor call with a group of the first two lines it was shown (and, on demand, a group across calls)."""
+
+    def __init__(self, fail_first=False, cross=None):
+        self.meter = E.Meter(cap=0.0)
+        self.shown, self.fail_first, self.cross = [], fail_first, cross
+
+    def ask(self, **kw):
+        import re
+
+        ns = [int(x) for x in re.findall(r'"n": (\d+)', kw["prompt"])]
+        self.shown.append(ns)
+        if self.fail_first and len(self.shown) == 1:
+            raise E.StepFailed("aim_edit: stop_max_tokens")
+        return {"moves": [], "groups": [ns[:2], *([self.cross] if self.cross else [])]}
+
+
+def test_a_180_line_sheet_is_edited_in_two_calls_each_whole_and_never_overlapping():
+    lines = _big_sheet()
+    model = _Splitter(cross=[1, 180])  # a group across the two calls: refused
+    ED.s5_edit(model, GROUP_PAPER, lines, "claude-sonnet-5-5")
+    assert len(model.shown) == 2 and set(model.shown[0]).isdisjoint(model.shown[1])
+    assert (
+        sorted(model.shown[0] + model.shown[1]) == list(range(1, 181))
+        and max(map(len, model.shown)) <= 90
+    )
+    first, second = model.shown[0][:2], model.shown[1][:2]
+    assert [lines[n - 1]["code"] for n in first] == [
+        f"same point as line {first[0]}"
+    ] * 2
+    assert [lines[n - 1]["code"] for n in second] == [
+        f"same point as line {second[0]}"
+    ] * 2
+    assert (
+        lines[179]["code"] == ""
+    )  # the group across the two calls ([1, 180]) is refused
+
+
+def test_a_cut_answer_is_never_applied_and_the_run_says_so():
+    lines = _big_sheet()
+    model = _Splitter(fail_first=True)
+    ED.s5_edit(model, GROUP_PAPER, lines, "claude-sonnet-5-5")
+    assert all(
+        lines[n - 1]["code"] == "" for n in model.shown[0]
+    )  # the cut call: nothing applied
+    assert [lines[n - 1]["code"] for n in model.shown[1][:2]] == [
+        f"same point as line {model.shown[1][0]}"
+    ] * 2
+    notes = [
+        c.code for c in model.meter.calls if c.step == "aim_edit" and c.model == "code"
+    ]
+    assert notes == ["editor not applied: answer too long"]
+
+
+def test_a_compact_answer_for_180_lines_is_parsed_in_full():
+    import json
+
+    from app.aim_review import prompts as P
+
+    answer = {
+        "moves": [{"n": 7, "reason": "repeats", "of": 3}],
+        "groups": [[i, i + 1] for i in range(1, 180, 2)],
+    }
+    got = P.parse_json(json.dumps(answer, separators=(",", ":")))
+    assert got == answer and len(got["groups"]) == 90
+    assert (
+        "COMPACT" in P.EDIT_TASK and ED.EDIT_MAX_TOKENS == 16000 and ED.EDIT_CHUNK == 80
+    )
