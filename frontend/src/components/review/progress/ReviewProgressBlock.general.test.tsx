@@ -19,7 +19,7 @@ const general = (label: string, done: number, d: ReviewProgressDetail) => ({
 
 describe("isGeneralJob", () => {
   it("is the five named steps, or a queued job of five", () => {
-    for (const [i, name] of GENERAL_STEPS.entries()) expect(isGeneralJob({ progress_total: 5, progress_label: name })).toBe(true);
+    for (const name of GENERAL_STEPS) expect(isGeneralJob({ progress_total: 5, progress_label: name })).toBe(true);
     expect(isGeneralJob({ progress_total: 5, progress_label: "queued" })).toBe(true);
   });
   it("is not the earlier engine's job", () => {
