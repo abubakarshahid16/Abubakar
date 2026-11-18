@@ -585,6 +585,18 @@ def _cost(run: dict) -> dict:
     )
 
 
+def _label_counts(points: list[dict]) -> tuple[dict[str, int], dict[str, int]]:
+    """(points per method label, every label always present; points per shown label, as stored)."""
+    by_label = {
+        label: sum(1 for p in points if p["label"] == label)
+        for label in aim_review.LABELS
+    }
+    by_shown: dict[str, int] = {}
+    for p in points:
+        by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
+    return by_label, by_shown
+
+
 def build(conn, run: dict, scope=None) -> dict:
     """The page's JSON for ONE stored general run, without the completeness answer (that needs the built file). Raises
     `NotFinished` for a run that has not ended."""
@@ -599,13 +611,7 @@ def build(conn, run: dict, scope=None) -> dict:
     comments, confirmations = comments_and_confirmations(points)
     by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
     aim_review_decisions.attach(conn, run["run_id"], comments, confirmations)
-    by_label = {
-        label: sum(1 for p in points if p["label"] == label)
-        for label in aim_review.LABELS
-    }
-    by_shown: dict[str, int] = {}
-    for p in points:
-        by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
+    by_label, by_shown = _label_counts(points)
     identity = _json(run.get("identity_json"), {})
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
