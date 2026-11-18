@@ -41,7 +41,7 @@ def papers(temp_storage, monkeypatch):  # noqa: F811
             "DELETE FROM document_classification WHERE document_id = ?",
             (ids["norole"],),
         )
-    ids["admin"] = _user("adm", [v for v in ids.values()], admin=True)
+    ids["admin"] = _user("adm", list(ids.values()), admin=True)
     ids["reader"] = _user("rdr", [ids["submittal"], ids["book"], ids["norole"]])
     return ids
 
