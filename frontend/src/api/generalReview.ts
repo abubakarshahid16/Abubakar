@@ -135,6 +135,8 @@ export interface GeneralReview {
   /** Piece G: the measured score of this paper's kind (found of 10 on planted test copies, target 7); null when no kind is named. */
   measured?: GeneralMeasured | null;
   cost: { usd: number | null; note?: string };
+  /** A checking step whose answer was not applied to this sheet, in plain words (a failed AI step is shown in the run). */
+  steps_not_applied?: { step: string; why: string; sentence: string }[];
   /** Every call of the run, in order: the "How this review was made" view groups them by step. */
   calls?: GeneralCall[];
   seconds?: number | null;

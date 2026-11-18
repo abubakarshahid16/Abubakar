@@ -93,6 +93,15 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         </div>
       )}
 
+      {(review.steps_not_applied ?? []).length > 0 && (
+        <div role="note" data-testid="general-steps-not-applied" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
+          <strong>A checking step did not run on this sheet.</strong>
+          <ul className="list-disc pl-5 text-slateish-200">
+            {(review.steps_not_applied ?? []).map((x) => <li key={x.step}>{x.sentence}</li>)}
+          </ul>
+        </div>
+      )}
+
       <p data-testid="general-counts" className="text-sm text-slateish-200">
         {review.counts.points} points reviewed, {review.counts.comments} comments sent
         {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).
