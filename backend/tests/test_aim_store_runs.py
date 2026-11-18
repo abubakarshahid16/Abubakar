@@ -455,3 +455,41 @@ def test_a_code_decided_not_cited_line_says_so_never_ai_opinion(temp_storage):
     store.finish_run(conn, run_id, _result(lines), NOW)
     got = [ln["shown_label"] for ln in store.lines(conn, run_id)]
     assert got == [store.NOT_CITED_SHOWN, "AI opinion: does not apply"]
+
+
+# ---- what a Question asks and whether its value is left open: recorded on the line (18 Nov 2026) ---------------------------------
+
+
+def test_the_ask_and_the_deferred_flag_round_trip_and_an_unknown_ask_is_null(
+    temp_storage,
+):
+    run_id = _started()
+    conn = db.connect()
+    lines = [_line(ask="confirm"), _line(item_id="C02", ask="open", deferred=True), _line(item_id="C03", ask="maybe"),
+             _line(item_id="C04")]  # fmt: skip
+    store.finish_run(conn, run_id, _result(lines), NOW)
+    got = store.lines(conn, run_id)
+    assert [x["ask"] for x in got] == ["confirm", "open", None, None]
+    assert [x["deferred"] for x in got] == [0, 1, 0, 0]
+
+
+def test_a_table_made_before_the_two_columns_gets_them_and_takes_the_insert(
+    temp_storage,
+):
+    run_id = _started()
+    conn = db.connect()
+    conn.execute(f"DROP TABLE {store.LINES}")
+    conn.execute(
+        f"CREATE TABLE {store.LINES} (run_id TEXT NOT NULL, line_no INTEGER NOT NULL, item_id TEXT, label TEXT NOT NULL,"
+        " shown_label TEXT NOT NULL, field TEXT, page INTEGER, quote TEXT, quote_unverified TEXT, comment TEXT, standard TEXT,"
+        " book_document_id TEXT, clause TEXT, source TEXT, topic TEXT, code_note TEXT, numbers_json TEXT,"
+        " code_compare_json TEXT, PRIMARY KEY (run_id, line_no))"
+    )
+    store.ensure_schema(conn)
+    store.finish_run(conn, run_id, _result([_line(ask="concern")]), NOW)
+    got = store.lines(conn, run_id)
+    assert (
+        got[0]["ask"] == "concern"
+        and got[0]["deferred"] == 0
+        and got[0]["comment"] == "invented comment"
+    )

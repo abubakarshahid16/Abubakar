@@ -1021,3 +1021,35 @@ def test_the_editors_same_point_mark_is_not_shown_in_the_code_note(world):
         None,
         "provisional_unchecked",
     ]
+
+
+# ---- the recorded ask, the value-left-open flag and the judge's numbers reach the page and the file (18 Nov 2026) --------------
+
+
+def test_the_page_and_all_points_carry_the_ask_the_open_flag_and_the_numbers(world):
+    nums = {
+        "paper_value": "25",
+        "paper_unit": "bar",
+        "operator": "<=",
+        "rule_value": "20",
+        "rule_unit": "bar",
+    }
+    rows = [
+        _line(1, "Question", "Question", ask="concern", numbers_json=json.dumps(nums)),
+        _line(2, "Question", "Question", ask="open", deferred=1),
+        _line(3, "Question", "Question"),  # an older line: nothing recorded
+    ]  # fmt: skip
+    make_run("gen_ask", rows, created="2026-11-18T22:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_ask").json()
+    pts = body["points"]
+    assert [p["ask"] for p in pts] == ["concern", "open", ""]
+    assert [p["deferred"] for p in pts] == [False, True, False]
+    assert pts[0]["numbers"] == nums and pts[1]["numbers"] is None
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_ask"))
+    table = aim_review_completeness._table(wb, "All points")
+    h = aim_review_sheet.POINT_HEADERS
+    assert [r[h.index("Asks")] for r in table] == ["concern", "open", None]
+    assert [r[h.index("Value left open")] for r in table] == [None, "yes", None]
+    assert table[0][h.index("Numbers")] == "paper 25 bar <= rule 20 bar"
+    assert body["completeness"]["ok"] is True

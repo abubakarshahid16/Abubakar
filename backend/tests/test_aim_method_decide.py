@@ -1362,3 +1362,73 @@ def test_a_compact_answer_for_180_lines_is_parsed_in_full():
     assert (
         "COMPACT" in P.EDIT_TASK and ED.EDIT_MAX_TOKENS == 16000 and ED.EDIT_CHUNK == 80
     )
+
+
+# ---- what a Question asks: recorded on the line, decided by code from the judge's mark and the run's state (18 Nov 2026) -------
+
+ASK_STATED = "Operating temperature: 80 degC at the outlet"
+ASK_OPEN_QUOTE = "Noise level of the test item: to be advised by the vendor later"
+
+
+@pytest.mark.parametrize(
+    "said, quote, page, extra, asks",
+    [
+        (
+            "confirm",
+            ASK_STATED,
+            1,
+            {},
+            S.ASK_CONFIRM,
+        ),  # the judge's own word, nothing suspected, a stated value
+        ("concern", ASK_STATED, 1, {}, S.ASK_CONCERN),
+        (None, ASK_STATED, 1, {}, S.ASK_CONCERN),  # no mark: the safe side
+        ("maybe", ASK_STATED, 1, {}, S.ASK_CONCERN),  # an unknown mark: the safe side
+        (
+            "confirm",
+            ASK_OPEN_QUOTE,
+            2,
+            {},
+            S.ASK_OPEN,
+        ),  # code reads the quote as left open: never "confirm"
+        (
+            "confirm",
+            ASK_STATED,
+            1,
+            {"deferred": True},
+            S.ASK_OPEN,
+        ),  # the judge's own deferred flag
+        (
+            "confirm",
+            ASK_STATED,
+            1,
+            {"numbers": {"paper_value": "80", "operator": "<=", "rule_value": "70"}},
+            S.ASK_CONCERN,
+        ),
+    ],
+)
+def test_a_question_records_what_it_asks(said, quote, page, extra, asks):
+    j = {"label": "Question", "quote": quote, "page": page, "ask": said, **extra}
+    d = S._decide(_item(), j, PAPER, BOOKS, "")
+    assert d["label"] == "Question" and d["ask"] == asks
+
+
+def test_only_a_question_records_an_ask_and_a_failed_compare_is_a_concern():
+    met = {"label": "Met", "quote": ASK_STATED, "page": 1, "ask": "confirm"}
+    assert S._decide(_item(), met, PAPER, BOOKS, "")["ask"] == ""
+    assert (
+        S._ask({"ask": "confirm"}, "Question", False, {"result": "fail"}, None)
+        == S.ASK_CONCERN
+    )
+    assert (
+        S._ask({"ask": "confirm"}, "Question", False, None, None, "provisional_fails")
+        == S.ASK_CONCERN
+    )
+
+
+def test_the_judge_is_asked_for_the_mark():
+    from app.aim_review import prompts as P
+
+    assert (
+        '"ask": for a "Question" only: "concern"' in P.S4_TASK
+        and '"confirm" if nothing is suspected' in P.S4_TASK
+    )
