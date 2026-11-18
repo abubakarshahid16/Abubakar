@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from . import agent_review_open_points as agent_open_points_mod
+from . import aim_review_dashboard as aim_review_dashboard_mod
 from . import aim_review_store as aim_review_store_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
@@ -1529,18 +1530,21 @@ def review_dashboard(
     runs = submittal_review_mod.list_review_runs(allowed_document_ids=allowed)
     reviewed = {run["submittal_document_id"] for run in runs
                 if (run.get("status") or "") == "completed"}
-    # THE LATEST REVIEW OF EACH PAPER (V2, audit: 87 runs over 5 papers made "82 awaiting a decision" and "81 need
-    # attention" read as 82 and 81 open jobs). `list_review_runs` is newest first, so the first run of a paper is its
-    # latest. Earlier runs stay readable in the review list; they are not counted on these cards.
-    all_runs, seen_papers, runs = runs, set(), []
-    for run in all_runs:
+    # THE NEWEST REVIEW OF EACH PAPER, whichever method made it (V2 audit: 87 runs over 5 papers made "82 awaiting a decision" read as
+    # 82 open jobs; order 14: a general review is counted too, a signed one is done). `list_review_runs` is newest first. Earlier
+    # runs stay readable in the review list; they are not counted on these cards.
+    all_old, seen_papers, old_latest = runs, set(), []
+    for run in all_old:
         if run["submittal_document_id"] not in seen_papers:
             seen_papers.add(run["submittal_document_id"])
-            runs.append(run)
-    running = sum(1 for run in runs if (run.get("status") or "") == "running")
+            old_latest.append(run)
+    newest = aim_review_dashboard_mod.newest(connect(), allowed, old_latest, len(all_old))
+    reviewed |= {g["submittal_document_id"] for g in newest.general if g["status"] == "completed"}
+    runs = newest.old  # the papers whose newest review is the earlier method keep the earlier method's counts
+    running = sum(1 for run in runs if (run.get("status") or "") == "running") + newest.running_general()
     awaiting = sum(1 for run in runs
                    if (run.get("status") or "") == "completed"
-                   and not run.get("engineer_final_code"))
+                   and not run.get("engineer_final_code")) + newest.awaiting_general()
 
     # NEEDS ATTENTION, AND IT SAYS WHY. A bare tile reading "3" is a number a
     # reader has to trust; the breakdown is what makes it checkable.
@@ -1581,7 +1585,9 @@ def review_dashboard(
             for name in applicability_mod.missing_references(library, names):
                 missing.add(applicability_mod.normalise_identifier(name))
 
-    recent = [_run_summary(run, scope) for run in runs[:5]]
+    for reason, count in newest.reasons().items():
+        reasons[reason] = reasons.get(reason, 0) + count
+    recent = [_run_summary(item, scope) if kind == "old" else item for kind, item in newest.ordered[:5]]
     return {
         "submittals_total": len(submittals),
         "submittals_awaiting_review": sum(
@@ -1591,9 +1597,10 @@ def review_dashboard(
         "standards_referenced_missing": len(missing),
         "reviews_running": running,
         "reviews_awaiting_decision": awaiting,
-        "reviews_total": len(runs),
-        "papers_with_a_review": len(runs),
-        "earlier_runs_not_counted": len(all_runs) - len(runs),
+        "reviews_signed": newest.signed_general(),
+        "reviews_total": len(newest.ordered),
+        "papers_with_a_review": len(newest.ordered),
+        "earlier_runs_not_counted": newest.all_runs - len(newest.ordered),
         "needs_attention": sum(reasons.values()),
         "needs_attention_reasons": reasons,
         "recent": recent,

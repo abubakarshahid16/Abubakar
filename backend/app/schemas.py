@@ -2860,6 +2860,9 @@ class ReviewRunSummary(BaseModel):
     #: A general review's own numbers {points, comments, confirmations, stopped}; null for an earlier review and for a general run
     #: that has not ended. Never the earlier method's findings tiers.
     general_counts: dict | None = None
+    #: A general review's sign-off: "signed", "changed" (a decision came after the sign-off) or "not_signed"; null for an earlier review and
+    #: for a general run that has not ended.
+    general_signoff: str | None = None
     #: Every distinct equipment tag the run's findings name, in order; empty
     #: (shown as nothing, never a guess) when the datasheet states none.
     equipment_tags: list[str] = []
@@ -3108,6 +3111,8 @@ class ReviewDashboard(BaseModel):
     standards_referenced_missing: int = 0
     reviews_running: int = 0
     reviews_awaiting_decision: int = 0
+    #: Papers whose newest review is a general review that an engineer has signed off (done, not awaiting anything).
+    reviews_signed: int = 0
     #: Latest review of each paper (earlier runs of the same paper are not counted here; see `earlier_runs_not_counted`).
     reviews_total: int = 0
     papers_with_a_review: int = 0

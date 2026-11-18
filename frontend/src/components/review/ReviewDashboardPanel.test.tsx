@@ -98,7 +98,7 @@ describe("four cards, each with its population", () => {
     expect(screen.getByText(
       "21 of 21 cited standards are not in the library")).toBeInTheDocument();
     expect(screen.getByText(
-      "0 running · 8 awaiting an engineer's code")).toBeInTheDocument();
+      "0 running · 8 awaiting an engineer's sign-off or code")).toBeInTheDocument();
   });
 
   it("says WHY anything needs attention, never a bare number", async () => {
@@ -131,7 +131,7 @@ describe("the one button", () => {
     const { onOpenReview } = panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload a document and review/ }));
+      await screen.findByRole("button", { name: /Upload a document and run AI review/ }));
     await userEvent.selectOptions(
       screen.getByLabelText(/already loaded/i), "doc_sub");
     await userEvent.click(screen.getByRole("button", { name: /^Run AI review$/ }));
@@ -154,7 +154,7 @@ describe("the one button", () => {
     const { onOpenReview } = panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload a document and review/ }));
+      await screen.findByRole("button", { name: /Upload a document and run AI review/ }));
     await userEvent.selectOptions(
       screen.getByLabelText(/already loaded/i), "doc_sub");
     await userEvent.click(screen.getByRole("button", { name: /^Run AI review$/ }));
@@ -169,7 +169,7 @@ describe("the one button", () => {
     const { onOpenDocuments } = panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload a document and review/ }));
+      await screen.findByRole("button", { name: /Upload a document and run AI review/ }));
     await userEvent.click(
       screen.getByRole("button", { name: /Upload it on the Documents page/ }));
 
@@ -180,7 +180,7 @@ describe("the one button", () => {
     panel(vi.fn(), vi.fn(), false);
 
     const launch = await screen.findByRole(
-      "button", { name: /Upload a document and review/ });
+      "button", { name: /Upload a document and run AI review/ });
     expect(launch).toBeDisabled();
     expect(screen.getByText(/Only an administrator can start a review/))
       .toBeInTheDocument();
@@ -224,7 +224,7 @@ describe("a result it cannot use", () => {
     expect(await screen.findByText(/The review figures could not be loaded - offline/))
       .toBeInTheDocument();
     expect(screen.getByText(/This is not a count of zero/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Upload a document and review/ }))
+    expect(screen.getByRole("button", { name: /Upload a document and run AI review/ }))
       .toBeInTheDocument();
     expect(screen.queryByText("Needs attention")).toBeNull();
   });
@@ -236,7 +236,7 @@ describe("a result it cannot use", () => {
     panel();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /Upload a document and review/ }));
+      await screen.findByRole("button", { name: /Upload a document and run AI review/ }));
     expect(await screen.findByText(/contractor submittals could not be loaded - list broke/))
       .toBeInTheDocument();
   });
@@ -279,7 +279,7 @@ describe("V1: the recent table reads plainly", () => {
     panel();
     const row = (await screen.findByText("drum.pdf")).closest("tr") as HTMLElement;
     expect(within(row).getAllByRole("cell")[2]).toHaveTextContent(/^0$/);
-    expect(screen.queryByText(/No findings table|AI review/)).toBeNull();
+    expect(within(row).queryByText(/No findings table|AI review/)).toBeNull(); // the row never labels a count "AI review"
   });
 
   it("keeps the count when there are findings", async () => {
@@ -299,13 +299,57 @@ describe("V2: the review cards say whose reviews they count", () => {
     dashboard.mockResolvedValue({ ok: true, data: data({ papers_with_a_review: 5, earlier_runs_not_counted: 82 }) });
     panel();
     expect(await screen.findByText(
-      "0 running · 8 awaiting an engineer's code · of 5 papers, latest review each · 82 earlier reviews not counted"))
+      "0 running · 8 awaiting an engineer's sign-off or code · of 5 papers, latest review each · 82 earlier reviews not counted"))
       .toBeInTheDocument();
     const tile = screen.getByText("Needs attention").parentElement!;
     expect(within(tile).getByText(/of 5 papers, latest review each · 82 earlier reviews not counted/)).toBeInTheDocument();
   });
   it("says nothing extra from an older server that does not send the count", async () => {
     panel();
-    expect(await screen.findByText("0 running · 8 awaiting an engineer's code")).toBeInTheDocument();
+    expect(await screen.findByText("0 running · 8 awaiting an engineer's sign-off or code")).toBeInTheDocument();
   });
 });
+
+describe("order 14: the general reviews are in the recent table and the in-progress card", () => {
+  const general = (over: Record<string, unknown> = {}) => run({
+    review_run_id: "g-run-1", submittal_filename: "invented-valve.pdf", method: "general", status: "completed",
+    general_counts: { points: 193, comments: 73, confirmations: 6, stopped: false }, general_signoff: "signed",
+    findings_total: 0, by_status: {}, recommended_code: null, equipment_tags: [], ...over,
+  });
+
+  it("a general review shows its own comments and confirmations and whether an engineer signed it", async () => {
+    dashboard.mockResolvedValue({ ok: true, data: data({ recent: [general()] }) });
+    panel();
+    const row = (await screen.findByText("invented-valve.pdf")).closest("tr") as HTMLElement;
+    const cells = within(row).getAllByRole("cell");
+    expect(cells[2]).toHaveTextContent("73 comments sent, 6 confirmations not sent");
+    expect(cells[4]).toHaveTextContent("Signed off");
+    expect(row).not.toHaveTextContent("earlier version");
+  });
+
+  it("not signed, changed since sign-off and stopped early are each said", async () => {
+    dashboard.mockResolvedValue({ ok: true, data: data({ recent: [
+      general({ review_run_id: "g1", submittal_filename: "a.pdf", general_signoff: "not_signed" }),
+      general({ review_run_id: "g2", submittal_filename: "b.pdf", general_signoff: "changed" }),
+      general({ review_run_id: "g3", submittal_filename: "c.pdf", general_signoff: "not_signed", general_counts: { points: 5, comments: 1, stopped: true } }),
+    ] }) });
+    panel();
+    const cell = async (name: string) => within((await screen.findByText(name)).closest("tr") as HTMLElement).getAllByRole("cell")[4];
+    expect(await cell("a.pdf")).toHaveTextContent("Not signed off yet");
+    expect(await cell("b.pdf")).toHaveTextContent("Changed since sign-off");
+    expect(await cell("c.pdf")).toHaveTextContent("Not signed off yet (stopped early)");
+  });
+
+  it("an earlier-method row is marked as an earlier version", async () => {
+    panel();
+    const row = (await screen.findByText("drum.pdf")).closest("tr") as HTMLElement;
+    expect(row).toHaveTextContent("earlier version");
+  });
+
+  it("the in-progress card says how many signed reviews are done and keeps its boundary", async () => {
+    dashboard.mockResolvedValue({ ok: true, data: data({ reviews_running: 1, reviews_awaiting_decision: 2, reviews_signed: 3, papers_with_a_review: 6, earlier_runs_not_counted: 4 }) });
+    panel();
+    expect(await screen.findByText("1 running · 2 awaiting an engineer's sign-off or code · 3 signed off (done) · of 6 papers, latest review each · 4 earlier reviews not counted")).toBeInTheDocument();
+  });
+});
+

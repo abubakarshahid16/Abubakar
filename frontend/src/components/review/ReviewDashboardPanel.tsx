@@ -2,7 +2,7 @@
  * The AI Submittal Review block on the Dashboard.
  *
  * MASTER PLAN SECTION 20 AND CLAUDE.md RULE 10, exactly: four primary cards,
- * one prominent `Upload a document and review` button, one compact
+ * one prominent `Upload a document and run AI review` button, one compact
  * Recent Reviews table. Nothing else. The rule names what belongs here and
  * this component holds all of it, so a fifth tile cannot be added by editing
  * the Dashboard without editing the rule first.
@@ -30,6 +30,27 @@ function boundary(data: ReviewDashboard): string {
   const earlier = data.earlier_runs_not_counted ?? 0;
   return ` · of ${n.toLocaleString()} paper${n === 1 ? "" : "s"}, latest review each`
     + (earlier > 0 ? ` · ${earlier.toLocaleString()} earlier review${earlier === 1 ? "" : "s"} not counted` : "");
+}
+
+type RecentRun = ReviewDashboard["recent"][number];
+
+/** A general review's own words in the Recent reviews table: its comments and confirmations, as the results page counts them. */
+function generalFindings(run: RecentRun): string {
+  const c = (run.general_counts ?? null) as { comments?: number; confirmations?: number; stopped?: boolean } | null;
+  if (!c || typeof c.comments !== "number") return "";
+  const sent = `${c.comments.toLocaleString()} comment${c.comments === 1 ? "" : "s"} sent`;
+  const held = typeof c.confirmations === "number" ? `, ${c.confirmations.toLocaleString()} confirmation${c.confirmations === 1 ? "" : "s"} not sent` : "";
+  return sent + held;
+}
+
+/** The status of a row: a general review says whether an engineer signed it; an earlier-method run says so. */
+function rowStatus(run: RecentRun): string {
+  if (run.method !== "general") return runStatusLabel(run.status);
+  const c = (run.general_counts ?? null) as { stopped?: boolean } | null;
+  if (run.status !== "completed") return runStatusLabel(run.status);
+  const signed = run.general_signoff === "signed" ? "Signed off"
+    : run.general_signoff === "changed" ? "Changed since sign-off" : "Not signed off yet";
+  return c?.stopped ? `${signed} (stopped early)` : signed;
 }
 
 export interface ReviewDashboardPanelProps {
@@ -167,7 +188,9 @@ export function ReviewDashboardPanel(
         <Card
           label="Reviews in progress"
           value={data.reviews_running + data.reviews_awaiting_decision}
-          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} awaiting an engineer's code${boundary(data)}`}
+          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} awaiting an engineer's sign-off or code`
+            + (typeof data.reviews_signed === "number" ? ` · ${data.reviews_signed} signed off (done)` : "")
+            + boundary(data)}
         />
         <Card
           label="Needs attention"
@@ -189,7 +212,7 @@ export function ReviewDashboardPanel(
           disabled={!isAdmin}
           className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
         >
-          Upload a document and review
+          Upload a document and run AI review
         </button>
         {/* THE REASON, not a quietly-greyed-out button. The server gives a
             non-admin a 404 that reads as "no such submittal", not as "you
@@ -293,7 +316,7 @@ export function ReviewDashboardPanel(
                 <tr>
                   <th scope="col" className="px-3 py-2">Document</th>
                   <th scope="col" className="px-3 py-2">Equipment</th>
-                  <th scope="col" className="px-3 py-2">Findings</th>
+                  <th scope="col" className="px-3 py-2">Findings or comments</th>
                   <th scope="col" className="px-3 py-2">Suggested code</th>
                   <th scope="col" className="px-3 py-2">Status</th>
                   <th scope="col" className="px-3 py-2"><span className="sr-only">Open</span></th>
@@ -304,15 +327,17 @@ export function ReviewDashboardPanel(
                   <tr key={run.review_run_id} className="border-t border-ink-800">
                     <td className="px-3 py-2 text-slateish-200">
                       {run.submittal_filename}
-                      <span className="block text-slateish-500">{formatWhen(run.created_at)}</span>
+                      <span className="block text-slateish-500">
+                        {formatWhen(run.created_at)}{run.method === "general" ? "" : " · earlier version"}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-slateish-300" title={run.equipment_tags.join(", ") || undefined}>
                       {equipmentLabel(run.equipment_tags)}
                     </td>
                     <td className="px-3 py-2 text-slateish-300">
-                      {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. */}
-                      {run.findings_total.toLocaleString()}
-                      {run.by_status.NON_COMPLIANT ? (
+                      {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. A general review says its own comments. */}
+                      {run.method === "general" ? generalFindings(run) : run.findings_total.toLocaleString()}
+                      {run.method !== "general" && run.by_status.NON_COMPLIANT ? (
                         <span className={`ml-1 rounded-full border px-1.5 ${statusTone("NON_COMPLIANT")}`}>
                           {run.by_status.NON_COMPLIANT} {statusLabel("NON_COMPLIANT").toLowerCase()}
                         </span>
@@ -329,7 +354,7 @@ export function ReviewDashboardPanel(
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slateish-300">{runStatusLabel(run.status)}</td>
+                    <td className="px-3 py-2 text-slateish-300">{rowStatus(run)}</td>
                     <td className="px-3 py-2">
                       <button
                         type="button" onClick={() => onOpenReview(run.review_run_id)}

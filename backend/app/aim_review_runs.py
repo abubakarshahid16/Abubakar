@@ -61,14 +61,28 @@ def counts_of(conn, run_id: str) -> dict | None:
     return out
 
 
+def total(conn, allowed: frozenset[str]) -> int:
+    """How many general runs of papers the caller may read there are (every run, not only the newest of a paper)."""
+    return len(_rows(conn, allowed))
+
+
 def entries(
-    conn, allowed: frozenset[str], document_id: str | None = None
+    conn,
+    allowed: frozenset[str],
+    document_id: str | None = None,
+    *,
+    newest_only: bool = False,
 ) -> list[dict]:
-    """The general runs the caller may read, as rows of the runs list (`ReviewRunSummary`), newest first."""
+    """The general runs the caller may read, as rows of the runs list (`ReviewRunSummary`), newest first; `newest_only` keeps the
+    newest run of each paper (the older ones are not even counted: reading a run's counts builds its whole page)."""
     from . import review_jobs
 
-    out = []
+    out, seen = [], set()
     for r in _rows(conn, allowed, document_id):
+        if newest_only:
+            if r["paper_document_id"] in seen:
+                continue
+            seen.add(r["paper_document_id"])
         run_id, status = str(r["run_id"]), str(r["status"])
         doc = conn.execute(
             "SELECT filename FROM documents WHERE id = ?", (r["paper_document_id"],)
