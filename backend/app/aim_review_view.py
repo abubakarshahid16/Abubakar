@@ -149,10 +149,27 @@ def _field_key(field) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", str(field or "").lower()).split())
 
 
+#: The editor's group mark on a line's code note (`aim_review.editor.SAME_POINT`): "same point as line <n>".
+_SAME_POINT = re.compile(r"^same point as line (\d+)$")
+
+
+def _editor_group(p: dict) -> int | None:
+    for part in str(p.get("code_note") or "").split(";"):
+        m = _SAME_POINT.match(part.strip())
+        if m:
+            return int(m.group(1))
+    return None
+
+
 def group_key(p: dict) -> tuple:
-    """Lines that make ONE comment: the same item, the same FIELD (folded), the same shown label (a code-compared Fail never joins
-    anything else) and the same kind of code note (the same compare kind). One item may give several DIFFERENT findings (an
-    always-on check: another standard, another inconsistency): another field is another point (final light check, B1)."""
+    """Lines that make ONE comment: the lines the EDITOR grouped as the same point (checked by code: real sent lines, one shown
+    label, one compare kind, no line twice; `aim_review.editor`), else the same item, the same FIELD (folded), the same shown
+    label (a code-compared Fail never joins anything else) and the same kind of code note (the same compare kind). One item may
+    give several DIFFERENT findings (an always-on check: another standard, another inconsistency): another field is another
+    point (final light check, B1)."""
+    grouped = _editor_group(p)
+    if grouped is not None:
+        return ("same point", grouped)
     return (
         p.get("item_id") or f"line-{p['n']}",
         _field_key(p.get("field")),
@@ -177,7 +194,7 @@ def group_comments(points: list[dict]) -> list[dict]:
         if aim_review.sendable(p):
             groups.setdefault(group_key(p), []).append(p)
     out = []
-    for members in groups.values():
+    for key, members in groups.items():
         members = sorted(
             members, key=lambda m: (m["page"] is None, m["page"] or 0, m["n"])
         )
@@ -185,6 +202,11 @@ def group_comments(points: list[dict]) -> list[dict]:
         pages = sorted({m["page"] for m in members if m["page"] is not None})
         if len(members) == 1:
             out.append({**first, "lines": [first["n"]], "pages": pages})
+            continue
+        if (
+            key[0] == "same point"
+        ):  # the editor's group: LOSSLESS, every member's own words, field, page and quote
+            out.append(_same_point(members))
             continue
         places = "; ".join(_place(m) for m in members)
         out.append({
@@ -199,6 +221,31 @@ def group_comments(points: list[dict]) -> list[dict]:
             "quote_unverified": any(m["quote_unverified"] for m in members),
         })  # fmt: skip
     return sorted(out, key=lambda g: g["n"])
+
+
+def _member(m: dict) -> str:
+    where = f"page {m['page']}" if m.get("page") is not None else "no page"
+    quote = f' (quote: "{m["quote"]}")' if m.get("quote") else ""
+    numbers = f" ({m['compared']})" if m.get("compared") else ""
+    return f"{m.get('field') or 'no field'} ({where}): {m.get('comment') or ''}{quote}{numbers}"
+
+
+def _same_point(members: list[dict]) -> dict:
+    """ONE comment for the editor's group, LOSSLESS: the first member's words, then every other member's field, page, own
+    comment in full and quote. Lines stay one per place (All points keeps each)."""
+    members = sorted(members, key=lambda m: m["n"])
+    first, others = members[0], members[1:]
+    pages = sorted({m["page"] for m in members if m["page"] is not None})
+    return {
+        **first,
+        "lines": [m["n"] for m in members],
+        "pages": pages,
+        "comment": f"{first['comment']}\nThe same point at: " + "; ".join(_member(m) for m in others),
+        "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
+                            for m in members if m["quote"]),
+        "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
+        "quote_unverified": any(m["quote_unverified"] for m in members),
+    }  # fmt: skip
 
 
 def _titles(conn, ids: list[str], scope) -> tuple[dict[str, str], int]:

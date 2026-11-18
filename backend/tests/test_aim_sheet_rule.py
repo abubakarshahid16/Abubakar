@@ -899,3 +899,43 @@ def test_two_different_findings_of_one_item_are_two_comments(world):
         body["comments"][1]["quote_unverified"] is True
         and body["completeness"]["ok"] is True
     )
+
+
+def test_an_editor_group_across_fields_is_one_lossless_comment_and_the_counts_hold(
+    world,
+):
+    """The owner's pre-live condition: one comment per point, listing every sheet and page; every member's own words, field,
+    page and quote stay in the comment; lines stay one per place, so page = database = All points and the Lines cells hold."""
+    members = [
+        _line(i, "Question", "Question", item_id=f"C{i:02d}", field=f"Invented field {i}", page=i,
+              comment=f"Invented comment of place {i}.", quote=f"invented quote {i}", code_note="same point as line 1")
+        for i in range(1, 5)
+    ]  # fmt: skip
+    alone = _line(5, "Question", "Question", item_id="C05", page=6)
+    make_run("gen_editor_group", [*members, alone], created="2026-11-18T18:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_editor_group").json()
+    assert body["counts"]["points"] == 5 and body["counts"]["comments"] == 2
+    one = body["comments"][0]
+    assert one["lines"] == [1, 2, 3, 4] and one["pages"] == [1, 2, 3, 4]
+    for i in range(1, 5):  # lossless: every member's words, field, page and quote
+        assert (
+            f"Invented comment of place {i}." in one["comment"]
+            and f"invented quote {i}" in one["quote"]
+        )
+    for i in range(2, 5):
+        assert (
+            f"Invented field {i} (page {i}): Invented comment of place {i}."
+            in one["comment"]
+        )
+    rep = body["completeness"]
+    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 5
+    assert rep["comments"] == rep["comment_rows"] == 2
+    wb = _sheet(
+        c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_editor_group")
+    )
+    rows = aim_review_completeness._table(wb, "Comments")
+    assert [r[aim_review_sheet.COMMENT_HEADERS.index("Lines")] for r in rows] == [
+        "1, 2, 3, 4",
+        "5",
+    ]

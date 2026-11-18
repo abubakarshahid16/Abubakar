@@ -1226,3 +1226,61 @@ def test_a_clause_heading_far_before_the_rules_page_is_found_in_the_whole_book()
         **dict.fromkeys(range(2, 12), "running text of the invented book"),
     }
     assert clause_in_book("4.2", pages)
+
+
+# ---- the editor's GROUPS: one comment per point across sheets and fields (owner's pre-live condition; invented values) ---------
+
+GROUP_PAGES = {
+    n: f"Sheet {n}\nSet pressure of the invented item: 380 psig\n" for n in range(1, 5)
+}
+GROUP_PAPER = Paper(paper_id="doc_grp", pages=GROUP_PAGES)
+
+
+def _q(item, field, page, label="Question", comment=None):
+    return {"item_id": item, "field": field, "label": label, "page": page, "quote": f"Sheet {page}", "code": "",
+            "comment": comment or f"Is the {field} on sheet {page} within the limit?"}  # fmt: skip
+
+
+class _Grouper:
+    def __init__(self, groups):
+        self.groups = groups
+
+    def ask(self, **_kw):
+        return {"moves": [], "groups": self.groups}
+
+
+def test_four_lines_across_items_and_fields_are_one_group_marked_by_code():
+    lines = [
+        _q("C001", "set pressure", 1),
+        _q("C002", "relief setting", 2),
+        _q("C007", "set point", 3),
+        _q("G2", "pressure", 4),
+    ]
+    ED.s5_edit(_Grouper([[4, 2, 1, 3]]), GROUP_PAPER, lines, "claude-sonnet-5-5")
+    assert all(d["code"] == "same point as line 1" for d in lines) and all(
+        _sent(d) for d in lines
+    )
+
+
+def test_a_group_of_a_finding_and_a_question_is_refused():
+    lines = [
+        _q("C001", "set pressure", 1),
+        _q("C002", "set pressure", 2, label="AI opinion"),
+    ]
+    ED.s5_edit(_Grouper([[1, 2]]), GROUP_PAPER, lines, "claude-sonnet-5-5")
+    assert all(d["code"] == "" for d in lines)  # another shown label: never one point
+
+
+def test_a_group_with_a_fake_line_a_single_line_or_a_line_twice_is_refused():
+    lines = [_q("C001", "a", 1), _q("C002", "b", 2), _q("C003", "c", 3)]
+    ED.s5_edit(
+        _Grouper([[1, 9], [2], [1, "x"], [1, 2], [2, 3]]),
+        GROUP_PAPER,
+        lines,
+        "claude-sonnet-5-5",
+    )
+    assert [d["code"] for d in lines] == [
+        "same point as line 1",
+        "same point as line 1",
+        "",
+    ]  # [2, 3] overlaps: refused

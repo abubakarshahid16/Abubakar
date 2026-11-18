@@ -144,8 +144,13 @@ You never add, rewrite or relabel a comment. Take one off for one of two reasons
  "paper_states_otherwise": the comment says a value is not stated and the paper states it ON THAT COMMENT'S PAGE: give the
      exact paper words that show the field's label with its value (5 to 30 words, character for character, no "...") and
      that page.
-Take nothing off for any other reason. Reply with ONE JSON object only:
-{"moves": [{"n": n, "reason": "repeats", "of": n} or {"n": n, "reason": "paper_states_otherwise", "page": p, "quote": "..."}]}
+Take nothing off for any other reason.
+Also GROUP the comments that make the SAME POINT (the same value against the same limit, the same missing data, the same
+concern) on other sheets, pages or fields: list their n together. A group is shown as ONE comment that keeps every member's own
+words, field, page and quote; group only comments of the same kind (never a firm finding with a question).
+Reply with ONE JSON object only:
+{"moves": [{"n": n, "reason": "repeats", "of": n} or {"n": n, "reason": "paper_states_otherwise", "page": p, "quote": "..."}],
+ "groups": [[n, n, ...], ...]}
 THE COMMENTS:
 %(comments)s"""
 
