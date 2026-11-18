@@ -518,30 +518,21 @@ def check_percent_values(pages: dict[int, str]) -> list[dict]:
             key = (a["head"], a["kind"], a["base"], a["per"])
             if key in seen:
                 continue
-            same = a["subject"] == b["subject"] and a["subject"]
             seen.add(key)
             what = "cap" if a["kind"] == "cap" else "rate"
-            sentence = (
-                f"clause {a['head'].split(' ')[0]} states two different {what}s on '{' '.join(a['base'])}': "
-                f"{a['value']:g}% on page {a['page']} and {b['value']:g}% on page {b['page']} ('{b['quote'][:120]}')"
-            )
-            if same:
-                out.append(
-                    _firm(
-                        "percent_values", len(out) + 1, a["page"], a["quote"], sentence + "; state one value.",
-                        f"two values of one {what}", a["value"], b["value"], "two different values for the same item",
-                    )
-                )  # fmt: skip
-            else:
-                out.append(
-                    _question(
-                        "percent_values", len(out) + 1, a["page"], a["quote"],
-                        "C" + sentence[1:] + "; please confirm which value applies.",
-                        f"two values of one {what}",
-                        {"read_from": READ_FROM, "result": "cannot", "why": "same clause, base and kind; the subjects differ: not proven the same item",
-                         "paper_value": a["value"], "rule_value": b["value"]},
-                    )
-                )  # fmt: skip
+            # a Question, never a verdict (review B2): "the same item" is read from the clause heading and the words around the
+            # two values, a layout reading, not a comparison code can prove
+            out.append(
+                _question(
+                    "percent_values", len(out) + 1, a["page"], a["quote"],
+                    f"Clause {a['head'].split(' ')[0]} states two different {what}s on '{' '.join(a['base'])}': "
+                    f"{a['value']:g}% on page {a['page']} and {b['value']:g}% on page {b['page']} ('{b['quote']}'); "
+                    "please confirm which value applies.",
+                    f"two values of one {what}",
+                    {"read_from": READ_FROM, "result": "cannot", "why": "the same item is read from the layout: not proven",
+                     "paper_value": a["value"], "rule_value": b["value"]},
+                )
+            )  # fmt: skip
     return out
 
 
