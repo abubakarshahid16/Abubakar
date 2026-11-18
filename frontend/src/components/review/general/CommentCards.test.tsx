@@ -217,3 +217,17 @@ describe("card chips (planner 18 Nov 23:30-3)", () => {
   });
 });
 
+describe("paired values tag (A's 1664fa01)", () => {
+  it("shows a small tag when the AI paired the values, never inside We ask", () => {
+    mount(review([card(1, { we_ask: "State the value on page 2; contractor to confirm the value.", paired: true })]));
+    expect(screen.getByTestId("card-paired")).toHaveTextContent("Values paired by the AI; compared by code");
+    expect(screen.getByText("State the value on page 2; contractor to confirm the value.")).toBeInTheDocument();
+    expect(screen.getByText("State the value on page 2; contractor to confirm the value.")).not.toHaveTextContent("paired");
+  });
+
+  it("shows no tag when the values were not paired", () => {
+    mount(review([card(1, { paired: false }), card(2)]));
+    expect(screen.queryByTestId("card-paired")).toBeNull();
+  });
+});
+

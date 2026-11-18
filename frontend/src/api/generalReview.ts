@@ -34,6 +34,8 @@ export interface GeneralLine {
   proven?: string;
   /** Set when the two readers of this comment differ: shown as a small tag, never part of the comment's text. */
   readers?: { first: string; second: string; reason: string } | null;
+  /** The AI chose which two values of the paper to compare and code compared them: said as a small tag, never in the comment text. */
+  paired?: boolean;
   /** The engineer's latest decision on this comment (append-only on the server); null when undecided. */
   decision?: CommentDecision | null;
 }
