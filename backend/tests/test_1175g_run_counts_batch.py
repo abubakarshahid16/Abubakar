@@ -95,5 +95,6 @@ def test_counts_is_not_read_as_a_run_id():
     doc = _submittal()
     run_id = _run(doc)
     body = _client(doc).get(_query(run_id)).json()
-    assert set(body) == {"boundary", "counts"}
+    # order 14: the batch also carries `general` (a general review's own numbers); the point here is unchanged: it is not a run
+    assert set(body) == {"boundary", "counts", "general"}
     assert "review_run_id" not in body
