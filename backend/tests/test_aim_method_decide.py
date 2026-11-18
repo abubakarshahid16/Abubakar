@@ -878,25 +878,28 @@ def test_a_findings_list_in_one_row_is_read_as_places():
     ]
 
 
-# ---- S5, the editor: it may only take a sent line off the sheet, each move checked by code (the lead, 18 Nov 2026) ----------
+# ---- S5, the editor: it may only take a sent line off the sheet, each move checked by code (the lead, 18 Nov 2026; light check
+# of 5293a8f6, E1: a code-proven failure is never offered; a repeat is the same place; a contradiction answers a "not stated") ----
 
 EDIT_PAGES = {
-    1: "Back pressure of the test item: 3 bar gauge built up\nSet pressure of the test item: 12 bar gauge\n",
-    2: "Seat material of the test item: stainless steel to the buyer list\n",
+    1: "Back pressure of the test item: 3 bar gauge built up\nSet pressure of the test item: 25 bar gauge\n"
+    "Operating temperature of the test item: 80 degC\n",
+    2: "Seat material of the test item: stainless steel\nSet pressure of the test item: 31 bar gauge\n",
 }
 EDIT_PAPER = Paper(paper_id="doc_edit", pages=EDIT_PAGES)
+BP_Q = "Back pressure of the test item: 3 bar gauge built up"
 
 
-def _sent_line(item, field, label="Question", page=1, quote="", comment="c"):
-    return {
-        "item_id": item,
-        "field": field,
-        "label": label,
-        "page": page,
-        "quote": quote,
-        "comment": comment,
-        "code": "",
-    }
+def _sent_line(
+    item, field, label="Question", page=1, quote="", comment="c", code="", cmp_=None
+):
+    return {"item_id": item, "field": field, "label": label, "page": page, "quote": quote, "comment": comment, "code": code,
+            "code_compare": cmp_}  # fmt: skip
+
+
+def _fail(value):
+    return {"result": "fail", "why": f"{value} bar <= 20 bar: false", "paper": [float(value), "bar"], "rule": [20.0, "bar"],
+            "read_from": "verified quotes", "op": "<="}  # fmt: skip
 
 
 class _Editor:
@@ -912,114 +915,210 @@ class _Editor:
         return {"moves": self.moves}
 
 
-def _edit_lines():
+def _edit(lines, moves):
+    return S.s5_edit(_Editor(moves), EDIT_PAPER, lines, "claude-sonnet-5-5")
+
+
+def _code_failures():
+    q1, q2 = (
+        "Set pressure of the test item: 25 bar gauge",
+        "Set pressure of the test item: 31 bar gauge",
+    )
     return [
-        _sent_line("C001", "back pressure", comment="the back pressure is not stated"),
-        _sent_line("C001", "back pressure", comment="no back pressure is given"),
-        _sent_line(
-            "C002", "set pressure", comment="the set pressure exceeds the limit"
-        ),
-        _sent_line(
-            "C003",
-            "seat material",
-            label="Met",
-            page=2,
-            quote="Seat material of the test item: stainless steel",
-        ),
-        _sent_line("C004", "seat material", comment="the seat material is not stated"),
-    ]
+        _sent_line("C001", "set pressure", label="Not met", page=1, quote=q1, comment="25 bar is above 20 bar", cmp_=_fail(25)),
+        _sent_line("C001", "set pressure", label="Not met", page=2, quote=q2, comment="31 bar is above 20 bar", cmp_=_fail(31)),
+        _sent_line("C002", "back pressure", comment="the back pressure is not stated"),
+    ]  # fmt: skip
 
 
-def test_a_repeat_is_moved_only_when_the_line_it_repeats_is_real_sent_and_on_the_same_item_or_field():
-    lines = _edit_lines()
+def test_probe_a_any_real_words_of_the_page_never_move_a_code_proven_failure():
+    lines = _code_failures()
     moves = [
-        {"n": 2, "reason": "repeats", "of": 1},  # same item: moved
-        {"n": 3, "reason": "repeats", "of": 9},  # no line 9: refused
-        {"n": 5, "reason": "repeats", "of": 4},  # line 4 is a Met, not sent: refused
+        {
+            "n": 1,
+            "reason": "paper_states_otherwise",
+            "page": 1,
+            "quote": "Operating temperature of the test item: 80 degC",
+        }
+    ]
+    assert _edit(lines, moves) == 0 and all(_sent(d) for d in lines)
+
+
+def test_probe_b_a_failure_at_another_place_is_never_moved_as_a_repeat():
+    lines = _code_failures()
+    assert _edit(lines, [{"n": 2, "reason": "repeats", "of": 1}]) == 0 and _sent(
+        lines[1]
+    )
+
+
+def test_a_code_proven_failure_is_never_offered_to_the_editor():
+    lines = _code_failures()
+    provisional = _sent_line("C003", "set pressure", page=1, quote="Set pressure of the test item: 25 bar gauge",
+                             code="provisional_fails")  # fmt: skip
+    model = _Editor()
+    S.s5_edit(model, EDIT_PAPER, [*lines, provisional], "claude-sonnet-5-5")
+    shown = model.asked[0]["prompt"]
+    assert '"n": 3' in shown and all(f'"n": {n}' not in shown for n in (1, 2, 4))
+
+
+def test_a_repeat_needs_the_same_page_and_the_same_quote_or_compared_value():
+    same = "Seat material of the test item: stainless steel"
+    lines = [
+        _sent_line("C004", "seat material", page=2, quote=same, comment="is the seat material to the buyer list?"),
+        _sent_line("C005", "seat", page=2, quote=same, comment="please confirm the seat material grade"),  # same place
+        _sent_line("C004", "seat material", page=1, quote=BP_Q, comment="same item and field, another place"),
+        _sent_line("C006", "seat material", page=2, quote="Set pressure of the test item: 31 bar gauge", comment="x"),
+    ]  # fmt: skip
+    moves = [
+        {"n": 2, "reason": "repeats", "of": 1},  # same page, same quote: moved
         {
             "n": 3,
             "reason": "repeats",
             "of": 1,
-        },  # another item and another field: refused
+        },  # same item and field, another page: refused (no "same field" path)
+        {
+            "n": 4,
+            "reason": "repeats",
+            "of": 1,
+        },  # same page and field, another quote: refused
+        {"n": 1, "reason": "repeats", "of": 9},  # no line 9: refused
         {
             "n": 1,
             "reason": "repeats",
             "of": 2,
         },  # line 2 is already off the sheet: refused (never both)
     ]
-    assert S.s5_edit(_Editor(moves), EDIT_PAPER, lines, "claude-sonnet-5-5") == 1
+    assert _edit(lines, moves) == 1
     assert lines[1]["code"] == "edited: repeats line 1" and not _sent(lines[1])
-    assert all(_sent(lines[i]) for i in (0, 2, 4))
+    assert all(_sent(lines[i]) for i in (0, 2, 3))
 
 
-def test_a_contradiction_move_needs_a_paper_quote_code_finds_on_the_page_it_names():
-    lines = _edit_lines()
-    real = "Back pressure of the test item: 3 bar gauge built up"
-    moves = [
-        {"n": 5, "reason": "paper_states_otherwise", "page": 2, "quote": "seat material of the item is listed elsewhere"},  # not on page 2
-        {"n": 5, "reason": "paper_states_otherwise", "quote": "Seat material of the test item: stainless steel"},  # no page
-        {"n": 2, "reason": "paper_states_otherwise", "page": 2, "quote": real},  # on page 1, not page 2: refused
-        {"n": 1, "reason": "paper_states_otherwise", "page": 1, "quote": real},  # moved
+def test_a_repeat_by_the_same_compared_value_on_the_same_page():
+    cmp_ = {"result": "pass", "why": "3 bar <= 5 bar: true", "paper": [3.0, "bar"], "rule": [5.0, "bar"],
+            "read_from": "verified paper quotes", "op": "<=", "op_from": "the AI's answer"}  # fmt: skip
+    lines = [
+        _sent_line("C007", "back pressure", label="AI opinion", quote=BP_Q, cmp_=cmp_),
+        _sent_line("C008", "built-up back pressure", label="AI opinion", quote="Back pressure of the test item: 3 bar gauge",
+                   cmp_=dict(cmp_)),
     ]  # fmt: skip
-    assert S.s5_edit(_Editor(moves), EDIT_PAPER, lines, "claude-sonnet-5-5") == 1
-    assert lines[0]["code"] == f'edited: paper states otherwise (page 1: "{real}")'
-    assert _sent(lines[1]) and _sent(lines[4])
+    assert _edit(lines, [{"n": 2, "reason": "repeats", "of": 1}]) == 1 and not _sent(
+        lines[1]
+    )
+
+
+def test_a_contradiction_only_answers_a_line_that_says_a_thing_is_not_stated():
+    lines = [
+        _sent_line("C002", "back pressure", comment="the back pressure is not stated"),
+        _sent_line(
+            "C009",
+            "back pressure",
+            comment="is the back pressure built up or superimposed?",
+        ),  # no "not stated" claim
+    ]
+    moves = [
+        {"n": i, "reason": "paper_states_otherwise", "page": 1, "quote": BP_Q}
+        for i in (2, 1)
+    ]
+    assert _edit(lines, moves) == 1
+    assert lines[0][
+        "code"
+    ] == f'edited: paper states otherwise (page 1: "{BP_Q}")' and _sent(lines[1])
+
+
+def test_a_contradiction_quote_must_be_on_the_lines_page_and_hold_its_field_with_a_value():
+    def one(**kw):
+        return [
+            _sent_line(
+                "C002", "back pressure", comment="the back pressure is not stated", **kw
+            )
+        ]
+
+    seat = "Seat material of the test item: stainless steel"
+    assert (
+        _edit(
+            one(page=2),
+            [{"n": 1, "reason": "paper_states_otherwise", "page": 1, "quote": BP_Q}],
+        )
+        == 0
+    )  # not its page
+    assert (
+        _edit(
+            one(),
+            [{"n": 1, "reason": "paper_states_otherwise", "page": 2, "quote": seat}],
+        )
+        == 0
+    )  # its page is 1
+    assert (
+        _edit(
+            one(page=2),
+            [{"n": 1, "reason": "paper_states_otherwise", "page": 2, "quote": seat}],
+        )
+        == 0
+    )  # not its field
+    no_page = one(
+        page=None
+    )  # a "not on any page" line: the editor's page, and still its field with a value
+    assert (
+        _edit(
+            no_page,
+            [{"n": 1, "reason": "paper_states_otherwise", "page": 1, "quote": BP_Q}],
+        )
+        == 1
+    )
+
+
+def test_a_field_label_with_a_blank_or_deferral_is_no_value():
+    assert S._states_value(
+        "Back pressure of the test item: 3 bar gauge built up", "back pressure"
+    )
+    for empty in (
+        "Back pressure: TBA",
+        "Back pressure: ____",
+        "Back pressure: By Contractor",
+        "Back pressure:",
+    ):
+        assert not S._states_value(empty, "back pressure"), empty
 
 
 def test_a_moved_line_stays_in_all_points_with_its_label_and_reason():
     from app.aim_review.engine import to_line
 
-    lines = _edit_lines()
-    S.s5_edit(
-        _Editor([{"n": 2, "reason": "repeats", "of": 1}]),
-        EDIT_PAPER,
-        lines,
-        "claude-sonnet-5-5",
+    lines = _code_failures()
+    _edit(
+        lines, [{"n": 3, "reason": "paper_states_otherwise", "page": 1, "quote": BP_Q}]
     )
     assert (
-        len(lines) == 5
-        and lines[1]["label"] == "Question"
-        and lines[1]["comment"] == "no back pressure is given"
+        len(lines) == 3
+        and lines[2]["label"] == "Question"
+        and lines[2]["comment"] == "the back pressure is not stated"
     )
-    line = to_line(2, lines[1])
-    assert line["code_note"] == "edited: repeats line 1" and not _sent(lines[1])
+    assert to_line(3, lines[2])["code_note"].startswith(
+        "edited: paper states otherwise (page 1:"
+    ) and not _sent(lines[2])
 
 
 def test_the_editor_can_never_add_rewrite_or_relabel_a_line():
-    lines = _edit_lines()
+    lines = _code_failures()
     before = [dict(d) for d in lines]
     moves = [
         {"n": 99, "reason": "repeats", "of": 1},
         {"add": {"label": "Not met", "comment": "a new finding"}},
-        {"n": 1, "label": "Met", "comment": "rewritten"},
+        {"n": 3, "label": "Met", "comment": "rewritten"},
         {"n": 3, "reason": "rewrite", "comment": "rewritten"},
         "not a move",
     ]
-    assert S.s5_edit(_Editor(moves), EDIT_PAPER, lines, "claude-sonnet-5-5") == 0
-    assert lines == before
+    assert _edit(lines, moves) == 0 and lines == before
 
 
-def test_the_editor_sees_the_sent_lines_only_and_a_failed_call_moves_nothing():
-    lines = _edit_lines()
-    model = _Editor(fail="stop budget")
-    assert S.s5_edit(model, EDIT_PAPER, lines, "claude-sonnet-5-5") == 0
-    shown = model.asked[0]["prompt"]
+def test_a_failed_editor_call_moves_nothing_and_no_offered_line_means_no_call():
+    lines = _code_failures()
     assert (
-        model.asked[0]["step"] == "aim_edit"
-        and '"n": 4' not in shown
-        and '"n": 5' in shown
+        S.s5_edit(_Editor(fail="stop budget"), EDIT_PAPER, lines, "claude-sonnet-5-5")
+        == 0
     )
     assert all(d["code"] == "" for d in lines)
-    none_sent = [
-        _sent_line(
-            "C003",
-            "seat",
-            label="Met",
-            quote="Seat material of the test item: stainless steel",
-        )
-    ]
     quiet = _Editor()
     assert (
-        S.s5_edit(quiet, EDIT_PAPER, none_sent, "claude-sonnet-5-5") == 0
+        S.s5_edit(quiet, EDIT_PAPER, lines[:2], "claude-sonnet-5-5") == 0
         and quiet.asked == []
-    )
+    )  # only code failures
