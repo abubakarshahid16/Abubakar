@@ -113,6 +113,17 @@ function Checks({ points }: { points: GeneralLine[] }) {
   );
 }
 
+/** Section 7's sentence on the confirmations: shown only when the server counted them (an older run has no such count). */
+export function confirmationsLine(review: GeneralReview): string | null {
+  const { comments, confirmations, comment_lines: inComments, confirmation_lines: inConfirmations } = review.counts;
+  if (confirmations == null) return null;
+  const pts = (n: number) => `${n} point${n === 1 ? "" : "s"}`;
+  const sent = `${comments} comment${comments === 1 ? "" : "s"} sent${inComments != null ? ` (covering ${pts(inComments)})` : ""}`;
+  const held = `${confirmations} confirmation${confirmations === 1 ? "" : "s"} not sent${inConfirmations != null ? ` (covering ${pts(inConfirmations)})` : ""}`;
+  const total = inComments != null && inConfirmations != null ? `; together ${pts(inComments + inConfirmations)} qualified to be sent` : "";
+  return `${sent} and ${held}${total}. Every point stays in "Every check".`;
+}
+
 const minutes = (s: number) => `${(Math.round((s / 60) * 10) / 10).toString()} min`;
 
 export function HowReviewMade({ review }: { review: GeneralReview }) {
@@ -223,6 +234,7 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
           <Fact label="Rows in the file" value={c.file_rows} />
           <Fact label="Result" value={c.ok ? "all three agree" : "they differ: the file is refused"} />
         </div>
+        {confirmationsLine(review) && <p data-testid="how-confirmations" className="text-slateish-200">{confirmationsLine(review)}</p>}
       </Section>
     </div>
   );
