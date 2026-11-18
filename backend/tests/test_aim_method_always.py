@@ -150,7 +150,9 @@ def test_g3_a_required_entry_left_blank_is_a_sent_question():
 
 def test_g3_lists_and_declares_only_items_whose_book_is_on_the_list():
     checklist = {
-        "books": [{"alias": "B01", "book": "doc_listed"}, {"alias": "B02", "book": "doc_unlisted"}],
+        # public-family identifiers: G3's second lock lets a book in only when it is public or a company book the paper cites
+        "books": [{"alias": "B01", "book": "doc_listed", "identifier": "ISO 99101"},
+                  {"alias": "B02", "book": "doc_unlisted", "identifier": "ISO 99202"}],
         "items": [
             {"id": "C001", "book": "B01", "source": S.HELD, "topic": "seal flush", "what_to_check": "plan stated",
              "paper_fields": ["flush plan"]},
@@ -289,4 +291,30 @@ def test_the_store_keeps_named_books_and_adds_the_column_to_an_older_table(aim_d
     )
     assert store.lines(aim_db, "run_named")[0]["named_books"] == [
         {"id": BOOK_A, "name": "QX-STD-101"}
+    ]
+
+
+def test_g3_lists_a_company_books_items_only_when_the_paper_cites_it():
+    """G3's second lock (final light check, S5): on the shown list AND usable (public, or a company book the paper cites)."""
+    checklist = {
+        "books": [{"alias": "B01", "book": "doc_public", "identifier": "ISO 99101"},
+                  {"alias": "B02", "book": "doc_company", "identifier": "97-ZQ-707"}],
+        "items": [
+            {"id": "C001", "book": "B01", "source": S.HELD, "topic": "public topic", "what_to_check": "x", "paper_fields": []},
+            {"id": "C002", "book": "B02", "source": S.HELD, "topic": "company topic", "what_to_check": "x", "paper_fields": []},
+        ],
+    }  # fmt: skip
+    shown = frozenset({"doc_public", "doc_company"})
+    g3 = next(it for it in A.items(None, {}, checklist, shown, {}) if it["id"] == "G3")
+    assert "company topic" not in g3["context"] and g3["carries"] == [
+        "doc_public"
+    ]  # on the list, but not cited
+    g3 = next(
+        it
+        for it in A.items(None, {}, checklist, shown, {}, frozenset({"doc_company"}))
+        if it["id"] == "G3"
+    )
+    assert "company topic" in g3["context"] and g3["carries"] == [
+        "doc_company",
+        "doc_public",
     ]

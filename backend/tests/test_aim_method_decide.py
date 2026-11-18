@@ -1151,7 +1151,7 @@ def test_a_clause_is_found_only_where_the_book_prints_it_as_a_clause(
 ):
     from app.aim_review.verify import clause_in_book
 
-    assert clause_in_book(clause, {7: page_text}, 7) is found
+    assert clause_in_book(clause, {7: page_text}) is found
 
 
 class _Text:
@@ -1171,16 +1171,55 @@ def test_an_unfound_clause_is_dropped_and_noted_the_standard_stays():
         "standard": "QX-STD-101",
         "code": "code compared: x",
     }
-    V.keep_clause_if_found(line, _Text({3: "The molar mass M = 28.96 kg/kmol."}), 3)
+    V.keep_clause_if_found(line, _Text({3: "The molar mass M = 28.96 kg/kmol."}))
     assert line["clause"] == "" and line["standard"] == "QX-STD-101"
-    assert line["code"] == "code compared: x; clause not found in the book"
+    assert (
+        line["code"] == "code compared: x; clause number not confirmed in the book"
+    )  # never a claim the book lacks it
     kept = {"book_document_id": "doc_b", "clause": "4.1", "code": ""}
-    V.keep_clause_if_found(kept, _Text({3: "4.1 The item shall be tagged."}), 3)
+    V.keep_clause_if_found(kept, _Text({3: "4.1 The item shall be tagged."}))
     assert kept["clause"] == "4.1" and kept["code"] == ""
     never = {
         "book_document_id": "doc_b",
         "clause": "9.9",
         "code": S.NOT_JUDGED,
     }  # a line never judged keeps its one note
-    V.keep_clause_if_found(never, _Text({1: "nothing"}), 1)
+    V.keep_clause_if_found(never, _Text({1: "nothing"}))
     assert never["clause"] == "" and never["code"] == S.NOT_JUDGED
+
+
+@pytest.mark.parametrize(
+    "clause,book,found",
+    [
+        ("Clause 4.2", "4.2 General\nThe item shall be tagged.", True),
+        ("Section 5", "5 Materials\nThe body shall be steel.", True),
+        ("\u00a74.2", "4.2 General", True),
+        (
+            "4.2.1 (a)",
+            "4.2.1 Marking\n(a) the tag shall be fixed",
+            True,
+        ),  # found by its base
+        (
+            "5",
+            "5 valves shall be tested before shipment.",
+            False,
+        ),  # a sentence, not a heading
+        ("5", "5 Testing", True),
+    ],
+)
+def test_clause_words_and_sub_items_are_read_as_the_book_prints_them(
+    clause, book, found
+):
+    from app.aim_review.verify import clause_in_book
+
+    assert clause_in_book(clause, {1: book}) is found
+
+
+def test_a_clause_heading_far_before_the_rules_page_is_found_in_the_whole_book():
+    from app.aim_review.verify import clause_in_book
+
+    pages = {
+        1: "4.2 General requirements",
+        **dict.fromkeys(range(2, 12), "running text of the invented book"),
+    }
+    assert clause_in_book("4.2", pages)

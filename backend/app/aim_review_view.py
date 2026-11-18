@@ -144,11 +144,18 @@ def note_kind(code_note: str) -> tuple[str, ...]:
     return tuple(sorted(kinds))
 
 
+def _field_key(field) -> str:
+    """A field name folded for comparison: case, spacing and punctuation do not make another field."""
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", str(field or "").lower()).split())
+
+
 def group_key(p: dict) -> tuple:
-    """Lines that make ONE comment: the same item, the same shown label (a code-compared Fail never joins anything else) and the
-    same kind of code note (the same compare kind)."""
+    """Lines that make ONE comment: the same item, the same FIELD (folded), the same shown label (a code-compared Fail never joins
+    anything else) and the same kind of code note (the same compare kind). One item may give several DIFFERENT findings (an
+    always-on check: another standard, another inconsistency): another field is another point (final light check, B1)."""
     return (
         p.get("item_id") or f"line-{p['n']}",
+        _field_key(p.get("field")),
         p.get("shown_label") or "",
         note_kind(p.get("code_note")),
     )
@@ -189,6 +196,7 @@ def group_comments(points: list[dict]) -> list[dict]:
             "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
                                 for m in members if m["quote"]),
             "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
+            "quote_unverified": any(m["quote_unverified"] for m in members),
         })  # fmt: skip
     return sorted(out, key=lambda g: g["n"])
 

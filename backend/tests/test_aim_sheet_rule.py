@@ -851,3 +851,51 @@ def test_the_summary_sheet_states_the_measured_score_of_the_papers_kind(world):
         if row and row[0] == "Measured score of this kind"
     ]
     assert rows and rows[0][1] == measured["sentence"]
+
+
+def test_two_different_findings_of_one_item_are_two_comments(world):
+    """Final light check, B1: one always-on item may give several DIFFERENT findings (another field): they never become one
+    comment; a member's unverified quote is carried."""
+    a = _line(
+        1,
+        "Question",
+        "Question",
+        item_id="G2",
+        field="Design pressure",
+        page=1,
+        comment="Design pressure disagrees.",
+    )
+    b = _line(
+        2,
+        "Question",
+        "Question",
+        item_id="G2",
+        field="Tag number",
+        page=2,
+        comment="The tag differs.",
+        quote_unverified=1,
+    )
+    c = _line(
+        3,
+        "Question",
+        "Question",
+        item_id="G2",
+        field="design  pressure",
+        page=3,
+        comment="Design pressure disagrees.",
+    )
+    make_run("gen_two", [a, b, c], created="2026-11-18T17:00:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_two")
+        .json()
+    )
+    assert [cm["lines"] for cm in body["comments"]] == [[1, 3], [2]]
+    assert (
+        body["comments"][1]["comment"] == "The tag differs."
+        and body["comments"][1]["field"] == "Tag number"
+    )
+    assert (
+        body["comments"][1]["quote_unverified"] is True
+        and body["completeness"]["ok"] is True
+    )
