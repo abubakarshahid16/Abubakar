@@ -4,7 +4,7 @@
  * re-exports it unchanged so the old screens and tests keep their import).
  */
 import { reviews as reviewsApi } from "../../../../api/client";
-import type { ReadyCounts } from "../../inbox/inboxState";
+import type { GeneralRunCounts, ReadyCounts } from "../../inbox/inboxState";
 
 /** Order 117 item 5: the most run ids one counts request may carry; the
  *  server answers 422 above this. */
@@ -23,15 +23,25 @@ export async function loadReadyCounts(runIds: string[]): Promise<Record<string, 
   for (let i = 0; i < runIds.length; i += RUN_COUNTS_MAX_IDS) chunks.push(runIds.slice(i, i + RUN_COUNTS_MAX_IDS));
   await Promise.all(chunks.map(async (chunk) => {
     let got: Record<string, { comment: number; needs_you: number }> | null = null;
+    let general: Record<string, GeneralRunCounts> = {};
+    let ai: Record<string, number> = {};
     try {
       const res = await reviewsApi.reviewRunCounts(chunk);
-      if (res.ok) got = res.data.counts;
+      if (res.ok) {
+        got = res.data.counts;
+        general = (res.data as { general?: Record<string, GeneralRunCounts> }).general ?? {};
+        ai = (res.data as { ai_lines?: Record<string, number> }).ai_lines ?? {};
+      }
     } catch {
       got = null;
     }
     for (const id of chunk) {
       const c = got && Object.prototype.hasOwnProperty.call(got, id) ? got[id] : undefined;
-      out[id] = c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you } : null;
+      const g = Object.prototype.hasOwnProperty.call(general, id) ? general[id] : undefined;
+      // a general review has its own numbers and no tiers: never "0 findings"
+      const lines = Object.prototype.hasOwnProperty.call(ai, id) ? ai[id] : undefined;
+      out[id] = g ? { findings: null, needs_you: null, general: g }
+        : c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you, ...(lines ? { aiLines: lines } : {}) } : null;
     }
   }));
   return out;

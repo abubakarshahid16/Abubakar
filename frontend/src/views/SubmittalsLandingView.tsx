@@ -53,8 +53,10 @@ interface BatchResult {
  *  landing pieces; re-exported here unchanged for the old screens and tests. */
 export { RUN_COUNTS_MAX_IDS, loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
 
-export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin }: {
+export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin, openDocumentId = null }: {
   onOpenRun: (runId: string) => void;
+  /** `/review?document=<id>`: once the list has loaded, open that paper as its row's Review button does (its newest review, else the pre-start step). */
+  openDocumentId?: string | null;
   /** v2.2: open a review straight on one tab ("Preview CRS"). Left out, no such button. */
   onOpenRunTab?: (runId: string, tab: WorkspaceTab) => void;
   /** Whether the reader is an administrator; New review refuses a
@@ -126,6 +128,14 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
   };
 
   useEffect(() => { void load(); }, [load]);
+
+  const askedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openDocumentId || phase.kind !== "ready" || askedFor.current === openDocumentId) return;
+    askedFor.current = openDocumentId; // once per address: a reload of the list never reopens it
+    void reviewDocument(openDocumentId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openDocumentId, phase.kind]);
 
   // The inbox and (switch on) the new first page show where a running
   // review is, so both re-read while one moves; the old list does not.

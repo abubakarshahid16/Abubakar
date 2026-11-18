@@ -68,6 +68,10 @@ export interface ReviewRunSummary {
   review_run_id: string;
   submittal_document_id: string;
   submittal_filename?: string | null;
+  /** Order 14: "general" for a run of the general review (the one Review button's method); null for an earlier review. */
+  method?: string | null;
+  /** A general review's own numbers {points, comments, confirmations, stopped}; null for an earlier review and for a general run that has not ended. Never the earlier method's findings tiers. */
+  general_counts?: Record<string, unknown> | null;
   /** Every distinct equipment tag the run's findings name, in order; empty (shown as nothing, never a guess) when the datasheet states none. */
   equipment_tags: string[];
   status: string;

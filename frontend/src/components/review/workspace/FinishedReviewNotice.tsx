@@ -12,6 +12,8 @@
  * still meet (a narrow screen, where the panel is full width) the panel
  * wins.
  */
+import { useEffect, useRef } from "react";
+
 import type { FinishedReview, FinishedReviewNoticeProps } from "./contract";
 import { useFinishedReviews } from "./reviewWatch";
 
@@ -21,13 +23,30 @@ function noticeWords(review: FinishedReview): string {
   return `Your review${of} is ready`;
 }
 
+/** How long a "ready" notice stays on screen before it closes itself. A notice that a review did not finish stays until dismissed. */
+export const READY_NOTICE_MS = 12_000;
+
 export interface FinishedNoticePlacement {
   /** An evidence panel is open on the right: keep clear of it. */
   panelOpen?: boolean;
+  /** The review the reader has open now: its "ready" notice is closed (the reader already found it). */
+  openRunId?: string | null;
 }
 
-export function FinishedReviewNotice({ onOpenRun, panelOpen = false }: FinishedReviewNoticeProps & FinishedNoticePlacement) {
+export function FinishedReviewNotice({ onOpenRun, panelOpen = false, openRunId = null }: FinishedReviewNoticeProps & FinishedNoticePlacement) {
   const { finished, dismiss } = useFinishedReviews();
+  const timers = useRef(new Map<string, number>());
+  useEffect(() => {
+    const ready = finished.filter((r) => r.status !== "failed");
+    for (const r of ready) {
+      if (r.runId === openRunId) dismiss(r.runId); // opened by any route: the notice has done its job
+      else if (!timers.current.has(r.runId)) timers.current.set(r.runId, window.setTimeout(() => dismiss(r.runId), READY_NOTICE_MS));
+    }
+    for (const [id, timer] of [...timers.current]) {
+      if (!ready.some((r) => r.runId === id)) { window.clearTimeout(timer); timers.current.delete(id); }
+    }
+  }, [finished, openRunId, dismiss]);
+  useEffect(() => () => { for (const t of timers.current.values()) window.clearTimeout(t); timers.current.clear(); }, []);
   if (finished.length === 0) return null;
 
   return (

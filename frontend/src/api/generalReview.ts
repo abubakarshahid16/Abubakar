@@ -20,6 +20,19 @@ export interface GeneralLine {
   topic?: string;
   code_note?: string;
   quote_unverified?: boolean;
+  /** What code compared, in words ("380 psig <= 23.5 barg: false"); empty when code compared nothing. */
+  compared?: string;
+  compare_kind?: string;
+}
+
+/** One model or code call of the run, as the server recorded it. `usd` null: the cost of this call was not read. */
+export interface GeneralCall {
+  step: string;
+  model: string;
+  usd: number | null;
+  seconds?: number | null;
+  ok?: boolean;
+  code?: string;
 }
 
 export interface GeneralCompleteness {
@@ -38,17 +51,33 @@ export interface GeneralReview {
   status: "completed" | "stopped";
   stop_reason?: string | null;
   identity: { kind: string | null; equipment_type: string | null; subject: string | null };
-  counts: { points: number; comments: number; by_label: Record<string, number>; by_shown_label?: Record<string, number>; boundary: string };
+  counts: {
+    points: number; comments: number; by_label: Record<string, number>; by_shown_label?: Record<string, number>; boundary: string;
+    /** Comments whose points all only ask the vendor to confirm a stated value: counted apart, not sent (18 Nov 2026). */
+    confirmations?: number;
+    /** The points inside the comments sent, and inside the confirmations: comment_lines + confirmation_lines = the points that qualified to be sent. */
+    comment_lines?: number;
+    confirmation_lines?: number;
+  };
   comments: GeneralLine[];
+  /** The confirmations not sent (absent on an older answer). */
+  confirmations?: GeneralLine[];
   points: GeneralLine[];
   books: { id: string; title: string; why: string }[];
   books_not_readable?: number;
+  /** The documents listed before the start (besides the paper) and how many the run used; null for a run with no stored list. */
+  documents_listed?: { listed: number; used: number; sentence: string } | null;
   not_held: { name: string; why: string }[];
   unlisted_books: { count: number; sentence: string | null };
   checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };
   /** Piece G: the measured score of this paper's kind (found of 10 on planted test copies, target 7); null when no kind is named. */
   measured?: GeneralMeasured | null;
-  cost: { usd: number | null };
+  cost: { usd: number | null; note?: string };
+  /** Every call of the run, in order: the "How this review was made" view groups them by step. */
+  calls?: GeneralCall[];
+  seconds?: number | null;
+  created_at?: string | null;
+  finished_at?: string | null;
   completeness: GeneralCompleteness;
   /** False when an earlier-engine review of the paper is newer: the page then draws the older sections. */
   is_latest?: boolean;

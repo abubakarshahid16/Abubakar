@@ -12,6 +12,8 @@ export interface GeneralMeasured {
   target: number;
   verdict: "at or above target" | "below target" | "not measured";
   sentence: string;
+  /** The strict reader's wrong-comment share, only when both counts were recorded (the sentence already says it in words). */
+  false_alarm?: { wrong: number; of: number; percent: number; target_percent: number; within_target: boolean; sentence: string } | null;
 }
 
 export function MeasuredBadge({ measured }: { measured: GeneralMeasured | null | undefined }) {

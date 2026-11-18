@@ -14,6 +14,7 @@ from typing import Any
 
 from . import (
     aim_review,
+    aim_review_book_why,
     aim_review_gate,
     aim_review_measured,
     aim_review_store,
@@ -205,10 +206,115 @@ def _keys(sent: list[dict]) -> dict[int, tuple]:
 
 
 def group_comments(points: list[dict]) -> list[dict]:
-    """THE comments of a run (the page, the file and the completeness check read this one list): the SENT lines grouped by
-    `_keys`, in line order of each group's first line. One line: that line as it is. Several: one comment that keeps every
-    member's own words (`_same_point`), or the places of one field said in the same words (`_places_of`).
-    Each comment names the lines it covers."""
+    """THE comments SENT for a run (the page, the file and the completeness check read this list): `comments_and_confirmations`."""
+    return comments_and_confirmations(points)[0]
+
+
+def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(the comments sent, the confirmations not sent) of a run; every SENT line is in exactly one of them, every line stays a
+    point on "All points" (18 Nov 2026, after live: shorter sheets, every find kept):
+      1. the sent lines of one check make one comment (`_item_comments`);
+      2. a comment whose lines ALL record the judge's "confirm" (nothing suspected, the value stated: `steps._ask`) is a
+         CONFIRMATION, not sent: counted apart, on its own sheet and in a closed part of the page. A run that recorded no mark
+         (an older run) moves nothing;
+      3. the comments left that make the SAME FINDING under different checklist items become one (`_same_finding`)."""
+    comments = _item_comments(points)
+    by_n = {p["n"]: p for p in points}
+    confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
+    sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
+    return _same_finding(sent, by_n), confirm
+
+
+def _confirm_only(p: dict) -> bool:
+    """A point that only asks the vendor to confirm a stated value: a Question, the judge's recorded "confirm", a verified quote,
+    its value not left open, no provisional figure and nothing code compared. Anything else is sent."""
+    return (
+        p.get("label") == "Question"
+        and p.get("shown_label") == "Question"
+        and p.get("ask") == "confirm"
+        and bool(p.get("quote"))
+        and not p.get("quote_unverified")
+        and not p.get("deferred")
+        and not p.get("compare_kind")
+        and not p.get("compared")
+        and not _provisional_kind(p.get("code_note"))
+    )
+
+
+#: A quote is specific enough to name ONE finding only with at least this many characters (folded), a digit and a letter: a
+#: short or generic quote ("TBA", "bar", "25", "N/A", "Yes", "A") would join different findings.
+QUOTE_KEY_MIN = 12
+
+
+def _specific(quote: str) -> bool:
+    return (
+        len(quote) >= QUOTE_KEY_MIN
+        and any(ch.isdigit() for ch in quote)
+        and any(ch.isalpha() for ch in quote)
+    )
+
+
+def _finding_key(p: dict) -> tuple | None:
+    """The FINDING a sent line makes: its shown label, compare kind and provisional kind, with its verified quote (folded) when
+    that quote is specific (`_specific`), or, with no verified quote, the judge's two numbers (value, unit, operator, limit,
+    unit). None when it has neither, and ALWAYS None for a Not met or a Fail: two findings of different items are never merged.
+    Lines of different labels never share a key (one label per finding: a Question never joins an AI opinion)."""
+    shown = str(p.get("shown_label") or "").lower()
+    if p.get("label") == "Not met" or "not met" in shown or "fail" in shown:
+        return None
+    head = (
+        p["shown_label"],
+        p.get("compare_kind") or "",
+        _provisional_kind(p.get("code_note")),
+    )
+    quote = "" if p.get("quote_unverified") else _field_key(p.get("quote"))
+    if quote:
+        return (*head, "quote", quote) if _specific(quote) else None
+    nums = p.get("numbers")
+    if isinstance(nums, dict):
+        k = tuple(
+            str(nums.get(x) or "").strip().lower()
+            for x in (
+                "paper_value",
+                "paper_unit",
+                "operator",
+                "rule_value",
+                "rule_unit",
+            )
+        )
+        if k[0] and k[3]:
+            return (*head, "numbers", k)
+    return None
+
+
+def _same_finding(comments: list[dict], by_n: dict) -> list[dict]:
+    """NO CHAIN: comments whose lines ALL make ONE finding (`_finding_key`) become one comment that keeps every line's own
+    words (`_same_point`); a comment whose lines make different findings, or none, stays as it is and links nothing (a chain
+    of shared quotes would build long lists of different points)."""
+    groups: dict[tuple, list[dict]] = {}
+    out = []
+    for c in comments:
+        keys = {_finding_key(by_n[n]) for n in c["lines"]}
+        if len(keys) == 1 and None not in keys:
+            groups.setdefault(keys.pop(), []).append(c)
+        else:
+            out.append(c)
+    for cs in groups.values():
+        if len(cs) == 1:
+            out.append(cs[0])
+            continue
+        members = sorted(
+            (by_n[n] for c in cs for n in c["lines"]),
+            key=lambda m: (m["page"] is None, m["page"] or 0, m["n"]),
+        )
+        out.append(_same_point(members))
+    return sorted(out, key=lambda g: g["n"])
+
+
+def _item_comments(points: list[dict]) -> list[dict]:
+    """The SENT lines grouped by `_keys`, in line order of each group's first line. One line: that line as it is. Several: one
+    comment that keeps every member's own words (`_same_point`), or the places of one field said in the same words
+    (`_places_of`). Each comment names the lines it covers."""
     sent = [p for p in points if aim_review.sendable(p)]
     keys = _keys(sent)
     groups: dict[tuple, list[dict]] = {}
@@ -290,12 +396,19 @@ def _member(m: dict) -> str:
     where = f"page {m['page']}" if m.get("page") is not None else "no page"
     quote = f' (quote: "{m["quote"]}")' if m.get("quote") else ""
     numbers = f" ({m['compared']})" if m.get("compared") else ""
-    return f"{m.get('field') or 'no field'} ({where}): {m.get('comment') or ''}{quote}{numbers}"
+    rule = " ".join(
+        x for x in (m.get("standard"), m.get("clause") and f"clause {m['clause']}") if x
+    )
+    rule = (
+        f" [rule: {rule}]" if rule else ""
+    )  # the place's own rule as the viewer may see it (a hidden book is masked)
+    return f"{m.get('field') or 'no field'} ({where}){rule}: {m.get('comment') or ''}{quote}{numbers}"
 
 
 def _same_point(members: list[dict]) -> dict:
-    """ONE comment for the editor's group, LOSSLESS: the first member's words, then every other member's field, page, own
-    comment in full and quote. Lines stay one per place (All points keeps each)."""
+    """ONE comment for the lines of one point, LOSSLESS: the first line's words, then every other line's field, page, rule and
+    clause, own comment in full, quote and value; the Standard and Clause cells list every rule cited (the first line's book
+    link only when every line cites the same book). Lines stay one per place (All points keeps each)."""
     members = sorted(members, key=lambda m: m["n"])
     first, others = members[0], members[1:]
     pages = sorted({m["page"] for m in members if m["page"] is not None})
@@ -309,6 +422,12 @@ def _same_point(members: list[dict]) -> dict:
                             for m in members if m["quote"]),
         "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
         "quote_unverified": any(m["quote_unverified"] for m in members),
+        # the Field cell names every member's field (a reader, and the score, find each field in its own cell)
+        "field": "; ".join(dict.fromkeys(m.get("field") or "no field" for m in members)),
+        "standard": "; ".join(dict.fromkeys(m["standard"] for m in members if m.get("standard"))),
+        "clause": "; ".join(dict.fromkeys(m["clause"] for m in members if m.get("clause"))),
+        "book_document_id": first.get("book_document_id")
+        if len({m.get("book_document_id") for m in members}) == 1 else None,
         **_state(members),
     }  # fmt: skip
 
@@ -328,7 +447,8 @@ def _titles(conn, ids: list[str], scope) -> tuple[dict[str, str], int]:
     return out, hidden
 
 
-def _books(conn, run: dict, scope) -> tuple[list[dict], int]:
+def _books(conn, run: dict, scope) -> tuple[list[dict], int, list[str]]:
+    """(the books the caller may read with the reason to show, how many the caller may not read, the ids of every book carried)."""
     items = _json(run.get("books_json"), [])
     ids, why = [], {}
     for it in items:
@@ -337,9 +457,12 @@ def _books(conn, run: dict, scope) -> tuple[list[dict], int]:
             ids.append(doc_id)
             why[doc_id] = str(it.get("why") or "") if isinstance(it, dict) else ""
     titles, hidden = _titles(conn, ids, scope)
-    return [
-        {"id": i, "title": titles[i], "why": why[i]} for i in ids if i in titles
-    ], hidden
+    shown = aim_review_book_why.served(conn, run, scope, ids, why)
+    return (
+        [{"id": i, "title": titles[i], "why": shown[i]} for i in ids if i in titles],
+        hidden,
+        ids,
+    )
 
 
 def _checklist(conn, run: dict, points: list[dict]) -> dict:
@@ -424,7 +547,7 @@ def build(conn, run: dict, scope=None) -> dict:
     ]
     # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
     # lines of one point make ONE comment listing every place (`group_comments`)
-    comments = group_comments(points)
+    comments, confirmations = comments_and_confirmations(points)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
@@ -433,7 +556,7 @@ def build(conn, run: dict, scope=None) -> dict:
     for p in points:
         by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
     identity = _json(run.get("identity_json"), {})
-    books, hidden = _books(conn, run, scope)
+    books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
     usd = run.get("usd")
     return {
@@ -453,14 +576,21 @@ def build(conn, run: dict, scope=None) -> dict:
         "counts": {
             "points": len(points),
             "comments": len(comments),
+            # the confirmations not sent (`comments_and_confirmations`): counted apart; comment lines + these = sent lines
+            "confirmations": len(confirmations),
+            "comment_lines": sum(len(c["lines"]) for c in comments),
+            "confirmation_lines": sum(len(c["lines"]) for c in confirmations),
             "by_label": by_label,
             "by_shown_label": by_shown,
             "boundary": BOUNDARY,
         },
         "comments": comments,
+        "confirmations": confirmations,
         "points": points,
         "books": books,
         "books_not_readable": hidden,
+        # the documents listed before the start (besides the paper) and how many of them the run used; None for an older run
+        "documents_listed": aim_review_book_why.listed_and_used(conn, run, carried),
         "points_from_books_not_readable": sum(
             1 for p in points if p["standard"] == HIDDEN_BOOK_WORDS
         ),

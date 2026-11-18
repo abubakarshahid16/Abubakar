@@ -85,6 +85,7 @@ def modules() -> tuple[Module, ...]:
                 (rs.StandardClauses, "RunSummaryStandardClauses"),
                 (rs.HowReviewed, "RunSummaryHowReviewed"),
                 (rs.RunSummary, "ReviewRunTierSummary"),
+                (rs.GeneralRunCounts, "ReviewRunGeneralCounts"),
                 (rs.RunCountsBatch, "ReviewRunCountsBatch"),
             ),
             unions=(

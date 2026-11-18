@@ -105,8 +105,19 @@ export interface ReviewRunTierSummary {
   sheet?: RunSummarySheetCounts | null;
 }
 
-/** `GET /api/reviews/runs/counts`: the tier counts of many runs in one call, each the same as that run's `/summary` `counts`. A run that is not there, or that the caller may not read, is absent, never zeros. */
+/** A general review's own numbers (order 14): the points it reviewed and the comments it sent, and the confirmations held back (absent on a run that has none counted). Never the earlier method's tiers. */
+export interface ReviewRunGeneralCounts {
+  points: number;
+  comments: number;
+  confirmations?: number | null;
+  stopped?: boolean;
+}
+
+/** `GET /api/reviews/runs/counts`: the tier counts of many runs in one call, each the same as that run's `/summary` `counts`. A run that is not there, or that the caller may not read, is absent, never zeros. A GENERAL review has no tiers: its own numbers are in `general`, never in `counts`. */
 export interface ReviewRunCountsBatch {
   boundary: string;
   counts: Record<string, RunSummaryTierCounts>;
+  general?: Record<string, ReviewRunGeneralCounts>;
+  /** Order 14: the earlier AI reviewer's stored lines per run (they are not findings, so `counts` says 0 for them); a run with none is absent. */
+  ai_lines?: Record<string, number>;
 }

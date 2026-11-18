@@ -27,6 +27,9 @@ BELOW = "below target"
 NOT_MEASURED = "not measured"
 VERDICTS = (AT_OR_ABOVE, BELOW, NOT_MEASURED)
 
+#: The owner's limit on false alarms: at most 1 wrong comment in 10 (a strict reader's KEEP / WEAK / WRONG read of the real sheet).
+FALSE_ALARM_TARGET_PERCENT = 10
+
 
 @lru_cache(maxsize=1)
 def _table() -> dict:
@@ -49,31 +52,66 @@ def _number(value: Any, top: float) -> float | None:
     return float(value) if 0 <= value <= top else None
 
 
-def _row(kind: str, equipment_type: str) -> dict | None:
+def _row(kind: str, equipment_type: str) -> tuple[dict | None, str]:
+    """(the row, how it was found): "exact" an equipment-type row of that name, "family" the row named by the LAST WORD of the type
+    ("centrifugal pump" -> the "pump" row; the taxonomy names a type by its family), "kind" the kind's own row, "" no row.
+
+    An equipment type with its own measured number wins; a family row is used only when it holds a number; a type with neither
+    falls back to the kind's row. The sentence says which row it used whenever it was not the exact one (a guess is shown as one)."""
     kinds = _table().get("kinds")
     if not isinstance(kinds, dict):
-        return None
+        return None, ""
     base = next(
         (v for k, v in kinds.items() if _word(k) == kind and isinstance(v, dict)), None
     )
     if base is None:
-        return None
+        return None, ""
     types = base.get("equipment_types")
     if equipment_type and isinstance(types, dict):
-        for name, row in types.items():
-            # An equipment type with its own measured number wins; one without falls back to the kind's row.
-            if (
-                _word(name) == equipment_type
-                and isinstance(row, dict)
-                and row.get("found_mean") is not None
-            ):
-                return row
-    return base
+        family = equipment_type.rsplit(" ", 1)[-1]
+        for how, wanted in (("exact", equipment_type), ("family", family)):
+            for name, row in types.items():
+                if (
+                    _word(name) == wanted
+                    and isinstance(row, dict)
+                    and row.get("found_mean") is not None
+                ):
+                    return row, how
+    return base, "kind"
 
 
 def _fmt(number: float) -> str:
     """One decimal, NEVER rounded up (6.96 -> "6.9"): a score is never shown above what was measured."""
     return f"{math.floor(round(number * 10, 6)) / 10:.1f}"
+
+
+def _count(value: Any) -> int | None:
+    """A whole number (not a bool) of 0 or more, else None."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def false_alarm(row: dict | None) -> dict | None:
+    """The share of comments a strict reader judged wrong, from the row's `false_alarm_wrong` and `false_alarm_of`, or None.
+
+    Set only when BOTH counts are real whole numbers with `of` above 0 and `wrong` not above `of`: a percentage is never made up
+    without its "N of M". The percentage is rounded UP to a whole number (a wrong share is never shown lower than measured)."""
+    wrong, of = (
+        _count((row or {}).get("false_alarm_wrong")),
+        _count((row or {}).get("false_alarm_of")),
+    )
+    if wrong is None or not of or wrong > of:
+        return None
+    percent = math.ceil(round(wrong * 100 / of, 6))
+    return {
+        "wrong": wrong,
+        "of": of,
+        "percent": percent,
+        "target_percent": FALSE_ALARM_TARGET_PERCENT,
+        "within_target": wrong * 100 <= FALSE_ALARM_TARGET_PERCENT * of,
+        "sentence": f"A strict reader judged {wrong} of {of} comments wrong ({percent}%; target {FALSE_ALARM_TARGET_PERCENT}% or less).",
+    }
 
 
 def _not_measured(label: str, target) -> dict:
@@ -94,7 +132,7 @@ def for_run(identity: dict | None) -> dict | None:
     if not kind:
         return None
     equipment_type = _word(identity.get("equipment_type"))
-    row = _row(kind, equipment_type)
+    row, how = _row(kind, equipment_type)
     label = _word((row or {}).get("label")) or kind
     top = _number(_table().get("out_of"), 1000)
     target = _number(_table().get("target"), top) if top else None
@@ -113,10 +151,20 @@ def for_run(identity: dict | None) -> dict | None:
     old = _number((row or {}).get("old_engine_mean"), top)
     if old is not None:
         sentence += f" The earlier version found {_fmt(old)} of {_fmt(top).rstrip('0').rstrip('.')}."
+    if equipment_type and how in ("family", "kind"):
+        used = f"{label}" if how == "family" else f"the {label} row for every type"
+        sentence += (
+            f" Row used: {used}; this paper's equipment type is {equipment_type}"
+            + (", which has no number of its own." if how == "kind" else ".")
+        )
+    wrong = false_alarm(row)
+    if wrong is not None:
+        sentence += " " + wrong["sentence"]
     return {
         "kind_label": label,
         "found": found,
         "target": target,
         "verdict": verdict,
         "sentence": sentence,
+        "false_alarm": wrong,
     }

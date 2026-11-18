@@ -63,7 +63,8 @@ def test_every_generated_module_is_registered():
         "agent_review.ts",
     } <= set(MODULES)
     # agent_review: AgentProjectPaper joined (7 + 17 + 13), AgentOtherBooks (+1), AgentPaperText (+1), AgentPageRereadStop (+1), AgentTwoReaderStep (+1), AgentChangedSincePrevious (+1), AgentBookRow and AgentBookTable (+2), AgentDecisions (+1)
-    assert sum(len(module.models) for module in MODULES.values()) == 46
+    # run_summary: GeneralRunCounts (+1, order 14 H7: a general review's own counts in the runs counts batch)
+    assert sum(len(module.models) for module in MODULES.values()) == 47
 
 
 @pytest.mark.parametrize("module", ALL, ids=lambda module: module.filename)

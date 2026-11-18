@@ -76,6 +76,8 @@ class Result:
     )  # {step, model, usd, input_tokens, output_tokens, seconds, ok, code}
     usd: float = 0.0
     seconds: float = 0.0
+    #: {book document id: the reason the scope step chose it} for the books in `books` (empty text: no reason was recorded).
+    book_why: dict = field(default_factory=dict)
 
 
 #: `code_note` of a line whose item was never answered (the run stopped, a batch failed, its book was not on the list).

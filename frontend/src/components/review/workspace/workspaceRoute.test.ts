@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { WORKSPACE_TABS, type WorkspaceLocation } from "./contract";
-import { DEFAULT_WORKSPACE_QUERY, OLD_REVIEW_PANEL_TABS, isWorkspaceScreen, parseWorkspaceQuery, reviewPageFor, workspaceSearch } from "./workspaceRoute";
+import { DEFAULT_WORKSPACE_QUERY, OLD_REVIEW_PANEL_TABS, documentFromSearch, isWorkspaceScreen, parseWorkspaceQuery, reviewPageFor, workspaceSearch } from "./workspaceRoute";
 import { PANELS } from "../../../routing";
 
 describe("parseWorkspaceQuery / workspaceSearch", () => {
@@ -113,5 +113,17 @@ describe("reviewPageFor (old addresses lead into the workspace)", () => {
 
   it("an odd run id is kept safe in the new address", () => {
     expect(reviewPageFor("run 1/2", "findings", "").address).toBe("/review/run%201%2F2?tab=findings");
+  });
+});
+
+describe("H5: documentFromSearch", () => {
+  it("reads a plain id from ?document=", () => {
+    expect(documentFromSearch("?document=doc_abc123")).toBe("doc_abc123");
+    expect(documentFromSearch("?tab=how&document=doc-7")).toBe("doc-7");
+  });
+  it("ignores a missing, empty, too long or odd value (it never reaches a request)", () => {
+    for (const search of ["", "?document=", `?document=${"a".repeat(81)}`, "?document=../x", "?document=a b", "?document=<x>", "?doc=doc_1"]) {
+      expect(documentFromSearch(search)).toBeNull();
+    }
   });
 });

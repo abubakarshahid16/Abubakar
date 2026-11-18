@@ -7,9 +7,10 @@ the general review does with them. Pure resolver; the plan reads and writes noth
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import replace
 
-from . import review_cost, review_leaving
+from . import review_leaving
 from .review_engine import (
     AI_REVIEW,
     AUTOMATIC,
@@ -133,6 +134,31 @@ GENERAL_LEAVES = (
 )
 
 
+LAST_COST_READ = "the cost of the last general review of this paper, read from the spend ledger (every step of that run)"
+LAST_COST_UNREAD = (
+    "the cost of the last review of this paper was not read from the spend ledger"
+)
+
+
+def _last_general_cost(conn, document_id: str) -> tuple[float | None, str | None]:
+    """(cost, words) of the paper's last ENDED general review. The cost is the run's own stored `usd`, which the run read from the
+    spend ledger's lines for that run (every step: reading, naming, checklist, judging, comments), never the earlier engine's figure,
+    which covers one part only (A-H1). A run whose ledger could not be read has no cost: said so, never a partial sum or a 0. No
+    general review yet: nothing is said."""
+    from . import aim_review_store
+
+    try:
+        run = aim_review_store.latest_run(conn, str(document_id), ended=True)
+    except sqlite3.Error:  # an unreadable store says nothing about a past cost
+        return None, None
+    if run is None:
+        return None, None
+    usd = run.get("usd")
+    if isinstance(usd, bool) or not isinstance(usd, (int, float)):
+        return None, LAST_COST_UNREAD
+    return float(usd), LAST_COST_READ
+
+
 def general_plan(conn, document_id, allowed, plan, facts, reading, out: dict) -> dict:
     """The pre-start answer of the general review: the documents the review may send (the paper and the rule books chosen from the
     library's own records, `aim_review.candidates`), the upper bound of its cost, and one sentence. No write, no model, no call."""
@@ -148,7 +174,7 @@ def general_plan(conn, document_id, allowed, plan, facts, reading, out: dict) ->
     out["boundary"] = "documents you may read"
     leaves = plan.text_leaves
     cap = aim_review_gate.max_usd()
-    last = review_cost.last_cost(conn, document_id)
+    last, last_note = _last_general_cost(conn, document_id)
     out["cost"] = {
         "at_most_usd": cap if leaves else None,
         "by_part_at_most_usd": {
@@ -157,9 +183,7 @@ def general_plan(conn, document_id, allowed, plan, facts, reading, out: dict) ->
         },
         "basis": GENERAL_COST_BASIS.format(usd=f"USD {cap:.2f}") if leaves else None,
         "last_review_usd": last if leaves else None,
-        "last_review_note": "the measured cost of the last AI review of this paper"
-        if (leaves and last is not None)
-        else None,
+        "last_review_note": last_note if leaves else None,
         "exact": False,
     }
     out["notes"] = _notes(plan, settings)

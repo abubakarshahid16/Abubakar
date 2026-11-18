@@ -74,10 +74,32 @@ export function inboxStateOf(run: ReviewRunSummary | undefined): InboxState {
  *  comment"), so calling these "comments" said 6,584 where the sheet shows
  *  5 rows. The label names them as what they are. */
 export interface ReadyCounts {
-  /** Findings in a comment or needs-you tier (not Met, not removed). */
-  findings: number;
-  /** Of those, the ones that need the engineer's judgement. */
-  needs_you: number;
+  /** Findings in a comment or needs-you tier (not Met, not removed). Null for a general review: it has no tiers. */
+  findings: number | null;
+  /** Of those, the ones that need the engineer's judgement. Null for a general review. */
+  needs_you: number | null;
+  /** Order 14: a general review's OWN numbers (the server's `general` counts); present only for a run of that method. */
+  general?: GeneralRunCounts;
+  /** Order 14: the lines the earlier AI reviewer stored for this run (they are not findings); absent when it stored none. */
+  aiLines?: number;
+}
+
+/** A general review's numbers: the points it reviewed, the comments it sent, the confirmations held back (absent when not counted). */
+export interface GeneralRunCounts {
+  points: number;
+  comments: number;
+  confirmations?: number | null;
+  stopped?: boolean;
+}
+
+/** "General review: 129 points reviewed, 66 comments sent (20 confirmations not sent)": the new method's own numbers, labelled as
+ *  such; a count not known is left out (never 0). */
+export function generalLine(g: GeneralRunCounts): string {
+  const n = (x: number) => x.toLocaleString("en-US");
+  const plural = (x: number, word: string) => `${n(x)} ${word}${x === 1 ? "" : "s"}`;
+  const held = typeof g.confirmations === "number" ? ` (${plural(g.confirmations, "confirmation")} not sent)` : "";
+  const early = g.stopped ? "; stopped early" : "";
+  return `General review: ${plural(g.points, "point")} reviewed, ${plural(g.comments, "comment")} sent${held}${early}`;
 }
 
 /** "Found by the review: 12 findings, 3 needing your judgement": the
@@ -86,8 +108,17 @@ export interface ReadyCounts {
  *  lines). Nothing when not known. The inbox and the landing both use it. */
 export function foundLine(counts: ReadyCounts | null | undefined): string {
   if (!counts) return "";
+  if (counts.general) return generalLine(counts.general);
   const n = counts.findings;
   const m = counts.needs_you;
+  const tiers = n == null || m == null ? "" : `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `
+    + `${m.toLocaleString("en-US")} needing your judgement`;
+  if (counts.aiLines) {
+    // the earlier AI reviewer keeps its lines apart from the findings: say them, and the findings only when there are some
+    const ai = `AI review: ${counts.aiLines.toLocaleString("en-US")} line${counts.aiLines === 1 ? "" : "s"} (earlier method)`;
+    return n && tiers ? `${ai}. ${tiers}` : ai;
+  }
+  if (n == null || m == null) return ""; // a count not known renders as nothing, never 0
   return `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `
     + `${m.toLocaleString("en-US")} needing your judgement`;
 }
