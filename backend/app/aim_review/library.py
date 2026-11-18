@@ -221,6 +221,12 @@ def not_offered_company(
     return frozenset(b for b in ids if b in by_id and not usable(by_id[b], cited))
 
 
+def company_books_not_cited(conn, paper_id: str, books: dict, cited) -> frozenset[str]:
+    """A checklist's books (alias -> {book}) that are COMPANY standards this paper does not cite, on the shown list or not."""
+    ids = {str(b.get("book")) for b in books.values() if b.get("book")}
+    return not_offered_company(conn, paper_id, ids, cited or frozenset())
+
+
 def wanted_not_held(not_held) -> frozenset[str]:
     """The governing and method books a checklist was written WITHOUT (`checklist.wanted`'s not-held part, by name): when this set
     changes (a book is now held, or the governing table changed), a saved checklist is not reused. Told apart by the explicit

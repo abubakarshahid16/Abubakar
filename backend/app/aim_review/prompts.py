@@ -23,7 +23,9 @@ S1_TASK = """TASK S1 - IDENTIFY THE PAPER. Read the paper above and say what it 
  "service": the service conditions the paper states (fluid, pressures, temperatures, location class), at most 30 words, or "",
  "evidence": [{"page": n, "quote": exact words copied from that page that show the kind and the subject}] (2 to 4),
  "cited": [{"name": a standard, code, specification or other document the paper names as applying to it, written as the paper
-     writes it, "page": n, "quote": exact words from that page naming it}] (every one the paper names; [] if none)}
+     writes it, "page": n, "quote": exact words from that page naming it}] (every one the paper names; [] if none),
+ "scope": {"page": n, "quote": exact words where the paper states its own scope, purpose or life-cycle phase or stage (what it
+     covers and what it does not)} or null when the paper states none}
 Quotes are copied character for character from the paper (a short span, 5 to 25 words). Do not explain.
 CHECKLIST TYPES ALREADY MADE (kind__subject_key): %(known)s
 If this paper is the same TYPE of paper as one of them (same kind, same equipment or the same kind of study/contract/
@@ -113,7 +115,9 @@ paper pages it names (and any other page where the thing is), and judge.
 Labels: "Met" (the paper states what the clause requires), "Not met" (the paper states something that breaks it), "Question"
 (the value or statement is missing, unclear, or left open by the vendor: TBA, TBC, TBD, later, *, blank, or "by
 vendor/contractor"; a figure stated beside a note of who supplies it, such as "380 psig (By Contractor)", is provisional: give
-its "numbers" so code can check it, and label it "Question", never Met or Not met), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
+its "numbers" so code can check it, and label it "Question", never Met or Not met), "Does not apply" (the item's condition does not hold for this paper; also an item whose own scope (a life-cycle phase, a
+stage, a kind of facility) differs from the scope the paper states: say so, "outside the paper's stated scope: ...", never a
+Question for it), "AI opinion" (a concern a senior engineer would raise that the
 clause does not decide).
 Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
 finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
@@ -146,6 +150,10 @@ Take nothing off for any other reason. Reply with ONE JSON object only:
 {"moves": [{"n": n, "reason": "repeats", "of": n} or {"n": n, "reason": "paper_states_otherwise", "page": p, "quote": "..."}]}
 THE COMMENTS:
 %(comments)s"""
+
+#: Added to S4 when S1 found the paper's own statement of its scope, verified by code on its page.
+SCOPE_LINE = """THE PAPER'S STATED SCOPE (page %(page)d): "%(quote)s"
+"""
 
 #: Added to S4 only when a long paper is judged in page windows (a paper that fits is judged whole, without this line).
 WINDOW_LINE = """THIS IS PART OF A LONGER PAPER: above are pages %(first)d to %(last)d of %(count)d pages. If what an item needs is
