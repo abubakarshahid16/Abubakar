@@ -484,9 +484,11 @@ def _steps(
         _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
 
 
-def _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say) -> None:
-    """After the judge, in this order: the contract's cited Schedules (reference papers), the whole-paper check (S4b), the second
-    reader (S4c), the editor (S5)."""
+def _after_judge(
+    conn, state, mdl, paper, checklist: dict, allowed_books, lead: str, say
+) -> None:
+    """After the judge, in order: the contract's reference papers (G), the whole-paper check (S4b: a line on no held rule that the
+    paper answers is not sent), the second reader (S4c: a finding the AI alone decided needs two readers), the editor (S5)."""
     from . import references as R
     from .answered import s4b_answered
     from .editor import s5_edit
@@ -497,12 +499,13 @@ def _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say) -
         conn, mdl, paper, state.decided, allowed_books, lead
     )
     say(95, "whole-paper check and second reader")
-    s4b_answered(
-        mdl, paper, state.decided, lead
-    )  # a line on no held rule that the paper answers is not sent
-    s4c_second_read(
-        mdl, paper, state.decided, checklist, lead
-    )  # a finding the AI alone decided needs two readers
+    from app import aim_review_gate
+
+    if (
+        aim_review_gate.answered_check_on()
+    ):  # off by default (a way-back switch): code proves the quote, not the answer
+        s4b_answered(mdl, paper, state.decided, lead)
+    s4c_second_read(mdl, paper, state.decided, checklist, lead)
     say(96, "judge")
     s5_edit(mdl, paper, state.decided, lead)
 

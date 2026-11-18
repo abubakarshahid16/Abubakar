@@ -333,8 +333,8 @@ def value_left_open(quote: str | None) -> bool:
     or "(*)" that is no note pointer), (b) the value (after the field's own label, the text after the last colon) is a blank form
     (`_WHOLE_CELL`, `_PLACEHOLDER`, `is_whole_deferral`, `star_fills_value`), or (c) a who-supplies note stands with NO figure
     stated for the value ("Set pressure psig (By Contractor)", "By Vendor"). A who-supplies note beside a stated figure
-    ("Set pressure 380 psig (By Contractor, as per Code)") does NOT leave it open: it is a provisional figure
-    (`is_provisional_figure`), checked by code and still a Question. Pure."""
+    ("Set pressure 380 psig (By Contractor, as per Code)") does NOT leave it open: it is a figure the contractor filled in
+    (`is_provisional_figure`), judged as a stated value (owner, 18 Nov 2026 after live). Pure."""
     text = " ".join(str(quote or "").split())
     if not text:
         return False

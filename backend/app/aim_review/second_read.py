@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import logging
 
+from app.crs_completeness import CUT_MARK
+
 from . import PROVISIONAL, READERS_DIFFER, TWO_READERS_AGREE
 from . import prompts as P
 from .engine import StepFailed
+from .references import NOTE_CHECKED as REFERENCE_CHECKED
 from .steps import _dumps, paper_block
 from .verify import quote_in
 
@@ -26,6 +29,8 @@ OFFERED_LABELS = ("Not met", "AI opinion")
 #: A second reader's label that agrees there is a fault.
 FAULT = frozenset({"Not met", "AI opinion"})
 READ_CHUNK = 60
+#: A differing line's words at most this long; a longer text is cut WITH the cut mark (the first reader's words stay on the line).
+COMMENT_MAX = 900
 READ_MAX_TOKENS = 8000
 NOT_APPLIED = "second reader not applied"
 
@@ -45,6 +50,8 @@ def offered(lines: list[dict]) -> dict[int, dict]:
             and not d.get("code_compare")
             and not d.get("deferred")
             and not any(x.startswith(PROVISIONAL) for x in parts)
+            # a line a reference paper checked rests on that paper, which this step never reads (the Schedule of the package)
+            and not any(x.startswith(REFERENCE_CHECKED) for x in parts)
         ):
             out[n] = d
     return out
@@ -144,8 +151,11 @@ def _apply(out: dict, shown: dict, paper) -> int:
         second = str((read or {}).get("label") or "no answer")
         why = str((read or {}).get("reason") or "")[:200]
         first = d.get("label") or ""
-        d["comment"] = (f"To be checked: the two readers differ. First reader ({first}): {d.get('comment') or ''} "
-                        f"Second reader ({second}): {why or 'no reason given'}")[:900]  # fmt: skip
+        words = (f"To be checked: the two readers differ. First reader ({first}): {d.get('comment') or ''} "
+                 f"Second reader ({second}): {why or 'no reason given'}")  # fmt: skip
+        d["comment"] = (
+            words if len(words) <= COMMENT_MAX else words[: COMMENT_MAX - 1] + CUT_MARK
+        )  # a cut is marked
         d["code"] = "; ".join(
             x
             for x in (

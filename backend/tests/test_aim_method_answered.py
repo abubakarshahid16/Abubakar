@@ -195,3 +195,21 @@ def test_the_check_asks_one_verdict_for_every_comment():
         "ONE verdict for EVERY comment" in P.ANSWERED_TASK
         and '"verdicts"' in P.ANSWERED_TASK
     )
+
+
+def test_a_line_a_reference_paper_checked_is_never_offered():
+    """The Schedule a reference line rests on is not in this step's request: it can neither answer nor take off such a line."""
+    differs = _line("R01", label="AI opinion", source="held contract paper (same package)",
+                    code="reference_checked: Invented Schedule X")  # fmt: skip
+    assert list(A.offered([differs, _line("C02")])) == [2]
+
+
+def test_the_books_a_line_names_are_declared_as_carried():
+    model = _Checker([])
+    line = _line(
+        "C01",
+        book_document_id="doc_book_x",
+        named_books=[{"id": "doc_sched_y", "name": "Invented Schedule Y"}],
+    )
+    A.s4b_answered(model, PAPER, [line], MODEL)
+    assert model.asked[0]["carries"] == {"doc_ans", "doc_book_x", "doc_sched_y"}

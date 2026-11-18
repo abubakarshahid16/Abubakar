@@ -531,3 +531,20 @@ def test_a_schedule_not_on_the_list_is_not_compared_and_no_call_is_made(world):
     lines: list[dict] = []
     R.check(world, model, _paper(world), lines, frozenset(), "m")
     assert lines == [] and model.calls == []
+
+
+def test_a_call_that_stops_after_settled_questions_says_how_many_not_failed():
+    """Lines already settled stay settled: the status is "read in part" with the count, never "failed"."""
+    from app.aim_review import references as RR
+
+    ref = RR.Ref(doc_id="doc_ref_inv", key=None, name="Invented Schedule X")
+    part = RR._failed(ref, "transport ReadTimeout", questions=5, settled=3)
+    assert part["status"] == RR.READ_IN_PART and part["settled"] == 3
+    assert part["reason"].startswith("3 of 5 questions settled before a call stopped")
+    assert (
+        RR._failed(ref, "transport ReadTimeout", questions=5, settled=0)["status"]
+        == RR.FAILED
+    )
+    assert (
+        RR._failed(ref, "gate_closed", questions=5, settled=0)["status"] == RR.NOT_SENT
+    )

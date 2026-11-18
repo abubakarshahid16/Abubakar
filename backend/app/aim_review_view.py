@@ -163,6 +163,20 @@ def _state_words(code_note) -> str:
     return "; ".join(dict.fromkeys(w for w in words if w in _STATE_WORDS))
 
 
+def _apart(points: list[dict], comments: list[dict], confirmations: list[dict]) -> dict:
+    """The counts kept apart: the confirmations not sent (comment lines + confirmation lines = sent lines), and the points kept
+    off the comments (each stays on "All points"): taken off by the editor, or answered by the paper (the whole-paper check)."""
+    return {
+        "confirmations": len(confirmations),
+        "comment_lines": sum(len(c["lines"]) for c in comments),
+        "confirmation_lines": sum(len(c["lines"]) for c in confirmations),
+        "not_sent": {
+            note: sum(1 for p in points if note in _note_words(p["code_note"]))
+            for note in (aim_review.EDITED, aim_review.ANSWERED)
+        },
+    }
+
+
 def _note_words(code_note) -> set[str]:
     """The words a code note's parts start with ("edited: repeats line 3; answered: ..." -> {"edited", "answered"})."""
     return {x.split(":", 1)[0].strip() for x in str(code_note or "").split(";")}
@@ -592,46 +606,6 @@ def _cost(run: dict) -> dict:
     )
 
 
-def _label_counts(points: list[dict]) -> tuple[dict[str, int], dict[str, int]]:
-    """(points per method label, every label always present; points per shown label, as stored)."""
-    by_label = {
-        label: sum(1 for p in points if p["label"] == label)
-        for label in aim_review.LABELS
-    }
-    by_shown: dict[str, int] = {}
-    for p in points:
-        by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
-    return by_label, by_shown
-
-
-def _counts(
-    points: list[dict],
-    comments: list[dict],
-    confirmations: list[dict],
-    by_severity: dict,
-) -> dict:
-    """The page's counts: points, comments, confirmations and their lines, the points kept off the sheet, labels, boundary."""
-    by_label, by_shown = _label_counts(points)
-    return {
-        "points": len(points),
-        "comments": len(comments),
-        "by_severity": by_severity,  # the summary tiles
-        # the confirmations not sent (`comments_and_confirmations`): counted apart; comment lines + these = sent lines
-        "confirmations": len(confirmations),
-        "comment_lines": sum(len(c["lines"]) for c in comments),
-        "confirmation_lines": sum(len(c["lines"]) for c in confirmations),
-        # points kept off the comments, counted apart (each stays on "All points"): taken off by the editor as a repeat or
-        # contradicted, or answered by the paper on some page (the whole-paper check)
-        "not_sent": {
-            note: sum(1 for p in points if note in _note_words(p["code_note"]))
-            for note in (aim_review.EDITED, aim_review.ANSWERED)
-        },
-        "by_label": by_label,
-        "by_shown_label": by_shown,
-        "boundary": BOUNDARY,
-    }
-
-
 def build(conn, run: dict, scope=None) -> dict:
     """The page's JSON for ONE stored general run, without the completeness answer (that needs the built file). Raises
     `NotFinished` for a run that has not ended."""
@@ -646,6 +620,13 @@ def build(conn, run: dict, scope=None) -> dict:
     comments, confirmations = comments_and_confirmations(points)
     by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
     aim_review_decisions.attach(conn, run["run_id"], comments, confirmations)
+    by_label = {
+        label: sum(1 for p in points if p["label"] == label)
+        for label in aim_review.LABELS
+    }
+    by_shown: dict[str, int] = {}
+    for p in points:
+        by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
     identity = _json(run.get("identity_json"), {})
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
@@ -663,7 +644,15 @@ def build(conn, run: dict, scope=None) -> dict:
         "measured": aim_review_measured.for_run(
             {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
         ),
-        "counts": _counts(points, comments, confirmations, by_severity),
+        "counts": {
+            "points": len(points),
+            "comments": len(comments),
+            "by_severity": by_severity,  # the summary tiles
+            **_apart(points, comments, confirmations),
+            "by_label": by_label,
+            "by_shown_label": by_shown,
+            "boundary": BOUNDARY,
+        },
         "comments": comments,
         "confirmations": confirmations,
         "points": points,
