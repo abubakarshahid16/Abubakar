@@ -36,11 +36,12 @@ describe("GeneralResults header", () => {
   });
 
   it("the header counts by label are plain words, not raw label names", () => {
-    mount(review({ counts: { points: 193, comments: 73, by_label: {}, boundary: "this paper", by_shown_label: { "Question": 159, "AI opinion: does not apply": 28, "AI opinion: met": 4, "AI opinion": 2 } } }));
+    mount(review({ counts: { points: 193, comments: 73, by_label: {}, boundary: "this paper", by_shown_label: { "Question": 159, "AI opinion: does not apply": 28, "AI opinion: met": 4, "AI opinion: not met": 1, "AI opinion": 2 } } }));
     const t = screen.getByTestId("general-counts");
     expect(t).toHaveTextContent("159 questions");
     expect(t).toHaveTextContent("28 do not apply (the AI's view)");
     expect(t).toHaveTextContent("4 met (the AI's view)");
-    expect(t).not.toHaveTextContent("AI opinion:");
+    expect(t).toHaveTextContent("1 not met (the AI's view)");
+    expect(t).not.toHaveTextContent(/AI opinion:/i);
   });
 });

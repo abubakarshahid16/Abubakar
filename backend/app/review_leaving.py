@@ -206,6 +206,16 @@ def leaving_for(
 
 
 def _finish(out: dict) -> dict:
+    # a standard not held is said ONCE (one number spelled with or without a dash, "Pt-2" and "Part II", a table name and the AI's
+    # longer name): the same key as the review's own not-held list (`book_names.unique_not_held`); a document that is held and not sent
+    # for another reason is never touched
+    from .aim_review import book_names
+
+    held_not = [n for n in out["not_sent"] if n.get("reason") == NOT_HELD]
+    keep = {id(n) for n in book_names.unique_not_held(held_not)}
+    out["not_sent"] = [
+        n for n in out["not_sent"] if n.get("reason") != NOT_HELD or id(n) in keep
+    ]
     out["count"] = {
         "leaving": len(out["leaving"]),
         "boundary": "documents you may read",
