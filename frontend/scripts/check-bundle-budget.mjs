@@ -11,7 +11,9 @@ const root = join(process.cwd(), "dist", "assets");
 // about 0.7 KB gzip together); same way-back reason as above.
 // After live (18 Nov 2026): 317000 -> 319000 bytes: the general review's "How this review was made" view (H, about 1.5 KB gzip).
 // The earlier engine's screens still ship as the way back; retiring them after the new path is proven gives this back.
-const max = 319000;
+// After live 1 (18 Nov 2026): 319000 -> 320000 bytes: the live screen fixes (H3), the book-reason rule-5 wording (H4) and the
+// confirmations count (H5); same way-back reason; retiring the earlier screens is on the after-proof list.
+const max = 320000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;
