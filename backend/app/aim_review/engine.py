@@ -622,6 +622,8 @@ def _checklist(
         )
         # the saved AI "needed" names sorted again: a held book now on the list means build again; held, not listed: unlisted
         use, unlisted, still = BN.resort_saved(conn, state.paper_id, saved.get("not_held"), allowed_books, ident.get("kind"), gate_checker())  # fmt: skip
+        # a book this run requires (governing, method, cited by the paper) that the saved checklist does not rest on: build again
+        use += BN.new_required(conn, state.paper_id, saved, want["listed"], state.cited, allowed_books, ident.get("kind"), gate_checker())  # fmt: skip
         if (
             L.wanted_not_held(saved.get("not_held"))
             == L.wanted_not_held(want["not_held"])

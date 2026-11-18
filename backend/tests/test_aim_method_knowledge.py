@@ -532,3 +532,54 @@ def test_every_table_of_values_gets_one_item_that_checks_every_row():
                                                   "most": 1, "kinds": "[]", "table_rows": CL.P.TABLE_ROWS_ASK}  # fmt: skip
     assert "checks EVERY row" in prompt and "order of magnitude" in prompt
     assert CL.CHECKLIST_METHOD == "2026-11-18.2"
+
+
+def test_a_newly_held_book_the_paper_cites_gets_a_checklist_built_with_it_once(aim_db):
+    """A company book uploaded after the type's checklist was saved, cited by the paper (never in the tables, never named by the
+    AI): the checklist key carries the paper's held cited books (`library.cited_key`), so the next review builds a checklist
+    WITH the book under its own key; the review after that reuses it (18 Nov, F's new-book test). A held book the paper does
+    not cite changes nothing."""
+    from tests.test_aim_method_helpers import MemoryStore, _doc
+
+    new_book = "doc_aimbookNEW"
+    store = MemoryStore()
+
+    def run(run_id, cited):
+        model = E.FakeModel(kind="datasheet", subject_key="test_item")
+        return aim_review.run(aim_db, run_id=run_id, paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B, new_book}),
+                              store=store, max_usd=5.0, model=model, cited_books=cited)  # fmt: skip
+
+    first = run("run_nb1", frozenset())
+    assert not first.checklist_reused and len(store.puts) == 1
+    with aim_db:
+        _doc(aim_db, new_book, "invented-company-book.pdf", "COMPANY_STANDARD",
+             {1: "Section heading of the invented company book\n4.1 The invented item shall carry a nameplate.\n"})  # fmt: skip
+    assert run(
+        "run_nb2", frozenset()
+    ).checklist_reused  # held, but not cited: nothing requires it
+    again = run("run_nb3", frozenset({new_book}))
+    assert (
+        not again.checklist_reused
+        and again.checklist_key != first.checklist_key
+        and len(store.puts) == 2
+    )
+    assert new_book in {
+        b["book"] for b in store.saved[again.checklist_key][-1][1]["books"]
+    }
+    assert run(
+        "run_nb4", frozenset({new_book})
+    ).checklist_reused  # built once, then reused
+
+
+def test_a_required_book_missing_from_the_saved_checklist_builds_it_again(aim_db):
+    """A governing or method book on this run's list that the saved checklist does not rest on (it was held but not listed when
+    the checklist was built) builds the checklist again; a book the build itself would leave out never does (no loop)."""
+    from app.aim_review import book_names as BN
+
+    saved = {"books": [{"book": BOOK_A}]}
+    assert BN.new_required(aim_db, PAPER, saved, {BOOK_B: "governs"}, frozenset(), frozenset({BOOK_A, BOOK_B}), "datasheet",
+                           lambda b: "") == [BOOK_B]  # fmt: skip
+    assert BN.new_required(aim_db, PAPER, saved, {BOOK_B: "governs"}, frozenset(), frozenset({BOOK_A, BOOK_B}), "datasheet",
+                           lambda b: "gate_closed") == []  # the gate refuses it: the build leaves it out too  # fmt: skip
+    assert BN.new_required(aim_db, PAPER, saved, {BOOK_B: "governs"}, frozenset(), frozenset({BOOK_A}), "datasheet",
+                           lambda b: "") == []  # not on this run's list  # fmt: skip
