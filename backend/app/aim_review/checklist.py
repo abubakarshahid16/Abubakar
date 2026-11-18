@@ -10,17 +10,29 @@ a held book the type wants that is not on it is never offered and is counted as 
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 
 #: The only `built_from` a saved checklist may have (one home: the store, piece D).
-from app.aim_review_store import BUILT_FROM
+from app.aim_review_store import (  # BUILT_FROMS is read by the engine through this module
+    BUILT_FROM,
+    BUILT_FROM_KNOWLEDGE,
+    BUILT_FROMS,  # noqa: F401
+)
 
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
 
+log = logging.getLogger(__name__)
 HELD = "held standard"
 KNOWLEDGE = "not from a held standard"
+#: An item from the model's knowledge of a public standard the library does NOT hold (or of engineering practice): no clause
+#: quote, no clause number; judged like any knowledge item (never Met / Not met).
+KNOWLEDGE_NOT_HELD = "engineering knowledge (book not held)"
+#: The coverage floor of a checklist for a kind with no main equipment (a procedure, a contract: long papers of many topics).
+FLOOR_ITEMS = 30
+MAX_KNOWLEDGE = 40
 ITEM_KINDS = ("limit", "presence", "consistency", "material", "procedure")
 SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the required ones)
 MATERIAL_BUDGET = 150_000
@@ -409,18 +421,23 @@ def check_rule_quote(
     return True
 
 
+def _source(raw) -> str:
+    said = str(raw or "").strip().lower()
+    if said.startswith("engineering knowledge"):
+        return KNOWLEDGE_NOT_HELD
+    return KNOWLEDGE if said.startswith("not") else HELD
+
+
 def _clean_item(it: dict) -> dict:
-    src = (
-        KNOWLEDGE
-        if str(it.get("source") or "").strip().lower().startswith("not")
-        else HELD
-    )
+    src = _source(it.get("source"))
     kind = str(it.get("kind") or "presence").lower()
     return {
         "topic": str(it.get("topic") or "")[:80],
         "what_to_check": str(it.get("what_to_check") or "")[:300],
         "book": str(it.get("book") or "") if src == HELD else "",
-        "clause": str(it.get("clause") or "")[:40],
+        "clause": ""
+        if src == KNOWLEDGE_NOT_HELD
+        else str(it.get("clause") or "")[:40],  # no invented clause number
         "page": it.get("page"),
         "rule_quote": str(it.get("rule_quote") or "")[:600] if src == HELD else "",
         "applies_when": str(it.get("applies_when") or "")[:200],
@@ -430,9 +447,7 @@ def _clean_item(it: dict) -> dict:
         ],
         "kind": kind if kind in ITEM_KINDS else "presence",
         "source": src,
-        "stands_in_for": str(it.get("stands_in_for") or "")[:80]
-        if src == KNOWLEDGE
-        else "",
+        "stands_in_for": str(it.get("stands_in_for") or "")[:80] if src != HELD else "",
     }
 
 
@@ -521,6 +536,99 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
     }
 
 
+def floor_for(kind: str | None) -> int:
+    """The coverage floor of a type's checklist: FLOOR_ITEMS for a kind with no main equipment (`kind_review_table`), else 0. The
+    table holds no expected size per kind; this is the method's own floor (the lead, 18 Nov 2026)."""
+    from app import kind_review_table
+
+    table_kind = str(kind or "").strip().lower().replace(" ", "_")
+    try:
+        long_kinds = kind_review_table.no_main_equipment_kinds()
+    except Exception as exc:  # noqa: BLE001 - an unreadable table gives no floor, never a stop
+        log.info(
+            "general review: kind table not read for the floor (%s)", type(exc).__name__
+        )
+        return 0
+    return FLOOR_ITEMS if table_kind in long_kinds else 0
+
+
+def _not_held_line(sel: dict) -> str:
+    return "; ".join(
+        sorted(
+            {
+                str(n.get("name") or "").strip()
+                for n in sel.get("not_held") or []
+                if str(n.get("name") or "").strip()
+            }
+        )
+    )
+
+
+def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
+    """ENGINEERING KNOWLEDGE where a book is not held (the method's rule: where no standard is held, use engineering knowledge,
+    labelled as such). One call, still with NO paper, when a governing or needed standard is not held or the checklist is below
+    the kind's floor: items from the model's knowledge of each not-held public standard's requirements (and of engineering
+    practice up to the floor), source KNOWLEDGE_NOT_HELD, the standard's public name in `stands_in_for`, no clause quote, no
+    clause number. The items so far are named by topic only (the listed books are declared). A failed call adds nothing."""
+    names = _not_held_line(sel)
+    floor = floor_for(ident.get("kind"))
+    have = len(made["items"])
+    if not names and have >= floor:
+        return made
+    most = min(
+        MAX_KNOWLEDGE,
+        max(floor - have, 0) + 6 * len(names.split("; ") if names else []),
+    )
+    if most <= 0:
+        return made
+    prompt = _for_type(P.KNOWLEDGE_TASK) % {
+        "identity": _identity(ident),
+        "not_held": names
+        or "none (write from general engineering practice for this kind of paper)",
+        "have": have,
+        "topics": _dumps(
+            sorted({it["topic"] for it in made["items"] if it.get("topic")})
+        ),
+        "floor": floor,
+        "most": most,
+        "kinds": _dumps(list(ITEM_KINDS)),
+    }
+    try:
+        out = model.ask(
+            step="aim_checklist_knowledge",
+            model=lead,
+            system="",
+            cached=None,
+            prompt=prompt,
+            carries={b["book"] for b in sel["books"]},
+            max_tokens=12000,
+        )
+    except StepFailed as exc:
+        if exc.stops_run:
+            raise
+        log.info(
+            "general review: knowledge items not written (%s)",
+            str(exc).split(" ", 2)[:2],
+        )
+        return made
+    rows = (out or {}).get("items") if isinstance(out, dict) else None
+    added = []
+    for r in [r for r in rows or [] if isinstance(r, dict)][:most]:
+        it = _clean_item(
+            {**r, "source": KNOWLEDGE_NOT_HELD}
+        )  # labelled first: no book, no quote, no clause number
+        it["stands_in_for"] = it["stands_in_for"] or "engineering practice"
+        added.append(it)
+    for n, it in enumerate(added, have + 1):
+        it["id"] = f"C{n:03d}"
+    return {
+        **made,
+        "items": made["items"] + added,
+        "knowledge_items": len(added),
+        "floor": floor,
+    }
+
+
 def s3_attack(
     model, ident: dict, sel: dict, made: dict, text: L.BookText, strong: str
 ) -> dict:
@@ -555,6 +663,7 @@ def s3_attack(
             "identity": _identity(ident),
             "kinds": _dumps(list(ITEM_KINDS)),
             "items": "\n".join(_dumps(s) for s in shown),
+            "not_held": _not_held_line(sel) or "none",
             "books": _books_line(sel),
             "material": "\n".join(_material_line(r) for r in rows),
         },
@@ -619,11 +728,13 @@ def build(
     typed = type_identity(ident)
     sel = s2_select(guarded, conn, paper_id, typed, allowed_books, gate_ok, lead)
     made = s3_checklist(guarded, typed, sel, text, lead)
+    made = s3_knowledge(guarded, typed, sel, made, lead)
     cl = s3_attack(guarded, typed, sel, made, text, strong)
+    knows = any(it.get("source") == KNOWLEDGE_NOT_HELD for it in cl["items"])
     cl.update(
         {
             "key": key,
-            "built_from": BUILT_FROM,
+            "built_from": BUILT_FROM_KNOWLEDGE if knows else BUILT_FROM,
             "made_at": made_at,
             "identity": {
                 k: typed.get(k)

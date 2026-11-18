@@ -607,6 +607,19 @@ def _known_keys(store) -> list[str]:
         return []
 
 
+def _wanted_not_held(not_held) -> frozenset[str]:
+    """The governing and method books a checklist was written WITHOUT (`checklist.wanted`'s not-held part, by name): when this set
+    changes (a book is now held, or the governing table changed), a saved checklist is not reused."""
+    from . import WHY_GOVERNS, WHY_METHOD
+
+    return frozenset(
+        str(n.get("name") or "")
+        for n in not_held or []
+        if isinstance(n, dict)
+        and str(n.get("why") or "").startswith((WHY_GOVERNS, WHY_METHOD))
+    )
+
+
 def _checklist(
     conn,
     state: _RunState,
@@ -624,15 +637,23 @@ def _checklist(
     saved = store.get(state.key) if store is not None else None
     if (
         isinstance(saved, dict)
-        and saved.get("built_from") == CL.BUILT_FROM
+        and saved.get("built_from") in CL.BUILT_FROMS
         and isinstance(saved.get("items"), list)
     ):
-        state.reused = True
-        state.sha = str(saved.get("sha256") or "")
-        state.not_held = list(saved.get("not_held") or [])
         want = CL.wanted(conn, state.paper_id, CL.type_identity(ident), allowed_books)
-        state.unlisted |= set(want["unlisted"])
-        return saved
+        if _wanted_not_held(saved.get("not_held")) == _wanted_not_held(
+            want["not_held"]
+        ):
+            state.reused = True
+            state.sha = str(saved.get("sha256") or "")
+            state.not_held = list(saved.get("not_held") or [])
+            state.unlisted |= set(want["unlisted"])
+            return saved
+        # a book the saved checklist was written without is now held (or the governing table changed): build again
+        log.info(
+            "general review %s: the held books changed since the checklist was saved: built again",
+            state.run_id,
+        )
     usd_before = mdl.meter.spent
     checklist, sel = CL.build(
         mdl,

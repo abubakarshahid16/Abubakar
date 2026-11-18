@@ -87,6 +87,10 @@ def _step_of(body: dict) -> str:
     for words, step in (
         ("TASK S1", "aim_identify"),
         ("TASK S2", "aim_select"),
+        (
+            "TASK S3K",
+            "aim_checklist_knowledge",
+        ),  # before "TASK S3": the knowledge task's name starts with it
         ("TASK S3", "aim_checklist"),
         ("ATTACK THIS CHECKLIST", "aim_attack"),
         ("TASK S4", "aim_judge"),
