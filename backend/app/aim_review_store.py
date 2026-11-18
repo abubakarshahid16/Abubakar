@@ -72,6 +72,7 @@ _SCHEMA = (
         code_note         TEXT,
         numbers_json      TEXT,
         code_compare_json TEXT,
+        named_books_json  TEXT,
         PRIMARY KEY (run_id, line_no)
     )""",
     f"""CREATE TABLE IF NOT EXISTS {CHECKLISTS} (
@@ -107,9 +108,13 @@ def ensure_schema(conn=None) -> None:
 
 
 def _create(conn) -> None:
-    """The tables, WITHOUT committing."""
+    """The tables, WITHOUT committing. A table made before a column was added gets it (additive, never a rewrite)."""
+    from .db import add_column_if_missing
+
     for statement in _SCHEMA:
         conn.execute(statement)
+    # the listed books an always-on line's words name (rule 5: the page hides a name a viewer may not read)
+    add_column_if_missing(conn, LINES, "named_books_json", "TEXT")
 
 
 def has_tables(conn) -> bool:
@@ -230,7 +235,14 @@ def _line_row(run_id: str, n: int, line: dict) -> tuple:
         line.get("code_note", line.get("code")) or "",
         _dump(numbers),
         _dump(_json_of(compare)),
+        _dump(_named(line)),
     )
+
+
+def _named(line: dict) -> list | None:
+    """The [{id, name}] of the listed books the line's words name (an always-on line), or None."""
+    named = _json_of(line.get("named_books", line.get("named_books_json")))
+    return named if isinstance(named, list) and named else None
 
 
 def finish_run(conn, run_id: str, result: dict, now: str) -> None:
@@ -246,7 +258,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
     conn.execute("SAVEPOINT aim_finish_run")
     try:
         conn.execute(f"DELETE FROM {LINES} WHERE run_id = ?", (run_id,))
-        conn.executemany(f"INSERT INTO {LINES} VALUES ({','.join('?' * 18)})", rows)
+        conn.executemany(f"INSERT INTO {LINES} VALUES ({','.join('?' * 19)})", rows)
         cur = conn.execute(
             f"UPDATE {RUNS} SET status = ?, method_version = ?, identity_json = ?, checklist_key = ?, checklist_sha256 = ?,"
             " checklist_reused = ?, books_json = ?, not_held_json = ?, unlisted_json = ?, usd = ?, seconds = ?, calls_json = ?,"
@@ -332,6 +344,8 @@ def lines(conn, run_id: str) -> list[dict]:
         d = dict(r)
         d["numbers"] = _json_of(d.get("numbers_json"))
         d["code_compare"] = _json_of(d.get("code_compare_json"))
+        named = _json_of(d.get("named_books_json"))
+        d["named_books"] = named if isinstance(named, list) else []
         d["quote_unverified"] = (
             d.get("quote_unverified")
             if isinstance(d.get("quote_unverified"), str)
