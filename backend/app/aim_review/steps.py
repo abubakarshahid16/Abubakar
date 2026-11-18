@@ -159,6 +159,16 @@ def _ask(j: dict, label: str, deferred: bool, code_cmp, nums, note: str = "") ->
     return ASK_CONFIRM if j.get("ask") == ASK_CONFIRM else ASK_CONCERN
 
 
+def _left_open(j: dict, quote: str, page, notes: list[str]) -> bool:
+    """Is the judged value left open? A figure the contractor FILLED IN beside a who-supplies note is a stated value, judged as
+    any value (owner, 18 Nov 2026 after live; the note says so on the line; Pass/Fail only when code compares it with a held
+    rule): never left open, whatever the judge's flag. Otherwise the judge's flag or code reading the quote as open."""
+    filled = page is not None and _provisional_figure(quote)
+    if filled:
+        notes.append(CONTRACTOR_FILLED)
+    return (bool(j.get("deferred")) and not filled) or _deferred(quote)
+
+
 def _deferred(quote: str) -> bool:
     """THE one decision "the paper leaves this value open" for a quote: `blank_markers.value_left_open` (the one list; the lead's
     decision of 18 Nov 2026). A pending marker (TBA, TBC, TBD, later, VTA, a lone "*"), a blank form, or a who-supplies note
@@ -642,12 +652,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         label, _ = "Question", notes.append("no paper quote for a verdict")
     if j.get("scope_unverified"):
         notes.append(SCOPE_NOT_VERIFIED)
-    # a figure the contractor FILLED IN beside a who-supplies note is a stated value, judged as any value (owner, 18 Nov 2026 after
-    # live); the note says so on the line. Pass/Fail only when code compares it with a held rule; else an AI verdict (to be checked)
-    filled = page is not None and _provisional_figure(quote)
-    if filled:
-        notes.append(CONTRACTOR_FILLED)
-    deferred = (bool(j.get("deferred")) and not filled) or _deferred(quote)
+    deferred = _left_open(j, quote, page, notes)
     if (
         deferred and label != "Question"
     ):  # ANY label (owner, 18 Nov): a value left to the vendor is a Question
