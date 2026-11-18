@@ -229,10 +229,11 @@ def test_with_a_saved_checklist_the_plan_also_lists_books_now_held_and_wanted_ea
     every = frozenset({BOOK_A, BOOK_B, BOOK_C})
     c = aim_review.candidates(aim_db, PAPER, every, store, frozenset({BOOK_B}))
     assert c.checklist_saved
-    # the saved book first, then the method book now held (held after the checklist was saved), then the earlier review's
+    # the method book now held FIRST (governing, method and cited books lead and are never cut by the cap: owner, 18 Nov 2026),
+    # then the saved book, then the earlier review's
     assert [(b["id"], b["why"]) for b in c.books] == [
-        (BOOK_A, L.WHY_SAVED),
         (BOOK_C, L.WHY_METHOD),
+        (BOOK_A, L.WHY_SAVED),
         (BOOK_B, L.WHY_LAST),
     ]
     assert "API 9990" in [n["name"] for n in c.not_held]

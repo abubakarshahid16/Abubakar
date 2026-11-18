@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import re
 
+from . import WHY_METHOD
 from . import library as L
 
-#: The kinds whose rule books need the paper's own scope to name their subject.
-SCOPE_NAMED_KINDS = frozenset({"contract"})
+#: The kinds whose technical rule books need the paper's own scope to name their subject: a contract, and a procedure or study
+#: (a HAZOP got coating, insulation and welding books and used none). The METHOD books of the kind always stay.
+SCOPE_NAMED_KINDS = frozenset({"contract", "procedure", "study"})
 #: Words that name no subject by themselves (a scope sentence and a rule subject both use them freely).
 _STOP = frozenset((
     "the", "and", "for", "with", "from", "that", "this", "these", "those", "such", "shall", "will", "must", "under", "into",
@@ -54,10 +56,14 @@ def keep(
     its scope names (`scope_names`); any other kind: all, as given."""
     if kind not in SCOPE_NAMED_KINDS:
         return cat, required
+    method = {
+        b for b, why in required.items() if str(why).startswith(WHY_METHOD)
+    }  # the kind's method books always stay
     cat = [
         c
         for c in cat
         if c["book"] in (cited or ())
+        or c["book"] in method
         or scope_names(scope, c["subjects"], c["identifier"])
     ]
     kept = {c["book"] for c in cat}
@@ -73,7 +79,14 @@ def saved_fits_scope(
     if kind not in SCOPE_NAMED_KINDS:
         return True
     scope = str(ident.get("scope_quote") or "")
-    books = [b for b in L.saved_books(saved) if b not in (cited or frozenset())]
+    method = {
+        e["id"] for e, _name in L.method_books(L.library(conn), kind) if e
+    }  # the kind's method books always stay
+    books = [
+        b
+        for b in L.saved_books(saved)
+        if b not in (cited or frozenset()) and b not in method
+    ]
     if not books:
         return True
     by_id = {e["id"]: e for e in L.library(conn, within=frozenset(books))}
