@@ -365,3 +365,56 @@ def test_a_needed_held_book_outside_the_catalog_gets_an_alias_and_the_checklist_
         model, {"kind": "procedure"}, sel, L.BookText(aim_db), "claude-sonnet-5-5"
     )
     assert isinstance(made["items"], list)
+
+
+def test_the_largest_checklist_fits_and_a_cut_answer_is_asked_again_in_halves():
+    """No key. The largest stored checklist (a valve paper: about 300 clause rules, 123 items) is asked with room for 32,000
+    tokens; an answer cut at the limit applies nothing and its batch is asked again as two halves, each answered whole, so every
+    rule is answered once; any other failure still stops the build."""
+    import re
+
+    rows = [{"rule": f"R{i:03d}", "book": "B01", "clause": f"5.{i}", "page": 1 + i // 10, "text": "x" * 600}
+            for i in range(320)]  # fmt: skip
+    asked = []
+
+    class _Cut:
+        def ask(self, **kw):
+            asked.append(kw)
+            rules = re.findall(r'"rule": "(R\d{3})"', kw["prompt"])
+            if len(rules) > 40:  # an answer this long is cut at its limit
+                raise E.StepFailed("aim_checklist: stop_max_tokens")
+            return {"items": [{"topic": r, "source": "held standard"} for r in rules]}
+
+    sel = {
+        "books": [
+            {
+                "alias": "B01",
+                "book": BOOK_A,
+                "identifier": "API 9991",
+                "chosen_subjects": "all",
+            }
+        ]
+    }
+    got = [
+        x for i, b in enumerate(CL._batches(rows)) for x in CL._answers(_Cut(), {"kind": "datasheet"}, sel, b, i == 0, {BOOK_A}, "m")
+    ]  # fmt: skip
+    answered = [it["topic"] for out, _part in got for it in out["items"]]
+    assert sorted(answered) == sorted(
+        r["rule"] for r in rows
+    )  # every rule once, none lost, none twice
+    assert {kw["max_tokens"] for kw in asked} == {CL.S3_MAX_TOKENS} == {32_000}
+    assert (
+        sum(
+            "ALSO add the items" in kw["prompt"]
+            for kw in asked
+            if "R000" in kw["prompt"]
+        )
+        >= 1
+    )
+
+    class _Down:
+        def ask(self, **kw):
+            raise E.StepFailed("aim_checklist: transport ReadTimeout")
+
+    with pytest.raises(E.StepFailed):
+        CL._answers(_Down(), {"kind": "datasheet"}, sel, rows[:10], True, {BOOK_A}, "m")

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
 
 #: The only `built_from` a saved checklist may have (one home: the store, piece D).
 from app.aim_review_store import (  # BUILT_FROMS is read by the engine through this module
@@ -30,6 +29,16 @@ from .library import (  # noqa: F401 - the coverage floor (one home: library)
     FLOOR_ITEMS,
     floor_for,
 )
+from .material import (  # noqa: F401 - the clause material S3 and the attack read (one home: material)
+    BATCH_CHARS,
+    BOOK_BUDGET,
+    MATERIAL_BUDGET,
+    RULE_CHARS,
+    TEXT_BOOK_BUDGET,
+    _batches,
+    _material_line,
+    material,
+)
 
 log = logging.getLogger(__name__)
 HELD = "held standard"
@@ -45,11 +54,6 @@ WANTED_GOVERNS, WANTED_METHOD = "governing table", "method table"
 WANTED_SOURCES = (WANTED_GOVERNS, WANTED_METHOD)
 ITEM_KINDS = ("limit", "presence", "consistency", "material", "procedure")
 SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the required ones)
-MATERIAL_BUDGET = 150_000
-BOOK_BUDGET = 45_000
-TEXT_BOOK_BUDGET = 25_000
-BATCH_CHARS = 50_000
-RULE_CHARS = 700
 
 
 def _dumps(o) -> str:
@@ -336,109 +340,8 @@ def _chosen(out: dict, cat: list[dict], required: dict[str, str]) -> list[dict]:
 # ------------------------------------------------------------------ S3 checklist
 
 
-def material(sel: dict, text: L.BookText) -> tuple[list[dict], list[dict]]:
-    """The clause text S3 reads: each chosen book's rules (tagged for the equipment first, then by page), or the pages of a book
-    that holds no stored rules. Budgeted, and every cut is counted (rows offered N of M)."""
-    pool_by_book = defaultdict(list)
-    for r in sel["_pool"]:
-        pool_by_book[r["book"]].append(r)
-    rows, stats, used, n = [], [], 0, 0
-    for b in sel["books"]:
-        mine = pool_by_book.get(b["book"], [])
-        if b["chosen_subjects"] != "all":
-            mine = [r for r in mine if r["subject"] in b["chosen_subjects"]]
-        mine.sort(key=lambda r: (not r["tagged"], r["page"] or 0, r["clause"] or ""))
-        offered, chars = 0, 0
-        if mine:
-            for r in mine:
-                t = str(r["source_text"] or r["requirement_text"] or "")
-                cut = len(t) > RULE_CHARS
-                t = t[:RULE_CHARS] + (
-                    " [CUT: rule text longer than shown]" if cut else ""
-                )
-                if chars + len(t) > BOOK_BUDGET or used + len(t) > MATERIAL_BUDGET:
-                    break
-                n += 1
-                rows.append(
-                    {
-                        "rule": f"R{n:04d}",
-                        "book": b["alias"],
-                        "book_id": b["book"],
-                        "clause": str(r["clause"] or ""),
-                        "page": int(r["page"] or 0),
-                        "text": t,
-                        "req_id": r["id"],
-                    }
-                )
-                offered, chars, used = offered + 1, chars + len(t), used + len(t)
-            stats.append(
-                {
-                    "alias": b["alias"],
-                    "identifier": b["identifier"],
-                    "rules_offered": offered,
-                    "rules_total": len(mine),
-                    "cut": offered < len(mine),
-                }
-            )
-        else:
-            pages = text.pages(b["book"])
-            shown = 0
-            for p, t in sorted(pages.items()):
-                if chars + len(t) > TEXT_BOOK_BUDGET or used + len(t) > MATERIAL_BUDGET:
-                    break
-                rows.append(
-                    {
-                        "page_of": b["alias"],
-                        "book_id": b["book"],
-                        "page": p,
-                        "page_text": t,
-                    }
-                )
-                shown, chars, used = shown + 1, chars + len(t), used + len(t)
-            stats.append(
-                {
-                    "alias": b["alias"],
-                    "identifier": b["identifier"],
-                    "pages_offered": shown,
-                    "pages_total": len(pages),
-                    "cut": shown < len(pages),
-                }
-            )
-    return rows, stats
-
-
-def _material_line(r: dict) -> str:
-    if "rule" in r:
-        return _dumps(
-            {
-                "rule": r["rule"],
-                "book": r["book"],
-                "clause": r["clause"],
-                "page": r["page"],
-                "text": r["text"],
-            }
-        )
-    return _dumps(
-        {"book": r["page_of"], "page": r["page"], "page_text": r["page_text"]}
-    )
-
-
 def _books_line(sel: dict) -> str:
     return "; ".join(f"{b['alias']} = {b['identifier']}" for b in sel["books"])
-
-
-def _batches(rows: list[dict]) -> list[list[dict]]:
-    out, cur, size = [], [], 0
-    for r in rows:
-        ln = len(_material_line(r))
-        if cur and size + ln > BATCH_CHARS:
-            out.append(cur)
-            cur, size = [], 0
-        cur.append(r)
-        size += ln
-    if cur:
-        out.append(cur)
-    return out or [[]]
 
 
 def check_rule_quote(
@@ -501,28 +404,52 @@ def _items_of(out) -> list[dict]:
     return [_clean_item(it) for it in rows or [] if isinstance(it, dict)]
 
 
+#: The room for one checklist answer. The longest seen was a valve paper's first batch, about 15,000 tokens of the earlier
+#: 16,000 (18 Nov 2026), and a slightly longer answer stopped a run; the cost is the tokens written, not this limit.
+S3_MAX_TOKENS = 32_000
+#: A batch whose answer is still cut is asked again in two halves, at most this many times over (a cut answer applies nothing).
+SPLIT_DEPTH = 3
+
+
+def _answers(
+    model, ident, sel, batch, first: bool, carries, lead, depth: int = 0
+) -> list[tuple[dict, list[dict]]]:
+    """[(S3's answer, the rows it answers)] for one batch of clause rows. An answer cut at its token limit applies nothing: the
+    batch is asked again as two halves, each answered whole; any other failure, or a cut with nothing left to split, is raised."""
+    prompt = _for_type(P.S3_TASK) % {
+        "identity": _identity(ident),
+        "books": _books_line(sel),
+        "kinds": _dumps(list(ITEM_KINDS)),
+        "knowledge": P.KNOWLEDGE_ASK if first else "",
+        "material": "\n".join(_material_line(r) for r in batch),
+    }
+    try:
+        out = model.ask(step="aim_checklist", model=lead, system="", cached=None, prompt=prompt, carries=carries,
+                        max_tokens=S3_MAX_TOKENS)  # fmt: skip
+    except StepFailed as exc:
+        if "max_tokens" not in str(exc) or len(batch) < 2 or depth >= SPLIT_DEPTH:
+            raise
+        log.info(
+            "general review: a checklist answer was cut; its batch is asked again in two halves"
+        )
+        h = len(batch) // 2
+        return _answers(
+            model, ident, sel, batch[:h], first, carries, lead, depth + 1
+        ) + _answers(model, ident, sel, batch[h:], False, carries, lead, depth + 1)
+    return [(out, batch)]
+
+
 def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> dict:
     rows, stats = material(sel, text)
     alias_to_book = {b["alias"]: b["book"] for b in sel["books"]}
     carries = set(alias_to_book.values())
     items, dropped, retried = [], [], 0
-    for i, batch in enumerate(_batches(rows)):
-        prompt = _for_type(P.S3_TASK) % {
-            "identity": _identity(ident),
-            "books": _books_line(sel),
-            "kinds": _dumps(list(ITEM_KINDS)),
-            "knowledge": P.KNOWLEDGE_ASK if i == 0 else "",
-            "material": "\n".join(_material_line(r) for r in batch),
-        }
-        out = model.ask(
-            step="aim_checklist",
-            model=lead,
-            system="",
-            cached=None,
-            prompt=prompt,
-            carries=carries,
-            max_tokens=16000,
-        )
+    answered = [
+        x
+        for i, whole in enumerate(_batches(rows))
+        for x in _answers(model, ident, sel, whole, i == 0, carries, lead)
+    ]
+    for out, batch in answered:
         got = _items_of(out)
         bad = [
             it
@@ -630,7 +557,7 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
             cached=None,
             prompt=prompt,
             carries={b["book"] for b in sel["books"]},
-            max_tokens=12000,
+            max_tokens=16000,  # room for "carried_by" on every item (the longest answer seen was about 8,500 tokens)
         )
     except StepFailed as exc:
         if exc.stops_run:
@@ -692,7 +619,7 @@ def s3_attack(
             "material": "\n".join(_material_line(r) for r in rows),
         },
         carries=set(alias_to_book.values()),
-        max_tokens=16000,
+        max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
     )
     out = out if isinstance(out, dict) else {}
     by_id = {it["id"]: it for it in made["items"]}
