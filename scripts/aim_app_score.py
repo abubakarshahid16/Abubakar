@@ -280,22 +280,27 @@ def wait_run(
     timeout: float,
     poll: float,
     history: tuple[str, str] | None = None,
+    on_poll=None,
 ) -> tuple[str, dict | None]:
     """Poll a route whose answer has a 'status' until it is final; any other answer (404, the general page's 409 "not
     finished") means 'not there yet'. With `history` = (paper id, run id): while the route is not there, the paper's history
     is read too, and a run it lists as failed or cancelled ends the wait at once (a failed run with nothing stored never
-    gets a page)."""
+    gets a page). `on_poll(status)` is called at every poll with the status THE APP gives (the route's, else the history's),
+    so the caller's run file always shows the app's state, never a local guess."""
     end, status = time.time() + timeout, "unknown"
     while time.time() < end:
         code, body = c.json("GET", path, params=params)
+        app = history_status(c, *history) if history else None
         if code == 200 and isinstance(body, dict):
             status = str(body.get("status"))
-            if status in RUN_DONE:
-                return status, body
-        elif history:
-            ended = history_status(c, *history)
-            if ended in ("failed", "cancelled"):
-                return ended, None
+        elif app:
+            status = app
+        if on_poll is not None:
+            on_poll(status)
+        if code == 200 and isinstance(body, dict) and status in RUN_DONE:
+            return status, body
+        if app in ("failed", "cancelled"):
+            return app, None
         time.sleep(poll)
     return f"timeout (last status {status})", None
 
@@ -580,9 +585,26 @@ def review_one(c: Client, a, paper: str, copy: str, path: Path, engine: str) -> 
             raise Stop(f"POST /api/reviews/start: HTTP {code}")
         run_id = started.get("review_run_id") or started.get("run_id")
         rec["run_id"], rec["started"] = run_id, True
-        _write(
-            out, rec
-        )  # a crash after this point still counts this review's worst case in the money check
+
+        def app_says(status: str) -> None:
+            """The run file shows the state the APP gives (its run row, read through its routes), with the time it was read."""
+            rec["status"] = status
+            rec["status_source"] = (
+                "the app (run status route / the paper's history route)"
+            )
+            rec["status_read_at"] = datetime.now(ZoneInfo("Asia/Karachi")).strftime(
+                "%H:%M:%S PKT"
+            )
+            _write(out, rec)
+
+        if a.old_engine:
+            app_says("started (the app's run status is read at the next poll)")
+        else:
+            app_says(
+                history_status(c, doc, run_id)
+                or "started (the app does not list it in the history yet)"
+            )
+        # a crash after this point still counts this review's worst case in the money check (the run file says started)
         q = urllib.parse.quote(doc, safe="")
         if a.old_engine:
             status, _ = wait_run(
@@ -591,6 +613,7 @@ def review_one(c: Client, a, paper: str, copy: str, path: Path, engine: str) -> 
                 None,
                 a.timeout,
                 a.poll,
+                on_poll=app_says,
             )
             rec["rule_check_status"] = status
             ai_run = None
@@ -631,8 +654,12 @@ def review_one(c: Client, a, paper: str, copy: str, path: Path, engine: str) -> 
                 a.timeout,
                 a.poll,
                 history=(doc, run_id),
+                on_poll=app_says,
             )
             rec["status"] = status
+            rec["app_status_final"] = history_status(
+                c, doc, run_id
+            )  # the app's run row at the end, kept beside the page's word
             if status in ("failed", "cancelled"):
                 raise Stop(f"the review {status} (the paper's history says so)")
             fetch_general(c, out, label, doc, run_id, rec)

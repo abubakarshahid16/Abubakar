@@ -71,6 +71,9 @@ class FakeApp:
         self.requests: list[tuple[str, str, str]] = []  # (method, path, authorization)
         self.starts: list[dict] = []
         self.fail_runs = False
+        self.history_word = "running"
+        self.peek_dir = None
+        self.seen_in_file: list = []
         self.default_disc: list[str] = ["Invented-A"]
         self.upload_bodies: list[
             bytes
@@ -159,6 +162,13 @@ class FakeApp:
             if (
                 self.fail_runs or self.polls[run] < 2
             ):  # the app's page: 409 "not finished" while queued or running
+                if (
+                    self.peek_dir is not None
+                ):  # what the driver's run file says at this moment
+                    for f in sorted(Path(self.peek_dir).glob("*-run.json")):
+                        self.seen_in_file.append(
+                            json.loads(f.read_text()).get("status")
+                        )
                 return 409, {"detail": {"message": "not finished"}}
             lines = self.lines(self.comments)
             return 200, {
@@ -188,7 +198,7 @@ class FakeApp:
                     {
                         "run_id": f"run_{doc}",
                         "version": "general",
-                        "status": "failed" if self.fail_runs else "running",
+                        "status": "failed" if self.fail_runs else self.history_word,
                     }
                 ]
             }
@@ -934,3 +944,17 @@ def test_report_exit_is_zero_only_when_every_paper_passes(tmp_path, capsys):
         and "== pump: NOT MEASURED" in out
         and "1 of 2 papers PASS" in out
     )
+
+
+def test_the_run_file_shows_the_apps_status_while_the_review_runs(app, setup):
+    """Owner order: a run's state is read from the database (the app's run row), never a stale local guess."""
+    app.history_word = "running"
+    app.peek_dir = setup["out"]
+    assert _run(app, setup, papers=("pump",)) == 0
+    # read by the fake app WHILE the review was still running (the page answered 409): the file already said the app's word
+    assert app.seen_in_file == ["running"]
+    rec = json.loads((setup["out"] / "pump-A-run.json").read_text())
+    assert rec["status"] == "completed" and rec["status_source"].startswith("the app")
+    assert (
+        rec["app_status_final"] == "running"
+    )  # the fake's history row; the real app says done
