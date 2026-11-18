@@ -489,6 +489,7 @@ def _after_judge(
 ) -> None:
     """After the judge, in order: the contract's reference papers (G), the whole-paper check (S4b: a line on no held rule that the
     paper answers is not sent), the second reader (S4c: a finding the AI alone decided needs two readers), the editor (S5)."""
+    from . import asks
     from . import references as R
     from .answered import s4b_answered
     from .editor import s5_edit
@@ -508,6 +509,9 @@ def _after_judge(
     s4c_second_read(mdl, paper, state.decided, checklist, lead)
     say(96, "judge")
     s5_edit(mdl, paper, state.decided, lead)
+    asks.mark(
+        state.decided
+    )  # last, after every AI step: a Question that asks nothing is kept on All points, not sent
 
 
 def _book_reasons(checklist: dict) -> dict[str, str]:
