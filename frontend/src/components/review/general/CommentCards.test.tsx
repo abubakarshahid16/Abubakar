@@ -195,3 +195,25 @@ describe("H10: Accept / Edit / Reject on each card", () => {
     expect(screen.getByTestId("card-decision-state")).toHaveTextContent("3 decisions on record; the latest counts");
   });
 });
+
+describe("card chips (planner 18 Nov 23:30-3)", () => {
+  it("a chip shows the tag, the page and the value; a blank value reads blank", () => {
+    const c = card(1, { applies_to: [
+      { page: 1, field: "Set pressure (PSV-4301 A/B)", quote: "340 psig", tag: "PSV-4301 A/B", value: "340 psig" },
+      { page: 2, field: "Effective area", quote: "76 Effective area", tag: "", value: "Effective area: blank" },
+    ] });
+    mount(review([c]));
+    expect(screen.getByRole("button", { name: "page 1" })).toHaveTextContent("PSV-4301 A/B · p1 · 340 psig");
+    expect(screen.getByRole("button", { name: "page 2" })).toHaveTextContent("Effective area · p2 · Effective area: blank");
+  });
+
+  it("a long value is cut with a mark and the whole text stays in the chip's title", () => {
+    const long = "340 psig (By Contractor, as per Code and the project rules for this unit)";
+    const c = card(1, { applies_to: [{ page: 1, field: "Set pressure (PSV-1)", quote: long, tag: "PSV-1", value: long }] });
+    mount(review([c]));
+    const chip = screen.getByRole("button", { name: "page 1" });
+    expect(chip.textContent).toContain("…");
+    expect(chip.getAttribute("title")).toContain(long);
+  });
+});
+

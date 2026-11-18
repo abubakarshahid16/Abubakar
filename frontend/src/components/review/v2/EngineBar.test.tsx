@@ -86,3 +86,13 @@ describe("EngineBar: held Schedules the paper cites", () => {
     expect((await screen.findByRole("checkbox", { name: "Compare Schedule C" }))).not.toBeChecked();
   });
 });
+
+describe("EngineBar with no paper to plan for", () => {
+  it("never says it is checking what a review would do when there is no paper (it would never settle)", () => {
+    plan.mockReset();
+    render(<EngineBar documentId={null} isAdmin onStarted={vi.fn()} />);
+    expect(screen.queryByText(/Checking what this would do/)).toBeNull();
+    expect(plan).not.toHaveBeenCalled();
+  });
+});
+

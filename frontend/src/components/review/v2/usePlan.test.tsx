@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EngineChoice } from "../../../api/reviewPoints";
@@ -12,7 +12,7 @@ vi.mock("../../../api/reviewPoints", async (orig) => ({
 
 const answer = (choice: string) => ({ ok: true, data: { choice, parts: [], sentence: "s", text_leaves: false, refused: null, documents: { leaving: [] } } });
 
-beforeEach(() => plan.mockReset());
+beforeEach(() => { plan.mockReset(); }); // a braced body: a returned mock would be run as the hook's cleanup
 
 describe("usePlan: a plan is used only for the choice on screen", () => {
   it("in the render right after the choice changes, the old plan is never offered for the new choice", async () => {
@@ -28,5 +28,17 @@ describe("usePlan: a plan is used only for the choice on screen", () => {
     await waitFor(() => expect(seen.at(-1)).toMatchObject({ engine: "claude", state: "ok", choice: "claude" }));
     // never a frame with the new choice and the old plan
     expect(seen.filter((s) => s.state === "ok").every((s) => s.engine === s.choice)).toBe(true);
+  });
+});
+
+describe("usePlan: the plan never stays 'checking'", () => {
+  it("a plan that does not answer in time becomes a said problem, and a late answer still replaces it", async () => {
+    let release: (v: unknown) => void = () => undefined;
+    plan.mockImplementation(() => new Promise((res) => { release = res; }));
+    const { result } = renderHook(() => usePlan("doc1", "automatic", [], 30));
+    expect(result.current.plan.state).toBe("loading");
+    await waitFor(() => expect(result.current.plan.state).toBe("error"));
+    await act(async () => { release(answer("automatic")); });
+    await waitFor(() => expect(result.current.plan.state).toBe("ok"));
   });
 });

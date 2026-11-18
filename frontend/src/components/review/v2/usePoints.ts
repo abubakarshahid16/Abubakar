@@ -64,7 +64,8 @@ export function usePoints(documentId: string | null) {
 }
 
 /** The plan for one engine choice, read again when the choice (or the paper) changes. Reading it changes nothing on the server. */
-export function usePlan(documentId: string | null, engine: EngineChoice, ticked: string[] = []) {
+const PLAN_SLOW_MS = 45_000;
+export function usePlan(documentId: string | null, engine: EngineChoice, ticked: string[] = [], slowMs = PLAN_SLOW_MS) {
   const [plan, setPlan] = useState<Loaded<ReviewPlan>>({ state: "loading" });
   /** The choice the plan on screen was read for. A plan is used only for the choice on screen. */
   const [forEngine, setForEngine] = useState<EngineChoice | null>(null);
@@ -72,7 +73,12 @@ export function usePlan(documentId: string | null, engine: EngineChoice, ticked:
   const reload = useCallback(async () => {
     if (!documentId) return;
     const mine = ++latest.current;
+    // A plan that has not answered in a minute is said so (it never stays "checking"); a late answer still replaces this.
+    const slow = setTimeout(() => {
+      if (mine === latest.current) { setForEngine(engine); setPlan((p) => (p.state === "loading" ? { state: "error", message: "Checking what this would do is taking too long. Try again in a moment." } : p)); }
+    }, slowMs);
     const r = await reviewPoints.plan(documentId, engine, ...(ticked.length ? [ticked] : []));
+    clearTimeout(slow);
     // OUT-OF-ORDER ANSWERS: a plan that is not the answer to the LAST request (an earlier choice answering late) is ignored.
     if (mine !== latest.current) return;
     setForEngine(engine);

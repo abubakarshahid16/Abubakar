@@ -139,7 +139,7 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
         why="The first step. Every later step depends on this answer: which rule books, which checklist.">
         <div className="flex flex-wrap gap-2">
           <Fact label="Kind of paper" value={id.kind} />
-          <Fact label="Equipment or subject" value={id.equipment_type} />
+          <Fact label="Equipment or subject" value={id.equipment_type?.replace(/_/g, " ")} />
           <Fact label="Subject in the paper's words" value={id.subject} />
         </div>
         {!id.kind && !id.equipment_type && !id.subject && <p className="text-slateish-400">This review did not record what the paper is.</p>}
