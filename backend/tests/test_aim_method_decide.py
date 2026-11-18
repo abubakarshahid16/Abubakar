@@ -1467,3 +1467,85 @@ def test_the_judge_is_asked_for_the_mark():
         '"ask": for a "Question" only: "concern"' in P.S4_TASK
         and '"confirm" if nothing is suspected' in P.S4_TASK
     )
+
+
+# ---- code does every number and unit comparison: a Question or AI opinion with verified numbers against a HELD rule is decided by
+# code, whatever the AI's label (18 Nov 2026 after live; invented values) ----------------------------------------------------------
+
+
+def _held_q(
+    label, paper_value="380", limit="340", quote=None, source=None, numbers_extra=None
+):
+    j = {"label": label, "quote": quote or STATED, "page": 1, "comment": "the model's words",
+         "numbers": {"paper_value": paper_value, "paper_unit": "psig", "operator": "<=", "rule_value": limit, "rule_unit": "psig",
+                     **(numbers_extra or {})}}  # fmt: skip
+    item = _item(
+        kind="limit",
+        rule_quote=f"The set pressure shall not exceed {limit} psig.",
+        **({"source": source} if source else {}),
+    )
+    return S._decide(item, j, OPEN_PAPER, BOOKS, "")
+
+
+@pytest.mark.parametrize("label", ["Question", "AI opinion"])
+def test_failing_held_numbers_make_a_fail_by_code_whatever_the_ai_label(label):
+    from app import aim_review_store
+
+    d = _held_q(label, limit="340")
+    assert (
+        d["label"] == "Not met"
+        and d["code_compare"]["result"] == "fail"
+        and _shown(d) == aim_review_store.FAIL_BY_CODE
+    )
+    assert _sent(d)
+
+
+def test_passing_held_numbers_make_a_pass_by_code_that_is_not_sent():
+    from app import aim_review_store
+
+    d = _held_q("Question", limit="400")
+    assert (
+        d["label"] == "Met"
+        and _shown(d) == aim_review_store.PASS_BY_CODE
+        and not _sent(d)
+    )
+
+
+def test_numbers_with_no_held_rule_leave_the_ai_label():
+    d = _held_q("Question", source=S.KNOWLEDGE)
+    assert d["label"] == "Question" and d["code_compare"] is None
+
+
+def test_a_value_left_open_is_never_compared():
+    d = _held_q(
+        "Question", quote="Inlet size psig (By Contractor)"
+    )  # a who-supplies note with no figure
+    assert d["label"] == "Question" and d["code_compare"] is None
+
+
+@pytest.mark.parametrize("label", ["Question", "AI opinion"])
+def test_when_code_reaches_no_verdict_the_ai_label_stands(label):
+    d = _held_q(
+        label, paper_value="999"
+    )  # the paper value is not in the verified quote: code cannot read it
+    assert d["label"] == label and d["code_compare"] is None
+
+
+def test_the_judge_is_asked_for_numbers_on_every_held_limit_whatever_its_label():
+    from app.aim_review import prompts as P
+
+    assert "WHATEVER your label" in P.S4_TASK and "rule's limit" in P.S4_TASK
+
+
+def test_a_comparison_code_cannot_make_leaves_an_ai_opinion_as_it_is():
+    """Units of different quantities: code's comparison is "cannot"; the AI's own label stands (never turned into a Question)."""
+    j = {"label": "AI opinion", "quote": "Operating temperature: 80 degC at the outlet", "page": 1, "comment": "c",
+         "numbers": {"paper_value": "80", "paper_unit": "degC", "operator": "<=", "rule_value": "100", "rule_unit": "mm"}}  # fmt: skip
+    d = S._decide(
+        _item(kind="limit", rule_quote="The length shall not exceed 100 mm."),
+        j,
+        PAPER,
+        BOOKS,
+        "",
+    )
+    assert d["label"] == "AI opinion" and d["code_compare"] is None
