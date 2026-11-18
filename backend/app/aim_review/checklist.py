@@ -24,6 +24,7 @@ from . import book_names as BN
 from . import library as L
 from . import prompts as P
 from . import scope_books as SB
+from .carried import knowledge_rows
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
     FLOOR_ITEMS,
@@ -640,18 +641,13 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
         )
         return made
     rows = (out or {}).get("items") if isinstance(out, dict) else None
-    added = []
-    for r in [r for r in rows or [] if isinstance(r, dict)][:most]:
-        it = _clean_item(
-            {**r, "source": KNOWLEDGE_NOT_HELD}
-        )  # labelled first: no book, no quote, no clause number
-        it["stands_in_for"] = it["stands_in_for"] or "engineering practice"
-        added.append(it)
+    added, elsewhere = knowledge_rows(rows, most, _clean_item, KNOWLEDGE_NOT_HELD)
     for n, it in enumerate(added, have + 1):
         it["id"] = f"C{n:03d}"
     return {
         **made,
         "items": made["items"] + added,
+        "dropped": (made.get("dropped") or []) + elsewhere,
         "knowledge_items": len(added),
         "floor": floor,
     }

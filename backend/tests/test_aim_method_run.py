@@ -555,8 +555,9 @@ def test_the_whole_paper_check_is_off_by_default_and_asks_nothing(aim_db):
 def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(
     aim_db, monkeypatch
 ):
-    """S4b runs after the judge and before the editor: a line on no held rule that the paper answers (a quote code finds on the
-    named page) stays a point, not sent; every other line is unchanged. With its switch on."""
+    """S4b runs after the second reader and before the editor (v3: the second reader's words are claims too): a line whose claim
+    the paper contradicts (a quote code finds on the named page) stays a point, not sent; every other line is unchanged. With its
+    switch on."""
     import json
 
     from app.config import settings
@@ -583,7 +584,10 @@ def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(
     )
     r, model, _s = _run(aim_db, model=model)
     steps = [c["step"] for c in model.asked]
-    assert r.status == "done" and steps.index("aim_answered") < steps.index("aim_edit")
+    assert r.status == "done" and steps.index("aim_second_read") < steps.index(
+        "aim_answered"
+    ) < steps.index("aim_edit")
     answered = [ln for ln in r.lines if aim_review.ANSWERED in (ln["code_note"] or "")]
-    assert len(answered) == 1 and not aim_review.sendable(answered[0])
-    assert answered[0]["source"] != S.HELD
+    assert len(answered) == 1 and not aim_review.sendable(
+        answered[0]
+    )  # any source now (v3), held rule lines included

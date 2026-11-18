@@ -289,3 +289,34 @@ def test_the_attack_adds_at_most_ten_knowledge_items_and_a_knowledge_item_names_
     assert (
         "API 9990" in model.asked[0]["prompt"]
     )  # the not-held standards are shown for the coverage check
+
+
+def test_a_knowledge_item_another_paper_carries_is_set_aside_not_checked_here():
+    """A not-held book may govern a neighbouring paper (a study, another item's datasheet): its items that THIS paper does not
+    carry are set aside with "for <kind> paper", never checked here; an item with no "carried_by" stays (as before)."""
+    rows = _knowledge_answer(4)["items"]
+    rows[0]["carried_by"] = "this paper"
+    rows[1]["carried_by"] = "an invented study"
+    rows[2]["carried_by"] = "Invented other datasheet paper"
+    sel = {"not_held": NOT_HELD, "books": [{"alias": "B01", "book": BOOK_A}]}
+    got = CL.s3_knowledge(
+        _Model({"items": rows}),
+        {"kind": "procedure"},
+        sel,
+        _made(14),
+        "claude-sonnet-5-5",
+    )
+    kept = [it["topic"] for it in got["items"][14:]]
+    assert kept == ["invented topic 0", "invented topic 3"]
+    assert [it["id"] for it in got["items"][14:]] == ["C015", "C016"]
+    assert got["dropped"] == [
+        {"topic": "invented topic 1", "why": "for an invented study paper"},
+        {"topic": "invented topic 2", "why": "for Invented other datasheet paper"},
+    ]
+
+
+def test_the_knowledge_step_asks_which_paper_carries_each_item():
+    assert (
+        '"carried_by": "this paper"' in CL.P.KNOWLEDGE_TASK
+        and "not checked here" in CL.P.KNOWLEDGE_TASK
+    )

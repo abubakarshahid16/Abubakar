@@ -45,11 +45,13 @@ class _Checker:
         }
 
 
-def test_only_sent_lines_on_no_held_rule_that_ask_or_opine_are_offered():
+def test_only_sent_lines_the_ai_alone_decided_are_offered_on_any_source():
     lines = [
         _line("C01"),  # offered
         _line("C02", label="AI opinion"),  # offered
-        _line("C03", source="held standard"),  # a held rule: never
+        _line(
+            "C03", source="held standard"
+        ),  # a held rule: offered too (v3: its claims are checked like any other)
         _line(
             "C04", code_compare={"result": "unclear", "read_from": "verified quotes"}
         ),  # compared by code: never
@@ -58,14 +60,17 @@ def test_only_sent_lines_on_no_held_rule_that_ask_or_opine_are_offered():
         _line("C07", label="Met"),  # a verdict: never (not a Question or opinion)
         _line("C08", code="not_judged"),  # not sent: never
     ]
-    assert sorted(A.offered(lines)) == [1, 2]
+    assert sorted(A.offered([*lines, _line("C09", label="Not met")])) == [1, 2, 3, 9]
 
 
 def test_an_answer_is_accepted_only_with_a_quote_code_finds_on_that_page():
     shown = {1: _line("C01"), 2: _line("C02")}
     ok = {"n": 1, "page": 2, "quote": TEAM}
     assert A.answer_reason(ok, shown, PAPER).startswith(
-        'answered: the paper answers it on page 2: "the chair'
+        'answered: the paper covers it on page 2: "the chair'
+    )
+    assert 'covers what it says ("no team named") on page 2' in A.answer_reason(
+        dict(ok, claim="no team named"), shown, PAPER
     )
     assert A.answer_reason(dict(ok, page=3), shown, PAPER) is None  # not on THAT page
     assert A.answer_reason(dict(ok, page=9), shown, PAPER) is None  # no such page
@@ -96,16 +101,16 @@ def test_an_answered_line_stays_a_point_and_is_never_sent():
     lines = [
         _line("C01", page=1),
         _line("C02", page=3),
-        _line("C03", source="held standard"),
+        _line("C03", code_compare={"result": "fail", "read_from": "verified quotes"}),
     ]
     model = _Checker(
         [{"n": 1, "page": 2, "quote": TEAM}, {"n": 3, "page": 2, "quote": TEAM}]
     )
     assert (
         A.s4b_answered(model, PAPER, lines, MODEL) == 1
-    )  # line 3 rests on a held rule: never offered, so refused
+    )  # line 3 is code's own comparison: never offered, so refused
     assert not aim_review.sendable(to_line(1, lines[0]))
-    assert "answered: the paper answers it on page 2" in lines[0]["code"]
+    assert "answered: the paper covers it on page 2" in lines[0]["code"]
     assert aim_review.sendable(to_line(2, lines[1])) and aim_review.sendable(
         to_line(3, lines[2])
     )
@@ -114,7 +119,7 @@ def test_an_answered_line_stays_a_point_and_is_never_sent():
     }
     assert (
         '"n": 3' not in model.asked[0]["prompt"]
-    )  # a held-rule line is not shown to the check
+    )  # a code-compared line is not shown to the check
 
 
 def test_a_failed_check_takes_nothing_off_and_no_offered_line_means_no_call():
@@ -125,7 +130,7 @@ def test_a_failed_check_takes_nothing_off_and_no_offered_line_means_no_call():
     assert lines[0]["code"] == "" and aim_review.sendable(to_line(1, lines[0]))
     quiet = _Checker()
     assert (
-        A.s4b_answered(quiet, PAPER, [_line("C01", source="held standard")], MODEL) == 0
+        A.s4b_answered(quiet, PAPER, [_line("C01", deferred=True)], MODEL) == 0
         and quiet.asked == []
     )
 
@@ -192,7 +197,9 @@ def test_the_check_asks_one_verdict_for_every_comment():
     from app.aim_review import prompts as P
 
     assert (
-        "ONE verdict for EVERY comment" in P.ANSWERED_TASK
+        "check EVERY such claim and request" in P.ANSWERED_TASK
+        and "for ANY ONE of its claims" in P.ANSWERED_TASK
+        and '"claim"' in P.ANSWERED_TASK
         and '"verdicts"' in P.ANSWERED_TASK
     )
 
