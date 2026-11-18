@@ -603,7 +603,7 @@ def _identity_record(ident: dict) -> dict:
     return {
         # the standards S1 read on the paper, names and pages only (the run record shows what it found; no quote)
         "cited": [
-            {"name": str(c.get("name") or "")[:80], "page": c.get("page")}
+            {"name": str(c.get("name") or ""), "page": c.get("page")}
             for c in ident.get("cited") or []
         ],
         "cited_unverified": len(ident.get("cited_unverified") or []),

@@ -1896,3 +1896,43 @@ def test_no_sent_comment_of_a_whole_run_carries_the_ais_own_process_words(
     )
     sent = [ln["comment"] for ln in r.lines if aim_review.sendable(ln)]
     assert sent and not [c for c in sent if _re.search(process, c)]
+
+
+# ---- fresh review of update 5 (19 Nov): B1 and A's part of B4 ----------------------------------------------------------------
+
+
+def test_b1_a_quote_code_did_not_find_on_the_paper_is_never_a_fail_proven_by_code():
+    """The reviewer's test, as written: a forged quote ("400 psig" on a paper that says 250) is never compared, never firm."""
+    from types import SimpleNamespace as NS
+
+    paper = NS(pages={1: "Design pressure 250 psig."}, paper_id="p")
+    rule = "The design pressure shall not exceed 300 psig."
+    item = {
+        "id": "I1",
+        "book": "b",
+        "clause": "4.2",
+        "source": S.HELD,
+        "topic": "t",
+        "rule_quote": rule,
+        "kind": "limit",
+    }
+    for label in ("Question", "AI opinion", "Not met"):
+        j = {"label": label, "quote": "Design pressure 400 psig", "page": 1, "comment": "x", "field": "f",
+             "numbers": {"paper_value": 400, "rule_value": 300}}  # fmt: skip
+        d = S._decide(item, j, paper, {"b": {"identifier": "ZQ-STD-001"}}, "")
+        assert d["quote"] == "" and "paper quote not found by code" in d["code"]
+        assert d["label"] != "Not met", (label, d["label"])
+        assert S.PROVEN_FAIL not in d["comment"], d["comment"]
+        assert (d.get("code_compare") or {}).get("result") != "fail"
+
+
+def test_b4_a_long_firm_sentence_or_ai_comment_is_never_cut_without_a_mark():
+    long_words = (
+        "Please state the full basis. " * 30
+    )  # about 900 characters of the model's own words
+    j = {"label": "Question", "comment": long_words.strip(), "page": 1, "field": "f",
+         "quote": "Design pressure of the test item: 12 bar gauge at the inlet"}  # fmt: skip
+    d = S._decide(_item(kind="presence"), j, PAPER, BOOKS, "")
+    assert (
+        d["comment"] == long_words.strip()
+    )  # whole (the sheet cuts with its own mark and keeps the full text)

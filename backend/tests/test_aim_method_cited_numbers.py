@@ -310,3 +310,20 @@ def test_a_citation_with_edition_or_title_words_resolves_to_the_held_book_never_
     assert (
         L.resolve(twins, f"{NUMBER}, latest edition") is None
     )  # two books answer: never guessed
+
+
+def test_b4_a_long_cited_name_and_its_quote_are_kept_whole(aim_db):
+    """Review of update 5 (B4): the cited name and its verified quote are never cut without a mark (they were cut to 80 / 300)."""
+    long_name = "ZQ-TEST-STD-001 Invented nameplates for invented items, all parts and all annexes of the invented series one"
+    quote = f"The nameplate follows {long_name} in full, as amended by the invented project specification of the invented plant."
+    _cite(aim_db, quote)
+    got = BN.with_cited_not_held(
+        aim_db, PAPER, [_cited(name=long_name, quote=quote)], []
+    )
+    assert (
+        got[0]["name"] == long_name
+        and got[0]["quote"] == quote
+        and len(quote) > 300 - 100
+    )
+    pts = BN.cited_points(got)
+    assert pts[0]["field"] == long_name and pts[0]["quote"] == quote

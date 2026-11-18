@@ -197,7 +197,9 @@ def with_cited_not_held(conn, paper_id: str, cited, not_held: list[dict]) -> lis
     for c in cited or []:
         if not isinstance(c, dict) or not c.get("verified"):
             continue
-        name = " ".join(str(c.get("name") or "").split())[:80]
+        name = " ".join(
+            str(c.get("name") or "").split()
+        )  # whole: never cut without a mark
         folded = L._fold(name)
         if (
             len(folded) < 3
@@ -211,7 +213,7 @@ def with_cited_not_held(conn, paper_id: str, cited, not_held: list[dict]) -> lis
             continue
         page = c.get("page") if isinstance(c.get("page"), int) else None
         out.append({"name": name, "why": WHY_CITED_NOT_HELD, "source": "the paper cites it (read on the paper, verified)",
-                    "page": page, "quote": str(c.get("quote") or "")[:300]})  # fmt: skip
+                    "page": page, "quote": str(c.get("quote") or "")})  # whole (a verified quote)  # fmt: skip
         have.add(folded)
     return out
 
