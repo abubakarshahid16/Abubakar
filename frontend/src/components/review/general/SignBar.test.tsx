@@ -34,12 +34,12 @@ describe("SignBar", () => {
     expect(screen.getByTestId("sign-button")).toBeDisabled();
   });
 
-  it("a reader who is not a super user sees the sentence, no sign controls and no contractor download; Accept the rest stays", () => {
+  it("a reader who is not a super user sees the sentence, no sign controls, no Accept the rest and no contractor download", () => {
     const words = "Only a super user can sign this review for now.";
     const { unmount } = render(<SignBar review={review} signoff={status({ undecided_count: 1, may_sign: false, may_sign_words: words })} onStatus={vi.fn()} onChanged={vi.fn()} />);
     expect(screen.getByTestId("sign-super-user")).toHaveTextContent(words);
     expect(screen.queryByTestId("sign-button")).toBeNull();
-    expect(screen.getByRole("button", { name: "Accept the rest (1)" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept the rest (1)" })).toBeNull(); // it decides everything at once: the super user's
     unmount();
     mount(status({ state: "signed", signed, may_sign: false, may_sign_words: words }));
     expect(screen.queryByTestId("contractor-download")).toBeNull();

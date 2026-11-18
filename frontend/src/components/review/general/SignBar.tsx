@@ -57,8 +57,8 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
       {todo > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <p data-testid="sign-undecided" className="text-sm text-slateish-200">{todo} comment{todo === 1 ? "" : "s"} still need{todo === 1 ? "s" : ""} your decision.</p>
-          <button type="button" disabled={busy} onClick={() => void acceptRest()}
-            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100 disabled:opacity-50">Accept the rest ({todo})</button>
+          {signoff.may_sign && <button type="button" disabled={busy} onClick={() => void acceptRest()}
+            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100 disabled:opacity-50">Accept the rest ({todo})</button>}
         </div>
       )}
       {!signoff.may_sign && <p data-testid="sign-super-user" className="text-sm text-slateish-300">{signoff.may_sign_words ?? "Only a super user can sign this review for now."}</p>}

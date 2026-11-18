@@ -326,8 +326,11 @@ def accept_rest(
     request: Request,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Accept every comment and confirmation that has no decision yet, each as its own (append-only) decision."""
-    actor, conn, run, view = _signing_context(document_id, body.run_id, request, scope)
+    """Accept every comment and confirmation that has no decision yet, each as its own (append-only) decision. It decides every open
+    comment at once, so it is the sign-off's right (a super user and may-read), not a single decision's."""
+    actor, conn, run, view = _signing_context(
+        document_id, body.run_id, request, scope, sign=True
+    )
     n = aim_review_signoff.accept_rest(conn, run, view, actor)
     return {
         "run_id": run["run_id"],

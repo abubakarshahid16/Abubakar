@@ -386,12 +386,28 @@ def test_the_audit_names_the_sign_off_by_ids_and_counts_only(world):
 
 
 def test_only_a_super_user_can_sign_or_fetch_the_contractor_copy(world):
-    """Deciding is any signed-in reader; the sign-off and the contractor copy need the admin capability AND may-read (until the owner
+    """One decision is any signed-in reader; "Accept the rest", the sign-off and the contractor copy need the admin capability AND may-read (until the owner
     names engineer accounts). A non-admin gets 403 with a plain sentence; a caller who may not read the paper still gets 404."""
     plain = client(PAPER, BOOK, admin=False)
+    # one decision is open to a reader; "Accept the rest" decides everything at once = signing, so it is the super user's
+    one = {"run_id": RUN, "comment": 1, "state": "accept"}
+    assert plain.post(f"{BASE}/decision", json=one).status_code == 200
+    r = plain.post(f"{BASE}/accept-rest", json={"run_id": RUN})
+    assert r.status_code == 403 and "Only a super user" in r.text
     assert (
-        plain.post(f"{BASE}/accept-rest", json={"run_id": RUN}).status_code == 200
-    )  # deciding is open to a reader
+        len(_rows("aim_comment_decisions")) == 1
+    )  # only the single decision was written
+    assert (
+        client(BOOK).post(f"{BASE}/accept-rest", json={"run_id": RUN}).status_code
+        == 404
+    )  # an admin who may not read the paper
+    assert (
+        client(PAPER, BOOK)
+        .post(f"{BASE}/accept-rest", json={"run_id": RUN})
+        .status_code
+        == 200
+    )
+    plain = client(PAPER, BOOK, admin=False)
     r = _sign(plain)
     assert (
         r.status_code == 403
