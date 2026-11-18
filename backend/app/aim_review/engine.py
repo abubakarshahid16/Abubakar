@@ -476,6 +476,12 @@ def _steps(
         conn, state, mdl, ident, allowed_books, store, text, lead, strong
     )
     state.book_why = _book_reasons(checklist)
+    # the standards the paper itself cites (S1, each verified in its quote) that no held document answers: said as not held
+    from . import book_names as BN
+
+    state.not_held = BN.with_cited_not_held(
+        conn, state.paper_id, ident.get("cited"), state.not_held
+    )
     say(25, "judge")
     _judge(
         state,

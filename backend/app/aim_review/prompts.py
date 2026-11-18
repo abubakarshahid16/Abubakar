@@ -27,7 +27,8 @@ S1_TASK = """TASK S1 - IDENTIFY THE PAPER. Read the paper above and say what it 
  "service": the service conditions the paper states (fluid, pressures, temperatures, location class), at most 30 words, or "",
  "evidence": [{"page": n, "quote": exact words copied from that page that show the kind and the subject}] (2 to 4),
  "cited": [{"name": a standard, code, specification or other document the paper names as applying to it, written as the paper
-     writes it, "page": n, "quote": exact words from that page naming it}] (every one the paper names; [] if none),
+     writes it, "page": n, "quote": exact words from that page naming it}] (EVERY one the paper names ANYWHERE: its notes, tables,
+     reference lists and fields, each once, including numbers you do not recognise; [] only when the paper names none),
  "scope": {"page": n, "quote": exact words where the paper states its own scope, purpose or life-cycle phase or stage (what it
      covers and what it does not)} or null when the paper states none}
 Quotes are copied character for character from the paper (a short span, 5 to 25 words). Do not explain.

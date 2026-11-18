@@ -168,3 +168,61 @@ def test_a_held_contract_or_specification_sharing_the_name_is_never_the_cited_ru
         )
         and names
     )
+
+
+def _cited(
+    name=NUMBER, quote=f"The nameplate follows {NUMBER} in full.", verified=True
+):
+    return {"name": name, "page": 1, "quote": quote, "verified": verified}
+
+
+def test_a_standard_the_paper_cites_that_nothing_held_answers_is_said_not_held(aim_db):
+    """S1's citations, each verified in its quote on its page and its name standing in that quote: one no held document answers
+    is added to the not-held list once ("cited by the paper; not held"); held, unverified or not-in-its-quote names are not."""
+    base = [
+        {"name": "API 9999 invented", "why": "governs the equipment type; not held"}
+    ]
+    got = BN.with_cited_not_held(
+        aim_db, PAPER, [_cited(), _cited()], base
+    )  # the same name twice: said once
+    assert got[:1] == base and [(x["name"], x["why"]) for x in got[1:]] == [
+        (NUMBER, BN.WHY_CITED_NOT_HELD)
+    ]
+    assert (
+        BN.with_cited_not_held(aim_db, PAPER, [_cited(verified=False)], []) == []
+    )  # its quote is not on the page
+    assert (
+        BN.with_cited_not_held(
+            aim_db, PAPER, [_cited(quote="The nameplate follows the buyer list.")], []
+        )
+        == []
+    )
+    _hold(aim_db)
+    assert (
+        BN.with_cited_not_held(aim_db, PAPER, [_cited()], []) == []
+    )  # held now: never "not held"
+
+
+def test_before_the_upload_the_run_says_the_cited_book_is_not_held(aim_db):
+    """The new-book test's first review: the paper cites a book the library does not hold yet; the run's not-held list names it."""
+    _cite(aim_db)
+    ident = {"kind": "datasheet", "equipment_type": None, "subject": "invented item", "subject_key": "test_item", "service": "",
+             "evidence": [], "cited": [{"name": NUMBER, "page": 1, "quote": f"The nameplate follows {NUMBER} in full."}],
+             "scope": None}  # fmt: skip
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_identify": ident}
+    )
+    r = aim_review.run(aim_db, run_id="run_zq_nh", paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}),
+                       store=MemoryStore(), max_usd=5.0, model=model)  # fmt: skip
+    assert r.status == "done" and (NUMBER, BN.WHY_CITED_NOT_HELD) in [
+        (n["name"], n["why"]) for n in r.not_held
+    ]
+
+
+def test_the_identify_step_asks_for_every_cited_standard():
+    from app.aim_review import prompts as P
+
+    assert (
+        "EVERY one the paper names ANYWHERE" in P.S1_TASK
+        and "numbers you do not recognise" in P.S1_TASK
+    )

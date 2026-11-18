@@ -178,3 +178,43 @@ def new_required(
         and L.role_applies(lib[b], kind)
         and not gate_ok(b)
     )
+
+
+#: Why a standard the paper cites is on the not-held list (it was read by the AI on the paper and verified by code there).
+WHY_CITED_NOT_HELD = "cited by the paper; not held"
+
+
+def with_cited_not_held(conn, paper_id: str, cited, not_held: list[dict]) -> list[dict]:
+    """The run's not-held list, plus each standard the paper ITSELF cites that no held document answers (18 Nov 2026: a paper
+    citing a book with a new numbering three times never named it "cited, not held": the not-held list came only from the type's
+    tables and the book choice, which never sees the paper). A cited name counts only when S1's quote naming it was found by code
+    on its page (`verified`) AND the name stands in that quote (no name-shape rule: the paper's own words decide); it is said once."""
+    lib = L.library(conn, exclude=frozenset({str(paper_id)}))
+    have = {
+        L._fold(str(n.get("name") or "")) for n in not_held or [] if isinstance(n, dict)
+    }
+    out = list(not_held or [])
+    for c in cited or []:
+        if not isinstance(c, dict) or not c.get("verified"):
+            continue
+        name = " ".join(str(c.get("name") or "").split())[:80]
+        folded = L._fold(name)
+        if (
+            len(folded) < 3
+            or folded not in L._fold(str(c.get("quote") or ""))
+            or folded in have
+        ):
+            continue
+        if (
+            L.resolve(lib, name) is not None
+        ):  # held (a rule book, or a paper of another role): never "not held"
+            continue
+        out.append(
+            {
+                "name": name,
+                "why": WHY_CITED_NOT_HELD,
+                "source": "the paper cites it (read on the paper, verified)",
+            }
+        )
+        have.add(folded)
+    return out
