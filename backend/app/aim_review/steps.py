@@ -307,7 +307,7 @@ def _shown_item(it: dict, books: dict, text: L.BookText) -> dict:
         "standard": b["identifier"] if b else "",
         "clause": it["clause"],
         "rule_quote": it["rule_quote"],
-        "clause_text": _clause_context(text, it),
+        "clause_text": it.get("context") or _clause_context(text, it),
         "applies_when": it["applies_when"],
         "paper_fields": it["paper_fields"],
         "paper_pages": it["paper_pages"],
@@ -403,9 +403,11 @@ def _ask_batch(
 ) -> dict:
     """One judge call for one batch: {item id: [the model's findings]}, one per place (a row per place with the item's id, or
     one row with a "findings" list). Declares the paper and the batch's books only."""
-    carries = {paper.paper_id} | {
-        b for b in (item_book(it, books) for it in batch) if b
-    }
+    carries = (
+        {paper.paper_id}
+        | {b for b in (item_book(it, books) for it in batch) if b}
+        | {str(c) for it in batch for c in it.get("carries") or ()}
+    )
     out = model.ask(
         step="aim_judge",
         model=lead,
@@ -534,7 +536,11 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         )
     nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
     code_cmp = None
-    if nums and label in ("Met", "Not met") and it["source"] == HELD:
+    if (
+        nums
+        and label in ("Met", "Not met")
+        and (it["source"] == HELD or it.get("always_on"))
+    ):
         label, code_cmp = _numbers(
             nums, quote, str(it.get("rule_quote") or ""), notes, paper
         )
