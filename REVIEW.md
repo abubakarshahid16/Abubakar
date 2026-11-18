@@ -5,6 +5,10 @@ in "Rules learned" below. Older called-out mistakes: `docs/claude-md-detail.md`,
 
 ## Rules learned
 
+- A word list run on the AI's own wording cannot prove that a comment states ONLY a pass: every list of pass, contrast and
+  request words let a real conflict through in another phrasing ("acceptable for sweet service, and this line is sour").
+  Keep such a code rule to marks the judge itself gave ("confirm"), and put the rest to the judge prompt, measured by a
+  score. (18 Nov 2026: three review rounds on the pass-word rule; dropped.)
 - Never put a real client identifier (document number, project, company or person name) or any document text into code, tests,
   commits, PR text, branch names or briefs to helpers: use invented values. The commit hook scans every commit against the local,
   git-ignored list `.githooks/client-identifiers.local`; a missing list means NO scan, so keep it present. (17 Nov 2026: real
