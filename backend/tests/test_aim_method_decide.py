@@ -478,7 +478,7 @@ def test_a_provisional_figure_over_a_limit_the_paper_states_is_sent_with_both_nu
         and d["code_compare"]["result"] == "fail"
     )
     assert d["comment"] == (
-        "The stated 380 psig (by contractor) is above the 23.5 barg limit of page 2 of this paper; contractor to confirm the value."
+        "The stated 380 psig (by contractor) is above 23.5 barg, which the AI read as the limit on page 2; contractor to confirm the value."
     )
 
 
@@ -510,13 +510,14 @@ def test_a_verified_rule_operator_with_a_paper_limit_never_yields_pass_or_fail(
     )
     assert shown not in (aim_review_store.PASS_BY_CODE, aim_review_store.FAIL_BY_CODE)
     if result == "pass":
-        assert d["code"] == "paper_compare_passed" and not _sent(d)
+        # held back by APPENDING the note: the line keeps its other notes (light check d8c11c00, note 1)
+        assert d["code"].endswith("; paper_compare_passed") and not _sent(d)
     else:
         assert "code compared two values of the paper: 12 bar <= 10 bar: false" in d[
             "code"
         ] and _sent(d)
         assert d["comment"] == (
-            "The stated 12 bar is above the 10 bar limit of page 3 of this paper; contractor to confirm the value. "
+            "The stated 12 bar is above 10 bar, which the AI read as the limit on page 3; contractor to confirm the value. "
             "the model's words"
         )
 
@@ -536,7 +537,7 @@ def test_a_limit_in_the_judged_quote_itself_names_the_judged_page():
         and _sent(d)
     )
     assert d["comment"].startswith(
-        "The stated 18 bar is above the 15 bar limit of page 4 of this paper;"
+        "The stated 18 bar is above 15 bar, which the AI read as the limit on page 4;"
     )
 
 
@@ -551,7 +552,9 @@ def test_a_paper_limit_with_no_operator_in_any_rule_is_an_ai_opinion_never_a_cod
         d["label"] == "AI opinion" and d["code_compare"]["op_from"] == "the AI's answer"
     )
     # the numbers PASS with the AI's operator: no finding, held back in All points (the lead, 18 Nov 2026)
-    assert d["code"] == "paper_compare_passed" and not _sent(d)
+    assert d["code"].endswith("; paper_compare_passed") and not _sent(
+        d
+    )  # notes kept, the hold-back appended
     assert d["code_compare"]["why"] == "12 bar <= 20 bar: true"
     line = to_line(1, d)
     shown = aim_review_store.shown_label(
@@ -664,3 +667,85 @@ def test_pending_who_supplies_and_provisional_are_told_apart(
 
     assert blank_markers.value_left_open(quote) is left_open, quote
     assert blank_markers.is_provisional_figure(quote) is provisional, quote
+
+
+# ---- light check d8c11c00 (18 Nov 2026): note 1, the AI's own Not met on its own operator is sent ------------------------------
+
+
+def test_a_passed_paper_compare_on_the_ais_operator_is_sent_when_the_ai_said_not_met():
+    d = _pp("Design pressure 12 bar gauge at the inlet", "12", "bar", "20", "bar",
+            "Maximum working pressure of the item 20 bar gauge", "The design pressure is compared with the working pressure.",
+            label="Not met")  # fmt: skip
+    assert d["label"] == "AI opinion" and d["code_compare"]["result"] == "pass"
+    assert "paper_compare_passed" not in d["code"] and _sent(d)
+    assert "code compared two values of the paper: 12 bar <= 20 bar: true" in d["code"]
+
+
+# ---- light check d8c11c00, L1: the forms the round-1 list caught are open again (invented values) -----------------------------
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Design pressure of the test item: 25 bar gauge (HOLD)",  # hold, bracketed beside a figure
+        "Design pressure of the test item: 25 bar gauge HOLD",
+        "Flushing plan of the test item: later stage",
+        "Gasket of the test item: to be supplied",
+        "Gasket of the test item: to be provided",
+        "Gasket of the test item: to be furnished",
+    ],
+)
+@pytest.mark.parametrize("label", ["Met", "Not met", "AI opinion"])
+def test_a_hold_a_later_stage_or_a_to_be_supplied_value_is_a_question(quote, label):
+    from app import aim_review_store
+    from app.aim_review.engine import to_line
+
+    pages = {1: quote + "\n"}
+    j = {"label": label, "quote": quote, "page": 1,
+         "numbers": {"paper_value": "25", "paper_unit": "bar", "operator": "<=", "rule_value": "20", "rule_unit": "bar"}}  # fmt: skip
+    d = S._decide(
+        _item(kind="limit", rule_quote=RULE_20), j, Paper("doc_l1", pages), BOOKS, ""
+    )
+    assert d["label"] == "Question", (quote, label, d["label"])
+    line = to_line(1, d)
+    shown = aim_review_store.shown_label(
+        line["label"], line["code_compare_json"], line["deferred"]
+    )
+    assert shown not in (aim_review_store.PASS_BY_CODE, aim_review_store.FAIL_BY_CODE)
+
+
+#: Every form of the round-1 list (the experiment's `_DEFERRED` plus `blank_markers.names_a_marker`), as printed there.
+ROUND1_FORMS = [
+    "TBA", "TBC", "TBD", "to be advised", "to be confirmed", "to be determined", "to be provided", "to be supplied",
+    "by vendor", "by the vendor", "by contractor", "by the contractor", "by manufacturer", "by others", "by seller",
+    "by supplier", "by bidder", "by contractor / vendor", "later stage", "later", "(later)", "hold", "(hold)",
+    "to be specified", "to be furnished", "to be decided", "vendor to advise", "vendor to confirm", "vendor to specify",
+    "vendor to furnish", "vendor to provide", "vendor to state", "vendor to determine", "vendor to decide",
+    "contractor to advise", "manufacturer to confirm", "supplier to provide", "seller to state", "bidder to decide",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("form", ROUND1_FORMS)
+def test_no_form_of_the_round1_list_is_lost(form):
+    """Alone it leaves the value open; beside a figure it is open or provisional: never a verdict either way."""
+    from app import blank_markers
+
+    assert blank_markers.value_left_open(f"Value of the test item: {form}"), form
+    beside = f"Value of the test item: 25 bar {form}"
+    assert blank_markers.value_left_open(beside) or blank_markers.is_provisional_figure(
+        beside
+    ), form
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "Hydrotest hold time: 30 min",
+        "Hold-down bolts of the test item: M20",
+        "Drawing: see later revision 2",
+    ],
+)
+def test_a_hold_time_a_hold_down_bolt_and_a_later_revision_are_values(quote):
+    from app import blank_markers
+
+    assert not blank_markers.value_left_open(quote)

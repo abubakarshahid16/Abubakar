@@ -289,19 +289,22 @@ def is_whole_deferral(text: str | None, *, value_field: bool = False) -> bool:
 _PENDING = re.compile(
     r"\b(?:tba|tbd|tbc|tbn|vta"
     r"|to\s+be\s+(?:advised|confirmed|determined|decided|specified|finali[sz]ed)"
-    r"|(?:vendor|contractor|supplier|manufacturer|seller|bidder)\s+to\s+(?:confirm|determine|decide))\b"
-    r"|\(\s*later\s*\)|\blater\s*[.)]?\s*$",
+    r"|(?:vendor|contractor|supplier|manufacturer|seller|bidder)\s+to\s+(?:confirm|determine|decide)"
+    # "hold" anywhere, bracketed or not ("25 bar gauge (HOLD)"), but not a hold time, a hold-down bolt or a holding value
+    r"|hold(?![\s-]*(?:time|period|down|up|back|open|closed|pressure|test|point)\b)(?!-)"
+    # "later" anywhere ("later stage", "(later)", "to follow later"), but not a later revision or edition
+    r"|later(?!\s+(?:revision|rev|edition|issue|version)\b))\b",
     re.IGNORECASE,
 )
 #: A lone star or "(*)" standing as its own word ("12 mm *", "380 (*) psig"): the enquiry sheet's "vendor to advise" mark.
 _LONE_STAR = re.compile(r"(?<!\S)\(?\*+\)?(?!\S)")
 #: A WHO-SUPPLIES note: it says whose job the value is, not that it is still open. Beside a stated figure the figure is the value.
 _WHO_SUPPLIES = re.compile(
-    r"\b(?:by\s+(?:the\s+)?(?:contractor|vendor|supplier|manufacturer|seller|bidder|others)"
+    r"\b(?:by\s+(?:the\s+)?(?:contractor|vendor|supplier|manufacturer|seller|bidder|others|purchaser|buyer)"
     r"(?:\s*/\s*(?:vendor|contractor|supplier|manufacturer))?"
     r"|as\s+per\s+(?:the\s+)?(?:code|vendor|supplier|manufacturer|contractor|standard)"
     r"|(?:vendor|contractor|supplier|manufacturer|seller|bidder)\s+to\s+(?:advise|specify|furnish|provide|state)"
-    r"|to\s+be\s+(?:furnished|provided))\b",
+    r"|to\s+be\s+(?:furnished|provided|supplied))\b",
     re.IGNORECASE,
 )
 

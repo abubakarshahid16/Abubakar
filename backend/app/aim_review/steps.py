@@ -199,12 +199,12 @@ def _provisional_figure(quote: str) -> bool:
 
 #: What a failed check says of the stated figure, by the rule's operator.
 _FAILS_AS = {
-    "<=": "is above the {r} limit",
-    "<": "is not below the {r} limit",
-    ">=": "is below the {r} minimum",
-    ">": "is not above the {r} minimum",
-    "==": "is not the {r} required",
-    "!=": "is the {r} excluded",
+    "<=": ("is above", "limit"),
+    "<": ("is not below", "limit"),
+    ">=": ("is below", "minimum"),
+    ">": ("is not above", "minimum"),
+    "==": ("is not", "required value"),
+    "!=": ("is", "excluded value"),
 }
 
 
@@ -260,15 +260,17 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict) -> str:
     who = blank_markers.who_supplies(quote)
     if who:
         stated = f"{stated} ({who.lower()})"
+    verb, noun = _FAILS_AS.get(str(code_cmp.get("op") or ""), ("does not meet", "rule"))
     if code_cmp.get("read_from") == "verified paper quotes":
+        # the AI chose which paper number is the limit: said as the AI's reading, never as a fact
         page = code_cmp.get("limit_page")
-        where = f"page {page} of this paper" if page else "this paper"
-    elif base.get("standard"):
+        where = f"on page {page}" if page else "on this paper"
+        return f"The stated {stated} {verb} {rule}, which the AI read as the {noun} {where}; contractor to confirm the value."
+    if base.get("standard"):
         where = f"{base['standard']} clause {base['clause']}".strip()
     else:
         where = "the rule"
-    fails = _FAILS_AS.get(str(code_cmp.get("op") or ""), "does not meet the {r} rule")
-    return f"The stated {stated} {fails.format(r=rule)} of {where}; contractor to confirm the value."
+    return f"The stated {stated} {verb} the {rule} {noun} of {where}; contractor to confirm the value."
 
 
 def _shown_item(it: dict, books: dict, text: L.BookText) -> dict:
@@ -483,7 +485,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
         "quote": quote if page is not None else "",
         "quote_unverified": quote if (quote and page is None) else "",
         "comment": _comment(j, code_cmp, quote, base, page),
-        "code": _code_note(notes, code_cmp),
+        "code": _code_note(notes, code_cmp, j.get("label")),
         "numbers": nums,
         "code_compare": code_cmp,
         "deferred": deferred,
@@ -498,16 +500,19 @@ def _comment(j: dict, code_cmp, quote: str, base: dict, page) -> str:
     return said[:400]
 
 
-def _code_note(notes: list[str], code_cmp: dict | None) -> str:
-    """The line's code note: its notes joined; a PASSED compare of two paper values (an AI pairing) is held back from the
-    comments (`PAPER_COMPARE_PASSED`; the comparison itself is kept in `code_compare`)."""
-    if (
+def _code_note(notes: list[str], code_cmp: dict | None, said: str | None = None) -> str:
+    """The line's code note: its notes joined. A PASSED compare of two paper values (an AI pairing) is held back from the comments
+    by APPENDING `PAPER_COMPARE_PASSED` (the notes say why): when the operator came from the rule's verified words, or from the AI
+    when the AI itself (`said`, its own label) did not say Not met. The AI's Not met on its own operator stays a sent AI opinion."""
+    held = (
         isinstance(code_cmp, dict)
         and code_cmp.get("read_from") == "verified paper quotes"
         and code_cmp.get("result") == "pass"
-    ):
-        return PAPER_COMPARE_PASSED
-    return "; ".join(notes)
+        and (
+            code_cmp.get("op_from") == "the rule's verified words" or said != "Not met"
+        )
+    )
+    return "; ".join([*notes, PAPER_COMPARE_PASSED] if held else notes)
 
 
 def _numbers(
