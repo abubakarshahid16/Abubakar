@@ -20,6 +20,7 @@ from io import BytesIO
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from . import aim_review_gate
@@ -66,6 +67,14 @@ POINT_HEADERS = (
     "Code note", "Standard", "Clause", "Source", "Asks", "Value left open", "Numbers", "Status",
 )  # fmt: skip
 HEADER_ROW = 4
+#: Column widths BY HEADER NAME (never by position: a header added or moved once shifted every width by one, so Field was 7 wide and
+#: Shown label 70). Short bookkeeping columns are narrow; the text columns are wide. A header not listed gets DEFAULT_WIDTH.
+COLUMN_WIDTHS = {
+    "No.": 6, "Lines": 9, "Item": 7, "Note": 14, "Status": 12, "Page": 7, "Field": 28, "Shown label": 20, "Comment": 70,
+    "Quote": 45, "Standard": 18, "Clause": 10, "Source": 14, "Topic": 26, "Quote not verified by code": 30, "Code note": 20,
+    "Asks": 10, "Value left open": 10, "Numbers": 22,
+}  # fmt: skip
+DEFAULT_WIDTH = 14
 
 
 def cut(text: str, limit: int = COMMENT_CELL_LIMIT) -> tuple[str, bool]:
@@ -90,17 +99,19 @@ def _head(ws: Worksheet, title: str) -> None:
     _put(ws, 2, 1, title).font = Font(bold=True, size=13)
 
 
-def _table(
-    ws: Worksheet, headers: tuple[str, ...], rows: list[list], widths: dict[int, int]
-) -> None:
+def _table(ws: Worksheet, headers: tuple[str, ...], rows: list[list]) -> None:
     for c, h in enumerate(headers, 1):
         _put(ws, HEADER_ROW, c, h).font = Font(bold=True)
     for r, values in enumerate(rows, HEADER_ROW + 1):
         for c, v in enumerate(values, 1):
             cell = _put(ws, r, c, v)
             cell.alignment = Alignment(wrap_text=True, vertical="top")
-    for c, w in widths.items():
-        ws.column_dimensions[chr(64 + c)].width = w
+    for c, h in enumerate(headers, 1):
+        ws.column_dimensions[get_column_letter(c)].width = COLUMN_WIDTHS.get(
+            h, DEFAULT_WIDTH
+        )
+    # a filter on the header row, so an engineer can sort and filter the table
+    ws.auto_filter.ref = f"A{HEADER_ROW}:{get_column_letter(len(headers))}{HEADER_ROW + max(len(rows), 1)}"
     ws.freeze_panes = ws.cell(row=HEADER_ROW + 1, column=1)
 
 
@@ -332,20 +343,6 @@ def build(model: dict) -> bytes:
         ws,
         COMMENT_HEADERS,
         comment_rows(model),
-        {
-            1: 6,
-            2: 22,
-            3: 7,
-            4: 24,
-            5: 70,
-            6: 50,
-            7: 18,
-            8: 10,
-            9: 16,
-            10: 8,
-            11: 30,
-            12: 18,
-        },
     )
     ws = wb.create_sheet(CONFIRMATIONS)
     _head(ws, f"Confirmations (not sent): {model['counts'].get('confirmations') or 0}")
@@ -356,8 +353,7 @@ def build(model: dict) -> bytes:
         "Points the AI only asks the vendor to confirm (the value is stated and nothing is suspected): kept here, not sent; "
         f"every point is on the sheet {ALL_POINTS}.",
     )
-    _table(ws, COMMENT_HEADERS, comment_rows(model, "confirmations"), {1: 6, 2: 22, 3: 7, 4: 24, 5: 70, 6: 50, 7: 18, 8: 10,
-                                                                      9: 16, 10: 8, 11: 30, 12: 18})  # fmt: skip
+    _table(ws, COMMENT_HEADERS, comment_rows(model, "confirmations"))
     ws = wb.create_sheet(ALL_POINTS)
     _head(ws, f"All points: {model['counts']['points']}")
     _put(ws, 3, 1, team_statement(model["counts"]["points"]))
@@ -365,26 +361,6 @@ def build(model: dict) -> bytes:
         ws,
         POINT_HEADERS,
         point_rows(model),
-        {
-            1: 6,
-            2: 8,
-            3: 22,
-            4: 7,
-            5: 14,
-            6: 24,
-            7: 18,
-            8: 70,
-            9: 50,
-            10: 12,
-            11: 30,
-            12: 18,
-            13: 10,
-            14: 16,
-            15: 10,
-            16: 10,
-            17: 26,
-            18: 18,
-        },
     )
     ws = wb.create_sheet(HOW)
     _how(ws, model)
