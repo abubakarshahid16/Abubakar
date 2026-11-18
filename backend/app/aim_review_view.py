@@ -23,6 +23,7 @@ from . import (
     aim_review_store,
     review_shown,
 )
+from .aim_review import references as aim_review_references
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
@@ -99,7 +100,9 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
             "standard": HIDDEN_BOOK_WORDS,
             "clause": "",
             "book_document_id": None,
-            "comment": comment,
+            "comment": aim_review_references.HIDDEN_COMMENT
+            if aim_review_references.NOTE_CHECKED in str(row.get("code_note") or "")
+            else comment,
             # code's note may hold the rule's words or numbers: only its state words stay (they decide whether the line is sent
             # and how it groups, the same for every viewer); the comparison's words are not served either (`compared`)
             "code_note": _state_words(row.get("code_note")),
@@ -477,6 +480,31 @@ def _books(conn, run: dict, scope) -> tuple[list[dict], int, list[str]]:
     )
 
 
+def _references(conn, run: dict, scope) -> list[dict]:
+    """The reference papers of a contract review and what was done with each. A part the viewer may not read is named by words only
+    (rule 5: its file name and id are not served)."""
+    out = []
+    for r in run.get("references") or []:
+        if not isinstance(r, dict):
+            continue
+        doc_id = str(r.get("id") or "")
+        titles, hidden = _titles(conn, [doc_id], scope) if doc_id else ({}, 0)
+        out.append(
+            {
+                "part": HIDDEN_BOOK_WORDS if hidden else str(r.get("part") or ""),
+                "title": titles.get(doc_id) if doc_id else None,
+                "status": str(r.get("status") or ""),
+                "reason": "" if hidden else str(r.get("reason") or ""),
+                "questions": r.get("questions"),
+                "settled": r.get("settled"),
+                # the Form's sentences compared with the Schedule, and how many differ (absent on a run made before the comparison)
+                "compared": r.get("compared"),
+                "differs": r.get("differs"),
+            }
+        )
+    return out
+
+
 def _checklist(conn, run: dict, points: list[dict]) -> dict:
     """The checklist the run judged. `items` counts the saved checklist's items (else the distinct items the run judged: one item
     may give several lines); `always_items` counts the items every review checks besides the checklist (`aim_review.always`),
@@ -610,6 +638,7 @@ def build(conn, run: dict, scope=None) -> dict:
         "confirmations": confirmations,
         "points": points,
         "books": books,
+        "references": _references(conn, run, scope),
         "books_not_readable": hidden,
         # the documents listed before the start (besides the paper) and how many of them the run used; None for an older run
         "documents_listed": aim_review_book_why.listed_and_used(conn, run, carried),
