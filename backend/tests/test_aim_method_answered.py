@@ -309,3 +309,23 @@ def test_the_verdicts_are_stored_with_the_run_and_read_back(tmp_path, monkeypatc
         "2026-11-18T21:01:00Z",
     )
     assert ST.run(conn, "run_rec")["answered"] == verdicts
+
+
+def test_a_concern_or_a_line_both_readers_agree_on_is_never_offered():
+    """A datasheet copy of 19 Nov: a line on a test set to NO (both readers agreed) and a line on a hardness above the limit (the
+    judge's concern) were taken off because the paper covered a side claim of each (the test standard, the H2S content); the
+    copy lost two planted mistakes. A side claim never answers a suspected stated value or a find both readers made."""
+    lines = [
+        _line("C01", ask="confirm"),  # offered
+        _line("C02", ask="concern"),  # the judge suspects a stated value: never
+        _line("C03", label="AI opinion", code=aim_review.TWO_READERS_AGREE),  # never
+        _line("C04", label="AI opinion"),  # one reader: offered
+        _line(
+            "C05", ask="open"
+        ),  # not deferred here: offered (a deferred value is never offered, as before)
+    ]
+    assert sorted(A.offered(lines)) == [1, 4, 5]
+    model = _Checker(
+        [{"n": 2, "page": 2, "quote": TEAM}, {"n": 3, "page": 2, "quote": TEAM}]
+    )
+    assert A.s4b_answered(model, PAPER, lines[1:3], MODEL) == 0 and model.asked == []
