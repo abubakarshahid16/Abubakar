@@ -220,21 +220,48 @@ def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dic
       3. the comments left that make the SAME FINDING under different checklist items become one (`_same_finding`)."""
     comments = _item_comments(points)
     by_n = {p["n"]: p for p in points}
-    confirm = [
-        c for c in comments if all(by_n[n].get("ask") == "confirm" for n in c["lines"])
-    ]
-    sent = [
-        c
-        for c in comments
-        if not all(by_n[n].get("ask") == "confirm" for n in c["lines"])
-    ]
+    confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
+    sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
     return _same_finding(sent, by_n), confirm
 
 
+def _confirm_only(p: dict) -> bool:
+    """A point that only asks the vendor to confirm a stated value: a Question, the judge's recorded "confirm", a verified quote,
+    its value not left open, no provisional figure and nothing code compared. Anything else is sent."""
+    return (
+        p.get("label") == "Question"
+        and p.get("shown_label") == "Question"
+        and p.get("ask") == "confirm"
+        and bool(p.get("quote"))
+        and not p.get("quote_unverified")
+        and not p.get("deferred")
+        and not p.get("compare_kind")
+        and not p.get("compared")
+        and not _provisional_kind(p.get("code_note"))
+    )
+
+
+#: A quote is specific enough to name ONE finding only with at least this many characters (folded), a digit and a letter: a
+#: short or generic quote ("TBA", "bar", "25", "N/A", "Yes", "A") would join different findings.
+QUOTE_KEY_MIN = 12
+
+
+def _specific(quote: str) -> bool:
+    return (
+        len(quote) >= QUOTE_KEY_MIN
+        and any(ch.isdigit() for ch in quote)
+        and any(ch.isalpha() for ch in quote)
+    )
+
+
 def _finding_key(p: dict) -> tuple | None:
-    """The FINDING a sent line makes: its shown label, compare kind and provisional kind, with its verified quote (folded), or,
-    with no verified quote, the judge's two numbers (value, unit, operator, limit, unit). None when it has neither. Lines of
-    different labels never share a key (one label per finding: a Question never joins an AI opinion)."""
+    """The FINDING a sent line makes: its shown label, compare kind and provisional kind, with its verified quote (folded) when
+    that quote is specific (`_specific`), or, with no verified quote, the judge's two numbers (value, unit, operator, limit,
+    unit). None when it has neither, and ALWAYS None for a Not met or a Fail: two findings of different items are never merged.
+    Lines of different labels never share a key (one label per finding: a Question never joins an AI opinion)."""
+    shown = str(p.get("shown_label") or "").lower()
+    if p.get("label") == "Not met" or "not met" in shown or "fail" in shown:
+        return None
     head = (
         p["shown_label"],
         p.get("compare_kind") or "",
@@ -242,7 +269,7 @@ def _finding_key(p: dict) -> tuple | None:
     )
     quote = "" if p.get("quote_unverified") else _field_key(p.get("quote"))
     if quote:
-        return (*head, "quote", quote)
+        return (*head, "quote", quote) if _specific(quote) else None
     nums = p.get("numbers")
     if isinstance(nums, dict):
         k = tuple(
@@ -369,12 +396,19 @@ def _member(m: dict) -> str:
     where = f"page {m['page']}" if m.get("page") is not None else "no page"
     quote = f' (quote: "{m["quote"]}")' if m.get("quote") else ""
     numbers = f" ({m['compared']})" if m.get("compared") else ""
-    return f"{m.get('field') or 'no field'} ({where}): {m.get('comment') or ''}{quote}{numbers}"
+    rule = " ".join(
+        x for x in (m.get("standard"), m.get("clause") and f"clause {m['clause']}") if x
+    )
+    rule = (
+        f" [rule: {rule}]" if rule else ""
+    )  # the place's own rule as the viewer may see it (a hidden book is masked)
+    return f"{m.get('field') or 'no field'} ({where}){rule}: {m.get('comment') or ''}{quote}{numbers}"
 
 
 def _same_point(members: list[dict]) -> dict:
-    """ONE comment for the editor's group, LOSSLESS: the first member's words, then every other member's field, page, own
-    comment in full and quote. Lines stay one per place (All points keeps each)."""
+    """ONE comment for the lines of one point, LOSSLESS: the first line's words, then every other line's field, page, rule and
+    clause, own comment in full, quote and value; the Standard and Clause cells list every rule cited (the first line's book
+    link only when every line cites the same book). Lines stay one per place (All points keeps each)."""
     members = sorted(members, key=lambda m: m["n"])
     first, others = members[0], members[1:]
     pages = sorted({m["page"] for m in members if m["page"] is not None})
@@ -388,6 +422,10 @@ def _same_point(members: list[dict]) -> dict:
                             for m in members if m["quote"]),
         "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
         "quote_unverified": any(m["quote_unverified"] for m in members),
+        "standard": "; ".join(dict.fromkeys(m["standard"] for m in members if m.get("standard"))),
+        "clause": "; ".join(dict.fromkeys(m["clause"] for m in members if m.get("clause"))),
+        "book_document_id": first.get("book_document_id")
+        if len({m.get("book_document_id") for m in members}) == 1 else None,
         **_state(members),
     }  # fmt: skip
 
