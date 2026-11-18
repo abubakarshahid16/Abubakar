@@ -177,6 +177,9 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
           {mark}{line.proven && line.proven !== mark ? ` · ${line.proven}` : ""}
         </span>
         {line.shown_label && <span className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">{line.shown_label}</span>}
+        {line.paired && (
+          <span data-testid="card-paired" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">Values paired by the AI; compared by code</span>
+        )}
         {line.readers && (
           <span data-testid="card-readers" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5"
             title={[line.readers.first && `First reader: ${line.readers.first}`, line.readers.second && `Second reader: ${line.readers.second}`, line.readers.reason].filter(Boolean).join(". ")}>
