@@ -237,6 +237,31 @@ def _models(conn, review_run_id: str, run: dict, outcome: dict) -> list[str]:
     return sorted(n for n in names if n)
 
 
+def models_used(conn, review_run_id: str, run: dict) -> dict[str, list[str]]:
+    """The models a rule-check run's own stored rows name as used, by engine, each name once (order 14 LPV V4; the one home the
+    CRS header reads): "claude" (the spend ledger's names in `model_name`, or a Claude name), "local" (the calls the worker noted
+    on the local engine, `model_call_metrics`, or a name the run stored with the local engine's "ollama:" mark), "unknown" (the
+    rest: named by the run, engine not recorded). A name is never placed by exclusion."""
+    local = set()
+    if _has_table(conn, "model_call_metrics"):
+        local = {r[0] for r in conn.execute(
+            "SELECT model FROM model_call_metrics WHERE review_run_id = ? AND calls > errors", (review_run_id,))}  # fmt: skip
+    claude = {n for n in (run.get("model_name") or "").split(", ") if n}
+    out: dict[str, list[str]] = {"claude": [], "local": [], "unknown": []}
+    for name in _models(conn, review_run_id, run, _loads(run.get("outcome_json"))):
+        bare = name.removeprefix("ollama:").removeprefix(
+            "claude:"
+        )  # an engine mark the run stored before the name
+        kind = (
+            "claude" if name in claude or bare in claude or "claude" in name.lower()
+            else "local" if name.startswith("ollama:") or bare in local
+            else "unknown"
+        )  # fmt: skip
+        if bare not in out[kind] and not any(bare in v for v in out.values()):
+            out[kind].append(bare)
+    return out
+
+
 def _rulebook_line(book: dict, allowed: frozenset[str]) -> str:
     if not set(book.get("standards") or ()) <= allowed:
         return f"Version {book['used_version']}. {RULES_WITHHELD}"

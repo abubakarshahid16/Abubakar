@@ -1059,7 +1059,7 @@ def paper_facts(conn, run_id: str) -> dict:
     )
     return {
         "paper": row["submittal_document_id"], "ai": ai is not None,
-        "kind": (ai["paper_kind"] or None) if ai else None, "equipment": (ai["equipment_type"] or None) if ai else None,
+        "kind": (ai["paper_kind"] or None) if ai else None, "equipment": recorded_type(ai["equipment_type"] if ai else None),
         "missing": missing,
     }  # fmt: skip
 
@@ -1138,6 +1138,17 @@ def check(
     return {"run_id": run_id, "paper": facts["paper"], "file": which, "kind": kind, "equipment": equipment,
             "comment_rows": len(got["rows"]), "evidence_rows": len(got["evidence"]), "signatures": sigs,
             "gates": [r.to_json() for r in results]}  # fmt: skip
+
+
+#: LPV V4: a run records "type unsure: <reason>" or "not a datasheet (<kind>)" when it has no equipment type; the reason is
+#: derived from the paper, so only these words reach this report (it may be pasted into a PR)
+NOT_A_TYPE = ("type unsure", "not a datasheet")
+
+
+def recorded_type(value: object) -> str | None:
+    """The run's recorded equipment type for this report: the type; "type unsure" / "not a datasheet" WITHOUT its reason; None."""
+    text = " ".join(str(value or "").split())
+    return next((w for w in NOT_A_TYPE if text.lower().startswith(w)), text or None)
 
 
 def lines_of(report: dict, at_most: int = LIST_AT_MOST) -> list[str]:
