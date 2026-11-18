@@ -76,7 +76,59 @@ def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
             sent.pop(n)
             d["code"] = "; ".join(x for x in (d.get("code"), f"{EDITED}: {why}") if x)
             moved += 1
+    groups = (out or {}).get("groups") if isinstance(out, dict) else None
+    _accept_groups(groups if isinstance(groups, list) else [], offered)
     return moved
+
+
+#: The code-note part that marks the lines the editor grouped as ONE point (`aim_review_view.group_comments` reads it): every
+#: member carries "same point as line <the group's first line>".
+SAME_POINT = "same point as line"
+
+
+def _accept_groups(groups: list, offered: dict) -> int:
+    """The editor's GROUPS of sent lines that make the same point (the owner's "one comment per point, listing every sheet and
+    page"), checked by code: every member is a real line still offered (sent, not moved, never a code failure); at least two;
+    the SAME shown label (a Fail never joins a Question); the same compare kind; no line in two groups (a later group that
+    overlaps is refused). An accepted group marks each member's code note; nothing is added, rewritten or relabelled. Returns
+    the number of groups accepted."""
+    from app.aim_review_store import shown_label
+
+    taken: set[int] = set()
+    accepted = 0
+    for g in groups:
+        if not isinstance(g, list) or not all(
+            isinstance(n, int) and not isinstance(n, bool) for n in g
+        ):
+            continue
+        members = sorted(set(g))
+        if len(members) < 2 or any(n not in offered or n in taken for n in members):
+            continue
+        lines = [offered[n] for n in members]
+        shown = {
+            shown_label(
+                d.get("label") or "",
+                d.get("code_compare"),
+                bool(d.get("deferred")),
+                d.get("code") or "",
+            )
+            for d in lines
+        }
+        kinds = {
+            (d.get("code_compare") or {}).get("read_from")
+            if isinstance(d.get("code_compare"), dict)
+            else None
+            for d in lines
+        }
+        if len(shown) != 1 or len(kinds) != 1:
+            continue
+        for d in lines:
+            d["code"] = "; ".join(
+                x for x in (d.get("code"), f"{SAME_POINT} {members[0]}") if x
+            )
+        taken |= set(members)
+        accepted += 1
+    return accepted
 
 
 def _code_failed(d: dict) -> bool:
