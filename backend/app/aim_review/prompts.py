@@ -138,13 +138,15 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
 THE ITEMS:
 %(items)s"""
 
-ANSWERED_TASK = """TASK S4B - CHECK THE WHOLE PAPER. Below are comments on the paper above that rest on no held rule book (one
-per line: n, field, page, comment). Read the WHOLE paper, every page. Name ONLY the comments that the paper already answers (it
-states what the comment asks for, or it states the opposite of what the comment claims), on ANY page: give that page and the
-exact paper words that answer it (5 to 30 words from that one page, character for character, no "..."). Name nothing else; when
-in doubt, name nothing (a comment you do not name is sent as it is).
+ANSWERED_TASK = """TASK S4B - CHECK EACH COMMENT AGAINST THE WHOLE PAPER. Below are comments a reviewer would send about the paper
+above; none rests on a held rule book (one per line: n, field, page, comment). Read EVERY page of the paper. For EACH comment,
+decide as a strict senior engineer checking the reviewer's work: is this comment WRONG or NEEDLESS because the paper already
+covers it - the paper states what the comment asks for, or states the opposite of what the comment claims - on ANY page, not
+only the comment's own page (another section, a table, an annex, a note)? Give ONE verdict for EVERY comment:
+answered true, with the page and the exact paper words that answer it (5 to 30 words from that one page, character for
+character, no "..."); or answered false when the paper does not cover it. Code checks every quote on its page.
 Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
-{"answered": [{"n": n, "page": p, "quote": "..."}]}
+{"verdicts": [{"n": n, "answered": true, "page": p, "quote": "..."}, {"n": n, "answered": false}]}
 THE COMMENTS:
 %(comments)s"""
 

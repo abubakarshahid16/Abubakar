@@ -38,7 +38,11 @@ class _Checker:
         self.asked.append(kw)
         if self.fail:
             raise StepFailed(f"aim_answered: {self.fail}")
-        return {"answered": self.answered}
+        return {
+            "verdicts": [
+                {**a, "answered": a.get("answered", True)} for a in self.answered
+            ]
+        }
 
 
 def test_only_sent_lines_on_no_held_rule_that_ask_or_opine_are_offered():
@@ -163,4 +167,31 @@ def test_the_lines_own_evidence_on_its_own_page_is_never_an_answer():
     assert (
         A.answer_reason({"n": 1, "page": 2, "quote": TEAM}, {1: no_quote}, PAPER)
         is not None
+    )
+
+
+def test_only_a_verdict_answered_true_is_checked_and_applied():
+    lines = [_line("C01"), _line("C02")]
+    model = _Checker(
+        [
+            {"n": 1, "answered": False, "page": 2, "quote": TEAM},
+            {"n": 2, "answered": "yes", "page": 2, "quote": TEAM},
+        ]
+    )
+    assert (
+        A.s4b_answered(model, PAPER, lines, MODEL) == 0
+    )  # false, and a non-boolean "yes": nothing taken off
+    model = _Checker([{"n": 1, "answered": True, "page": 2, "quote": TEAM}])
+    assert (
+        A.s4b_answered(model, PAPER, lines, MODEL) == 1
+        and "answered:" in lines[0]["code"]
+    )
+
+
+def test_the_check_asks_one_verdict_for_every_comment():
+    from app.aim_review import prompts as P
+
+    assert (
+        "ONE verdict for EVERY comment" in P.ANSWERED_TASK
+        and '"verdicts"' in P.ANSWERED_TASK
     )
