@@ -939,3 +939,26 @@ def test_an_editor_group_across_fields_is_one_lossless_comment_and_the_counts_ho
         "1, 2, 3, 4",
         "5",
     ]
+
+
+def test_a_forged_editor_group_with_mixed_labels_or_compare_kinds_is_not_honoured(world):
+    """SECOND LOCK: the view honours an editor group mark only when every member shows the same label and the same compare
+    kind; a forged or stale mark splits back to item + field grouping (a code-compared Fail never joins a Question)."""
+    mark = "same point as line 1"
+    cmp_rule = json.dumps({"read_from": "verified paper quotes", "why": "25 bar <= 20 bar: false"})
+    cmp_other = json.dumps({"read_from": "verified quotes", "why": "invented compare"})
+    lines = [
+        _line(1, "Not met", "Fail, compared by code", code_note=mark, code_compare_json=cmp_rule),
+        _line(2, "Question", "Question", code_note=mark),
+        _line(3, "Question", "Question", code_note="same point as line 3", code_compare_json=cmp_rule),
+        _line(4, "Question", "Question", code_note="same point as line 3", code_compare_json=cmp_other),
+        _line(5, "Question", "Question", code_note="same point as line 5"),
+        _line(6, "Question", "Question", code_note="same point as line 5"),
+    ]  # fmt: skip
+    make_run("gen_forged_group", lines, created="2026-11-18T18:30:00Z")
+    body = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_forged_group").json()
+    assert [c["lines"] for c in body["comments"]] == [[1], [2], [3], [4], [5, 6]]  # only the true group (5, 6) is honoured
+    assert "Fail" not in body["comments"][1]["shown_label"] and body["comments"][0]["comment"] == "invented comment 1"
+    rep = body["completeness"]
+    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 6
+    assert rep["comments"] == rep["comment_rows"] == 5

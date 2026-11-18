@@ -115,6 +115,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "quote_unverified": bool(row.get("quote_unverified")),
         "book_document_id": _blank(row.get("book_document_id")),
         "compared": _compared(row),
+        "compare_kind": _compare_kind(row),
     }
 
 
@@ -126,10 +127,22 @@ def _compared(row: dict) -> str:
     return str(cmp_.get("why") or "") if isinstance(cmp_, dict) else ""
 
 
+def _compare_kind(row: dict) -> str:
+    """What code's comparison at this place read its values from (`code_compare.read_from`), or "": the editor's group check
+    (`aim_review.editor._accept_groups`) and the view's second lock (`group_comments`) compare it."""
+    cmp_ = row.get("code_compare")
+    if cmp_ is None:
+        cmp_ = _json(row.get("code_compare_json"), {})
+    return str(cmp_.get("read_from") or "") if isinstance(cmp_, dict) else ""
+
+
 # ------------------------------------------------------------------ comments: one per point, every place listed
 
 #: A note part that only says how many places were not listed: never a different point.
 _PLACES_NOTE = re.compile(r"^\d+ more place")
+#: The editor's group mark on a line's code note (`aim_review.editor.SAME_POINT`): "same point as line <n>". Never a different
+#: point by itself, so `note_kind` drops it.
+_SAME_POINT = re.compile(r"^same point as line (\d+)$")
 
 
 def note_kind(code_note: str) -> tuple[str, ...]:
@@ -138,7 +151,7 @@ def note_kind(code_note: str) -> tuple[str, ...]:
     kinds = set()
     for part in str(code_note or "").split(";"):
         part = part.strip()
-        if not part or _PLACES_NOTE.match(part):
+        if not part or _PLACES_NOTE.match(part) or _SAME_POINT.match(part):
             continue
         kinds.add(re.sub(r"\d+(?:[.,]\d+)*", "#", part.split(":", 1)[0]).strip())
     return tuple(sorted(kinds))
@@ -147,10 +160,6 @@ def note_kind(code_note: str) -> tuple[str, ...]:
 def _field_key(field) -> str:
     """A field name folded for comparison: case, spacing and punctuation do not make another field."""
     return " ".join(re.sub(r"[^0-9a-z]+", " ", str(field or "").lower()).split())
-
-
-#: The editor's group mark on a line's code note (`aim_review.editor.SAME_POINT`): "same point as line <n>".
-_SAME_POINT = re.compile(r"^same point as line (\d+)$")
 
 
 def _editor_group(p: dict) -> int | None:
@@ -170,6 +179,10 @@ def group_key(p: dict) -> tuple:
     grouped = _editor_group(p)
     if grouped is not None:
         return ("same point", grouped)
+    return _item_field_key(p)
+
+
+def _item_field_key(p: dict) -> tuple:
     return (
         p.get("item_id") or f"line-{p['n']}",
         _field_key(p.get("field")),
@@ -193,6 +206,12 @@ def group_comments(points: list[dict]) -> list[dict]:
     for p in points:
         if aim_review.sendable(p):
             groups.setdefault(group_key(p), []).append(p)
+    # SECOND LOCK (the editor checked the group when it accepted it): an editor group whose members do not all show the same
+    # label and the same compare kind (a forged or stale mark) is not honoured: its lines split back to item + field grouping.
+    for key in [k for k in groups if k[0] == "same point"]:
+        if len({(m["shown_label"], m["compare_kind"]) for m in groups[key]}) > 1:
+            for m in groups.pop(key):
+                groups.setdefault(_item_field_key(m), []).append(m)
     out = []
     for key, members in groups.items():
         members = sorted(
