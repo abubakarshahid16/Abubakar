@@ -33,6 +33,11 @@ KNOWLEDGE_NOT_HELD = "engineering knowledge (book not held)"
 #: The coverage floor of a checklist for a kind with no main equipment (a procedure, a contract: long papers of many topics).
 FLOOR_ITEMS = 30
 MAX_KNOWLEDGE = 40
+#: At most this many knowledge items the attack step may add (code cuts the rest; light check e1c61001).
+MAX_ATTACK_KNOWLEDGE = 10
+#: The `source` of a not-held name that `wanted` found in the app's tables (the rebuild test reads these, never an AI's name).
+WANTED_GOVERNS, WANTED_METHOD = "governing table", "method table"
+WANTED_SOURCES = (WANTED_GOVERNS, WANTED_METHOD)
 ITEM_KINDS = ("limit", "presence", "consistency", "material", "procedure")
 SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the required ones)
 MATERIAL_BUDGET = 150_000
@@ -129,7 +134,13 @@ def wanted(conn, paper_id: str, ident: dict, allowed_books: frozenset[str]) -> d
     not_held: list[dict] = []
     for e, name in L.governing_books(lib, etype):
         if not e:
-            not_held.append({"name": name, "why": f"{L.WHY_GOVERNS}; not held"})
+            not_held.append(
+                {
+                    "name": name,
+                    "why": f"{L.WHY_GOVERNS}; not held",
+                    "source": WANTED_GOVERNS,
+                }
+            )
         elif not L.role_applies(e, kind):
             continue
         elif e["id"] in allowed_books:
@@ -138,7 +149,13 @@ def wanted(conn, paper_id: str, ident: dict, allowed_books: frozenset[str]) -> d
             unlisted.append(e["id"])
     for e, name in L.method_books(lib, kind):
         if not e:
-            not_held.append({"name": name, "why": f"{L.WHY_METHOD}; not held"})
+            not_held.append(
+                {
+                    "name": name,
+                    "why": f"{L.WHY_METHOD}; not held",
+                    "source": WANTED_METHOD,
+                }
+            )
         elif e["id"] in allowed_books:
             listed.setdefault(e["id"], L.WHY_METHOD)
         elif e["id"] not in unlisted:
@@ -435,9 +452,9 @@ def _clean_item(it: dict) -> dict:
         "topic": str(it.get("topic") or "")[:80],
         "what_to_check": str(it.get("what_to_check") or "")[:300],
         "book": str(it.get("book") or "") if src == HELD else "",
-        "clause": ""
-        if src == KNOWLEDGE_NOT_HELD
-        else str(it.get("clause") or "")[:40],  # no invented clause number
+        "clause": str(it.get("clause") or "")[:40]
+        if src == HELD
+        else "",  # a knowledge item names no clause
         "page": it.get("page"),
         "rule_quote": str(it.get("rule_quote") or "")[:600] if src == HELD else "",
         "applies_when": str(it.get("applies_when") or "")[:200],
@@ -691,7 +708,16 @@ def s3_attack(
         it["id"] = r["id"]
         by_id[r["id"]] = it
         log["fixed"].append({"id": r["id"], "why": str(r.get("why") or "")[:120]})
-    n = len(made["items"])
+    _attack_adds(out, len(made["items"]), by_id, text, alias_to_book, log)
+    return {**made, "items": list(by_id.values()), "attack": log}
+
+
+def _attack_adds(
+    out: dict, n: int, by_id: dict, text, alias_to_book: dict, log: dict
+) -> None:
+    """The attack's new items: a held item only with its rule quote found on the book page; at most MAX_ATTACK_KNOWLEDGE
+    knowledge items (the rest rejected and logged). Numbered after the `n` items already there."""
+    knowledge_added = 0
     for r in out.get("add") or []:
         if not isinstance(r, dict):
             continue
@@ -701,12 +727,21 @@ def s3_attack(
                 {"topic": it["topic"], "why": "add: rule quote not found"}
             )
             continue
+        if it["source"] != HELD:
+            if knowledge_added >= MAX_ATTACK_KNOWLEDGE:
+                log["rejected"].append(
+                    {
+                        "topic": it["topic"],
+                        "why": f"add: over the cap of {MAX_ATTACK_KNOWLEDGE} knowledge items",
+                    }
+                )
+                continue
+            knowledge_added += 1
         n += 1
         it["id"] = f"C{n:03d}"
         it["added_by_attack"] = True
         by_id[it["id"]] = it
         log["added"].append({"id": it["id"], "why": str(r.get("why") or "")[:120]})
-    return {**made, "items": list(by_id.values()), "attack": log}
 
 
 def build(

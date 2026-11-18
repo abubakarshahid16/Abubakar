@@ -195,3 +195,97 @@ def test_a_saved_checklist_is_built_again_when_a_book_it_lacked_is_now_held(aim_
     assert (
         not third.checklist_reused and len(store.puts) == 2
     )  # that book is now held (not in the current not-held set)
+
+
+# ---- light check e1c61001: the plan lists newly held books; an AI name never forces a rebuild; the attack's cap ---------------
+
+
+def test_with_a_saved_checklist_the_plan_also_lists_books_now_held_and_wanted_earlier(
+    aim_db, monkeypatch
+):
+    from app import agent_review_kind
+    from app.aim_review import library as L
+    from tests.test_aim_method_helpers import BOOK_C
+
+    type_id = sorted(L.type_ids())[
+        0
+    ]  # a typed kind: the plan finds the saved checklist by its key
+    monkeypatch.setattr(agent_review_kind, "read_kind",
+                        lambda conn, doc: {"kind": "datasheet", "known": True, "method": "title_cue", "guess": False})  # fmt: skip
+    monkeypatch.setattr(
+        agent_review_kind,
+        "read_equipment",
+        lambda doc, allowed: (type_id, "classification"),
+    )
+    lib_c = {"id": BOOK_C, "filename": "QX-STD-303.pdf"}
+    monkeypatch.setattr(
+        L, "method_books", lambda lib, kind: [(lib_c, "QX-STD-303"), (None, "API 9990")]
+    )
+    store = MemoryStore()
+    key = L.checklist_key("datasheet", type_id)
+    store.put(key, {"built_from": "standards only, no paper", "items": [], "books": [{"alias": "B01", "book": BOOK_A}]},
+              run_id="r0", usd=0.0)  # fmt: skip
+    every = frozenset({BOOK_A, BOOK_B, BOOK_C})
+    c = aim_review.candidates(aim_db, PAPER, every, store, frozenset({BOOK_B}))
+    assert c.checklist_saved
+    # the saved book first, then the method book now held (held after the checklist was saved), then the earlier review's
+    assert [(b["id"], b["why"]) for b in c.books] == [
+        (BOOK_A, L.WHY_SAVED),
+        (BOOK_C, L.WHY_METHOD),
+        (BOOK_B, L.WHY_LAST),
+    ]
+    assert "API 9990" in [n["name"] for n in c.not_held]
+    narrow = aim_review.candidates(
+        aim_db, PAPER, frozenset({BOOK_A}), store, frozenset({BOOK_B})
+    )
+    assert [b["id"] for b in narrow.books] == [
+        BOOK_A
+    ] and narrow.unreadable == 2  # counted, never named
+
+
+def test_an_ai_needed_name_never_forces_a_rebuild_whatever_its_why_says():
+    table = {
+        "name": "API 9990",
+        "why": "method book of this kind; not held",
+        "source": CL.WANTED_METHOD,
+    }
+    ai = {
+        "name": "API 9991",
+        "why": "governs the equipment type, the AI says",
+        "source": "AI: needed, not in the catalog",
+    }
+    legacy = {
+        "name": "API 9992",
+        "why": "governs the equipment type; not held",
+    }  # saved before the key existed
+    assert E._wanted_not_held([table, ai, legacy]) == frozenset(
+        {"API 9990", "API 9992"}
+    )
+    assert E._wanted_not_held([table, ai]) == E._wanted_not_held([table])
+
+
+def test_the_attack_adds_at_most_ten_knowledge_items_and_a_knowledge_item_names_no_clause(
+    aim_db,
+):
+    from app.aim_review import library as L
+
+    adds = [{"topic": f"t{i}", "what_to_check": "x", "source": "not from a held standard", "clause": "4.2", "kind": "procedure"}
+            for i in range(15)]  # fmt: skip
+    model = _Model({"add": adds})
+    sel = {"books": [], "not_held": NOT_HELD, "_pool": []}
+    got = CL.s3_attack(
+        model,
+        {"kind": "procedure"},
+        sel,
+        {"items": []},
+        L.BookText(aim_db),
+        "claude-opus-5-5",
+    )
+    assert (
+        len(got["items"]) == CL.MAX_ATTACK_KNOWLEDGE == 10
+        and len(got["attack"]["rejected"]) == 5
+    )
+    assert all(it["clause"] == "" for it in got["items"])
+    assert (
+        "API 9990" in model.asked[0]["prompt"]
+    )  # the not-held standards are shown for the coverage check

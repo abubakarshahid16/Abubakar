@@ -462,7 +462,9 @@ def candidates(
 ):
     """PLAN TIME. The rule books the general review MAY use, by library metadata only. No model, no socket, no write.
 
-    A saved checklist for the paper's key decides by itself: exactly its books. Otherwise: books governing the stored equipment
+    A saved checklist for the paper's key: its books, then the governing and method books now held and the books an earlier
+    review of this paper wanted but could not send (so a book held after the checklist was saved is listed and "review again"
+    is true for it; light check e1c61001). Otherwise: books governing the stored equipment
     type, method books of the stored kind, books an earlier review of this paper wanted but could not send, books the paper cites
     (resolved by code), then books holding the most rules labelled for the kind (and type). Intersected with `allowed` (rule 5):
     a book outside it is counted in `unreadable`, never named. At most MAX_CANDIDATES books."""
@@ -473,7 +475,7 @@ def candidates(
     key = checklist_key(kind, type_id)
     saved = store.get(key) if key and store is not None else None
     order, not_held = (
-        ([(b, WHY_SAVED) for b in saved_books(saved) if b != paper_id], [])
+        _saved_order(conn, paper_id, saved, kind, type_id, earlier_unlisted)
         if saved is not None
         else _ordered_books(conn, paper_id, kind, type_id, earlier_unlisted)
     )
@@ -490,6 +492,28 @@ def candidates(
         checklist_key=key,
         checklist_saved=saved is not None,
     )
+
+
+def _saved_order(
+    conn, paper_id: str, saved: dict, kind, type_id, earlier: frozenset[str]
+) -> tuple[list[tuple[str, str]], list[dict]]:
+    """With a saved checklist: its books first, then the governing / method books now held and the books an earlier review
+    wanted, in that order (the caller intersects with `allowed` and caps). The not-held governing / method names are said."""
+    lib = library(conn, exclude=frozenset({paper_id}))
+    by_id = {e["id"]: e for e in lib}
+    order = [(b, WHY_SAVED) for b in saved_books(saved) if b != paper_id]
+    not_held: list[dict] = []
+    for e, name, why in [(e, n, WHY_GOVERNS) for e, n in governing_books(lib, type_id) if not e or role_applies(e, kind)] + [
+        (e, n, WHY_METHOD) for e, n in method_books(lib, kind)
+    ]:  # fmt: skip
+        if e is None:
+            not_held.append({"name": name, "why": f"{why}; not held"})
+        elif e["id"] not in {d for d, _w in order}:
+            order.append((e["id"], why))
+    for b in sorted(earlier):
+        if b in by_id and b not in {d for d, _w in order}:
+            order.append((b, WHY_LAST))
+    return order, not_held
 
 
 def _ordered_books(
