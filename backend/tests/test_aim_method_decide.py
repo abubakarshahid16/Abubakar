@@ -1122,3 +1122,65 @@ def test_a_failed_editor_call_moves_nothing_and_no_offered_line_means_no_call():
         S.s5_edit(quiet, EDIT_PAPER, lines[:2], "claude-sonnet-5-5") == 0
         and quiet.asked == []
     )  # only code failures
+
+
+# ---- a clause number is shown only if the book prints it as a clause (lead, 18 Nov 2026; invented books) ----------------------
+
+
+@pytest.mark.parametrize(
+    "clause,page_text,found",
+    [
+        (
+            "4.2",
+            "4.2 Design pressure\nThe design pressure shall not exceed 20 bar.",
+            True,
+        ),
+        ("4.2", "Requirements of section 4.2 apply to every item.", True),
+        ("4.2", "4.21 Other heading\nThe item shall be tagged.", False),  # not 4.21
+        (
+            "28.96",
+            "The molar mass M = 28.96 kg/kmol is used in the formula.",
+            False,
+        ),  # a value, not a clause
+        ("Annex B", "Annex B (normative) Testing of the item", True),
+        ("6.1.2", "", False),
+    ],
+)
+def test_a_clause_is_found_only_where_the_book_prints_it_as_a_clause(
+    clause, page_text, found
+):
+    from app.aim_review.verify import clause_in_book
+
+    assert clause_in_book(clause, {7: page_text}, 7) is found
+
+
+class _Text:
+    def __init__(self, pages):
+        self._pages = pages
+
+    def pages(self, _doc):
+        return self._pages
+
+
+def test_an_unfound_clause_is_dropped_and_noted_the_standard_stays():
+    from app.aim_review import verify as V
+
+    line = {
+        "book_document_id": "doc_b",
+        "clause": "28.96",
+        "standard": "QX-STD-101",
+        "code": "code compared: x",
+    }
+    V.keep_clause_if_found(line, _Text({3: "The molar mass M = 28.96 kg/kmol."}), 3)
+    assert line["clause"] == "" and line["standard"] == "QX-STD-101"
+    assert line["code"] == "code compared: x; clause not found in the book"
+    kept = {"book_document_id": "doc_b", "clause": "4.1", "code": ""}
+    V.keep_clause_if_found(kept, _Text({3: "4.1 The item shall be tagged."}), 3)
+    assert kept["clause"] == "4.1" and kept["code"] == ""
+    never = {
+        "book_document_id": "doc_b",
+        "clause": "9.9",
+        "code": S.NOT_JUDGED,
+    }  # a line never judged keeps its one note
+    V.keep_clause_if_found(never, _Text({1: "nothing"}), 1)
+    assert never["clause"] == "" and never["code"] == S.NOT_JUDGED

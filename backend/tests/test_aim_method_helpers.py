@@ -95,10 +95,16 @@ def build_db() -> None:
         _doc(conn, PAPER, "paper-one.pdf", "CONTRACTOR_SUBMITTAL", PAPER_PAGES)
         for book, rules in BOOK_RULES.items():
             pages = {}
-            for _clause, page, text in rules:
+            for (
+                clause,
+                page,
+                text,
+            ) in (
+                rules
+            ):  # a book prints its clause numbers at the start of the clause's line
                 pages[page] = (
                     pages.get(page, f"Section heading of {FILENAMES[book]}\n")
-                    + text
+                    + f"{clause} {text}"
                     + "\n"
                 )
             _doc(conn, book, FILENAMES[book], "COMPANY_STANDARD", pages)

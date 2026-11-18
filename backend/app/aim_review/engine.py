@@ -740,6 +740,7 @@ def _judge(
     `steps.MAX_FINDINGS`). An item whose book is not on the list shown is never sent: it is
     "not judged" and its book is counted as unlisted."""
     from . import steps as S
+    from . import verify as V
 
     books = {b["alias"]: b for b in checklist.get("books") or [] if isinstance(b, dict)}
     from . import always
@@ -789,6 +790,9 @@ def _judge(
             own = by_id[it["id"]]
         for line in own:
             line["book_document_id"] = S.item_book(it, books)
+            V.keep_clause_if_found(
+                line, text, it.get("page")
+            )  # a clause the book does not print is not shown
             state.decided.append(line)
     if stop:
         state.stop(stop)

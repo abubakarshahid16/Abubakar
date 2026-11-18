@@ -39,6 +39,7 @@ EXCEL_CELL_LIMIT = 32000
 FIRST_HEADER = "No."
 COMMENT_HEADERS = (
     "No.",
+    "Lines",
     "Field",
     "Page",
     "Shown label",
@@ -94,18 +95,27 @@ def _table(
     ws.freeze_panes = ws.cell(row=HEADER_ROW + 1, column=1)
 
 
+def lines_cell(lines: list[int]) -> str:
+    """The "Lines" cell of a comment: the All points numbers it covers ("3, 7, 12"). The completeness check reads it back."""
+    return ", ".join(str(n) for n in lines)
+
+
 def comment_rows(model: dict) -> list[list]:
+    """One row per COMMENT (one point, every place it applies to; `aim_review_view.group_comments`)."""
     out = []
     for p in model["comments"]:
         comment, c1 = cut(p["comment"])
         quote, c2 = cut(p["quote"])
+        lines = p.get("lines") or [p["n"]]
         note = (
-            f"Cut: the full text is on the sheet {ALL_POINTS}, No. {p['n']}."
+            f"Cut: the full text of each place is on the sheet {ALL_POINTS}, No. {lines_cell(lines)}."
             if c1 or c2
             else None
         )
-        out.append([p["n"], p["field"], p["page"], p["shown_label"], comment, quote, p["standard"], p["clause"], p["source"],
-                    p["item_id"], note, model["mark"]])  # fmt: skip
+        pages = p.get("pages") or ([p["page"]] if p["page"] is not None else [])
+        page = pages[0] if len(pages) == 1 else (", ".join(map(str, pages)) or None)
+        out.append([p["n"], lines_cell(lines), p["field"], page, p["shown_label"], comment, quote, p["standard"], p["clause"],
+                    p["source"], p["item_id"], note, model["mark"]])  # fmt: skip
     return out
 
 
