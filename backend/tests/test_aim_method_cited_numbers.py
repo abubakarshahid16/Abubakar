@@ -168,3 +168,145 @@ def test_a_held_contract_or_specification_sharing_the_name_is_never_the_cited_ru
         )
         and names
     )
+
+
+def _cited(
+    name=NUMBER, quote=f"The nameplate follows {NUMBER} in full.", verified=True
+):
+    return {"name": name, "page": 1, "quote": quote, "verified": verified}
+
+
+def test_a_standard_the_paper_cites_that_nothing_held_answers_is_said_not_held(aim_db):
+    """S1's citations, each verified in its quote on its page and its name standing in that quote: one no held document answers
+    is added to the not-held list once ("cited by the paper; not held"); held, unverified or not-in-its-quote names are not."""
+    base = [
+        {"name": "API 9999 invented", "why": "governs the equipment type; not held"}
+    ]
+    got = BN.with_cited_not_held(
+        aim_db, PAPER, [_cited(), _cited()], base
+    )  # the same name twice: said once
+    assert got[:1] == base and [(x["name"], x["why"]) for x in got[1:]] == [
+        (NUMBER, BN.WHY_CITED_NOT_HELD)
+    ]
+    assert (
+        BN.with_cited_not_held(aim_db, PAPER, [_cited(verified=False)], []) == []
+    )  # its quote is not on the page
+    assert (
+        BN.with_cited_not_held(
+            aim_db, PAPER, [_cited(quote="The nameplate follows the buyer list.")], []
+        )
+        == []
+    )
+    _hold(aim_db)
+    assert (
+        BN.with_cited_not_held(aim_db, PAPER, [_cited()], []) == []
+    )  # held now: never "not held"
+
+
+def test_before_the_upload_the_run_says_the_cited_book_is_not_held(aim_db):
+    """The new-book test's first review: the paper cites a book the library does not hold yet; the run's not-held list names it."""
+    _cite(aim_db)
+    ident = {"kind": "datasheet", "equipment_type": None, "subject": "invented item", "subject_key": "test_item", "service": "",
+             "evidence": [], "cited": [{"name": NUMBER, "page": 1, "quote": f"The nameplate follows {NUMBER} in full."}],
+             "scope": None}  # fmt: skip
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_identify": ident}
+    )
+    r = aim_review.run(aim_db, run_id="run_zq_nh", paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}),
+                       store=MemoryStore(), max_usd=5.0, model=model)  # fmt: skip
+    assert r.status == "done" and (NUMBER, BN.WHY_CITED_NOT_HELD) in [
+        (n["name"], n["why"]) for n in r.not_held
+    ]
+
+
+def test_the_identify_step_asks_for_every_cited_standard():
+    from app.aim_review import prompts as P
+
+    assert (
+        "EVERY one the paper names ANYWHERE" in P.S1_TASK
+        and "numbers you do not recognise" in P.S1_TASK
+    )
+
+
+def test_a_cited_book_not_held_is_one_point_on_all_points_never_sent_and_the_run_keeps_what_s1_cited(
+    aim_db,
+):
+    """Lead 4's decision ("the check left open"): one Question point per cited book not held, with the page of its verified
+    quote, never a sent comment; S1's cited names and pages are kept in the run record (no quote)."""
+    _cite(aim_db)
+    ident = {"kind": "datasheet", "equipment_type": None, "subject": "invented item", "subject_key": "test_item", "service": "",
+             "evidence": [], "cited": [{"name": NUMBER, "page": 1, "quote": f"The nameplate follows {NUMBER} in full."}],
+             "scope": None}  # fmt: skip
+    model = E.FakeModel(
+        kind="datasheet", subject_key="test_item", answers={"aim_identify": ident}
+    )
+    r = aim_review.run(aim_db, run_id="run_zq_pt", paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}),
+                       store=MemoryStore(), max_usd=5.0, model=model)  # fmt: skip
+    points = [
+        ln for ln in r.lines if aim_review.CITED_NOT_HELD in (ln["code_note"] or "")
+    ]
+    assert (
+        len(points) == 1 and points[0]["label"] == "Question" and points[0]["page"] == 1
+    )
+    assert (
+        points[0]["comment"]
+        == "Cited by the paper (page 1); the book is not held, so its requirements were not checked."
+    )
+    assert not aim_review.sendable(points[0])
+    assert (
+        r.identity["cited"] == [{"name": NUMBER, "page": 1}]
+        and "quote" not in r.identity["cited"][0]
+    )
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("API 527", "API \u2013 527"),
+        ("API RP 520 Pt-2", "API 520 Part II"),
+        ("API 526", "API 526 Flanged Steel Pressure Relief Valves"),
+        ("API Std 610 11th Ed.", "API 610"),
+        ("ZQ TEST STD 001, latest edition", "ZQ-TEST-STD-001"),
+    ],
+)
+def test_one_standard_has_one_key_whatever_its_spelling(a, b):
+    assert L.identifier_key(a) == L.identifier_key(b)
+
+
+def test_the_not_held_list_says_each_standard_once_the_first_kept():
+    rows = [{"name": "API 527", "why": "governs the equipment type; not held"},
+            {"name": "API 527 Seat Tightness of Pressure Relief Valves", "why": "Seat leakage acceptance"},
+            {"name": "API RP 520 Pt-2", "why": "x"}, {"name": "API 520 Part II", "why": "y"},
+            {"name": "ZQ TEST STD 001, latest edition", "why": BN.WHY_CITED_NOT_HELD}]  # fmt: skip
+    assert [r["name"] for r in BN.unique_not_held(rows)] == [
+        "API 527",
+        "API RP 520 Pt-2",
+        "ZQ TEST STD 001, latest edition",
+    ]
+
+
+def test_a_citation_with_edition_or_title_words_resolves_to_the_held_book_never_to_two(
+    aim_db,
+):
+    _hold(
+        aim_db, number=""
+    )  # no recorded number: the file name "doc_aimbookZQ1.pdf" holds no identifier
+    with aim_db:
+        aim_db.execute(
+            "UPDATE documents SET filename = ? WHERE id = ?", (f"{NUMBER}.pdf", NEW)
+        )
+    lib = L.library(aim_db, exclude=frozenset({PAPER}))
+    for cited in (
+        f"{NUMBER}, latest edition",
+        "ZQ TEST STD 001 Nameplates for invented items",
+        f"{NUMBER} (2019)",
+    ):
+        assert (L.resolve(lib, cited) or {}).get("id") == NEW, cited
+    assert L.resolve(lib, "ZQ-TEST-STD-0012") is None  # another number
+    assert BN.with_cited_not_held(aim_db, PAPER, [_cited(name=f"{NUMBER}, latest edition",
+                                                         quote=f"per {NUMBER}, latest edition")], []) == []  # fmt: skip
+    twins = [{"id": "doc_t1", "filename": f"{NUMBER}.pdf", "document_role": ""},
+             {"id": "doc_t2", "filename": f"{NUMBER}.pdf", "document_role": ""}]  # fmt: skip
+    assert (
+        L.resolve(twins, f"{NUMBER}, latest edition") is None
+    )  # two books answer: never guessed

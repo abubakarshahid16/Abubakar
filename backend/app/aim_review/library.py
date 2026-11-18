@@ -25,6 +25,13 @@ from pathlib import Path
 # The six reasons a book is on the plan's list, and the list's size: one home, the package (`app.aim_review`).
 from . import MAX_BOOKS as MAX_CANDIDATES
 from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED
+from .citations import (  # noqa: F401 - one home of citation matching: citations
+    NUMBER_MIN,
+    _number_in,
+    _starts_with_identifier,
+    citation_tokens,
+    identifier_key,
+)
 
 log = logging.getLogger(__name__)
 
@@ -329,6 +336,11 @@ def resolve(lib: list[dict], cited: str) -> dict | None:
             best is None or e.get("document_role") == "CONTRACT_DOCUMENT"
         ):
             best = e
+    if (
+        best is None
+    ):  # "ZQ TEST STD 001, latest edition" or "ZQ-TEST-STD-001 Nameplates": the identifier, then words
+        found = [e for e in lib if _starts_with_identifier(cited, identifier_of(e))]
+        best = found[0] if len(found) == 1 else None  # two books answer: never guessed
     return best
 
 
@@ -531,11 +543,6 @@ class BookText:
 # ------------------------------------------------------------------ plan time: the books a review MAY use
 
 
-#: A RECORDED document number shorter than this, or with no digit, is never matched in a paper's text: a short or all-letter
-#: number is too easily an ordinary word or a part of another number. Such a book is still found by the standard families.
-NUMBER_MIN = 6
-
-
 def _paper_citations(conn, paper_id: str) -> list[str]:
     """The standards the paper names, read by code (names of standards only, never the paper's text): the known standard
     families (`standard_ids.cited_standards`), and the identifiers of the held rule books (`is_rule_book`: never a submittal, a
@@ -574,25 +581,6 @@ def cited_rule_books(
         if found is not None or resolve(lib, name) is None:
             out.append((found, name))
     return out
-
-
-def _number_in(number: str, text: str) -> bool:
-    """The recorded number stands in the text as a whole token, case ignored, its parts apart by spaces, hyphens, dots,
-    slashes or underscores or by nothing (the variants `resolve` folds away); never a number under `NUMBER_MIN` or with no
-    digit."""
-    parts = re.findall(r"[A-Za-z0-9]+", number or "")
-    if (
-        len(number or "") < NUMBER_MIN
-        or not any(c.isdigit() for c in number)
-        or not parts
-    ):
-        return False
-    pattern = (
-        r"(?<![A-Za-z0-9])"
-        + r"[\s\-_./]*".join(map(re.escape, parts))
-        + r"(?![A-Za-z0-9])"
-    )
-    return re.search(pattern, text or "", re.IGNORECASE) is not None
 
 
 def stored_reading(

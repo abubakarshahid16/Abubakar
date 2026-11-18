@@ -451,18 +451,7 @@ def _steps(
         raise StepFailed("no_pages: the paper has no stored page text")
     say(5, "name the paper")
     ident = S.s1_identify(mdl, paper, _known_keys(store), lead)
-    state.identity = {
-        k: ident.get(k)
-        for k in (
-            "kind",
-            "equipment_type",
-            "subject",
-            "subject_key",
-            "service",
-            "scope_quote",
-            "scope_page",
-        )
-    }
+    state.identity = _identity_record(ident)
     if state.cited is None:
         state.cited = L.cited_company(conn, state.paper_id)
     state.key = L.cited_key(
@@ -476,6 +465,13 @@ def _steps(
         conn, state, mdl, ident, allowed_books, store, text, lead, strong
     )
     state.book_why = _book_reasons(checklist)
+    # the standards the paper itself cites (S1, each verified in its quote) that no held document answers: said as not held
+    from . import book_names as BN
+
+    state.not_held = BN.with_cited_not_held(
+        conn, state.paper_id, ident.get("cited"), state.not_held
+    )
+    state.not_held = BN.unique_not_held(state.not_held)  # each standard said once
     say(25, "judge")
     _judge(
         state,
@@ -491,6 +487,9 @@ def _steps(
     )
     if not state.stop_reason:
         _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
+    state.decided += BN.cited_points(
+        state.not_held
+    )  # a cited book not held: one point each, on All points, never sent
 
 
 def _after_judge(
@@ -593,6 +592,30 @@ def _lost_knowledge(checklist: dict, sel: dict, run_id: str) -> bool:
         run_id,
     )
     return True
+
+
+def _identity_record(ident: dict) -> dict:
+    """What the run record keeps of S1's answer: the paper's kind, type, subject, service and verified scope, and the standards
+    S1 read on the paper by name and page only (no quote), so a later test can show what it found."""
+    return {
+        # the standards S1 read on the paper, names and pages only (the run record shows what it found; no quote)
+        "cited": [
+            {"name": str(c.get("name") or "")[:80], "page": c.get("page")}
+            for c in ident.get("cited") or []
+        ],
+        "cited_unverified": len(ident.get("cited_unverified") or []),
+    } | {
+        k: ident.get(k)
+        for k in (
+            "kind",
+            "equipment_type",
+            "subject",
+            "subject_key",
+            "service",
+            "scope_quote",
+            "scope_page",
+        )
+    }
 
 
 def _checklist(

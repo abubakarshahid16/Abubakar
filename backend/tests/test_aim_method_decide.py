@@ -1747,3 +1747,67 @@ def test_every_model_step_of_the_package_names_its_answer_keys():
     src = "".join(f.read_text() for f in pathlib.Path("app/aim_review").glob("*.py"))
     asked = set(_re.findall(r'step="(aim_[a-z_]+)"', src)) | {"aim_judge"}
     assert asked - {"aim_read_pages"} <= set(ANSWER_KEYS), asked - set(ANSWER_KEYS)
+
+
+_PSV = Paper(
+    paper_id="doc_psv",
+    pages={1: "Set pressure of the invented valve: 340 psig at the inlet\n"},
+)
+_SETQ = "Set pressure of the invented valve: 340 psig at the inlet"
+
+
+def _psv(rule_value, rule_unit, paper_value="340"):
+    return {"label": "Question", "comment": "Confirm.", "page": 1, "field": "set pressure", "quote": _SETQ,
+            "numbers": {"paper_value": paper_value, "paper_unit": "psig", "operator": "<=", "rule_value": rule_value,
+                        "rule_unit": rule_unit}}  # fmt: skip
+
+
+@pytest.mark.parametrize(
+    ("rule_quote", "rule_value", "rule_unit"),
+    [
+        (
+            "The set pressure shall be 300 psig or less.",
+            "300",
+            "psig",
+        ),  # the comparison words AFTER the value
+        ("The set pressure shall be 300 psig maximum.", "300", "psig"),
+        (
+            "The set pressure shall be 20 barg or less.",
+            "20",
+            "barg",
+        ),  # 20 barg is about 290 psig: converted by code
+        ("The set pressure shall not exceed 2 MPa.", "2", "MPa"),
+    ],
+)
+def test_a_limit_stated_after_its_value_or_in_another_unit_is_proven_by_code(
+    rule_quote, rule_value, rule_unit
+):
+    d = S._decide(
+        _item(kind="limit", rule_quote=rule_quote),
+        _psv(rule_value, rule_unit),
+        _PSV,
+        BOOKS,
+        "",
+    )
+    assert d["label"] == "Not met" and d["code_compare"]["result"] == "fail"
+    assert (
+        d["comment"].startswith(S.PROVEN_FAIL + ": the stated 340 psig is above the")
+        and "clause 4.1" in d["comment"]
+    )
+
+
+def test_gauge_against_absolute_is_compared_only_when_the_answer_cannot_change_and_then_says_so():
+    """The app's unit code compares a gauge value with an absolute limit only when the answer is the same for every atmospheric
+    pressure, and says so; when it would change (a borderline case), code does not compare and the line is never proven."""
+    clear = S._decide(_item(kind="limit", rule_quote="The set pressure shall be 20 bara or less."), _psv("20", "bara"), _PSV,
+                      BOOKS, "")  # fmt: skip
+    assert clear["label"] == "Not met" and "gauge against absolute" in clear["comment"]
+    near = S._decide(_item(kind="limit", rule_quote="The set pressure shall be 23.5 bara or less."), _psv("23.5", "bara"),
+                     _PSV, BOOKS, "")  # fmt: skip
+    assert near["label"] != "Not met" and not near["comment"].startswith(S.PROVEN_FAIL)
+
+
+def test_a_forged_figure_with_a_trailing_limit_is_never_compared():
+    d = S._decide(_item(kind="limit", rule_quote="The set pressure shall be 300 psig or less."),
+                  _psv("300", "psig", paper_value="390"), _PSV, BOOKS, "")  # fmt: skip
+    assert d["code_compare"] is None and not d["comment"].startswith(S.PROVEN_FAIL)
