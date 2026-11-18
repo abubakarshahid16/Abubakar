@@ -67,7 +67,8 @@ Reply with ONE JSON object only: {"items": [{
  "paper_pages": [paper page numbers where those fields are], "kind": one of %(kinds)s,
  "source": "held standard"}]}
 For an item from engineering knowledge use "source": "not from a held standard", "book": "", "rule_quote": "", and add
-"stands_in_for": the unheld standard or practice it stands in for.
+"stands_in_for": the unheld standard or practice it stands in for, and "carried_by": "HERE" when THIS kind of paper states it,
+else the kind of paper or the schedule, annex or attachment of the same package that does. A paper that is the main part of a PACKAGE incorporating schedules, annexes or attachments (a Form of Agreement does) does not itself carry what such a part normally holds (permits, insurance, quality, HSE, deliverables and document review, commissioning, documentation and spares, compliance): carried_by is that schedule or annex, never HERE; what the main paper itself states (its price in words and figures, retention, dates, assignment, order of precedence, the parties) is HERE.
 THE CLAUSES:
 %(material)s"""
 
@@ -110,8 +111,8 @@ nothing can be checked against its words. At most %(most)d items. Reply with ONE
  "stands_in_for": "the standard's public name, or engineering practice",
  "carried_by": "HERE" when THIS kind of paper, for THIS equipment or subject, is where the value or requirement is
  stated; otherwise the kind of paper that states it (another item's datasheet, a study, a calculation, a drawing, a
- procedure). A standard on the list above may govern a neighbouring paper: write its items only where THIS paper carries
- them, and an item another paper carries is not checked here.}]}"""
+ procedure, or a schedule, annex or attachment of the same package). A paper that is the main part of a PACKAGE incorporating schedules, annexes or attachments (a Form of Agreement does) does not itself carry what such a part normally holds (permits, insurance, quality, HSE, deliverables and document review, commissioning, documentation and spares, compliance): carried_by is that schedule or annex, never HERE; what the main paper itself states (its price in words and figures, retention, dates, assignment, order of precedence, the parties) is HERE. A standard on the list above may govern a
+ neighbouring paper: write its items only where THIS paper carries them, and an item another paper carries is not checked here.}]}"""
 
 S3_RETRY = """The rule_quote of these checklist items was NOT found in the book's stored text. For each, copy the exact words
 from the clause material below (8 to 40 words, character for character) and give the right book alias and page; drop an item
