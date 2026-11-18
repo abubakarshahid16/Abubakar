@@ -1,10 +1,12 @@
 """The general review's Excel file (order 14, piece C). Built from the view's dict (`aim_review_view.build`), never from the database
-a second time, so the page and the file say the same thing. Four sheets: Summary, Comments, All points, How it was reviewed.
+a second time, so the page and the file say the same thing. Five sheets: Summary, Comments, Confirmations (not sent), All points,
+How it was reviewed.
 
 Honesty:
   * EVERY sheet carries the mark `aim_review_gate.AI_MARK` in its first cell, and every row of Comments and All points carries it in
     its last column.
-  * The first sheet states "N points reviewed, N in this file" (`crs_completeness.team_statement`, the one statement).
+  * The first sheet states "N points reviewed, N in this file" (`crs_completeness.team_statement`, the one statement) and
+    "N points reviewed, M comments sent, K confirmations not sent" (`sent_statement`).
   * A cell of the Comments sheet longer than `COMMENT_CELL_LIMIT` is cut ONLY with `crs_completeness.CUT_MARK`, says where the full
     text is, and the full text stands on All points. All points is cut only beyond Excel's own limit, with the mark, and the
     completeness check refuses a file in which that happens.
@@ -27,8 +29,15 @@ from .crs_export import safe_cell_text
 SUMMARY = "Summary"
 COMMENTS = "Comments"
 ALL_POINTS = "All points"
+CONFIRMATIONS = "Confirmations (not sent)"
 HOW = "How it was reviewed"
-SHEETS = (SUMMARY, COMMENTS, ALL_POINTS, HOW)
+SHEETS = (SUMMARY, COMMENTS, CONFIRMATIONS, ALL_POINTS, HOW)
+
+
+def sent_statement(points: int, comments: int, confirmations: int) -> str:
+    """The first sheet's count of what is sent: "N points reviewed, M comments sent, K confirmations not sent"."""
+    return f"{points} points reviewed, {comments} comments sent, {confirmations} confirmations not sent"
+
 
 #: A comment-sheet cell is cut beyond this many characters (the mark is the last one); the full text is on "All points".
 COMMENT_CELL_LIMIT = 1200
@@ -100,10 +109,11 @@ def lines_cell(lines: list[int]) -> str:
     return ", ".join(str(n) for n in lines)
 
 
-def comment_rows(model: dict) -> list[list]:
-    """One row per COMMENT (one point, every place it applies to; `aim_review_view.group_comments`)."""
+def comment_rows(model: dict, part: str = "comments") -> list[list]:
+    """One row per COMMENT (one point, every place it applies to; `aim_review_view.comments_and_confirmations`); `part`
+    "confirmations": one row per confirmation not sent, in the same columns."""
     out = []
-    for p in model["comments"]:
+    for p in model.get(part) or []:
         comment, c1 = cut(p["comment"])
         quote, c2 = cut(p["quote"])
         lines = p.get("lines") or [p["n"]]
@@ -162,6 +172,13 @@ def _summary(ws: Worksheet, model: dict) -> None:
             + f" ({counts['boundary']}).",
         ),
         (
+            "",
+            sent_statement(
+                counts["points"], counts["comments"], counts.get("confirmations") or 0
+            )
+            + ".",
+        ),
+        (
             "Status",
             model["status"]
             + (f": {model['stop_reason']}" if model.get("stop_reason") else ""),
@@ -185,9 +202,26 @@ def _summary(ws: Worksheet, model: dict) -> None:
         _put(ws, row, 1, label or "(no label stored)")
         _put(ws, row, 2, n)
         row += 1
+    row = _books_part(ws, model, row)
+    row += 1
+    usd = model["cost"]["usd"]
+    _put(ws, row, 1, "Cost of this review (USD)").font = Font(bold=True)
+    _put(ws, row, 2, None if usd is None else round(usd, 4))
+    ws.column_dimensions["A"].width = 44
+    ws.column_dimensions["B"].width = 80
+
+
+def _books_part(ws: Worksheet, model: dict, row: int) -> int:
+    """The summary's rule-book part (used, with each reason; not readable, counted; not held; not listed); returns the next row."""
     row += 1
     _put(ws, row, 1, "Rule books used").font = Font(bold=True)
     row += 1
+    listed = model.get("documents_listed")
+    if (
+        listed
+    ):  # an older run has no stored list: nothing is said (null renders as nothing)
+        _put(ws, row, 1, listed["sentence"])
+        row += 1
     for b in model["books"]:
         _put(ws, row, 1, b["title"])
         _put(ws, row, 2, b["why"])
@@ -217,12 +251,7 @@ def _summary(ws: Worksheet, model: dict) -> None:
         row += 1
         _put(ws, row, 1, model["unlisted_books"]["sentence"])
         row += 1
-    row += 1
-    usd = model["cost"]["usd"]
-    _put(ws, row, 1, "Cost of this review (USD)").font = Font(bold=True)
-    _put(ws, row, 2, None if usd is None else round(usd, 4))
-    ws.column_dimensions["A"].width = 44
-    ws.column_dimensions["B"].width = 80
+    return row
 
 
 def _how(ws: Worksheet, model: dict) -> None:
@@ -318,6 +347,17 @@ def build(model: dict) -> bytes:
             12: 18,
         },
     )
+    ws = wb.create_sheet(CONFIRMATIONS)
+    _head(ws, f"Confirmations (not sent): {model['counts'].get('confirmations') or 0}")
+    _put(
+        ws,
+        3,
+        1,
+        "Points the AI only asks the vendor to confirm (the value is stated and nothing is suspected): kept here, not sent; "
+        f"every point is on the sheet {ALL_POINTS}.",
+    )
+    _table(ws, COMMENT_HEADERS, comment_rows(model, "confirmations"), {1: 6, 2: 22, 3: 7, 4: 24, 5: 70, 6: 50, 7: 18, 8: 10,
+                                                                      9: 16, 10: 8, 11: 30, 12: 18})  # fmt: skip
     ws = wb.create_sheet(ALL_POINTS)
     _head(ws, f"All points: {model['counts']['points']}")
     _put(ws, 3, 1, team_statement(model["counts"]["points"]))

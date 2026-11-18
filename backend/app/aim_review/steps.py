@@ -146,14 +146,17 @@ ASK_CONCERN, ASK_CONFIRM, ASK_OPEN = "concern", "confirm", "open"
 
 def _ask(j: dict, label: str, deferred: bool, code_cmp, nums, note: str = "") -> str:
     """The mark of a Question line, decided by code from the judge's "ask" and the run's state; "" for any other label.
-    "concern" when code saw a conflict (a failed compare, a provisional figure that fails, numbers the judge gave) or the judge
-    suspects the value; "open" when the value is left open (the judge's deferred flag or code reading the quote as open: a judge's
+    "concern" when code saw a conflict (a failed compare, numbers the judge gave), on ANY provisional figure (a figure beside a
+    who-supplies note is never only confirmed) or when the judge suspects the value; "open" when the value is left open (the judge's deferred flag or code reading the quote as open: a judge's
     "confirm" there stays a question to the vendor, never "confirm"); "confirm" only on the judge's own word; any other answer
     (missing, unknown) is "concern" (the safe side)."""
     if label != "Question":
         return ""
     failed = isinstance(code_cmp, dict) and code_cmp.get("result") == "fail"
-    if failed or nums or PROVISIONAL_FAILS in note or j.get("ask") == ASK_CONCERN:
+    provisional = any(
+        x.strip().startswith(PROVISIONAL) for x in str(note or "").split(";")
+    )
+    if failed or nums or provisional or j.get("ask") == ASK_CONCERN:
         return ASK_CONCERN
     if deferred:
         return ASK_OPEN

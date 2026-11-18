@@ -315,7 +315,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
                 result.get("checklist_key"),
                 result.get("checklist_sha256"),
                 1 if result.get("checklist_reused") else 0,
-                _dump(list(result.get("books") or [])),
+                _dump(_books_with_why(result)),
                 _dump(list(result.get("not_held") or [])),
                 _dump(list(result.get("unlisted_books") or [])),
                 result.get("usd"),
@@ -336,6 +336,19 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
         conn.commit()
         raise
     conn.commit()
+
+
+def _books_with_why(result: dict) -> list:
+    """The run's books as `{"id", "why"}` (why = the scope step's reason, "" when none was recorded); a book given as a bare id
+    keeps its place. A result without reasons stores the plain ids as before."""
+    ids = list(result.get("books") or [])
+    why = result.get("book_why")
+    if not isinstance(why, dict) or not why:
+        return ids
+    return [
+        {"id": b, "why": str(why.get(b) or "")} if isinstance(b, str) else b
+        for b in ids
+    ]
 
 
 def _method_version() -> str:

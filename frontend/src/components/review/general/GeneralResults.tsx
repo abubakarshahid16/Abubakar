@@ -9,6 +9,7 @@
 import { type ReactNode, useState } from "react";
 
 import { type GeneralLine, type GeneralReview, downloadGeneralSheet } from "../../../api/generalReview";
+import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
 
 const MARK_FALLBACK = "AI, to be checked";
@@ -82,7 +83,8 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
       )}
 
       <p data-testid="general-counts" className="text-sm text-slateish-200">
-        {review.counts.points} points reviewed, as {review.counts.comments} comments ({review.counts.boundary}).
+        {review.counts.points} points reviewed, {review.counts.comments} comments sent
+        {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).
         {Object.entries(review.counts.by_shown_label ?? {}).filter(([k]) => k).map(([k, n]) => (
           <span key={k} className="ml-2 text-xs text-slateish-400">{k}: {n}</span>
         ))}
@@ -98,7 +100,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
       {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
 
       <div role="tablist" aria-label="General review" className="flex gap-1 border-b border-ink-600">
-        {([["comments", `Comments (${review.counts.comments})`], ["how", "How it was reviewed"]] as const).map(([t, label]) => (
+        {([["comments", `Comments (${review.counts.comments})`], ["how", "How this review was made"]] as const).map(([t, label]) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm ${tab === t ? "border-b-2 border-signal-400 text-slateish-100" : "text-slateish-300 hover:text-slateish-100"}`}>
             {label}
@@ -114,30 +116,23 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
           </label>
           {lines.length === 0 && <p className="text-sm text-slateish-300">{showAll ? "This review has no points." : "This review has no comments."}</p>}
           <ul className="space-y-2">{lines.map((l) => <Row key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}</ul>
+          {!showAll && (review.confirmations?.length ?? 0) > 0 && (
+            <details data-testid="general-confirmations" className="rounded-[var(--radius-sm)] border border-ink-600 p-3">
+              <summary className="cursor-pointer text-sm text-slateish-200">
+                Confirmations, not sent ({review.confirmations!.length}): the value is stated and nothing is suspected; the vendor
+                is only asked to confirm it
+              </summary>
+              <ul className="mt-2 space-y-2">
+                {review.confirmations!.map((l) => <Row key={`c-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}
+              </ul>
+            </details>
+          )}
         </div>
       )}
 
       {tab === "how" && (
         <div data-testid="general-how" className="space-y-3 text-sm text-slateish-200">
-          <section aria-label="Rule books used" className="space-y-1">
-            <h3 className="font-semibold text-slateish-100">Rule books used ({review.books.length}{review.books_not_readable ? `, and ${review.books_not_readable} you may not open` : ""})</h3>
-            {review.books.length === 0 ? <p className="text-slateish-400">none</p> : (
-              <ul className="list-disc pl-5">{review.books.map((b) => <li key={b.id}>{b.title}{b.why ? <span className="text-slateish-400"> ({b.why})</span> : null}</li>)}</ul>
-            )}
-          </section>
-          <section aria-label="Rule books not held" className="space-y-1">
-            <h3 className="font-semibold text-slateish-100">Rule books not held ({review.not_held.length})</h3>
-            {review.not_held.length === 0 ? <p className="text-slateish-400">none</p> : (
-              <ul className="list-disc pl-5">{review.not_held.map((b) => <li key={b.name}>{b.name}{b.why ? <span className="text-slateish-400"> ({b.why})</span> : null}</li>)}</ul>
-            )}
-          </section>
-          {review.unlisted_books.sentence && <p data-testid="general-unlisted" className="text-slateish-200">{review.unlisted_books.sentence}</p>}
-          {review.checklist.key && (
-            <p className="text-xs text-slateish-400">
-              Checklist: {review.checklist.items ?? "?"} items{review.checklist.always_items ? `, plus ${review.checklist.always_items} every review checks` : ""}{review.checklist.reused != null ? (review.checklist.reused ? ", reused from an earlier review" : ", built for this review") : ""}
-              {review.checklist.built_from ? `; built from: ${review.checklist.built_from}` : ""}.
-            </p>
-          )}
+          <HowReviewMade review={review} />
           {howTab}
         </div>
       )}

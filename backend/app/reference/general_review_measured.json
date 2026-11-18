@@ -14,13 +14,13 @@
       "code_head": null,
       "note": "not measured yet",
       "equipment_types": {
-        "relief valve": {"label": "relief valve datasheet", "found_mean": 8.0, "copies": 2, "false_alarm_wrong": 3, "false_alarm_of": 66, "old_engine_mean": 1.5, "measured_on": "2026-11-18", "code_head": "71152b91", "note": "copies A, B; strict judge read copy A; measured before same-check grouping (grouping checked offline: finds kept); will be remeasured on the live head"},
+        "relief valve": {"label": "relief valve datasheet", "found_mean": 8.5, "copies": 2, "false_alarm_wrong": 4, "false_alarm_of": 71, "old_engine_mean": 1.5, "measured_on": "2026-11-18", "code_head": "1819a7cc", "note": "copies A, B on the live code; strict judge read copy A"},
         "pump": {"label": "pump datasheet", "found_mean": 6.5, "copies": 2, "false_alarm_wrong": 7, "false_alarm_of": 161, "old_engine_mean": 0.0, "measured_on": "2026-11-18", "code_head": "71152b91", "note": "copies B, C; below target"},
         "pressure vessel": {"label": "pressure vessel datasheet", "found_mean": 6.67, "copies": 3, "false_alarm_wrong": 18, "false_alarm_of": 182, "old_engine_mean": 1.0, "measured_on": "2026-11-18", "code_head": "71152b91", "note": "copies A, B, C; below target"}
       }
     },
     "procedure": {"label": "procedure", "found_mean": null, "copies": null, "false_alarm_wrong": null, "false_alarm_of": null, "old_engine_mean": null, "measured_on": null, "code_head": null, "note": "not measured yet"},
-    "study": {"label": "study", "found_mean": 5.0, "copies": 1, "false_alarm_wrong": 3, "false_alarm_of": 49, "old_engine_mean": 0.0, "measured_on": "2026-11-18", "code_head": "71152b91", "note": "copy C only on this head; below target"},
+    "study": {"label": "study", "found_mean": 5.33, "copies": 3, "false_alarm_wrong": 23, "false_alarm_of": 124, "old_engine_mean": 0.0, "measured_on": "2026-11-18", "code_head": "1819a7cc", "note": "copies A, B, C on the live code; below target; wrong comments above 10% (no rule book held for this kind)"},
     "contract": {"label": "contract document", "found_mean": 5.0, "copies": 2, "false_alarm_wrong": 10, "false_alarm_of": 127, "old_engine_mean": 0.0, "measured_on": "2026-11-18", "code_head": "71152b91", "note": "copies A, C; judge read A, C and the original; below target"}
   }
 }

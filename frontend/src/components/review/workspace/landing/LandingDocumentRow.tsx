@@ -66,6 +66,10 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   const moving = row.state.kind === "queued" || row.state.kind === "running";
   const step = row.state.kind === "running" && row.state.label ? row.state.label : "";
 
+  // A reviewed file shows when its latest review STARTED (the run's own start, as the history says it); a file never reviewed
+  // shows when it was added. The list is still ordered by the newest activity.
+  const startedAt = dayTimeWords(row.latest?.created_at);
+  const shownWhen = startedAt ? `Started ${startedAt}` : dayTimeWords(row.activityAt);
   return (
     <li className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4" data-testid="landing-row">
       <div className="flex flex-wrap items-center gap-3">
@@ -78,7 +82,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             {detail && <span data-testid="row-counts">{detail}</span>}
             {step && <span data-testid="row-step">Now: {step}</span>}
             {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
-            {dayTimeWords(row.activityAt) && <span data-testid="row-date">{dayTimeWords(row.activityAt)}</span>}
+            {shownWhen && <span data-testid="row-date">{shownWhen}</span>}
           </p>
         </div>
         {row.latest && (

@@ -221,6 +221,25 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     await waitFor(() => expect(onReload).toHaveBeenCalled());
   });
 
+  it("H8: the row shows the run's own start time, not the moment it finished", async () => {
+    // the latest run of Pump started 08:00 and finished 09:30 (UTC); the row says the start, in the reader's own zone
+    const start = new Date("2026-11-18T12:44:01Z");
+    const fmt = (d: Date) => `${d.getDate()} Nov 2026, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    renderLanding({ runs: [run({ created_at: "2026-11-18T12:44:01Z", completed_at: "2026-11-18T12:53:29Z" })] });
+    const text = within(rowOf("Pump")).getByTestId("row-date").textContent;
+    expect(text).toBe(`Started ${fmt(start)}`);
+    expect(text).not.toBe(`Started ${fmt(new Date("2026-11-18T12:53:29Z"))}`);
+  });
+
+  it("H7: a general review's line is its own numbers, labelled, not '0 findings'", async () => {
+    loadCounts.mockResolvedValue({ "run-1": { findings: null, needs_you: null, general: { points: 129, comments: 66, confirmations: 20 } } });
+    renderLanding();
+    await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts"))
+      .toHaveTextContent("General review: 129 points reviewed, 66 comments sent (20 confirmations not sent)"));
+    expect(within(rowOf("Pump")).getByTestId("row-counts")).not.toHaveTextContent(/0 findings|needing your judgement/);
+    expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/); // no tiers: nothing "waiting for you"
+  });
+
   it("W5: All reviews of this file (N), the latest included, folds out under a reviewed row", async () => {
     reviewRunCounts.mockResolvedValue({ ok: true, data: { boundary: "", counts: { "run-1": { comment: 4, needs_you: 2 } } } });
     renderLanding();
@@ -471,7 +490,8 @@ describe("WorkspaceLanding v2.2: Simple | Detailed, Open CRS, counts, help", () 
 
   it("v2.2 round 2: rows and All reviews say dates one way: day month year, time", async () => {
     renderLanding();
-    const style = /^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/;
+    // H8: a reviewed file's date is the latest review's own start, said "Started ..."
+    const style = /^Started \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/;
     expect(within(rowOf("Pump")).getByTestId("row-date").textContent).toMatch(style);
     await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
     expect(screen.getAllByText(/^Started \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/)).toHaveLength(4);

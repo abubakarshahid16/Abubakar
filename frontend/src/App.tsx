@@ -22,7 +22,7 @@ import type { AuthStatus, Me } from "./types/api";
 import { FinishedReviewNotice } from "./components/review/workspace/FinishedReviewNotice";
 import { clearWatchedReviews, setWatchOwner } from "./components/review/workspace/reviewWatch";
 import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
-import { WORKSPACE_PANEL, reviewPageFor, workspaceSearch } from "./components/review/workspace/workspaceRoute";
+import { WORKSPACE_PANEL, documentFromSearch, reviewPageFor, workspaceSearch } from "./components/review/workspace/workspaceRoute";
 import type { WorkspaceLocation, WorkspaceTab } from "./components/review/workspace/contract";
 import { LeaveConfirm } from "./components/review/workspace/LeaveConfirm";
 import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/review/workspace/useLeaveGuard";
@@ -448,7 +448,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     >
       {/* Workspace v2: "Your review is ready" on any page (it renders
           nothing until a watched review finishes). */}
-      <FinishedReviewNotice onOpenRun={openFinishedRun} panelOpen={workspaceLocation?.panel === "evidence"} />
+      <FinishedReviewNotice onOpenRun={openFinishedRun} panelOpen={workspaceLocation?.panel === "evidence"}
+        openRunId={workspaceLocation?.runId ?? null} />
       {/* v2.1 (N1): the guard's question, in the page. */}
       <LeaveConfirm pending={leaveGuard.pending} onLeave={leaveGuard.leave} onStay={leaveGuard.stay}
         onSaveAndLeave={leaveGuard.saveAndLeave} saving={leaveGuard.saving} saveError={leaveGuard.saveError} />
@@ -531,7 +532,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           )}
           {view === "review" && reviewPage?.kind === "landing" && (
             <SubmittalsLandingView
-              workspace isAdmin={canAdmin}
+              workspace isAdmin={canAdmin} openDocumentId={documentFromSearch(search)}
               onOpenRun={(runId) => onNavigate("review", runId)}
               onOpenRunTab={openRunOnTab}
             />
