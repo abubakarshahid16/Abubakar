@@ -14,6 +14,7 @@ from typing import Any
 
 from . import (
     aim_review,
+    aim_review_book_why,
     aim_review_gate,
     aim_review_measured,
     aim_review_store,
@@ -328,7 +329,8 @@ def _titles(conn, ids: list[str], scope) -> tuple[dict[str, str], int]:
     return out, hidden
 
 
-def _books(conn, run: dict, scope) -> tuple[list[dict], int]:
+def _books(conn, run: dict, scope) -> tuple[list[dict], int, list[str]]:
+    """(the books the caller may read with the reason to show, how many the caller may not read, the ids of every book carried)."""
     items = _json(run.get("books_json"), [])
     ids, why = [], {}
     for it in items:
@@ -337,9 +339,12 @@ def _books(conn, run: dict, scope) -> tuple[list[dict], int]:
             ids.append(doc_id)
             why[doc_id] = str(it.get("why") or "") if isinstance(it, dict) else ""
     titles, hidden = _titles(conn, ids, scope)
-    return [
-        {"id": i, "title": titles[i], "why": why[i]} for i in ids if i in titles
-    ], hidden
+    shown = aim_review_book_why.served(conn, run, scope, ids, why)
+    return (
+        [{"id": i, "title": titles[i], "why": shown[i]} for i in ids if i in titles],
+        hidden,
+        ids,
+    )
 
 
 def _checklist(conn, run: dict, points: list[dict]) -> dict:
@@ -433,7 +438,7 @@ def build(conn, run: dict, scope=None) -> dict:
     for p in points:
         by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
     identity = _json(run.get("identity_json"), {})
-    books, hidden = _books(conn, run, scope)
+    books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
     usd = run.get("usd")
     return {
@@ -461,6 +466,8 @@ def build(conn, run: dict, scope=None) -> dict:
         "points": points,
         "books": books,
         "books_not_readable": hidden,
+        # the documents listed before the start (besides the paper) and how many of them the run used; None for an older run
+        "documents_listed": aim_review_book_why.listed_and_used(conn, run, carried),
         "points_from_books_not_readable": sum(
             1 for p in points if p["standard"] == HIDDEN_BOOK_WORDS
         ),

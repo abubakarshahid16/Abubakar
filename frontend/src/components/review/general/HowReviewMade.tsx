@@ -11,7 +11,8 @@ import { type ReactNode, useMemo, useState } from "react";
 
 import type { GeneralCall, GeneralLine, GeneralReview } from "../../../api/generalReview";
 
-const NO_REASON = "(the reason was not recorded for this review)";
+/** The words of a book whose reason was not stored; the server says the same ones (and "not shown: it names a book you may not read"). */
+const NO_REASON = "the reason was not recorded for this review";
 
 /** The plain name of each step the run's calls are grouped under; a step this table does not know is shown by its own name. */
 export const STEP_NAMES: Record<string, string> = {
@@ -135,6 +136,7 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
 
       <Section n={2} id="how-books" title={`Rule books used (${review.books.length}${review.books_not_readable ? `, and ${review.books_not_readable} you may not open` : ""})`}
         why="The books the review carried, and why each one was chosen. Then the books it needed that we do not hold.">
+        {review.documents_listed && <p data-testid="how-listed" className="text-xs text-slateish-300">{review.documents_listed.sentence}</p>}
         {review.books.length === 0 ? <p className="text-slateish-400">none</p> : (
           <ul className="space-y-1">
             {review.books.map((b) => (

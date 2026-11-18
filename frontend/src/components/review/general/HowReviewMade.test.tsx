@@ -60,6 +60,20 @@ describe("H: How this review was made", () => {
     expect(screen.getByTestId("how-books")).toHaveTextContent("and 1 you may not open");
   });
 
+  it("2 says how many of the listed documents were used, and a reason the server withheld as it words it", () => {
+    render(<HowReviewMade review={review({
+      documents_listed: { listed: 21, used: 7, sentence: "Of the 21 other documents listed before the start, 7 were used." },
+      books: [{ id: "b1", title: "invented-book-one.pdf", why: "not shown: it names a book you may not read" }],
+    })} />);
+    expect(screen.getByTestId("how-listed")).toHaveTextContent("Of the 21 other documents listed before the start, 7 were used.");
+    expect(screen.getAllByTestId("how-book")[0]).toHaveTextContent("Why chosen: not shown: it names a book you may not read");
+  });
+
+  it("2 says nothing about a list for a run that stored none", () => {
+    render(<HowReviewMade review={review({ documents_listed: null })} />);
+    expect(screen.queryByTestId("how-listed")).toBeNull();
+  });
+
   it("3 shows the checklist, and nothing for a part it does not hold", () => {
     render(<HowReviewMade review={review()} />);
     const s = screen.getByTestId("how-checklist");

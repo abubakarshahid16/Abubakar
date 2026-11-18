@@ -188,6 +188,12 @@ def _summary(ws: Worksheet, model: dict) -> None:
     row += 1
     _put(ws, row, 1, "Rule books used").font = Font(bold=True)
     row += 1
+    listed = model.get("documents_listed")
+    if (
+        listed
+    ):  # an older run has no stored list: nothing is said (null renders as nothing)
+        _put(ws, row, 1, listed["sentence"])
+        row += 1
     for b in model["books"]:
         _put(ws, row, 1, b["title"])
         _put(ws, row, 2, b["why"])
