@@ -897,7 +897,7 @@ def test_different_findings_of_one_item_are_one_lossless_comment(world):
     assert [cm["lines"] for cm in body["comments"]] == [[1, 2, 3]]
     one = body["comments"][0]
     assert (
-        "Tag number (page 2): The tag differs." in one["comment"]
+        "Tag number (page 2) [rule: STD-X clause 4.2]: The tag differs."  # each place names its rule in one["comment"]
         and "Design pressure disagrees." in one["comment"]
     )
     assert one["quote_unverified"] is True and body["completeness"]["ok"] is True
@@ -1002,3 +1002,53 @@ def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_b
     rep = body["completeness"]
     assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 8
     assert rep["comments"] == rep["comment_rows"] == 7
+
+
+def test_one_paper_field_raised_by_different_items_is_one_comment_naming_each_rule(
+    world,
+):
+    """The same spot of the paper questioned by two rules and an always-checked item: one comment for that field, listing each
+    rule and clause, tag and page with its own words and quote. Where the label only says WHERE (a sheet, a tag in brackets),
+    it is the same field; a different field, a different label or a finding never joins."""
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", field="Invented flow, Sheet 1", page=1, clause="4.1"),
+        _line(2, "Question", "Question", item_id="C02", field="Invented flow (tag 2)", page=2, standard="STD-Y", clause="7.2"),
+        _line(3, "Question", "Question", item_id="G1", field="invented  FLOW", page=3, source=KNOW, book_document_id=None,
+              standard="", clause=""),
+        _line(4, "Question", "Question", item_id="C04", field="Invented flow / invented size", page=4),  # another field
+        _line(5, "AI opinion", "AI opinion", item_id="C05", field="Invented flow", page=5),  # another label
+        _line(6, "Question", "Question", item_id="C06", field="Invented flow", page=6, code_note="provisional_unchecked"),
+    ]  # fmt: skip
+    make_run("gen_field", rows, created="2026-11-18T21:00:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_field")
+        .json()
+    )
+    assert [cm["lines"] for cm in body["comments"]] == [[1, 2, 3], [4], [5], [6]]
+    one = body["comments"][0]
+    assert one["standard"] == "STD-X; STD-Y" and one["clause"] == "4.1; 7.2"
+    assert (
+        "Invented flow (tag 2) (page 2) [rule: STD-Y clause 7.2]: invented comment 2"
+        in one["comment"]
+    )
+    assert "invented  FLOW (page 3): invented comment 3" in one["comment"]
+    assert all(f"invented quote {i}" in one["quote"] for i in (1, 2, 3))
+    rep = body["completeness"]
+    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 6
+    assert rep["comments"] == rep["comment_rows"] == 4
+
+
+def test_the_field_of_a_label_drops_only_where_words():
+    from app.aim_review_view import point_field
+
+    assert (
+        point_field("Invented flow, Sheet 2 (service B)")
+        == point_field("invented flow (tag 9)")
+        == "invented flow"
+    )
+    assert point_field("Invented flow / invented size") != point_field("Invented flow")
+    assert (
+        point_field("Invented size, page 4") == "invented size"
+        and point_field("(only where)") == ""
+    )

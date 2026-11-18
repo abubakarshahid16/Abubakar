@@ -151,16 +151,64 @@ def _field_key(field) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", str(field or "").lower()).split())
 
 
+#: A place word and its number in a field label ("Sheet 2", "page 4", "line 3", "tag no. 7"): where, not which field.
+_PLACE_IN_LABEL = re.compile(
+    r"\b(?:sheet|page|line|tag|item)s?\s*(?:no\.?\s*)?\d+[a-z]?\b"
+)
+
+
+def point_field(field) -> str:
+    """The paper FIELD a comment is about, from its field label: case, spacing and punctuation folded; what only says WHERE
+    is dropped: a part in brackets (a tag, a service, a sheet), what follows the first comma ("..., Sheet 2", "..., water")
+    and a place word with its number. "" when nothing is left (such a line merges with no other field)."""
+    text = re.sub(r"\([^()]*\)", " ", str(field or "").lower()).split(",", 1)[0]
+    return _field_key(_PLACE_IN_LABEL.sub(" ", text))
+
+
+def _finding(p: dict) -> bool:
+    """A line that never merges ACROSS checklist items: a Not met or a Fail, a code comparison (any result) or a provisional
+    figure. Its repeats within its own item still make one comment."""
+    parts = [x.strip() for x in str(p.get("code_note") or "").split(";")]
+    shown = str(p.get("shown_label") or "").lower()
+    return (
+        p.get("label") == "Not met"
+        or "not met" in shown
+        or "fail" in shown
+        or bool(p.get("compare_kind") or p.get("compared"))
+        or any(x.startswith("provisional") for x in parts)
+    )
+
+
 def _keys(sent: list[dict]) -> dict[int, tuple]:
-    """{line number: the key of its comment}. ONE comment per CHECK: the lines of one checklist item that show the same label
-    and the same compare kind, across tags, lines, sheets and pages (the repeats a strict judge marks WEAK). Lines of DIFFERENT
-    items are never merged, whatever their label or rule book (18 Nov 2026: long lists of different points buried findings a
-    senior engineer would raise one by one), so a code-compared Fail never joins a Question. A line with no item stays alone.
-    Every sent line is in exactly one comment, which keeps each place's own words; every line stays a point."""
-    return {
-        p["n"]: ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "")
-        for p in sent
-    }  # fmt: skip
+    """{line number: the key of its comment}. ONE comment per POINT OF THE PAPER (18 Nov 2026, grouping try 2 with the field):
+      1. the lines of one checklist item that show the same label and compare kind, across tags, lines, sheets and pages;
+      2. the lines about the same paper FIELD (`point_field`) that show the same label, across checklist items (two rules,
+         or an always-checked item, on one field), tags, lines and pages, when none of them is a finding (`_finding`).
+    Two different fields are never merged; a Not met, a Fail, a code comparison or a provisional figure joins nothing but its
+    own item's repeats, and never a line of another label. Every sent line is in exactly one comment, which keeps each line's
+    own rule, clause, field, page, words, quote and value; every line stays a point."""
+    parent: dict[tuple, tuple] = {}
+
+    def find(x: tuple) -> tuple:
+        while parent.setdefault(x, x) != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for p in sent:
+        own, held = ("line", p["n"]), _finding(p)
+        item = (
+            "item",
+            p.get("item_id") or f"line-{p['n']}",
+            p["shown_label"],
+            p.get("compare_kind") or "",
+            held,
+        )
+        parent[find(own)] = find(item)
+        field = point_field(p.get("field"))
+        if field and not held:
+            parent[find(own)] = find(("field", field, p["shown_label"]))
+    return {p["n"]: find(("line", p["n"])) for p in sent}  # fmt: skip
 
 
 def group_comments(points: list[dict]) -> list[dict]:
@@ -217,12 +265,19 @@ def _member(m: dict) -> str:
     where = f"page {m['page']}" if m.get("page") is not None else "no page"
     quote = f' (quote: "{m["quote"]}")' if m.get("quote") else ""
     numbers = f" ({m['compared']})" if m.get("compared") else ""
-    return f"{m.get('field') or 'no field'} ({where}): {m.get('comment') or ''}{quote}{numbers}"
+    rule = " ".join(
+        x for x in (m.get("standard"), m.get("clause") and f"clause {m['clause']}") if x
+    )
+    rule = (
+        f" [rule: {rule}]" if rule else ""
+    )  # the line's rule as the viewer may see it (a hidden book is already masked)
+    return f"{m.get('field') or 'no field'} ({where}){rule}: {m.get('comment') or ''}{quote}{numbers}"
 
 
 def _same_point(members: list[dict]) -> dict:
-    """ONE comment for the editor's group, LOSSLESS: the first member's words, then every other member's field, page, own
-    comment in full and quote. Lines stay one per place (All points keeps each)."""
+    """ONE comment for the lines of one point, LOSSLESS: the first line's words, then every other line's field, page, rule and
+    clause, own comment in full, quote and value; the Standard and Clause cells list every rule cited. Lines stay one per
+    place (All points keeps each)."""
     members = sorted(members, key=lambda m: m["n"])
     first, others = members[0], members[1:]
     pages = sorted({m["page"] for m in members if m["page"] is not None})
@@ -231,6 +286,9 @@ def _same_point(members: list[dict]) -> dict:
         "lines": [m["n"] for m in members],
         "pages": pages,
         "comment": f"{first['comment']}\nThe same point at: " + "; ".join(_member(m) for m in others),
+        # every rule the lines cite (one each, in line order; a hidden book is already masked in its line)
+        "standard": "; ".join(dict.fromkeys(m["standard"] for m in members if m.get("standard"))),
+        "clause": "; ".join(dict.fromkeys(m["clause"] for m in members if m.get("clause"))),
         "quote": " | ".join(f"page {m['page']}: {m['quote']}" if m["page"] is not None else m["quote"]
                             for m in members if m["quote"]),
         "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
