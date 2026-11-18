@@ -132,7 +132,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
           {review.unlisted_books.sentence && <p data-testid="general-unlisted" className="text-slateish-200">{review.unlisted_books.sentence}</p>}
           {review.checklist.key && (
             <p className="text-xs text-slateish-400">
-              Checklist: {review.checklist.items ?? "?"} items{review.checklist.reused != null ? (review.checklist.reused ? ", reused from an earlier review" : ", built for this review") : ""}
+              Checklist: {review.checklist.items ?? "?"} items{review.checklist.always_items ? `, plus ${review.checklist.always_items} every review checks` : ""}{review.checklist.reused != null ? (review.checklist.reused ? ", reused from an earlier review" : ", built for this review") : ""}
               {review.checklist.built_from ? `; built from: ${review.checklist.built_from}` : ""}.
             </p>
           )}

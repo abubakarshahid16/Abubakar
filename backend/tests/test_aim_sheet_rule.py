@@ -683,3 +683,33 @@ def test_one_item_with_several_failing_places_keeps_every_line_and_the_counts_ho
     wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id={run_id}"))
     assert len(aim_review_completeness._table(wb, "All points")) == 4
     assert len(aim_review_completeness._table(wb, "Comments")) == 3
+
+
+def test_the_items_every_review_checks_are_counted_apart_from_the_checklist(world):
+    """Order 14: the always-checked items (`aim_review.always`, not in the saved checklist) are counted apart on the page and in
+    the file; with no saved checklist the items are the distinct items judged, never the line count (one item may give several lines)."""
+    from app.aim_review import always
+
+    lines = [
+        _line(1, "Not met", "AI opinion: not met"),
+        _line(2, "Question", "Question", item_id="C01"),
+        _line(3, "Question", "Question", item_id="G1", topic=always.TOPIC),
+        _line(4, "Met", "AI opinion: met", item_id="G2", topic=always.TOPIC),
+    ]
+    make_run("gen_run_always", lines, created="2026-11-18T15:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_run_always").json()
+    assert body["checklist"]["always_items"] == 2
+    assert (
+        body["checklist"]["items"] == 1
+    )  # C01 twice is ONE item; no saved checklist row in this test
+    wb = _sheet(
+        c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_run_always")
+    )
+    text = [
+        v
+        for row in wb["How it was reviewed"].iter_rows(values_only=True)
+        for v in row
+        if v is not None
+    ]
+    assert "Items every review checks besides the checklist" in text

@@ -199,6 +199,7 @@ def _how(ws: Worksheet, model: dict) -> None:
     facts = [
         ("Checklist key", ck["key"]),
         ("Checklist items", ck["items"]),
+        ("Items every review checks besides the checklist", ck.get("always_items")),
         ("Checklist built from", ck["built_from"]),
         (
             "Checklist",

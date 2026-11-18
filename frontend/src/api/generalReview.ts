@@ -44,7 +44,7 @@ export interface GeneralReview {
   books_not_readable?: number;
   not_held: { name: string; why: string }[];
   unlisted_books: { count: number; sentence: string | null };
-  checklist: { key: string | null; items: number | null; reused: boolean | null; built_from: string | null };
+  checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };
   cost: { usd: number | null };
   completeness: GeneralCompleteness;
   /** False when an earlier-engine review of the paper is newer: the page then draws the older sections. */

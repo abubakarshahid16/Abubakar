@@ -118,7 +118,14 @@ def _books(conn, run: dict, scope) -> tuple[list[dict], int]:
     ], hidden
 
 
-def _checklist(conn, run: dict, n_lines: int) -> dict:
+def _checklist(conn, run: dict, points: list[dict]) -> dict:
+    """The checklist the run judged. `items` counts the saved checklist's items (else the distinct items the run judged: one item
+    may give several lines); `always_items` counts the items every review checks besides the checklist (`aim_review.always`),
+    which are not part of the saved checklist."""
+    from .aim_review import always
+
+    always_ids = {p["item_id"] for p in points if p.get("topic") == always.TOPIC}
+    judged = {p["item_id"] for p in points if p.get("item_id")} - always_ids
     key = _blank(run.get("checklist_key"))
     row = None
     if key and run.get("checklist_sha256"):
@@ -131,7 +138,8 @@ def _checklist(conn, run: dict, n_lines: int) -> dict:
         "key": key,
         "items": row["items"]
         if row and row["items"] is not None
-        else (n_lines or None),
+        else (len(judged) or None),
+        "always_items": len(always_ids),
         "reused": None if reused is None else bool(reused),
         "built_from": row["built_from"] if row else None,
     }
@@ -236,7 +244,7 @@ def build(conn, run: dict, scope=None) -> dict:
             "count": len(unlisted),
             "sentence": UNLISTED_SENTENCE.format(n=len(unlisted)) if unlisted else None,
         },
-        "checklist": _checklist(conn, run, len(points)),
+        "checklist": _checklist(conn, run, points),
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
         # the contract's {"usd": ...}; a run whose ledger could not be read also says so (null cost, never 0)
         "cost": {"usd": None if usd is None else float(usd)}
