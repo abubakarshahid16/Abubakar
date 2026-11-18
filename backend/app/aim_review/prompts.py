@@ -138,6 +138,16 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
 THE ITEMS:
 %(items)s"""
 
+ANSWERED_TASK = """TASK S4B - CHECK THE WHOLE PAPER. Below are comments on the paper above that rest on no held rule book (one
+per line: n, field, page, comment). Read the WHOLE paper, every page. Name ONLY the comments that the paper already answers (it
+states what the comment asks for, or it states the opposite of what the comment claims), on ANY page: give that page and the
+exact paper words that answer it (5 to 30 words from that one page, character for character, no "..."). Name nothing else; when
+in doubt, name nothing (a comment you do not name is sent as it is).
+Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
+{"answered": [{"n": n, "page": p, "quote": "..."}]}
+THE COMMENTS:
+%(comments)s"""
+
 EDIT_TASK = """TASK S5 - EDIT THE COMMENT SHEET. Below are the comments that would be sent to the vendor about the paper above
 (one per line: n, field, page, comment, quote). You may ONLY take a comment OFF the sheet (it stays in the full list of points).
 You never add, rewrite or relabel a comment. Take one off for one of two reasons only:

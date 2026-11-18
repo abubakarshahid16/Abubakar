@@ -94,7 +94,10 @@ PAPER_COMPARE_PASSED = "paper_compare_passed"
 #: `code_note` part of a line the editor step (S5) took off the comment sheet: "edited: repeats line 3", "edited: paper states
 #: otherwise (page 2: ...)". Its label is unchanged; it stays in "All points" with its reason.
 EDITED = "edited"
-NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED, EDITED)
+#: `code_note` part of a line on NO held rule that the whole-paper check (S4b, `answered.py`) found answered by the paper:
+#: "answered: the paper answers it on page 7: "..."" (a quote code found on that page). It stays in "All points", never sent.
+ANSWERED = "answered"
+NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED, EDITED, ANSWERED)
 
 
 def sendable(line: dict) -> bool:
@@ -152,6 +155,7 @@ def run(
 
 
 __all__ = [
+    "ANSWERED",
     "EDITED",
     "LABELS",
     "MAX_BOOKS",

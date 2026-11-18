@@ -475,9 +475,14 @@ def _steps(
         cancelled,
     )
     if not state.stop_reason:
-        say(96, "judge")
+        say(95, "whole-paper check")
+        from .answered import s4b_answered
         from .editor import s5_edit
 
+        s4b_answered(
+            mdl, paper, state.decided, lead
+        )  # a line on no held rule that the paper answers is not sent
+        say(96, "judge")
         s5_edit(mdl, paper, state.decided, lead)
 
 
