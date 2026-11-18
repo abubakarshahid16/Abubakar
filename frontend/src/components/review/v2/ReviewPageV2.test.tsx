@@ -190,7 +190,8 @@ describe("2 the engine line", () => {
     expect(line).toHaveTextContent("Cost: about USD 0.50, limit USD 30");
   });
   it("shows the limit alone when no earlier review has a real cost", () => {
-    expect(costWords(plan({ cost: { ...plan().cost, last_review_usd: null } }))).toBe("Cost: limit USD 30");
+    // H1: a note beside a null cost now says the cost was NOT READ, so "no earlier review" has no note either
+    expect(costWords(plan({ cost: { ...plan().cost, last_review_usd: null, last_review_note: null } }))).toBe("Cost: limit USD 30");
     expect(costWords(plan({ text_leaves: false, cost: { ...plan().cost, at_most_usd: null } }))).toBeNull();
   });
   it("Local only says the AI review will not run and nothing leaves", async () => {

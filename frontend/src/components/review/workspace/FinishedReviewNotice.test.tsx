@@ -12,7 +12,7 @@ vi.mock("../../../api/client", () => ({
   reviews: { reviewRun: (...a: unknown[]) => reviewRun(...a) },
 }));
 
-import { FinishedReviewNotice } from "./FinishedReviewNotice";
+import { FinishedReviewNotice, READY_NOTICE_MS } from "./FinishedReviewNotice";
 import {
   WATCH_STORAGE_KEY, checkWatchedRuns, clearWatchedReviews, reloadWatchStoreForTests, setWatchOwner, watchRun, watchStorageKey,
 } from "./reviewWatch";
@@ -240,5 +240,43 @@ describe("placement beside the evidence panel (v2.1 W4)", () => {
     expect(notice.className).toContain("left-4");
     expect(notice.className).not.toContain("right-4");
     expect(notice.className).toContain("z-20");
+  });
+
+  it("H4: a ready notice closes itself after a few seconds", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      reviewRun.mockResolvedValue(completed);
+      watchRun("run-1", "Pump datasheet rev B.pdf");
+      render(<AnotherView onOpenRun={vi.fn()} />);
+      await act(async () => { await checkWatchedRuns(); });
+      expect(screen.getByText(/is ready/)).toBeInTheDocument();
+      await act(async () => { vi.advanceTimersByTime(READY_NOTICE_MS - 1000); });
+      expect(screen.getByText(/is ready/)).toBeInTheDocument();
+      await act(async () => { vi.advanceTimersByTime(2000); });
+      expect(screen.queryByText(/is ready/)).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("H4: opening that review any other way closes its notice at once", async () => {
+    reviewRun.mockResolvedValue(completed);
+    watchRun("run-1", "Pump datasheet rev B.pdf");
+    const view = (open: string | null) => <FinishedReviewNotice onOpenRun={vi.fn()} openRunId={open} />;
+    const { rerender } = render(view(null));
+    await act(async () => { await checkWatchedRuns(); });
+    expect(screen.getByText(/is ready/)).toBeInTheDocument();
+    rerender(view("run-1"));
+    await waitFor(() => expect(screen.queryByText(/is ready/)).toBeNull());
+  });
+
+  it("H4: a notice that a review did not finish stays until it is dismissed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      reviewRun.mockResolvedValue({ ok: true, data: { review_run_id: "run-1", status: "failed", submittal_filename: "Pump datasheet rev B.pdf" } });
+      watchRun("run-1", "Pump datasheet rev B.pdf");
+      render(<AnotherView onOpenRun={vi.fn()} />);
+      await act(async () => { await checkWatchedRuns(); });
+      await act(async () => { vi.advanceTimersByTime(READY_NOTICE_MS * 3); });
+      expect(screen.getByText(/did not finish/)).toBeInTheDocument();
+    } finally { vi.useRealTimers(); }
   });
 });

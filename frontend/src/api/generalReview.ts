@@ -62,6 +62,8 @@ export interface GeneralReview {
   points: GeneralLine[];
   books: { id: string; title: string; why: string }[];
   books_not_readable?: number;
+  /** The documents listed before the start (besides the paper) and how many the run used; null for a run with no stored list. */
+  documents_listed?: { listed: number; used: number; sentence: string } | null;
   not_held: { name: string; why: string }[];
   unlisted_books: { count: number; sentence: string | null };
   checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };

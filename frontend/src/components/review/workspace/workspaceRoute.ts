@@ -124,3 +124,15 @@ export function reviewPageFor(recordId: string | undefined, panel: string | unde
     address: pathForView("review", recordId) + workspaceSearch(location), redirected: true,
   };
 }
+
+/** `/review?document=<id>`: the paper the address asks to open on the first page, or null. A value that is not a plain id (letters, digits,
+ *  `_`, `-`, at most 80 characters) is ignored: it never reaches a request. */
+export function documentFromSearch(search: string): string | null {
+  let value: string | null;
+  try {
+    value = new URLSearchParams(search).get("document");
+  } catch {
+    return null;
+  }
+  return value && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : null;
+}

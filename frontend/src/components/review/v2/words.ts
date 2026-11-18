@@ -55,18 +55,23 @@ export function engineWords(plan: ReviewPlan): string {
   return `Engine: ${name}. Text of this paper and ${books} will leave this computer.`;
 }
 
-/** "Cost: about USD 0.50, limit USD 15" (the last review's real cost, when there is one) or "Cost: limit USD 15". Null: nothing is sent. */
+/** "Cost: about USD 0.50, limit USD 15" (the last review's real cost, read from the spend ledger, when there is one) or "Cost: limit USD 15"
+ *  (with the server's words when the last review's cost was not read). Null: nothing is sent. */
 export function costWords(plan: ReviewPlan): string | null {
   const limit = plan.cost.at_most_usd;
   if (limit == null) return null;
   const last = plan.cost.last_review_usd;
-  return last != null ? `Cost: about ${usd(last)}, limit ${usd(limit)}` : `Cost: limit ${usd(limit)}`;
+  if (last != null) return `Cost: about ${usd(last)}, limit ${usd(limit)}`;
+  // a last review whose cost was not read says so; it never shows a partial sum or a 0
+  return plan.cost.last_review_note ? `Cost: limit ${usd(limit)}; ${plan.cost.last_review_note}` : `Cost: limit ${usd(limit)}`;
 }
 
 /** What will not run, one plain sentence each. */
 export function wontRunWords(plan: ReviewPlan): string[] {
   const out: string[] = [];
   for (const p of plan.parts) {
+    // under the general review there is no earlier rule check to speak of: "it will not run" would only puzzle a new user
+    if (p.name === "rule_check" && plan.method === "general") continue;
     if (p.engine === "not_run" && p.why) out.push(`${p.name === "ai_review" ? "The AI review" : "The rule check"} will not run: ${p.why.replace(/^the AI review needs Claude and will not run; /i, "")}`);
   }
   for (const w of plan.wont_run) out.push(`${w.part}: ${w.why}`);
