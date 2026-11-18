@@ -418,3 +418,80 @@ def test_the_largest_checklist_fits_and_a_cut_answer_is_asked_again_in_halves():
 
     with pytest.raises(E.StepFailed):
         CL._answers(_Down(), {"kind": "datasheet"}, sel, rows[:10], True, {BOOK_A}, "m")
+
+
+class _Metered(_Model):
+    def __init__(self, answer, fail=None):
+        super().__init__(answer)
+        self.meter, self.fail = E.Meter(cap=0.0), fail
+
+    def ask(self, **kw):
+        if self.fail:
+            raise E.StepFailed(f"aim_checklist_knowledge: {self.fail}")
+        return super().ask(**kw)
+
+
+def _notes(model):
+    return [c.code for c in model.meter.calls if c.model == "code"]
+
+
+def test_no_knowledge_item_while_books_are_not_held_is_said_in_the_run_record():
+    """The silent-loss guard (18 Nov: a prompt rewording set every knowledge item aside and nothing said so): books needed but
+    not held and NO knowledge item written leaves "knowledge items: 0 of N expected (cause)" in the run's calls."""
+    sel = {"not_held": NOT_HELD, "books": [{"alias": "B01", "book": BOOK_A}]}
+    rows = _knowledge_answer(3)["items"]
+    for r in rows:
+        r["carried_by"] = "an invented study"
+    aside = _Metered({"items": rows})
+    CL.s3_knowledge(aside, {"kind": "procedure"}, sel, _made(14), "m")
+    assert _notes(aside) == [
+        "knowledge items: 0 of 1 expected (3 set aside as carried by another paper)"
+    ]
+    empty = _Metered({"items": []})
+    CL.s3_knowledge(empty, {"kind": "procedure"}, sel, _made(14), "m")
+    assert _notes(empty) == [
+        "knowledge items: 0 of 1 expected (the answer held no items)"
+    ]
+    failed = _Metered({}, fail="transport ReadTimeout")
+    CL.s3_knowledge(failed, {"kind": "procedure"}, sel, _made(14), "m")
+    assert _notes(failed)[0].startswith(
+        "knowledge items: 0 of 1 expected (the call failed: transport ReadTimeout"
+    )
+
+
+def test_no_note_when_items_are_written_or_no_book_is_missing():
+    sel = {"not_held": NOT_HELD, "books": [{"alias": "B01", "book": BOOK_A}]}
+    ok = _Metered(_knowledge_answer(3))
+    CL.s3_knowledge(ok, {"kind": "procedure"}, sel, _made(14), "m")
+    assert _notes(ok) == []
+    held = _Metered({"items": []})
+    CL.s3_knowledge(
+        held, {"kind": "procedure"}, {"not_held": [], "books": []}, _made(14), "m"
+    )  # below the floor, none missing
+    assert _notes(held) == []
+
+
+def test_the_guard_reaches_a_run_and_the_how_made_tab(aim_db):
+    """Through a whole run: the note is one of the run's calls (the run record and the How-made tab list every call)."""
+    from tests.test_aim_method_helpers import MemoryStore
+
+    def select(step, cached, prompt):
+        import re
+
+        ids = re.findall(r'"alias": "(B\d+)"', prompt)[:10]
+        return {"books": [{"alias": a, "why": "x", "subjects": "all"} for a in ids],
+                "not_held_needed": [{"name": "API 9990 invented practice", "why": "needed"}]}  # fmt: skip
+
+    know = {
+        "items": [
+            {"topic": "t", "what_to_check": "w", "carried_by": "an invented study"}
+        ]
+    }
+    model = E.FakeModel(kind="datasheet", subject_key="test_item",
+                        answers={"aim_select": select, "aim_checklist_knowledge": know})  # fmt: skip
+    r = aim_review.run(aim_db, run_id="run_guard", paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}),
+                       store=MemoryStore(), max_usd=5.0, model=model)  # fmt: skip
+    codes = [c.get("code") or "" for c in r.calls]
+    assert any(
+        c.startswith("knowledge items: 0 of 1 expected (1 set aside") for c in codes
+    ), codes

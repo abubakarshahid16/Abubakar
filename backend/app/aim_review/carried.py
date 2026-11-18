@@ -33,3 +33,32 @@ def knowledge_rows(
             continue
         added.append(it)
     return added, elsewhere
+
+
+#: The words of the silent-loss guard (18 Nov 2026: a prompt rewording set every knowledge item aside and nothing said so).
+NONE_WRITTEN = "knowledge items: 0"
+
+
+def say_none(model, names: str, cause: str) -> None:
+    """When books are needed but not held and the knowledge step writes NO item, the run's calls say so (a code note, no model,
+    no cost): "knowledge items: 0 of N expected (cause)". Shown in the run record and on the How-made tab."""
+    import logging
+
+    from .engine import CallRecord
+
+    expected = len([n for n in str(names or "").split("; ") if n.strip()])
+    if not expected:
+        return
+    words = f"{NONE_WRITTEN} of {expected} expected ({cause})"
+    logging.getLogger(__name__).warning("general review: %s", words)
+    meter = getattr(model, "meter", None)
+    if meter is not None and hasattr(meter, "calls"):
+        meter.calls.append(
+            CallRecord(
+                step="aim_checklist_knowledge",
+                model="code",
+                prompt_chars=0,
+                ok=False,
+                code=words,
+            )
+        )
