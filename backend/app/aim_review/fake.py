@@ -15,6 +15,27 @@ def _long_lines(text: str):
     return [ln.strip() for ln in text.splitlines() if len(ln.strip()) >= 25]
 
 
+#: The fake knowledge step's one item, carried by this paper (a real build writes one or more).
+KNOWLEDGE_ITEM = {
+    "topic": "fake knowledge item",
+    "what_to_check": "fake",
+    "applies_when": "always",
+    "paper_fields": ["section"],
+    "kind": "presence",
+    "stands_in_for": "engineering practice",
+    "carried_by": "HERE",
+}
+
+
+def _fixed_answer(step: str) -> dict | None:
+    """The fixed answer of a step that reads no material (the knowledge step, the attack), else None."""
+    if step == "aim_checklist_knowledge":
+        return {"items": [dict(KNOWLEDGE_ITEM)]}
+    if step == "aim_attack":
+        return {"remove": [], "fix": [], "add": []}
+    return None
+
+
 class FakeModel:
     """No network: fixed JSON per step built from the material in the prompt; the gate is asked, nothing is sent.
 
@@ -154,8 +175,8 @@ class FakeModel:
                 }
             )
             return {"items": items}
-        if step == "aim_attack":
-            return {"remove": [], "fix": [], "add": []}
+        if (fixed := _fixed_answer(step)) is not None:
+            return fixed
         if step == "aim_judge":
             ids = re.findall(r'"id": "([CG]\d+)"', prompt)
             n, txt = pages[0]

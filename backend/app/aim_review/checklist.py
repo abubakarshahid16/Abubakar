@@ -59,7 +59,9 @@ SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the require
 #: checklist saved before the night's checklist fixes). Change it with every change to S2, S3, S3K, the attack or their code.
 #: "2026-11-18.1": knowledge items say which paper carries them; a cut answer is asked again in halves; a needed book outside
 #: the catalog gets an alias.
-CHECKLIST_METHOD = "2026-11-18.1"
+#: "2026-11-18.2": one item per table of values that checks EVERY row (order across categories, consistent units and decades,
+#: values within the order of magnitude of public practice).
+CHECKLIST_METHOD = "2026-11-18.2"
 
 
 def _dumps(o) -> str:
@@ -559,6 +561,7 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
         "floor": floor,
         "most": most,
         "kinds": _dumps(list(ITEM_KINDS)),
+        "table_rows": P.TABLE_ROWS_ASK,
     }
     try:
         out = model.ask(
