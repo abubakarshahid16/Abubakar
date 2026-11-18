@@ -475,9 +475,14 @@ def _steps(
         cancelled,
     )
     if not state.stop_reason:
-        say(96, "judge")
+        say(95, "second reader")
         from .editor import s5_edit
+        from .second_read import s4c_second_read
 
+        s4c_second_read(
+            mdl, paper, state.decided, checklist, lead
+        )  # a finding the AI alone decided needs two readers
+        say(96, "judge")
         s5_edit(mdl, paper, state.decided, lead)
 
 

@@ -144,6 +144,8 @@ _STATE_WORDS = frozenset(aim_review.NOT_SENT_NOTES) | {
     aim_review.PROVISIONAL_FAILS,
     aim_review.PROVISIONAL_UNCHECKED,
     aim_review.CONTRACTOR_FILLED,  # where the figure came from: shown to every viewer
+    aim_review.TWO_READERS_AGREE,
+    aim_review.READERS_DIFFER,
 }
 
 

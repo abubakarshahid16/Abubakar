@@ -1183,3 +1183,32 @@ def test_the_contractor_filled_note_stays_on_the_line_and_the_sheet_for_every_vi
         note,
         note,
     ]
+
+
+# ---- the second reader's notes (18 Nov 2026): every viewer sees them; a differing line stays one point and one comment ----------
+
+
+def test_the_readers_notes_are_state_words_for_every_viewer_and_the_counts_hold(world):
+    differ = "readers differ: first Not met, second Met"
+    rows = [
+        _line(1, "Question", "Question", code_note=differ, comment="To be checked: the two readers differ. First reader (Not met): x"),
+        _line(2, "Not met", "AI opinion: not met", code_note="two readers agree"),
+        _line(3, "Question", "Question", code_note=differ + "; the rule's figure 707 bar", standard="QX-GONE-707",
+              book_document_id="doc_inv_gone"),  # a book the viewer may not open
+    ]  # fmt: skip
+    make_run("gen_readers", rows, created="2026-11-19T05:00:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_readers").json()
+    notes = [p["code_note"] for p in body["points"]]
+    assert (
+        notes[0] == differ
+        and notes[1] == "two readers agree"
+        and notes[2] == "readers differ"
+    )  # hidden: state words only
+    assert sorted(cm["lines"] for cm in body["comments"]) == [[1], [2], [3]]
+    rep = body["completeness"]
+    assert (
+        rep["ok"] is True
+        and rep["page"] == rep["database"] == rep["file_rows"] == 3
+        and rep["comment_rows"] == 3
+    )

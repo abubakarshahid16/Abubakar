@@ -97,6 +97,10 @@ EDITED = "edited"
 #: `code_note` part of a line whose quoted figure the contractor FILLED IN beside a who-supplies note ("380 psig (By Contractor)"):
 #: judged as a stated value (owner, 18 Nov 2026 after live); the note says where the figure came from.
 CONTRACTOR_FILLED = "filled in by the contractor (By Contractor)"
+#: `code_note` parts of the second reader (S4c, `second_read.py`): both readers find a fault, or they differ ("readers differ:
+#: first Not met, second Met"): a line the readers differ on is sent as a Question to be checked, with both readers' words.
+TWO_READERS_AGREE = "two readers agree"
+READERS_DIFFER = "readers differ"
 NOT_SENT_NOTES = (NOT_JUDGED, PROVISIONAL, PAPER_COMPARE_PASSED, EDITED)
 
 
@@ -166,7 +170,9 @@ __all__ = [
     "PROVISIONAL",
     "PROVISIONAL_FAILS",
     "PROVISIONAL_UNCHECKED",
+    "READERS_DIFFER",
     "SENDABLE",
+    "TWO_READERS_AGREE",
     "WHYS",
     "WHY_CITED",
     "WHY_GOVERNS",

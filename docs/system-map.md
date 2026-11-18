@@ -472,6 +472,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `aim_review_store` | The general review's storage: its runs, lines and saved checklists (`aim_runs`, `aim_lines`, `aim_checklists`), and `exclude`, which keeps a general run out of every old reader of `review_runs` (order 14) |
 | `aim_review_history` | A paper's review history, general and earlier, newest first (read only; earlier runs keep their own download routes; a paper outside the caller's scope has none) (order 14) |
 | `aim_review.book_names` | A held book is never "not held": the AI's needed names resolved by the identifier in the name (the app's own lookup); the paper's own citations never cut; the last review's equipment type for the plan (order 14) |
+| `aim_review.second_read` | The general review's second reader (S4c): a finding the AI alone decided is sent only when a blind second reader also finds a fault on a verified quote; else a Question with both readers' words (order 14) |
 | `aim_review.always` | The general review's three always-on method items of every review: G1 cited standards, G2 internal consistency, G3 required entries (order 14) |
 | `aim_review.scope_books` | Which rule books a contract may be checked against: only those its own verified scope names, or that it cites; a saved checklist resting on others is rebuilt (order 14) |
 | `aim_review.checklist` | The general review's checklist of a paper TYPE: S2 chooses books among the listed ones, S3 writes items from their clauses only (no paper), the attack by a stronger model (order 14) |
