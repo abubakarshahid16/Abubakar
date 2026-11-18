@@ -1053,3 +1053,110 @@ def test_the_editors_same_point_mark_is_not_shown_in_the_code_note(world):
         None,
         "provisional_unchecked",
     ]
+
+
+# ---- review of 334862d0..9ec3a6fe (18 Nov 2026): the provisional kind in the key; a merged comment's own state; rule 5 ------------
+
+
+def test_a_provisional_figure_never_joins_an_ordinary_question_of_its_item(world):
+    cmp_ = json.dumps(
+        {"result": "unclear", "why": "invented compare", "read_from": "verified quotes"}
+    )
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", page=1, code_note="provisional_unchecked", ask="concern"),
+        _line(2, "Question", "Question", item_id="C01", page=2, ask="open", deferred=1),
+        _line(3, "Question", "Question", item_id="C01", page=3, ask="confirm"),
+        _line(4, "Question", "Question", item_id="C02", page=4, code_note="provisional_fails", code_compare_json=cmp_),
+        _line(5, "Question", "Question", item_id="C02", page=5, code_compare_json=cmp_),
+    ]  # fmt: skip
+    make_run("gen_prov_key", rows, created="2026-11-18T23:00:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_prov_key")
+        .json()
+    )
+    assert [cm["lines"] for cm in body["comments"]] == [[1], [2, 3], [4], [5]]
+    assert body["completeness"]["ok"] is True
+
+
+def test_a_merged_comment_carries_the_safe_state_never_its_first_members(world):
+    nums = {"paper_value": "25", "operator": "<=", "rule_value": "20"}
+    cmp_ = json.dumps(
+        {"result": "unclear", "why": "invented compare", "read_from": "verified quotes"}
+    )
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", page=1, ask="confirm"),
+        _line(2, "Question", "Question", item_id="C01", page=2, ask="open", deferred=1),
+        _line(3, "Question", "Question", item_id="C02", page=3, ask="confirm", numbers_json=json.dumps(nums),
+              code_compare_json=cmp_),
+        _line(4, "Question", "Question", item_id="C02", page=4, ask="concern", code_compare_json=cmp_),
+        _line(5, "Question", "Question", item_id="C03", page=5, ask="confirm"),
+        _line(6, "Question", "Question", item_id="C03", page=6, ask="confirm"),
+        _line(7, "Question", "Question", item_id="C04", page=7, ask="confirm"),
+        _line(8, "Question", "Question", item_id="C04", page=8),  # unknown
+    ]  # fmt: skip
+    make_run("gen_state", rows, created="2026-11-18T23:10:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_state")
+        .json()
+    )
+    by = {tuple(cm["lines"]): cm for cm in body["comments"]}
+    assert by[(1, 2)]["ask"] == "open" and by[(1, 2)]["deferred"] is True
+    assert (
+        by[(3, 4)]["ask"] == "concern" and by[(3, 4)]["numbers"] is None
+    )  # the members' numbers differ
+    assert (
+        by[(3, 4)]["compared"] == "page 3: invented compare | page 4: invented compare"
+    )
+    assert by[(5, 6)]["ask"] == "confirm" and by[(5, 6)]["deferred"] is False
+    assert by[(7, 8)]["ask"] == ""  # one member unknown: never "confirm"
+    assert "The same point at 1 more place: " in by[(1, 2)]["comment"]
+
+
+def test_a_book_the_viewer_may_not_open_serves_no_numbers_comparison_or_note_words(
+    world,
+):
+    """Rule 5: the judge's numbers, code's comparison and the code note may hold the rule's figures; for a book the viewer may
+    not open none is served, and only the note's state words stay (so the line is sent and grouped as for any viewer)."""
+    nums = {
+        "paper_value": "25",
+        "paper_unit": "bar",
+        "operator": "<=",
+        "rule_value": "707",
+        "rule_unit": "bar",
+    }
+    cmp_ = json.dumps(
+        {
+            "result": "unclear",
+            "why": "25 bar <= 707 bar: unclear",
+            "read_from": "verified quotes",
+        }
+    )
+    rows = [
+        _line(1, "Question", "Question", numbers_json=json.dumps(nums), code_compare_json=cmp_,
+              code_note="provisional_unchecked; the rule's figure 707 bar was read"),
+        _line(2, "Question", "Question", standard="QX-GONE-707", book_document_id="doc_inv_gone", numbers_json=json.dumps(nums),
+              code_compare_json=cmp_, code_note="provisional_unchecked; the rule's figure 707 bar was read"),
+    ]  # fmt: skip
+    make_run("gen_hidden_nums", rows, created="2026-11-18T23:20:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_hidden_nums").json()
+    shown, hidden = body["points"]
+    assert (
+        shown["numbers"] == nums and shown["compared"] and "707" in shown["code_note"]
+    )  # a book the viewer may open
+    assert (
+        hidden["numbers"] is None
+        and hidden["compared"] == ""
+        and hidden["code_note"] == "provisional_unchecked"
+    )
+    assert "707" not in json.dumps(body["points"][1]) and "707" not in json.dumps(
+        next(cm for cm in body["comments"] if cm["lines"] == [2])
+    )
+    wb = _sheet(
+        c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_hidden_nums")
+    )
+    row = aim_review_completeness._table(wb, "All points")[1]
+    assert not any("707" in str(cell) for cell in row)
+    assert body["completeness"]["ok"] is True

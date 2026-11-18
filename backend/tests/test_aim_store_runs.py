@@ -493,3 +493,27 @@ def test_a_table_made_before_the_two_columns_gets_them_and_takes_the_insert(
         and got[0]["deferred"] == 0
         and got[0]["comment"] == "invented comment"
     )
+
+
+def test_a_table_whose_columns_stand_in_another_order_takes_the_named_insert(
+    temp_storage,
+):
+    """The insert names its columns: a table whose columns stand in another order (made by hand, or by later additions) still gets
+    each value in its own column (a positional insert would put them in the wrong ones)."""
+    run_id = _started()
+    conn = db.connect()
+    conn.execute(f"DROP TABLE {store.LINES}")
+    cols = ", ".join(
+        f"{c} {'INTEGER' if c in ('line_no', 'page', 'deferred') else 'TEXT'}"
+        for c in reversed(store.LINE_COLUMNS)
+    )
+    conn.execute(f"CREATE TABLE {store.LINES} ({cols}, PRIMARY KEY (run_id, line_no))")
+    store.finish_run(
+        conn, run_id, _result([_line(ask="confirm", comment="its own comment")]), NOW
+    )
+    got = store.lines(conn, run_id)[0]
+    assert (
+        got["comment"] == "its own comment"
+        and got["ask"] == "confirm"
+        and got["item_id"] == "C01"
+    )

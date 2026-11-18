@@ -118,8 +118,9 @@ def _apply(out: dict, part: dict, offered: dict, sent: dict, paper) -> int:
     return moved
 
 
-#: The code-note part that marks the lines the editor grouped as ONE point (`aim_review_view.group_comments` reads it): every
-#: member carries "same point as line <the group's first line>".
+#: The code-note part that marks the lines the editor grouped as ONE point: every member carries "same point as line <the group's
+#: first line>". A record of the editor's view only: the sheet groups by checklist item (`aim_review_view._keys`) and does not
+#: show this mark.
 SAME_POINT = "same point as line"
 
 
