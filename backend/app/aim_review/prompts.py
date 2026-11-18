@@ -123,7 +123,8 @@ A figure the contractor FILLED IN beside a note of who supplies it, such as "380
 it as any value (Met, Not met or Question, and give "numbers" for a limit). A comment on a value left open (no figure) is a
 QUESTION to the vendor, never a statement that it fails.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
-NEVER Met or Not met on a value the vendor left open; for a limit, give "numbers" and code will compare them (do not compare
+NEVER Met or Not met on a value the vendor left open; for EVERY item that rests on a held rule with a numeric limit, give
+"numbers" (the paper's figure and the rule's limit) whenever both are stated, WHATEVER your label, and code will compare them (do not compare
 yourself); items whose source is not "held standard" (engineering knowledge) may only be "Question", "AI opinion" or
 "Does not apply".
 Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "field": "the paper field or section",

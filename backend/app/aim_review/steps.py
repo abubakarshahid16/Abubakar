@@ -159,6 +159,35 @@ def _ask(j: dict, label: str, deferred: bool, code_cmp, nums, note: str = "") ->
     return ASK_CONFIRM if j.get("ask") == ASK_CONFIRM else ASK_CONCERN
 
 
+def _compare(
+    it: dict, label: str, nums, quote: str, notes: list[str], paper, deferred: bool
+):
+    """(label, code's comparison). CODE DOES EVERY NUMBER AND UNIT COMPARISON (the project's top rule): a Met / Not met with
+    numbers is decided by code (a held or always-on item); and a Question or AI opinion whose numbers code reads from VERIFIED
+    quotes against a HELD rule's limit is decided by code too, whatever the AI's label: a fail is a Fail by code, a pass a Pass
+    by code (18 Nov 2026 after live: the judge kept "Question" on filled-in figures, so code never compared them). When code
+    reaches no verdict ("unclear", a paper-vs-paper pairing, a value it cannot read) the AI's label stands. A value left open
+    is never compared."""
+    held = it["source"] == HELD
+    rule_quote = str(it.get("rule_quote") or "")
+    if nums and label in ("Met", "Not met") and (held or it.get("always_on")):
+        return _numbers(nums, quote, rule_quote, notes, paper)
+    if nums and held and quote and not deferred and label in ("Question", "AI opinion"):
+        tried: list[str] = []
+        new, cmp_ = _numbers(nums, quote, rule_quote, tried, paper)
+        if (
+            isinstance(cmp_, dict)
+            and cmp_.get("read_from") == "verified quotes"
+            and cmp_.get("result") in ("pass", "fail")
+        ):
+            notes.extend(tried)
+            return new, cmp_
+    if it["kind"] == "limit" and label in ("Met", "Not met") and held:
+        notes.append("a limit with no numbers for code to compare")
+        return "Question", None
+    return label, None
+
+
 def _left_open(j: dict, quote: str, page, notes: list[str]) -> bool:
     """Is the judged value left open? A figure the contractor FILLED IN beside a who-supplies note is a stated value, judged as
     any value (owner, 18 Nov 2026 after live; the note says so on the line; Pass/Fail only when code compares it with a held
@@ -661,18 +690,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
             "the value is left open by the vendor: a question, never a verdict"
         )
     nums = j.get("numbers") if isinstance(j.get("numbers"), dict) else None
-    code_cmp = None
-    if (
-        nums
-        and label in ("Met", "Not met")
-        and (it["source"] == HELD or it.get("always_on"))
-    ):
-        label, code_cmp = _numbers(
-            nums, quote, str(it.get("rule_quote") or ""), notes, paper
-        )
-    elif it["kind"] == "limit" and label in ("Met", "Not met") and it["source"] == HELD:
-        label = "Question"
-        notes.append("a limit with no numbers for code to compare")
+    label, code_cmp = _compare(it, label, nums, quote, notes, paper, deferred)
     if it["source"] != HELD and label in (
         "Met",
         "Not met",
