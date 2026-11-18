@@ -111,7 +111,11 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "clause": row.get("clause") or "",
         "source": row.get("source") or "",
         "topic": row.get("topic") or "",
-        "code_note": row.get("code_note") or "",
+        "code_note": "; ".join(
+            x
+            for x in str(row.get("code_note") or "").split("; ")
+            if not x.startswith("same point as line")
+        ),
         "quote_unverified": bool(row.get("quote_unverified")),
         "book_document_id": _blank(row.get("book_document_id")),
         "compared": _compared(row),

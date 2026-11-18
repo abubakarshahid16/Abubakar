@@ -480,7 +480,7 @@ def test_a_provisional_figure_over_a_limit_the_paper_states_is_sent_with_both_nu
         and d["code_compare"]["result"] == "fail"
     )
     assert d["comment"] == (
-        "The stated 380 psig (by contractor) appears above the 23.5 barg stated on page 2; please confirm."
+        "The stated 380 psig (by contractor) appears above the 23.5 barg stated on page 2 (the AI paired these two values; code compared them); please confirm."
     )
 
 
@@ -519,7 +519,7 @@ def test_a_verified_rule_operator_with_a_paper_limit_never_yields_pass_or_fail(
             "code"
         ] and _sent(d)
         assert d["comment"] == (
-            "The stated 12 bar is above the 10 bar stated on page 3; contractor to confirm the value. "
+            "The stated 12 bar is above the 10 bar stated on page 3 (the AI paired these two values; code compared them); contractor to confirm the value. "
             "the model's words"
         )
 
@@ -539,7 +539,7 @@ def test_a_limit_in_the_judged_quote_itself_names_the_judged_page():
         and _sent(d)
     )
     assert d["comment"].startswith(
-        "The stated 18 bar is above the 15 bar stated on page 4;"
+        "The stated 18 bar is above the 15 bar stated on page 4 (the AI paired these two values; code compared them);"
     )
 
 
