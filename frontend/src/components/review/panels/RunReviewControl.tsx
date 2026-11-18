@@ -54,9 +54,9 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
     setPanelOpen(true); // the plan and the list of documents that would leave are shown before anything starts
   }
 
-  async function start(engine: Engine, shownDocumentIds: string[]) {
+  async function start(engine: Engine, shownDocumentIds: string[], ticked: string[] = []) {
     setLaunch({ kind: "running" });
-    const result = await reviewPlan.start(submittalId, engine, shownDocumentIds);
+    const result = await reviewPlan.start(submittalId, engine, shownDocumentIds, ...(ticked.length ? [ticked] : []));
     setPanelOpen(false);
     if (!result.ok) {
       // SHOWN AS THE API RETURNED IT - a refusal ("a review of this submittal
@@ -94,7 +94,7 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
         )}
       </div>
       {panelOpen && launch.kind !== "running" && (
-        <StartPanel submittalId={submittalId} starting={false} onStart={(e, ids) => void start(e, ids)}
+        <StartPanel submittalId={submittalId} starting={false} onStart={(e, ids, ticked) => void start(e, ids, ticked)}
           onCancel={() => setPanelOpen(false)} />
       )}
       {launch.kind === "error" && (

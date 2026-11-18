@@ -159,7 +159,9 @@ def _last_general_cost(conn, document_id: str) -> tuple[float | None, str | None
     return float(usd), LAST_COST_READ
 
 
-def general_plan(conn, document_id, allowed, plan, facts, reading, out: dict) -> dict:
+def general_plan(
+    conn, document_id, allowed, plan, facts, reading, out: dict, project_ids=()
+) -> dict:
     """The pre-start answer of the general review: the documents the review may send (the paper and the rule books chosen from the
     library's own records, `aim_review.candidates`), the upper bound of its cost, and one sentence. No write, no model, no call."""
     from . import aim_review_gate
@@ -170,7 +172,7 @@ def general_plan(conn, document_id, allowed, plan, facts, reading, out: dict) ->
 
         out["unscored_note"] = agent_review_gate.UNSCORED_WORDS
     ctx = (conn, document_id, allowed, facts, reading)
-    out["documents"] = review_leaving.documents_block(ctx, plan, ())
+    out["documents"] = review_leaving.documents_block(ctx, plan, tuple(project_ids))
     out["boundary"] = "documents you may read"
     leaves = plan.text_leaves
     cap = aim_review_gate.max_usd()

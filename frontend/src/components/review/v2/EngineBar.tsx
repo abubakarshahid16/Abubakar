@@ -16,7 +16,8 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
   documentId: string | null; isAdmin: boolean | undefined; onStarted: (runId: string) => void;
 }) {
   const [engine, setEngine] = useState<EngineChoice>("automatic");
-  const { plan } = usePlan(documentId, engine);
+  const [ticked, setTicked] = useState<string[]>([]); // held Schedules the engineer chose to compare: the plan is asked again with them
+  const { plan } = usePlan(documentId, engine, ticked);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -29,10 +30,10 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
   const canReview = local ? !ready?.refused : ready != null && !ready.refused && listKnown;
   const contractLine = engine === "claude" && ready?.text_leaves === true && (leaving ?? []).some((d) => d.contract);
 
-  async function start(shown: string[]) {
+  async function start(shown: string[], chosen: string[] = []) {
     if (!documentId) return;
     setBusy(true); setProblem(null);
-    const r = await reviewPoints.start(documentId, engine, shown);
+    const r = await reviewPoints.start(documentId, engine, shown, ...(chosen.length ? [chosen] : []));
     setBusy(false);
     if (!r.ok) { setProblem(r.error.message); return; }
     setStep(false);
@@ -42,11 +43,12 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
     if (local || !ready?.text_leaves) { void start([]); return; } // nothing leaves this computer: no step is needed
     setStep(true);
   }
-  function choose(c: EngineChoice) { setEngine(c); setStep(false); setProblem(null); }
+  function choose(c: EngineChoice) { setEngine(c); setTicked([]); setStep(false); setProblem(null); }
 
   const list = ready && listKnown ? (
     <LeavingList leaving={leaving ?? []} notSent={ready.documents.not_sent ?? []} notReadable={ready.documents.not_readable ?? 0}
-      textLeaves={ready.text_leaves} webSearch={ready.documents.web_search} />
+      textLeaves={ready.text_leaves} webSearch={ready.documents.web_search}
+      offered={ready.documents.offered} onTick={(id, on) => setTicked((t) => (on ? [...new Set([...t, id])] : t.filter((x) => x !== id)))} />
   ) : null;
 
   return (
@@ -105,7 +107,7 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
             <p role="note" className="text-slateish-300">{ready.unscored_note}. Internal copy only.</p>
           )}
           <div className="flex gap-2">
-            <button type="button" disabled={busy} onClick={() => void start((leaving ?? []).map((d) => d.id))}
+            <button type="button" disabled={busy} onClick={() => void start((leaving ?? []).map((d) => d.id), ticked)}
               className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-1.5 font-semibold text-ink-950 disabled:opacity-50">Start</button>
             <button type="button" onClick={() => setStep(false)}
               className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-300">Cancel</button>

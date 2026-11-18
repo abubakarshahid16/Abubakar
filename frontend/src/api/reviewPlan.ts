@@ -17,6 +17,15 @@ export interface LeavingDocument {
   contract?: boolean;
 }
 
+/** A held Schedule the paper cites that no record ties to it: offered, unticked; ticking it puts it on the list shown (and so compares it). */
+export interface OfferedSchedule {
+  id: string;
+  title: string;
+  part: string;
+  why: string;
+  ticked: boolean;
+}
+
 export interface NotSentDocument {
   /** Absent for a cited standard the library does not hold: then `name` is what the paper cites. */
   id?: string;
@@ -45,6 +54,8 @@ export interface ReviewPlan {
   cost?: { at_most_usd: number | null; basis: string | null };
   documents: {
     leaving: LeavingDocument[];
+    /** Only for a contract paper that cites held Schedules no record ties to it. */
+    offered?: OfferedSchedule[];
     not_sent: NotSentDocument[];
     not_readable: number;
     summary?: string;
@@ -65,14 +76,14 @@ const isPlan = (b: unknown): boolean =>
 
 export const reviewPlan = {
   /** What would run, and which documents would leave, for this paper and engine. No side effect. */
-  plan: (submittalDocumentId: string, engine: Engine): Promise<Result<ReviewPlan>> =>
+  plan: (submittalDocumentId: string, engine: Engine, ticked: string[] = []): Promise<Result<ReviewPlan>> =>
     request<ReviewPlan>(
-      `/reviews/plan?submittal_document_id=${encodeURIComponent(submittalDocumentId)}&engine=${engine}`,
+      `/reviews/plan?submittal_document_id=${encodeURIComponent(submittalDocumentId)}&engine=${engine}${ticked.map((id) => `&project_document_ids=${encodeURIComponent(id)}`).join("")}`,
       undefined,
       isPlan,
     ),
   /** Start the review the plan allows, with the ids of the documents the screen listed as leaving. */
-  start: (submittalDocumentId: string, engine: Engine, shownDocumentIds: string[]): Promise<Result<ReviewRunSummary>> =>
+  start: (submittalDocumentId: string, engine: Engine, shownDocumentIds: string[], ticked: string[] = []): Promise<Result<ReviewRunSummary>> =>
     request<ReviewRunSummary>("/reviews/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -80,6 +91,7 @@ export const reviewPlan = {
         submittal_document_id: submittalDocumentId,
         engine,
         shown_document_ids: shownDocumentIds,
+        ...(ticked.length ? { project_document_ids: ticked } : {}),
       }),
     }),
 };

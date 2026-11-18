@@ -38,6 +38,9 @@ log = logging.getLogger(__name__)
 Key = tuple[str, str]
 
 WHY_REFERENCE = "cited by the paper; same package"
+#: A held Schedule the paper cites that no recorded link ties to it: OFFERED before the start, unticked; ticking it puts it on the shown list.
+WHY_OFFER = "cited by this paper; tick to compare it"
+WHY_CHOSEN_REFERENCE = "cited by this paper; chosen by you to compare"
 KIND_WORDS = "reference paper"
 #: The role the held parts of a contract package carry.
 PACKAGE_ROLE = "CONTRACT_DOCUMENT"
@@ -73,6 +76,8 @@ class Resolution:
     #: A held contract paper IS the Schedule, but no recorded link ties it to this paper (same recorded project, or on the run's shown list):
     #: said, never compared.
     unlinked: list[str] = field(default_factory=list)
+    #: Of `unlinked`, the ones held ONCE for that Schedule letter: the engineer may choose them at the start (the plan offers them).
+    offers: list[Ref] = field(default_factory=list)
 
 
 def name_of(key: Key) -> str:
@@ -151,6 +156,8 @@ def resolve(
         ids = held.get(key, [])
         if not ids:
             (res.unlinked if elsewhere.get(key) else res.not_held).append(name_of(key))
+            if len(elsewhere.get(key, [])) == 1:
+                res.offers.append(Ref(elsewhere[key][0], key, name_of(key)))
         elif len(ids) > 1:
             res.ambiguous.append(name_of(key))
         else:
@@ -166,6 +173,17 @@ def plan_entries(conn, paper_id: str, allowed: frozenset[str]) -> tuple[list[Ref
     res = resolve(conn, str(paper_id), pages)
     readable = [r for r in res.refs if r.doc_id in allowed]
     return readable, len(res.refs) - len(readable)
+
+
+def plan_offers(conn, paper_id: str, allowed: frozenset[str]) -> list[Ref]:
+    """The held Schedules the paper cites that no recorded link ties to it and that the caller may read: offered before the start, never
+    compared unless the engineer ticks them (they then join the shown list). A part the caller may not read is not named. Read-only."""
+    from app import agent_review_standards
+
+    pages = agent_review_standards.read_book(conn, str(paper_id)).pages
+    return [
+        r for r in resolve(conn, str(paper_id), pages).offers if r.doc_id in allowed
+    ]
 
 
 # ------------------------------------------------------------------ the check

@@ -4,9 +4,9 @@
  * so the review page and the older "Check it" panel show the same list. Titles are file names as the library shows them,
  * never internal ids; a document the reader may not open is counted, never named.
  */
-import type { LeavingDocument, NotSentDocument } from "../../../api/reviewPlan";
+import type { LeavingDocument, NotSentDocument, OfferedSchedule } from "../../../api/reviewPlan";
 
-export function LeavingList({ leaving, notSent, notReadable, textLeaves, webSearch }: {
+export function LeavingList({ leaving, notSent, notReadable, textLeaves, webSearch, offered, onTick }: {
   leaving: LeavingDocument[];
   notSent: NotSentDocument[];
   notReadable: number;
@@ -14,6 +14,9 @@ export function LeavingList({ leaving, notSent, notReadable, textLeaves, webSear
   textLeaves: boolean;
   /** The plan's sentence about the online search for rule books not held (public names only); absent while it is off. */
   webSearch?: string | null;
+  /** Held Schedules the paper cites that no record ties to it: unticked; ticking one puts it on the list (the screen asks the plan again). */
+  offered?: OfferedSchedule[];
+  onTick?: (id: string, on: boolean) => void;
 }) {
   const nothing = !textLeaves || leaving.length === 0;
   return (
@@ -41,6 +44,22 @@ export function LeavingList({ leaving, notSent, notReadable, textLeaves, webSear
             <p className="text-xs text-slateish-300" data-testid="leaving-web-search">{webSearch}</p>
           )}
         </>
+      )}
+      {textLeaves && offered && offered.length > 0 && onTick && (
+        <div data-testid="leaving-offered" className="space-y-1">
+          <p className="font-medium text-slateish-100">Parts of the contract this paper cites</p>
+          <ul className="space-y-1">
+            {offered.map((o) => (
+              <li key={o.id} className="text-slateish-200">
+                <label className="flex items-start gap-2">
+                  <input type="checkbox" checked={o.ticked} onChange={(e) => onTick(o.id, e.target.checked)} aria-label={`Compare ${o.part}`} />
+                  <span><span className="font-medium">{o.title}</span>
+                    <span className="text-slateish-400"> - {o.part}: {o.why}</span></span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {notSent.length > 0 && (
         <>
