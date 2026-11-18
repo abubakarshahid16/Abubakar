@@ -208,24 +208,29 @@ def test_no_chain_a_comment_spanning_two_places_stays_alone():
     "text",
     [
         "Inlet flange rating is Class 150 RF on all sheets, which meets the minimum.",
-        "All valves are specified with the stamp and bench testing; design pressures are well above the threshold.",
-        "Set pressure is well above 10 % over the stated operating pressure; the other sheets show the same pattern.",
+        "The coating system is acceptable for the stated service.",
     ],
 )
 def test_a_concern_that_only_states_a_pass_asks_nothing(text):
-    """Invented sentences of the kind the strict judges marked WRONG on the valve copies (pass statements sent as concerns)."""
+    """Invented one-sentence pass statements of the kind the strict judges marked WRONG on the valve copies."""
     assert asks.states_a_pass(text) and asks.asks_nothing(decided(text, ask="concern"))
 
 
 @pytest.mark.parametrize(
     "text",
     [
+        "The set pressure is well above the design pressure of the vessel.",  # review of d4dceeeb: these four were held back
+        "Operating temperature is well above the rated temperature of the lining.",
+        "Material is consistent with sheet 2 while the corrosion allowance is zero for sour service.",
+        "Two capacities are stated: 40 and 55; 55 meets the duty.",
         "The flange rating meets the minimum but not the set pressure on sheet 2.",
         "The rating is acceptable only for the first stage.",
         "The margin is adequate. Please confirm the design pressure.",
         "Does the rating meet the minimum?",
         "The stated set pressure exceeds the vessel rating.",
+        "The rating meets the minimum. The other sheets show the same.",  # two sentences
+        "A 300 bar rating is within the limit.",  # a figure beside a comparison word
     ],
 )
-def test_a_pass_word_beside_a_contrast_or_a_request_is_kept(text):
+def test_a_pass_word_beside_a_contrast_a_comparison_or_a_request_is_kept(text):
     assert not asks.asks_nothing(decided(text, ask="concern"))
