@@ -158,3 +158,78 @@ def _paper_of(conn):
     from app.aim_review.paper import load_paper
 
     return load_paper(conn, FORM)
+
+
+def test_a_window_that_fails_midway_counts_only_the_pages_that_came_back_and_the_record_says_which_were_not_read(
+    world,
+):
+    """A page counts as read only if text came back for it: window 2 fails -> pages_read is window 1's pages, the unread pages are named."""
+    from app.aim_review.engine import StepFailed
+
+    lines = [
+        _line(
+            1,
+            "Please confirm the rate card in Schedule B.",
+            quote="The design scope is set out in Schedule B.",
+        )
+    ]
+    calls = []
+
+    def answer(kw):
+        calls.append(kw["prompt"])
+        if len(calls) == 2:
+            raise StepFailed("aim_reference: stop network")
+        return {"checks": [{"n": 1, "result": "not_stated"}]}
+
+    record, _ = R.check(
+        world, Part(answer), _paper_of(world), lines, frozenset({MAIN}), "m"
+    )
+    row = next(r for r in record if r["part"] == "Schedule B")
+    assert row["status"] == "read in part"
+    assert (
+        row["pages_held"] == 60 and 0 < row["pages_read"] < 60
+    )  # only window 1 came back
+    assert (
+        "were not read" in row["reason"] and f"of {row['pages_held']}" in row["reason"]
+    )
+    assert (
+        lines[0]["comment"] == "Please confirm the rate card in Schedule B."
+    )  # no 'does not state this' after a failed window
+
+
+def test_the_team_file_and_the_page_say_how_many_pages_of_a_part_were_read():
+    from app import aim_review_sheet as S
+
+    words = S.reference_words(
+        {
+            "status": "read in part",
+            "pages_read": 43,
+            "pages_held": 84,
+            "reason": "pages 44-84 were not read: a call stopped",
+        }
+    )
+    assert (
+        words
+        == "read in part; pages read 43 of 84; pages 44-84 were not read: a call stopped"
+    )
+    assert S.reference_words({"status": "not held"}) == "not held"
+
+
+def test_the_how_sheet_of_the_team_file_lists_each_part_with_its_pages_read():
+    from openpyxl import Workbook
+
+    from app import aim_review_sheet as S
+
+    model = {
+        "checklist": {"key": "k", "items": 1, "always_items": 0, "built_from": "invented books", "reused": None},
+        "run_id": "r", "created_at": None, "finished_at": None, "seconds": None, "calls": [],
+        "references": [{"part": "Schedule B", "status": "read in part", "pages_read": 43, "pages_held": 84,
+                        "reason": "pages 44-84 were not read: a call stopped"}],
+    }  # fmt: skip
+    ws = Workbook().active
+    S._how(ws, model)
+    cells = {str(r[0]): str(r[1]) for r in ws.iter_rows(values_only=True) if r and r[0]}
+    assert (
+        cells["Part of the contract: Schedule B"]
+        == "read in part; pages read 43 of 84; pages 44-84 were not read: a call stopped"
+    )

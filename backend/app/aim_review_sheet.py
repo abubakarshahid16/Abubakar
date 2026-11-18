@@ -374,6 +374,17 @@ def _books_part(ws: Worksheet, model: dict, row: int) -> int:
     return row
 
 
+def reference_words(r: dict) -> str:
+    """What was done with one part of the contract package, in words: its status, the pages that were READ (only pages of windows that
+    came back count), and the reason (which pages were not read)."""
+    out = str(r.get("status") or "")
+    if r.get("pages_held"):
+        out += f"; pages read {r.get('pages_read') or 0} of {r['pages_held']}"
+    if r.get("reason"):
+        out += f"; {r['reason']}"
+    return out
+
+
 def _how(ws: Worksheet, model: dict) -> None:
     _head(ws, "How this review was made")
     ck = model["checklist"]
@@ -391,6 +402,10 @@ def _how(ws: Worksheet, model: dict) -> None:
                 "reused from an earlier review" if reused else "built for this review"
             ),
         ),
+        *[
+            (f"Part of the contract: {r['part']}", reference_words(r))
+            for r in model.get("references") or []
+        ],
         ("Run", model["run_id"]),
         ("Started", model["created_at"]),
         ("Finished", model["finished_at"]),

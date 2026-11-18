@@ -540,6 +540,9 @@ def _references(conn, run: dict, scope) -> list[dict]:
                 "reason": "" if hidden else str(r.get("reason") or ""),
                 "questions": r.get("questions"),
                 "settled": r.get("settled"),
+                # a page counts as read only when text came back for it (`references._check_ref`); None when not recorded
+                "pages_read": r.get("pages_read"),
+                "pages_held": r.get("pages_held"),
                 # the Form's sentences compared with the Schedule, and how many differ (absent on a run made before the comparison)
                 "compared": r.get("compared"),
                 "differs": r.get("differs"),
