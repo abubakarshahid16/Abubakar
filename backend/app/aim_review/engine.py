@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
-import re
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -72,9 +72,21 @@ class CallRecord:
 
 @dataclass
 class Meter:
+    """The run's own money meter. `held` is the worst case of every call in flight: a call starts only when spent + held + its
+    worst case stays within `cap`, all under `lock` (judge calls run side by side; `aim_review.parallel`)."""
+
     cap: float
     spent: float = 0.0
     calls: list[CallRecord] = field(default_factory=list)
+    held: float = 0.0
+    lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
+
+    def charge(self, rec: CallRecord) -> None:
+        with self.lock:
+            self.spent += rec.usd
+            self.calls.append(rec)
 
 
 class ClaudeModel:
@@ -97,31 +109,46 @@ class ClaudeModel:
         max_tokens: int,
         effort: str | None = None,
     ):
-        from app import agent_claude, claude_approved, claude_spend, reader_transport
+        from app import claude_spend
 
         parts = build_parts(system, cached, prompt, effort)
         chars = len(system) + len(cached or "") + len(prompt)
         cap_tokens = int(claude_spend.output_cap(model, max_tokens))
         worst = claude_spend.worst_case_usd(model, chars, max_tokens)
         rec = CallRecord(step=step, model=model, prompt_chars=chars)
-        if self.meter.spent + worst > self.meter.cap:
-            rec.ok, rec.code = False, "run_cap"
-            self.meter.calls.append(rec)
-            raise StepFailed(
-                f"{step}: run_cap (USD {self.meter.cap:.2f} would be crossed)"
+        with (
+            self.meter.lock
+        ):  # the worst case of every call in flight is counted before another starts
+            if self.meter.spent + self.meter.held + worst > self.meter.cap:
+                rec.ok, rec.code = False, "run_cap"
+                self.meter.calls.append(rec)
+                raise StepFailed(
+                    f"{step}: run_cap (USD {self.meter.cap:.2f} would be crossed)"
+                )
+            self.meter.held += worst
+        try:
+            return self._send(
+                step, model, parts, carries, max_tokens, cap_tokens, worst, rec
             )
+        finally:  # this call's hold on the run meter is released exactly once, on every path
+            with self.meter.lock:
+                self.meter.held -= worst
+
+    def _send(self, step, model, parts, carries, max_tokens, cap_tokens, worst, rec):
+        from app import agent_claude, claude_approved, claude_spend, reader_transport
+
         t0 = time.time()
         with claude_approved.carrying(sorted(carries)):
             raw = reader_transport.transport()
             if raw is None:
                 rec.ok, rec.code = False, "gate_closed"
-                self.meter.calls.append(rec)
+                self.meter.charge(rec)
                 raise StepFailed(f"{step}: gate_closed")
             try:
                 request = agent_claude._request(model, max_tokens, None)
             except agent_claude.AgentClaudeError:
                 rec.ok, rec.code = False, "gate_closed"
-                self.meter.calls.append(rec)
+                self.meter.charge(rec)
                 raise StepFailed(f"{step}: gate_closed") from None
             body = dict(request["body"])
             body.update(parts)
@@ -130,7 +157,7 @@ class ClaudeModel:
             if problems:
                 del request
                 rec.ok, rec.code = False, "bad_shape"
-                self.meter.calls.append(rec)
+                self.meter.charge(rec)
                 raise StepFailed(f"{step}: bad_shape ({'; '.join(problems)})")
             answer, failure = agent_claude._send_once(raw, request, body, step)
             del (
@@ -140,8 +167,7 @@ class ClaudeModel:
         if failure is not None:
             kind, code, billed, _retry = failure
             rec.ok, rec.code, rec.usd = False, str(code), (worst if billed else 0.0)
-            self.meter.spent += rec.usd
-            self.meter.calls.append(rec)
+            self.meter.charge(rec)
             raise StepFailed(f"{step}: {'stop' if kind == 'stop' else kind} {code}")
         answer = answer if isinstance(answer, dict) else {}
         usage = answer.get("usage") or {}
@@ -150,8 +176,7 @@ class ClaudeModel:
         rec.output_tokens = int(usage.get("output_tokens") or 0)
         rec.cache_read = int(usage.get("cache_read_input_tokens") or 0)
         rec.cache_write = int(usage.get("cache_creation_input_tokens") or 0)
-        self.meter.spent += rec.usd
-        self.meter.calls.append(rec)
+        self.meter.charge(rec)
         if answer.get("stop_reason") in ("max_tokens", "refusal"):
             rec.ok, rec.code = False, "stop_" + str(answer.get("stop_reason"))
             raise StepFailed(f"{step}: {rec.code}")
@@ -160,175 +185,6 @@ class ClaudeModel:
             rec.ok, rec.code = False, "no_json"
             raise StepFailed(f"{step}: no_json")
         return out
-
-
-# ------------------------------------------------------------------ the fake model (tests)
-
-
-def _long_lines(text: str):
-    return [ln.strip() for ln in text.splitlines() if len(ln.strip()) >= 25]
-
-
-class FakeModel:
-    """No network: fixed JSON per step built from the material in the prompt; the gate is asked, nothing is sent.
-
-    `answers` may give a step's answer (a dict, or a function of (step, cached, prompt)); `fail` makes a step raise; `asked`
-    keeps every call's step, model, carries and whether a paper block was cached (for tests)."""
-
-    dry = True
-
-    def __init__(
-        self,
-        *,
-        kind: str = "datasheet",
-        equipment_type: str | None = None,
-        subject_key: str = "fake",
-        answers: dict | None = None,
-        fail: dict | None = None,
-        meter: Meter | None = None,
-    ) -> None:
-        self.meter = meter or Meter(cap=0.0)
-        self.kind, self.equipment_type, self.subject_key = (
-            kind,
-            equipment_type,
-            subject_key,
-        )
-        self.answers = dict(answers or {})
-        self.fail = dict(fail or {})
-        self.asked: list[dict] = []
-
-    def ask(
-        self,
-        *,
-        step: str,
-        model: str,
-        system: str,
-        cached: str | None,
-        prompt: str,
-        carries: set[str],
-        max_tokens: int,
-        effort: str | None = None,
-    ):
-        from app import claude_approved, claude_spend
-
-        with claude_approved.carrying(sorted(carries)):
-            refused = claude_approved.refusal()
-        body = {
-            "model": model,
-            "max_tokens": int(claude_spend.output_cap(model, max_tokens)),
-            **build_parts(system, cached, prompt, effort),
-        }
-        problems = check_body(body)
-        chars = len(system) + len(cached or "") + len(prompt)
-        rec = CallRecord(step=step, model=model, prompt_chars=chars, code="fake")
-        self.asked.append(
-            {
-                "step": step,
-                "model": model,
-                "carries": frozenset(carries),
-                "cached": bool(cached),
-                "prompt": prompt,
-                "cached_text": cached or "",
-            }
-        )
-        if problems:
-            rec.ok, rec.code = False, "bad_shape"
-            self.meter.calls.append(rec)
-            raise StepFailed(f"{step}: bad_shape ({'; '.join(problems)})")
-        if refused is not None:
-            rec.ok, rec.code = False, f"refused:{refused[0]}"
-            self.meter.calls.append(rec)
-            raise StepFailed(f"{step}: stop {refused[0]}")
-        self.meter.calls.append(rec)
-        if step in self.fail:
-            rec.ok, rec.code = False, str(self.fail[step])
-            raise StepFailed(f"{step}: {self.fail[step]}")
-        given = self.answers.get(step)
-        if callable(given):
-            return given(step, cached or "", prompt)
-        if given is not None:
-            return given
-        return self.fake_answer(step, cached or "", prompt)
-
-    def fake_answer(self, step: str, cached: str, prompt: str):
-        """Deterministic stand-in answers that exercise every code path (quotes found and not found, numbers, labels)."""
-        pages = re.findall(r"=== PAGE (\d+) ===\n(.*?)(?=\n=== PAGE|\Z)", cached, re.S)
-        if step == "aim_identify":
-            n, txt = pages[0]
-            q = (_long_lines(txt) or [txt.strip()[:40]])[0][:60]
-            return {
-                "kind": self.kind,
-                "equipment_type": self.equipment_type,
-                "subject": "fake subject",
-                "subject_key": self.subject_key,
-                "service": "",
-                "evidence": [{"page": int(n), "quote": q}],
-                "cited": [],
-            }
-        if step == "aim_select":
-            ids = re.findall(r'"alias": "(B\d+)"', prompt)[:10]
-            return {
-                "books": [{"alias": a, "why": "fake", "subjects": "all"} for a in ids],
-                "not_held_needed": [],
-            }
-        if step in ("aim_checklist", "aim_checklist_retry"):
-            rules = re.findall(
-                r'\{"rule": "(R\d+)", "book": "(B\d+)", "clause": "([^"]*)", "page": (\d+), "text": "((?:[^"\\]|\\.)*)"',
-                prompt,
-            )
-            items = []
-            for i, (_rid, b, cl, pg, tx) in enumerate(rules[:4]):
-                items.append(
-                    {
-                        "topic": f"fake {i}",
-                        "what_to_check": "fake check",
-                        "book": b,
-                        "clause": cl,
-                        "page": int(pg),
-                        "rule_quote": json.loads(f'"{tx}"')[:80],
-                        "applies_when": "always",
-                        "paper_fields": ["any"],
-                        "kind": "presence",
-                        "source": "held standard",
-                    }
-                )
-            items.append(
-                {
-                    "topic": "fake knowledge",
-                    "what_to_check": "y",
-                    "book": "",
-                    "clause": "",
-                    "page": None,
-                    "rule_quote": "",
-                    "applies_when": "always",
-                    "paper_fields": ["any"],
-                    "kind": "presence",
-                    "source": "not from a held standard",
-                    "stands_in_for": "an unheld practice",
-                }
-            )
-            return {"items": items}
-        if step == "aim_attack":
-            return {"remove": [], "fix": [], "add": []}
-        if step == "aim_judge":
-            ids = re.findall(r'"id": "([CG]\d+)"', prompt)
-            n, txt = pages[0]
-            q = (_long_lines(txt) or [txt.strip()[:40]])[0][:50]
-            labels = ["Not met", "Question", "Met", "AI opinion", "Does not apply"]
-            return {
-                "judgments": [
-                    {
-                        "id": cid,
-                        "label": labels[i % len(labels)],
-                        "page": int(n),
-                        "quote": q,
-                        "field": "fake field",
-                        "comment": "fake comment",
-                    }
-                    for i, cid in enumerate(ids)
-                ]
-            }
-        return {}
 
 
 # ------------------------------------------------------------------ the run
@@ -470,6 +326,11 @@ class _Carried:
 
     def __init__(self, model, books: set[str], paper_id: str) -> None:
         self.model, self.books, self.paper_id = model, books, paper_id
+        self._lock = threading.Lock()  # judge calls run side by side
+
+    @property
+    def dry(self) -> bool:
+        return bool(getattr(self.model, "dry", False))
 
     @property
     def meter(self) -> Meter:
@@ -482,9 +343,11 @@ class _Carried:
         except StepFailed as exc:
             code = str(exc).split(":", 1)[-1].strip().split(" ", 1)[0]
             if code not in _NOT_SENT:
-                self.books |= ids
+                with self._lock:
+                    self.books |= ids
             raise
-        self.books |= ids
+        with self._lock:
+            self.books |= ids
         return out
 
 
@@ -780,3 +643,7 @@ def _judge(
             state.decided.append(line)
     if stop:
         state.stop(stop)
+
+
+# the fake model (tests and the dry run) lives in its own module; kept importable from here
+from .fake import FakeModel  # noqa: E402, F401
