@@ -495,3 +495,40 @@ def test_the_guard_reaches_a_run_and_the_how_made_tab(aim_db):
     assert any(
         c.startswith("knowledge items: 0 of 1 expected (1 set aside") for c in codes
     ), codes
+
+
+def test_a_checklist_that_lost_every_knowledge_item_is_used_once_never_saved(aim_db):
+    """Books needed but not held and the knowledge step wrote NO item: the checklist serves this run only and is never saved, so
+    the next run builds again instead of reusing the loss (18 Nov: a HAZOP checklist saved with every knowledge item set aside)."""
+    from tests.test_aim_method_helpers import MemoryStore
+
+    def select(step, cached, prompt):
+        import re
+
+        ids = re.findall(r'"alias": "(B\d+)"', prompt)[:10]
+        return {"books": [{"alias": a, "why": "x", "subjects": "all"} for a in ids],
+                "not_held_needed": [{"name": "API 9990 invented practice", "why": "needed"}]}  # fmt: skip
+
+    lost = {
+        "items": [
+            {"topic": "t", "what_to_check": "w", "carried_by": "an invented study"}
+        ]
+    }
+    store = MemoryStore()
+    for run_id in ("run_lost1", "run_lost2"):
+        model = E.FakeModel(kind="procedure", subject_key="test_procedure",
+                            answers={"aim_select": select, "aim_checklist_knowledge": lost})  # fmt: skip
+        r = aim_review.run(aim_db, run_id=run_id, paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}), store=store,
+                           max_usd=5.0, model=model)  # fmt: skip
+        assert r.status == "done" and not r.checklist_reused and store.puts == []
+        assert any(c["step"] == "aim_checklist_knowledge" for c in model.asked)
+
+
+def test_every_table_of_values_gets_one_item_that_checks_every_row():
+    """One general instruction (no kind named) in both checklist asks: a table of values gets ONE consistency item over EVERY row
+    (order across categories, units and decades, the order of magnitude of public practice); the checklist method is bumped."""
+    assert CL.P.TABLE_ROWS_ASK in CL.P.KNOWLEDGE_ASK
+    prompt = CL._for_type(CL.P.KNOWLEDGE_TASK) % {"identity": "x", "not_held": "x", "have": 0, "topics": "[]", "floor": 1,
+                                                  "most": 1, "kinds": "[]", "table_rows": CL.P.TABLE_ROWS_ASK}  # fmt: skip
+    assert "checks EVERY row" in prompt and "order of magnitude" in prompt
+    assert CL.CHECKLIST_METHOD == "2026-11-18.2"

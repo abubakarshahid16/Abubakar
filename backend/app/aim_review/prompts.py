@@ -70,9 +70,17 @@ For an item from engineering knowledge use "source": "not from a held standard",
 THE CLAUSES:
 %(material)s"""
 
+#: One item per table of values (18 Nov 2026: every HAZOP copy missed a risk target out of order and a frequency an order of
+#: magnitude off: the checklist asked whether the table and its source exist, never whether each row's value holds).
+TABLE_ROWS_ASK = (
+    "For EACH table of numerical values this kind of paper states (targets, rates, frequencies, probabilities, ratings, limits, "
+    'categories), include ONE "consistency" item that checks EVERY row of it: the values keep one order across the categories '
+    "(a more severe category never gets a looser target), units and decades are consistent, and each value is within the order "
+    "of magnitude that public practice gives for that quantity."
+)
 KNOWLEDGE_ASK = (
     "ALSO add the items a senior engineer always checks on this kind of paper that NO clause below covers "
-    '(at most 12), labelled "not from a held standard".'
+    '(at most 12), labelled "not from a held standard". ' + TABLE_ROWS_ASK
 )
 
 KNOWLEDGE_TASK = """TASK S3K - ENGINEERING KNOWLEDGE WHERE A RULE BOOK IS NOT HELD. The paper above was identified as:
@@ -82,7 +90,7 @@ The library does NOT hold these standards, which govern or apply to this type of
 The checklist written so far from the held rule books has %(have)d items; their topics: %(topics)s
 Write the items a senior engineer checks on THIS paper from your knowledge of the public requirements of each standard
 above, and, until the checklist has at least %(floor)d items in all, from general engineering practice for this kind of
-paper. Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
+paper. %(table_rows)s Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
 nothing can be checked against its words. At most %(most)d items. Reply with ONE JSON object only: {"items": [{
  "topic": "at most 8 words", "what_to_check": "one line", "applies_when": "the condition, or always",
  "paper_fields": ["the field(s) or section(s) of the paper it needs"], "kind": one of %(kinds)s,

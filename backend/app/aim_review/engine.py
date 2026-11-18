@@ -580,6 +580,20 @@ def _saved_current(store, state: _RunState) -> dict | None:
     return saved
 
 
+def _lost_knowledge(checklist: dict, sel: dict, run_id: str) -> bool:
+    """True when books are needed but not held and the knowledge step wrote NO item (a failed call, every item set aside): such a
+    checklist is used for this run only and never saved, so no later run reuses the loss (18 Nov 2026: a HAZOP checklist built
+    with every knowledge item set aside was saved and would have been reused; HAZOP holds no rule book, so it lost its risk
+    items). The run's calls already say why (`carried.say_none`)."""
+    if not sel.get("not_held") or checklist.get("knowledge_items"):
+        return False
+    log.warning(
+        "general review %s: no knowledge item written while books are not held: checklist not saved",
+        run_id,
+    )
+    return True
+
+
 def _checklist(
     conn,
     state: _RunState,
@@ -641,7 +655,7 @@ def _checklist(
     )
     state.not_held = list(sel["not_held"])
     state.unlisted |= set(sel["unlisted"])
-    if store is None:
+    if store is None or _lost_knowledge(checklist, sel, state.run_id):
         return checklist
     try:
         usd = round(mdl.meter.spent - usd_before, 6)
