@@ -57,6 +57,14 @@ def require_document(document_id: str, scope=None) -> dict:
     return dict(row)
 
 
+def require_named_user(scope: access.AccessScope, why: str) -> str:
+    """The caller's user id for a write that must name who made it; 401 (never a guess) when the caller has no identity, which is
+    also the answer of the earlier engine's issue route."""
+    if not scope.user_id:
+        raise HTTPException(status_code=401, detail=errors.safe_error(errors.UNAUTHENTICATED, why))
+    return scope.user_id
+
+
 def reject_unknown_params(request: Request, allowed: set[str]) -> None:
     """422 on any query parameter this endpoint does not understand."""
     unknown = sorted(set(request.query_params.keys()) - allowed)

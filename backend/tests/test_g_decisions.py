@@ -62,15 +62,15 @@ def test_accept_records_who_and_when_and_the_page_shows_it(world):
     assert _page(c)["comments"][1]["decision"] is None  # another comment is untouched
 
 
-def test_edit_needs_text_and_keeps_the_original(world):
+def test_edit_needs_text_and_never_copies_the_original(world):
     c = client(PAPER, BOOK)
     assert _decide(c, 1, "edit").status_code == 422
     assert _decide(c, 1, "edit", text="  Engineer's own words.  ").status_code == 200
     first = _page(c)["comments"][0]
-    assert (
-        first["decision"]["text"] == "Engineer's own words."
-        and first["decision"]["original"] == first["we_ask"]
-    )
+    assert first["decision"]["text"] == "Engineer's own words."
+    # rule 5: the comment text as the deciding engineer saw it (a book's name unmasked) is not copied into the record or served
+    assert "original" not in first["decision"]
+    assert all(r["original"] is None for r in _rows())
 
 
 def test_reject_needs_a_one_line_reason(world):
@@ -96,15 +96,32 @@ def test_decisions_are_append_only_and_the_latest_wins(world):
     assert [r["state"] for r in _rows()] == ["accept", "reject"]  # both rows stay
 
 
-def test_the_audit_holds_words_and_ids_never_the_engineers_text(world):
-    c = client(PAPER, BOOK)
-    _decide(c, 1, "edit", text="A private engineering remark.")
+def _audit_rows():
     with db.connect() as conn:
-        rows = conn.execute(
-            "SELECT action, detail FROM audit_events WHERE action = 'general_comment_decided'"
+        return conn.execute(
+            "SELECT actor_user_id, actor_username, detail FROM audit_events WHERE action = 'general_comment_decided' ORDER BY id"
         ).fetchall()
-    assert len(rows) == 1 and "private engineering remark" not in rows[0]["detail"]
-    assert json.loads(rows[0]["detail"])["state"] == "edit"
+
+
+def test_the_audit_holds_ids_and_states_never_the_engineers_words(world):
+    with db.connect() as conn, conn:
+        conn.execute(
+            "INSERT INTO users (id, email, display_name, password_hash, created_at) VALUES ('eng', 'eng@example.test', 'Eng', 'x', '2026-11-18T00:00:00+00:00')"
+        )
+    c = client(PAPER, BOOK)
+    assert _decide(c, 1, "edit", text="A private engineering remark.").status_code == 200
+    assert (
+        _decide(c, 3, "reject", reason="A private reason about the vendor.").status_code
+        == 200
+    )
+    rows = _audit_rows()
+    assert len(rows) == 2
+    for r in rows:
+        assert "private" not in r["detail"]  # neither the edit's text nor the reject's reason
+        assert set(json.loads(r["detail"])) == {"run", "comment", "part", "state"}
+        # who: the id AND the login name, like every other write route (never the id in the name column and NULL in the id one)
+        assert r["actor_user_id"] == "eng" and r["actor_username"] == "eng@example.test"
+    assert [json.loads(r["detail"])["state"] for r in rows] == ["edit", "reject"]
 
 
 def test_an_unknown_comment_is_a_404_and_writes_nothing(world):
@@ -123,7 +140,8 @@ def test_only_a_signed_in_user_who_may_read_the_paper_can_decide(world):
     app.dependency_overrides[access.current_scope] = lambda: access.AccessScope(
         user_id=None, allowed_document_ids=frozenset({PAPER}), unrestricted=True
     )
-    assert _decide(TestClient(app), 1).status_code == 401  # nobody to name
+    r = _decide(TestClient(app), 1)  # nobody to name: 401 with a plain sentence, as the earlier engine's issue route answers
+    assert r.status_code == 401 and "engineer" in r.text
     assert _rows() == []
 
 

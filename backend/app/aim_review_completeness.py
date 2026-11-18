@@ -87,9 +87,11 @@ def _cut_check(
         for col, name in (
             ("Comment", "comment"),
             ("Quote", "quote"),
+            ("Paper says", "paper_says"),
+            ("We ask", "we_ask"),
         ):  # columns found by their header, never by a number
             cell = _text(r[aim_review_sheet.COMMENT_HEADERS.index(col)])
-            whole = safe_cell_text(by_n[n][name])
+            whole = safe_cell_text(by_n[n].get(name) or "")
             if cell == whole:
                 continue
             if (

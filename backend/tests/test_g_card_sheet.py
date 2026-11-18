@@ -113,3 +113,26 @@ def test_the_summary_says_the_comments_by_severity(workbook):
         str(c) for r in workbook[S.SUMMARY].iter_rows(values_only=True) for c in r if c
     )
     assert "Comments by severity" in text and "Check a value" in text
+
+
+def test_a_cut_card_cell_is_checked_like_the_comment_and_the_quote():
+    """The visible "Paper says" and "We ask" cells are read back too: a cell that differs from the page's text and carries no cut mark
+    with its note is a problem (the earlier check covered Comment and Quote only)."""
+    from app import aim_review_completeness as C
+    from app import aim_review_sheet as S
+
+    view = {
+        "comments": [
+            {"n": 1, "comment": "c", "quote": "q", "paper_says": "page 1: whole text", "we_ask": "Please state it."}
+        ]
+    }
+    row = [None] * len(S.COMMENT_HEADERS)
+    for h, v in {"No.": 1, "Comment": "c", "Quote": "q", "Paper says": "page 1: whole text", "We ask": "Please state it."}.items():
+        row[S.COMMENT_HEADERS.index(h)] = v
+    assert C._cut_check([row], view) == (0, [])
+    row[S.COMMENT_HEADERS.index("We ask")] = "Please sta"  # cut with no mark
+    marked, problems = C._cut_check([row], view)
+    assert marked == 0 and len(problems) == 1 and "we_ask" in problems[0]
+    row[S.COMMENT_HEADERS.index("We ask")] = "Please state it."
+    row[S.COMMENT_HEADERS.index("Paper says")] = "page 1: who"  # cut with no mark either
+    assert len(C._cut_check([row], view)[1]) == 1

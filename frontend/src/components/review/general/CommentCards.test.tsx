@@ -110,7 +110,7 @@ describe("comment cards", () => {
 
 
 const ok = (state: string, extra: Record<string, unknown> = {}) => ({
-  ok: true, data: { run_id: "run1", comment: 1, part: "comment", decision: { state, words: state === "accept" ? "Accepted" : state === "edit" ? "Edited" : "Rejected", text: null, original: null, reason: null, by: "Dana Engineer", at: "2026-11-18T12:00:00+00:00", revisions: 1, ...extra } },
+  ok: true, data: { run_id: "run1", comment: 1, part: "comment", decision: { state, words: state === "accept" ? "Accepted" : state === "edit" ? "Edited" : "Rejected", text: null, reason: null, by: "Dana Engineer", at: "2026-11-18T12:00:00+00:00", revisions: 1, ...extra } },
 });
 
 describe("H10: Accept / Edit / Reject on each card", () => {
@@ -181,7 +181,7 @@ describe("H10: Accept / Edit / Reject on each card", () => {
   });
 
   it("a decision already on record is shown, with how many decisions the comment has", () => {
-    const decided = card(1, { decision: { state: "reject", words: "Rejected", text: null, original: null, reason: "Not a real problem.", by: "Dana", at: "2026-11-18T12:00:00+00:00", revisions: 3 } });
+    const decided = card(1, { decision: { state: "reject", words: "Rejected", text: null, reason: "Not a real problem.", by: "Dana", at: "2026-11-18T12:00:00+00:00", revisions: 3 } });
     mount(review([decided]));
     expect(screen.getByTestId("card-decision-state")).toHaveTextContent("Rejected by Dana");
     expect(screen.getByTestId("card-decision-state")).toHaveTextContent("Not a real problem.");
