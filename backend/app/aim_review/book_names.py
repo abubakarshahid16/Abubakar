@@ -7,9 +7,12 @@ nothing is sent."""
 
 from __future__ import annotations
 
+import logging
 import re
 
 from . import library as L
+
+log = logging.getLogger(__name__)
 
 #: A name the AI gives may carry several identifiers ("QX-D-1 / QX-D-2 vessel design"): each part is looked up.
 _PARTS = re.compile(r"\s*(?:/|;|,|\band\b|\bor\b)\s*", re.IGNORECASE)
@@ -68,7 +71,8 @@ def last_run_type(conn, paper_id: str) -> str | None:
 
     try:
         run = aim_review_store.latest_run(conn, str(paper_id), ended=True)
-    except Exception:  # noqa: BLE001 - no stored run is no hint
+    except Exception as exc:  # noqa: BLE001 - no stored run is no hint
+        log.info("general review plan: last run unreadable (%s)", type(exc).__name__)
         return None
     try:
         etype = (json.loads((run or {}).get("identity_json") or "{}") or {}).get(
