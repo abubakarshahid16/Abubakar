@@ -215,7 +215,7 @@ def _is_lower_part(conn, doc_id: str) -> bool:
 
 
 def _revision(conn, doc_id: str) -> int | tuple[int, str] | None:
-    """The RECORDED revision as a number ("Rev. 2" -> 2) or a letter code ordered like a spreadsheet column, by length then
+    """The RECORDED revision as a number ("Rev. 2" -> 2) or a letter code ordered by length, then
     letters ("Z" < "AA": (1, "Z") < (2, "AA")); None when none is recorded or unreadable."""
     row = conn.execute(
         "SELECT revision FROM document_classification WHERE document_id = ?",
