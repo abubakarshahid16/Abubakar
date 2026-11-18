@@ -54,7 +54,7 @@ COMMENT_HEADERS = (
 )
 POINT_HEADERS = (
     "No.", "Item", "Field", "Page", "Shown label", "Topic", "Comment", "Quote", "Quote not verified by code",
-    "Code note", "Standard", "Clause", "Source", "Status",
+    "Code note", "Standard", "Clause", "Source", "Asks", "Value left open", "Numbers", "Status",
 )  # fmt: skip
 HEADER_ROW = 4
 
@@ -119,6 +119,26 @@ def comment_rows(model: dict) -> list[list]:
     return out
 
 
+def numbers_text(nums) -> str | None:
+    """The judge's numbers in one line: "paper 25 bar <= rule 20 bar" (a part not given is left out); None when none."""
+    if not isinstance(nums, dict):
+        return None
+    paper = " ".join(
+        str(nums.get(k) or "") for k in ("paper_value", "paper_unit")
+    ).strip()
+    rule = " ".join(str(nums.get(k) or "") for k in ("rule_value", "rule_unit")).strip()
+    words = " ".join(
+        x
+        for x in (
+            paper and f"paper {paper}",
+            str(nums.get("operator") or ""),
+            rule and f"rule {rule}",
+        )
+        if x
+    )
+    return words or None
+
+
 def point_rows(model: dict) -> list[list]:
     out = []
     for p in model["points"]:
@@ -127,6 +147,7 @@ def point_rows(model: dict) -> list[list]:
         # no bare method word ("Met", "Not met") where a person reads: the file shows the shown label only (review R1, N2)
         out.append([p["n"], p["item_id"], p["field"], p["page"], p["shown_label"], p["topic"], comment, quote,
                     "yes" if p["quote_unverified"] else None, p["code_note"], p["standard"], p["clause"], p["source"],
+                    p.get("ask") or None, "yes" if p.get("deferred") else None, numbers_text(p.get("numbers")),
                     model["mark"]])  # fmt: skip
     return out
 
@@ -319,7 +340,10 @@ def build(model: dict) -> bytes:
             12: 18,
             13: 10,
             14: 16,
-            15: 18,
+            15: 10,
+            16: 10,
+            17: 26,
+            18: 18,
         },
     )
     ws = wb.create_sheet(HOW)

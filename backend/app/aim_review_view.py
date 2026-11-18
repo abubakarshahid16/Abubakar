@@ -116,7 +116,20 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "book_document_id": _blank(row.get("book_document_id")),
         "compared": _compared(row),
         "compare_kind": _compare_kind(row),
+        # recorded state (18 Nov 2026): what a Question asks ("" when not recorded: an older run), whether its value is left
+        # open, and the judge's numbers (none for a book the viewer may not open: rule 5)
+        "ask": row.get("ask") or "",
+        "deferred": bool(row.get("deferred")),
+        "numbers": None if hidden else _numbers(row),
     }
+
+
+def _numbers(row: dict) -> dict | None:
+    """The judge's numbers as stored (value, unit, operator, limit), or None."""
+    nums = row.get("numbers")
+    if nums is None:
+        nums = _json(row.get("numbers_json"), None)
+    return nums if isinstance(nums, dict) and nums else None
 
 
 def _compared(row: dict) -> str:

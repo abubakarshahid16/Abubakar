@@ -79,6 +79,8 @@ _SCHEMA = (
         numbers_json      TEXT,
         code_compare_json TEXT,
         named_books_json  TEXT,
+        ask               TEXT,
+        deferred          INTEGER,
         PRIMARY KEY (run_id, line_no)
     )""",
     f"""CREATE TABLE IF NOT EXISTS {CHECKLISTS} (
@@ -121,6 +123,9 @@ def _create(conn) -> None:
         conn.execute(statement)
     # the listed books an always-on line's words name (rule 5: the page hides a name a viewer may not read)
     add_column_if_missing(conn, LINES, "named_books_json", "TEXT")
+    # what a Question asks and whether its value is left open (recorded 18 Nov 2026; an older line reads null: unknown)
+    add_column_if_missing(conn, LINES, "ask", "TEXT")
+    add_column_if_missing(conn, LINES, "deferred", "INTEGER")
 
 
 def has_tables(conn) -> bool:
@@ -226,6 +231,16 @@ def _dump(value) -> str | None:
     )
 
 
+#: The stored columns of a line, in `_line_row`'s order (named, so a table that got a column later takes the same insert).
+LINE_COLUMNS = (
+    "run_id", "line_no", "item_id", "label", "shown_label", "field", "page", "quote", "quote_unverified", "comment", "standard",
+    "book_document_id", "clause", "source", "topic", "code_note", "numbers_json", "code_compare_json", "named_books_json", "ask",
+    "deferred",
+)  # fmt: skip
+#: What a Question line may record as its ask (`aim_review.steps._ask`); anything else is stored as null (unknown).
+ASKS = ("concern", "confirm", "open")
+
+
 def _line_row(run_id: str, n: int, line: dict) -> tuple:
     """One `aim_lines` row. The stored `label` must be one of the method's five words, so a bad line fails the whole finish."""
     label = line.get("label")
@@ -259,6 +274,8 @@ def _line_row(run_id: str, n: int, line: dict) -> tuple:
         _dump(numbers),
         _dump(_json_of(compare)),
         _dump(_named(line)),
+        line.get("ask") if line.get("ask") in ASKS else None,
+        1 if deferred else 0,
     )
 
 
@@ -281,7 +298,10 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
     conn.execute("SAVEPOINT aim_finish_run")
     try:
         conn.execute(f"DELETE FROM {LINES} WHERE run_id = ?", (run_id,))
-        conn.executemany(f"INSERT INTO {LINES} VALUES ({','.join('?' * 19)})", rows)
+        conn.executemany(
+            f"INSERT INTO {LINES} ({', '.join(LINE_COLUMNS)}) VALUES ({','.join('?' * len(LINE_COLUMNS))})",
+            rows,
+        )
         cur = conn.execute(
             f"UPDATE {RUNS} SET status = ?, method_version = ?, identity_json = ?, checklist_key = ?, checklist_sha256 = ?,"
             " checklist_reused = ?, books_json = ?, not_held_json = ?, unlisted_json = ?, usd = ?, seconds = ?, calls_json = ?,"
