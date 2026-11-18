@@ -78,9 +78,21 @@ TABLE_ROWS_ASK = (
     "(a more severe category never gets a looser target), units and decades are consistent, and each value is within the order "
     "of magnitude that public practice gives for that quantity."
 )
+#: One item per stated condition that other values on the same paper must suit (18 Nov 2026: vessel copies missed a design
+#: specific gravity below the operating one, a corrosion allowance against the stated service, and a shell material against
+#: chlorides in the service: every item asked whether a value is stated, none set one stated condition against another value).
+CONDITIONS_ASK = (
+    "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
+    "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
+    '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
+    "value it covers, and each material, allowance or rating suits the stated condition."
+)
 KNOWLEDGE_ASK = (
     "ALSO add the items a senior engineer always checks on this kind of paper that NO clause below covers "
-    '(at most 12), labelled "not from a held standard". ' + TABLE_ROWS_ASK
+    '(at most 12), labelled "not from a held standard". '
+    + TABLE_ROWS_ASK
+    + " "
+    + CONDITIONS_ASK
 )
 
 KNOWLEDGE_TASK = """TASK S3K - ENGINEERING KNOWLEDGE WHERE A RULE BOOK IS NOT HELD. The paper above was identified as:
@@ -90,7 +102,7 @@ The library does NOT hold these standards, which govern or apply to this type of
 The checklist written so far from the held rule books has %(have)d items; their topics: %(topics)s
 Write the items a senior engineer checks on THIS paper from your knowledge of the public requirements of each standard
 above, and, until the checklist has at least %(floor)d items in all, from general engineering practice for this kind of
-paper. %(table_rows)s Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
+paper. %(table_rows)s %(conditions)s Do not repeat a topic already covered. Never quote a clause and never give a clause number: the book is not held, so
 nothing can be checked against its words. At most %(most)d items. Reply with ONE JSON object only: {"items": [{
  "topic": "at most 8 words", "what_to_check": "one line", "applies_when": "the condition, or always",
  "paper_fields": ["the field(s) or section(s) of the paper it needs"], "kind": one of %(kinds)s,

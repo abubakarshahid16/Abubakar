@@ -529,9 +529,10 @@ def test_every_table_of_values_gets_one_item_that_checks_every_row():
     (order across categories, units and decades, the order of magnitude of public practice); the checklist method is bumped."""
     assert CL.P.TABLE_ROWS_ASK in CL.P.KNOWLEDGE_ASK
     prompt = CL._for_type(CL.P.KNOWLEDGE_TASK) % {"identity": "x", "not_held": "x", "have": 0, "topics": "[]", "floor": 1,
-                                                  "most": 1, "kinds": "[]", "table_rows": CL.P.TABLE_ROWS_ASK}  # fmt: skip
+                                                  "most": 1, "kinds": "[]", "table_rows": CL.P.TABLE_ROWS_ASK,
+                                                  "conditions": CL.P.CONDITIONS_ASK}  # fmt: skip
     assert "checks EVERY row" in prompt and "order of magnitude" in prompt
-    assert CL.CHECKLIST_METHOD == "2026-11-18.2"
+    assert CL.CHECKLIST_METHOD >= "2026-11-18.2"
 
 
 def test_a_newly_held_book_the_paper_cites_gets_a_checklist_built_with_it_once(aim_db):
@@ -602,3 +603,15 @@ def test_the_run_builds_again_when_a_required_book_is_missing_from_the_saved_che
     assert run("run_rq2").checklist_reused
     monkeypatch.setattr(BN, "new_required", lambda *a, **k: ["doc_some_required_book"])
     assert not run("run_rq3").checklist_reused and len(store.puts) == 2
+
+
+def test_every_stated_condition_gets_one_item_that_checks_the_values_chosen_for_it():
+    """One general instruction (no kind named) in both checklist asks: each stated operating or service condition gets ONE
+    consistency item over the values the same paper chooses for it (design never below operating; material, allowance and
+    rating suit it); the checklist method is bumped so every type is built again once."""
+    assert (
+        CL.P.CONDITIONS_ASK in CL.P.KNOWLEDGE_ASK
+        and "%(conditions)s" in CL.P.KNOWLEDGE_TASK
+    )
+    assert "a design value is never below the operating" in CL.P.CONDITIONS_ASK
+    assert CL.CHECKLIST_METHOD == "2026-11-18.3"
