@@ -11,6 +11,7 @@ or not at all; a failed or cut call applies nothing and the run's calls say so."
 from __future__ import annotations
 
 import logging
+import re
 
 from . import ANSWERED, PROVISIONAL
 from . import prompts as P
@@ -29,6 +30,13 @@ ANSWER_MAX_TOKENS = 8000
 OFFERED_LABELS = ("Question", "AI opinion", "Not met")
 #: What the run's calls say when an answer was not applied (no model, no cost).
 NOT_APPLIED = "whole-paper check not applied"
+#: A claim that the paper LACKS a value or only says something: the line's own quote, holding that value on its own page, does
+#: disprove it (valve copy of 18 Nov: the second reader said a filled row was blank; the only proof was the line's own quote).
+ABSENCE = re.compile(
+    r"\b(blank|empty|no value|has no|not (?:stated|given|shown|specified|provided|filled)|missing|left (?:blank|empty|open)|"
+    r"only|lacks?|absent)\b",
+    re.IGNORECASE,
+)
 #: A quote of the paper as code accepts it: words, at most this many.
 QUOTE_WORDS = (3, 40)
 
@@ -136,9 +144,14 @@ def answer_reason(a: dict, shown: dict, paper) -> str | None:
     if not quote_in(quote, paper.pages.get(page, "")):
         return None
     own, said = norm(str(shown[n].get("quote") or "")), norm(quote)
-    if page == shown[n].get("page") and own and (own in said or said in own):
-        return None  # the line's own evidence (its quote, on its own page) is no answer: a value conflict is never dropped
     claim = " ".join(str(a.get("claim") or "").split())[:120]
+    if (
+        page == shown[n].get("page")
+        and own
+        and (own in said or said in own)
+        and not ABSENCE.search(claim)
+    ):
+        return None  # the line's own evidence (its quote, on its own page) is no answer: a value conflict is never dropped
     what = f'what it says ("{claim}")' if claim else "it"
     return f'{ANSWERED}: the paper covers {what} on page {page}: "{quote[:300]}"; an engineer to check'
 
