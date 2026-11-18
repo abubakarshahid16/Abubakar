@@ -20,6 +20,19 @@ export interface GeneralLine {
   topic?: string;
   code_note?: string;
   quote_unverified?: boolean;
+  /** What code compared, in words ("380 psig <= 23.5 barg: false"); empty when code compared nothing. */
+  compared?: string;
+  compare_kind?: string;
+}
+
+/** One model or code call of the run, as the server recorded it. `usd` null: the cost of this call was not read. */
+export interface GeneralCall {
+  step: string;
+  model: string;
+  usd: number | null;
+  seconds?: number | null;
+  ok?: boolean;
+  code?: string;
 }
 
 export interface GeneralCompleteness {
@@ -48,7 +61,12 @@ export interface GeneralReview {
   checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };
   /** Piece G: the measured score of this paper's kind (found of 10 on planted test copies, target 7); null when no kind is named. */
   measured?: GeneralMeasured | null;
-  cost: { usd: number | null };
+  cost: { usd: number | null; note?: string };
+  /** Every call of the run, in order: the "How this review was made" view groups them by step. */
+  calls?: GeneralCall[];
+  seconds?: number | null;
+  created_at?: string | null;
+  finished_at?: string | null;
   completeness: GeneralCompleteness;
   /** False when an earlier-engine review of the paper is newer: the page then draws the older sections. */
   is_latest?: boolean;

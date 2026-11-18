@@ -314,6 +314,7 @@ def run(
         calls=calls,
         usd=ledger_usd,
         seconds=round(time.time() - t0, 2),
+        book_why=dict(state.book_why),
     )
 
 
@@ -358,6 +359,7 @@ class _RunState:
         self.identity: dict = {}
         self.key, self.sha, self.reused = "", "", False
         self.books: set[str] = set()
+        self.book_why: dict[str, str] = {}
         self.not_held: list[dict] = []
         self.unlisted: set[str] = set()
         self.decided: list[dict] = []
@@ -461,6 +463,7 @@ def _steps(
     checklist = _checklist(
         conn, state, mdl, ident, allowed_books, store, text, lead, strong
     )
+    state.book_why = _book_reasons(checklist)
     say(25, "judge")
     _judge(
         state,
@@ -479,6 +482,15 @@ def _steps(
         from .editor import s5_edit
 
         s5_edit(mdl, paper, state.decided, lead)
+
+
+def _book_reasons(checklist: dict) -> dict[str, str]:
+    """{book id: why the scope step chose it}, read from the checklist's own book list (a built one and a saved one alike)."""
+    out: dict[str, str] = {}
+    for b in (checklist or {}).get("books") or []:
+        if isinstance(b, dict) and b.get("book"):
+            out[str(b["book"])] = str(b.get("why") or "")
+    return out
 
 
 def _known_keys(store) -> list[str]:

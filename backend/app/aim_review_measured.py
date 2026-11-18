@@ -27,6 +27,9 @@ BELOW = "below target"
 NOT_MEASURED = "not measured"
 VERDICTS = (AT_OR_ABOVE, BELOW, NOT_MEASURED)
 
+#: The owner's limit on false alarms: at most 1 wrong comment in 10 (a strict reader's KEEP / WEAK / WRONG read of the real sheet).
+FALSE_ALARM_TARGET_PERCENT = 10
+
 
 @lru_cache(maxsize=1)
 def _table() -> dict:
@@ -76,6 +79,35 @@ def _fmt(number: float) -> str:
     return f"{math.floor(round(number * 10, 6)) / 10:.1f}"
 
 
+def _count(value: Any) -> int | None:
+    """A whole number (not a bool) of 0 or more, else None."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def false_alarm(row: dict | None) -> dict | None:
+    """The share of comments a strict reader judged wrong, from the row's `false_alarm_wrong` and `false_alarm_of`, or None.
+
+    Set only when BOTH counts are real whole numbers with `of` above 0 and `wrong` not above `of`: a percentage is never made up
+    without its "N of M". The percentage is rounded UP to a whole number (a wrong share is never shown lower than measured)."""
+    wrong, of = (
+        _count((row or {}).get("false_alarm_wrong")),
+        _count((row or {}).get("false_alarm_of")),
+    )
+    if wrong is None or not of or wrong > of:
+        return None
+    percent = math.ceil(round(wrong * 100 / of, 6))
+    return {
+        "wrong": wrong,
+        "of": of,
+        "percent": percent,
+        "target_percent": FALSE_ALARM_TARGET_PERCENT,
+        "within_target": wrong * 100 <= FALSE_ALARM_TARGET_PERCENT * of,
+        "sentence": f"A strict reader judged {wrong} of {of} comments wrong ({percent}%; target {FALSE_ALARM_TARGET_PERCENT}% or less).",
+    }
+
+
 def _not_measured(label: str, target) -> dict:
     return {
         "kind_label": label,
@@ -113,10 +145,14 @@ def for_run(identity: dict | None) -> dict | None:
     old = _number((row or {}).get("old_engine_mean"), top)
     if old is not None:
         sentence += f" The earlier version found {_fmt(old)} of {_fmt(top).rstrip('0').rstrip('.')}."
+    wrong = false_alarm(row)
+    if wrong is not None:
+        sentence += " " + wrong["sentence"]
     return {
         "kind_label": label,
         "found": found,
         "target": target,
         "verdict": verdict,
         "sentence": sentence,
+        "false_alarm": wrong,
     }
