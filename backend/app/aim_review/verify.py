@@ -142,13 +142,45 @@ def compare(
                 return _cannot(f"unit {pu} or {ru}: {NOT_COMPARED}")
         ok = (not verdict) if op == "!=" else bool(verdict)
     shown = f"{paper_value} {pu}".strip() + f" {op} " + f"{rule_value} {ru}".strip()
+    converted = (
+        _converted(paper_value, pu, rule_value, ru)
+        if pu and ru and pu != ru and not note
+        else ""
+    )
+    note = note or converted
     why = f"{shown}: {'true' if ok else 'false'}" + (f" ({note})" if note else "")
     return {
         "result": "pass" if ok else "fail",
         "why": why,
         "paper": [pv, pu],
         "rule": [rv, ru],
+        **({"converted": converted} if converted else {}),
     }
+
+
+def _converted(paper_value: str, pu: str, rule_value: str, ru: str) -> str:
+    """The limit in the paper value's unit, as code converted it ("23.5 barg is 340.8 psig"), for two units of one quantity on
+    ONE scale (both gauge, both absolute, or neither: a linear factor); "" otherwise (temperatures carry the unit code's own
+    note). Said, so a comparison across units is never silent."""
+    from app import claims
+
+    try:
+        p, r = (
+            claims.normalise(str(paper_value), pu),
+            claims.normalise(str(rule_value), ru),
+        )
+        if (
+            p.normalized_unit != r.normalized_unit
+            or p.reference != r.reference
+            or not p.normalized_value
+        ):
+            return ""
+        per_unit = float(p.normalized_value) / float(str(paper_value).replace(",", ""))
+        if per_unit <= 0 or "deg" in pu.lower() or "°" in pu:
+            return ""
+        return f"{rule_value} {ru} is {float(r.normalized_value) / per_unit:.4g} {pu}"
+    except (TypeError, ValueError, ZeroDivisionError, AttributeError):
+        return ""
 
 
 #: The comparison words of the app's one comparator vocabulary (`claims`), as the operators `compare` takes.

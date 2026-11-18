@@ -532,7 +532,7 @@ def test_a_filled_figure_over_a_limit_the_paper_states_is_a_sent_ai_opinion_with
     )
     assert (
         S.CONTRACTOR_FILLED in d["code"]
-        and "23.5 barg stated on page 2" in d["comment"]
+        and "23.5 barg (23.5 barg is 340.8 psig) stated on page 2" in d["comment"]
     )
 
 
@@ -1811,3 +1811,49 @@ def test_a_forged_figure_with_a_trailing_limit_is_never_compared():
     d = S._decide(_item(kind="limit", rule_quote="The set pressure shall be 300 psig or less."),
                   _psv("300", "psig", paper_value="390"), _PSV, BOOKS, "")  # fmt: skip
     assert d["code_compare"] is None and not d["comment"].startswith(S.PROVEN_FAIL)
+
+
+@pytest.mark.parametrize(
+    ("args", "said"),
+    [
+        (("360", "psig", "<=", "23.5", "barg"), "23.5 barg is 340.8 psig"),
+        (("2.5", "MPa", "<=", "25", "bar"), "25 bar is 2.5 MPa"),
+        (("100", "mm", "<=", "4", "in"), "4 in is 101.6 mm"),
+    ],
+)
+def test_a_comparison_across_units_says_the_converted_limit(args, said):
+    from app.aim_review.verify import compare
+
+    got = compare(*args)
+    assert got.get("converted") == said and said in got["why"]
+
+
+def test_a_proven_fail_in_another_unit_names_the_converted_limit():
+    d = S._decide(
+        _item(kind="limit", rule_quote="The set pressure shall be 20 barg or less."),
+        _psv("20", "barg"),
+        _PSV,
+        BOOKS,
+        "",
+    )
+    assert d["comment"].startswith(
+        S.PROVEN_FAIL
+        + ": the stated 340 psig is above the 20 barg (20 barg is 290.1 psig) limit"
+    )
+
+
+def test_a_pairing_of_two_paper_values_in_two_units_is_converted_and_stays_an_ai_opinion():
+    """Set pressure in psig against the vessel's MAWP in barg on the same paper: code converts and compares, says the conversion,
+    and the line stays an AI opinion (the AI chose which paper value is the limit), never "proven by code"."""
+    paper = Paper(paper_id="p2", pages={1: "Set pressure of the invented valve: 360 psig at the inlet\nMAWP of the invented "
+                                            "vessel: 23.5 barg at 120 degC\n"})  # fmt: skip
+    j = {"label": "Not met", "comment": "Above the MAWP.", "page": 1, "field": "set pressure",
+         "quote": "Set pressure of the invented valve: 360 psig at the inlet",
+         "numbers": {"paper_value": "360", "paper_unit": "psig", "operator": "<=", "rule_value": "23.5", "rule_unit": "barg",
+                     "limit_quote": "MAWP of the invented vessel: 23.5 barg at 120 degC", "limit_page": 1}}  # fmt: skip
+    d = S._decide(_item(kind="limit", rule_quote="The set pressure shall not exceed the MAWP of the protected vessel."), j, paper,
+                  BOOKS, "")  # fmt: skip
+    assert d["label"] == "AI opinion" and d["code_compare"]["result"] == "fail"
+    assert "23.5 barg is 340.8 psig" in d["comment"] and not d["comment"].startswith(
+        S.PROVEN_FAIL
+    )
