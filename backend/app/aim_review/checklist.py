@@ -277,6 +277,9 @@ def _catalog(
     )
     by_id = {e["id"]: e for e in lib}
     kind, etype = ident.get("kind"), ident.get("equipment_type")
+    # the paper's own citations too, BEFORE the cited books join the catalog: a cited book with no labelled rule (a book just
+    # uploaded) enters with its pages, as the job's cited ids do (18 Nov 2026: it was left out, so it was never used)
+    cited = frozenset(cited) | BN.paper_cited(conn, paper_id, frozenset(by_id))
     required = {b: w for b, w in want["listed"].items() if b in by_id}
     refused = {}
     for b in list(required):
@@ -307,9 +310,6 @@ def _catalog(
     # cited ids, no text)
     cat = [c for c in cat if L.usable(by_id[c["book"]])]
     cat = [c for c in cat if c["book"] in required or not gate_ok(c["book"])]
-    cited = frozenset(cited) | BN.paper_cited(
-        conn, paper_id, frozenset(by_id)
-    )  # the paper's own citations too
     required |= {c["book"]: L.WHY_CITED for c in cat if c["book"] in cited and c["book"] not in required}  # fmt: skip
     cat, required = SB.keep(cat, required, kind, scope, cited)
     cat.sort(
