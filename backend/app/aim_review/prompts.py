@@ -116,6 +116,10 @@ Labels: "Met" (the paper states what the clause requires), "Not met" (the paper 
 (the value or statement is missing, unclear, or left open by the vendor: TBA, TBC, TBD, later, *, blank, or "by
 vendor/contractor" with no figure), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
 clause does not decide).
+A value belongs to the equipment item its section, block, table heading or sheet names (the main item, its driver, an auxiliary
+system, one side of it): two values conflict only when they belong to the SAME item. When a judgment rests on a second value
+elsewhere on the paper, give it as "other": {"page": p, "quote": "exact paper words"} and name the item of each value as the
+paper writes it: "items": ["item of quote", "item of other"].
 Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
 finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
 that holds everywhere gets one judgment.
