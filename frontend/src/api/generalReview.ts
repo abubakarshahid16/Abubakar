@@ -87,6 +87,20 @@ export interface GeneralCompleteness {
   sentence: string | null;
 }
 
+/** One part (a Schedule) of the contract package: what the review did with it. A page counts as read only if text came back for it. */
+export interface GeneralReference {
+  part: string;
+  title: string | null;
+  status: string;
+  reason: string;
+  questions: number | null;
+  settled: number | null;
+  pages_read: number | null;
+  pages_held: number | null;
+  compared: number | null;
+  differs: number | null;
+}
+
 export interface GeneralReview {
   paper_document_id: string;
   run_id: string;
@@ -114,6 +128,8 @@ export interface GeneralReview {
   /** The documents listed before the start (besides the paper) and how many the run used; null for a run with no stored list. */
   documents_listed?: { listed: number; used: number; sentence: string } | null;
   not_held: { name: string; why: string }[];
+  /** The parts of the contract package a contract review read (a Schedule), and what was done with each; absent for other papers. */
+  references?: GeneralReference[];
   unlisted_books: { count: number; sentence: string | null };
   checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };
   /** Piece G: the measured score of this paper's kind (found of 10 on planted test copies, target 7); null when no kind is named. */
