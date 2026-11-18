@@ -306,7 +306,7 @@ def run(
         checklist_key=state.key,
         checklist_sha256=state.sha,
         checklist_reused=state.reused,
-        books=sorted(state.books),
+        books=sorted(state.books - state.reference_ids),
         not_held=state.not_held,
         unlisted_books=sorted(state.unlisted),
         unlisted_count=len(state.unlisted),
@@ -314,6 +314,7 @@ def run(
         calls=calls,
         usd=ledger_usd,
         seconds=round(time.time() - t0, 2),
+        references=state.references,
         book_why=dict(state.book_why),
     )
 
@@ -359,6 +360,8 @@ class _RunState:
         self.identity: dict = {}
         self.key, self.sha, self.reused = "", "", False
         self.books: set[str] = set()
+        self.references: list[dict] = []
+        self.reference_ids: set[str] = set()
         self.book_why: dict[str, str] = {}
         self.not_held: list[dict] = []
         self.unlisted: set[str] = set()
@@ -478,6 +481,12 @@ def _steps(
         cancelled,
     )
     if not state.stop_reason:
+        from . import references as R
+
+        # a contract's open questions that name a held Schedule of its own package are checked against it (reference papers)
+        state.references, state.reference_ids = R.check(
+            conn, mdl, paper, state.decided, allowed_books, lead
+        )
         say(96, "judge")
         from .editor import s5_edit
 

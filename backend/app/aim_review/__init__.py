@@ -76,6 +76,8 @@ class Result:
     )  # {step, model, usd, input_tokens, output_tokens, seconds, ok, code}
     usd: float = 0.0
     seconds: float = 0.0
+    #: The reference papers of a contract review and what was done with each (`references.check`): not rule books, not in `books`.
+    references: list = field(default_factory=list)
     #: {book document id: the reason the scope step chose it} for the books in `books` (empty text: no reason was recorded).
     book_why: dict = field(default_factory=dict)
 

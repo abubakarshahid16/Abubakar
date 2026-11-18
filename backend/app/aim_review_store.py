@@ -168,6 +168,8 @@ def _create(conn) -> None:
     # what a Question asks and whether its value is left open (recorded 18 Nov 2026; an older line reads null: unknown)
     add_column_if_missing(conn, LINES, "ask", "TEXT")
     add_column_if_missing(conn, LINES, "deferred", "INTEGER")
+    # the reference papers of a contract review and what was done with each (order 14): not rule books, so not in books_json
+    add_column_if_missing(conn, RUNS, "references_json", "TEXT")
 
 
 def has_tables(conn) -> bool:
@@ -347,7 +349,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
         cur = conn.execute(
             f"UPDATE {RUNS} SET status = ?, method_version = ?, identity_json = ?, checklist_key = ?, checklist_sha256 = ?,"
             " checklist_reused = ?, books_json = ?, not_held_json = ?, unlisted_json = ?, usd = ?, seconds = ?, calls_json = ?,"
-            " stop_reason = ?, finished_at = ? WHERE run_id = ?",
+            " stop_reason = ?, finished_at = ?, references_json = ? WHERE run_id = ?",
             (
                 status,
                 result.get("method_version") or _method_version(),
@@ -363,6 +365,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
                 _dump(list(result.get("calls") or [])),
                 result.get("stop_reason") or "",
                 now,
+                _dump(list(result.get("references") or [])),
                 run_id,
             ),
         )
@@ -412,6 +415,7 @@ _RUN_JSON = {
     "unlisted": "unlisted_json",
     "calls": "calls_json",
     "completeness": "completeness_json",
+    "references": "references_json",
 }
 
 
