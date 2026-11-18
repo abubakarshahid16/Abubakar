@@ -1,9 +1,11 @@
 """A sent comment must ASK something (order 14, lead 3, after the v3 strict judges: "pass statements sent as comments" were the judges'
 WRONG). Pure code, no model, no call, nothing sent to Claude changes: this runs LAST, after every AI step, and only marks.
 
-A line the judge marked "concern" or "confirm" (a stated value: the judge said what it asks) whose comment holds NO request at all (no
-question mark, no request word) says "the value is fine" or restates the paper: it is kept on "All points" with the note `no_ask`
-and is not sent. A value left open (`ask` "open") IS the question (the blank is what is asked), so it is never touched here.
+A line the judge marked "confirm" (nothing suspected, the value stated: the judge only asked the vendor to confirm it) whose comment
+holds NO request at all (no question mark, no request word) says "the value is fine" or restates the paper: it is kept on "All points"
+with the note `no_ask` and is not sent. A "concern" is NEVER touched: the judge suspects the value, and a concern that only STATES a
+conflict ("the set pressure is above the rating") carries no request word yet is a real find. A value left open (`ask` "open") IS the
+question (the blank is what is asked), so it is never touched here either.
 
 The request words are language, not values: a base-form request verb ("confirm", "state", "revise" ...) or a modal ("must", "should")
 anywhere in the comment counts as a request, and so is a named GAP ("does not say how", "not given", "blank"). The lists are LIBERAL on purpose: a comment is dropped
@@ -42,11 +44,12 @@ def has_request(comment: str) -> bool:
 
 
 def asks_nothing(line: dict) -> bool:
-    """A Question whose value is STATED (the judge's mark is "concern" or "confirm"), not left open, with a comment that requests
-    nothing. Any other line (another label, an open value, an unrecorded mark of an older run) is never judged here."""
+    """A Question the judge only asked the vendor to CONFIRM (its mark is "confirm", never "concern"), its value not left open, with a
+    comment that requests nothing. Any other line (another label, a concern, an open value, an unrecorded mark of an older run) is
+    never judged here."""
     return (
         line.get("label") == "Question"
-        and line.get("ask") in ("concern", "confirm")
+        and line.get("ask") == "confirm"
         and not line.get("deferred")
         and not has_request(line.get("comment") or "")
     )
