@@ -387,8 +387,13 @@ def test_a_checklist_line_gets_its_own_held_book_on_the_page():
     ctx = {"run_id": "r", "paper_document_id": "p", "book_of": {}, "readable": frozenset({"doc-book"}), "library": [],
            "everything": True, "documents": frozenset({"doc-book"})}  # fmt: skip
     assert rp.ai_point(dict(line), ctx)["rule_book"] == "STD-1"
+    # PR #1876 (rule 5, fail closed): a book that is not held is no one's to read (a deleted book's id is in no allowed set), so the
+    # check uses the allowed set: such a book is never named
     assert (
-        rp.ai_point(dict(line), {**ctx, "documents": frozenset()})["rule_book"] is None
+        rp.ai_point(
+            dict(line), {**ctx, "documents": frozenset(), "readable": frozenset()}
+        )["rule_book"]
+        is None
     )  # a book that is not held is never named
 
 
@@ -1001,7 +1006,9 @@ def test_a_met_the_pass_guard_objected_to_is_never_nothing_to_change_and_its_obj
         why="no second opinion",
     )
     st, order = WB.status_of(held)
-    assert st == words.STATUS_QUERY  # order 14 (G6): a guarded AI "met" is a question in every run, worded for the engineer (R94)
+    assert (
+        st == words.STATUS_QUERY
+    )  # order 14 (G6): a guarded AI "met" is a question in every run, worded for the engineer (R94)
     assert (
         f"Engineer to check the AI reviewer's view: {words.guard_words(held)}."
         in WB.layout_comment(held, st, order)

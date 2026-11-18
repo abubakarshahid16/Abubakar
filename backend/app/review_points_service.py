@@ -212,14 +212,14 @@ def _ref_state(reference: str, library: list[dict], readable: frozenset[str]) ->
 
 def readability_proof(row: dict, finding: dict | None, docs: list[str], readable: frozenset[str], library: list[dict], everything: bool) -> tuple[bool, bool]:
     """(content, reference): may this viewer see the requirement-derived CONTENT of a rule-check point, and the stored REFERENCE (a book
-    name)? Fail closed: shown only when readability is PROVEN. A viewer who may read the whole library is not restricted. Linked books: all
-    must be readable. No link: a checklist origin proves the content (the reference still needs its books readable or not held at all); a
+    name)? Fail closed: shown only when readability is PROVEN. Linked books: all must be readable by him, for every viewer (a deleted
+    book is no one's: hidden even from a viewer who may read the whole library); with no link, that viewer is not restricted. No link: a checklist origin proves the content (the reference still needs its books readable or not held at all); a
     reference that resolves to readable held books only proves both. Everything else is hidden."""
-    if everything:
-        return True, True
-    if docs:
+    if docs:  # fail closed, for every viewer: a linked book he may not read, or one that is gone (deleted), is not available to him
         ok = all(d in readable for d in docs)
         return ok, ok
+    if everything:
+        return True, True
     state = _ref_state((row or {}).get("standard_reference"), library, readable)
     if _checklist_origin(finding):
         return True, state != "unreadable"
@@ -250,6 +250,7 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
     conn = connect()
     library = library_of(conn)
     everything = {r[0] for r in conn.execute("SELECT id FROM documents")} <= ctx["readable"]
+    seen = rp.viewer_ctx(conn, paper_id, ctx["readable"])  # rule 5: the one decision
     out = []
     for row in rows:
         fid = row.get("finding_id")
@@ -271,6 +272,9 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
             finding = {**finding, "requirement_source_text": text, "requirement": text}
         p = rp.rule_point(row, ctx, finding, sides, strength=_strength(finding), proof=proof, app_text_only=app_text)
         p["_book_docs"] = docs
+        p["_words_hidden"] = rp.documents_hidden(
+            docs, str(row.get("standard_reference") or ""), seen
+        )
         p["_confirmed"], p["_rejected"] = (
             bool(row.get("engineer_confirmed")),
             bool(row.get("engineer_rejected")),
@@ -292,7 +296,11 @@ def _rule_points(run_id: str, paper_id: str, scope) -> list[dict]:
                 and finding.get("review_run_id") == run_id
                 and scope.may_read(finding["document_id"])
             ):
-                out.append(rp.removed_stub(finding, ctx, strength=_strength(finding)))
+                stub = rp.removed_stub(finding, ctx, strength=_strength(finding))
+                stub["_words_hidden"] = rp.documents_hidden(
+                    [finding.get("standard_document_id")], "", seen
+                )
+                out.append(stub)
     return out
 
 
@@ -369,6 +377,16 @@ def _names(ids) -> dict[str, str]:
     }
 
 
+def hidden_decision(d: dict) -> dict:
+    """A decision on a point whose words are hidden from this viewer (`review_points.documents_hidden`): the engineer's edited text and
+    his reason are said by what he did (`agent_general_crs.engineer_hidden_words`: edited, removed, kept), never shown; the state, who
+    and when stay."""
+    from .agent_general_crs import engineer_hidden_words
+
+    said = engineer_hidden_words(d.get("state"))
+    return {**d, **{k: said for k in ("text", "reason") if d.get(k)}}
+
+
 def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
     """(the listing, the RAW points with their private keys, the facts the one-CRS export needs). `assemble` is the listing alone."""
     conn = connect()
@@ -406,6 +424,8 @@ def _assemble(paper_id: str, scope) -> tuple[dict, list[dict], dict]:
             d["by"] = names.get(d["by"]) or d["by"]
         if p.get("tile") == not_applicable.TILE:  # owner on PR #1872: a tick confirms the AI's "does not apply"
             d = {**d, "words": not_applicable.CONFIRMED if d.get("state") == decisions_mod.KEEP else d.get("words") or not_applicable.OPEN}
+        if p.get("_words_hidden"):  # rule 5: his words may quote a hidden document
+            d = hidden_decision(d)
         p["decision"] = d
     decided = len(points) - len(review_code_proposal.still_open(points))  # FTU-16: the one open count, as the proposal reads it
     not_held = rp.books_not_held(not_held, points, library)  # with every row's "Book missing": one list for page and sheet
@@ -575,24 +595,42 @@ def run_meta(conn, run_id: str, paper_id: str, folder) -> dict:
     return meta
 
 
-def decided_ai_sheet(run_id: str, paper_id: str, copy: str, folder) -> Path | None:
-    """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in), or None
-    when nothing was decided or added for this paper (the stored file stands). The run's own meta: `run_meta`."""
+def decided_ai_sheet(
+    run_id: str, paper_id: str, copy: str, folder, readable: frozenset[str]
+) -> Path | None:
+    """The AI review's CRS copy drawn again with the engineer's decisions (removed lines out, edited text in, added points in) and for
+    THIS viewer (`readable`: the documents he may read): every line through the one guard (`review_points.for_viewer`; CLAUDE.md rule
+    5), and a file with a hidden line under a name of its own (the hidden lines' digest), so one viewer's file is never served to
+    another. None when nothing was decided or added and nothing is hidden from him (the stored file stands). Meta: `run_meta`."""
+    import hashlib
     from pathlib import Path
 
     from . import agent_review_crs, crs_ai_workbook
 
-    if not decisions_mod.latest(paper_id) and not decisions_mod.added(paper_id):
-        return None
     conn = connect()
     lines = stored_lines(conn, run_id)
+    decided = bool(decisions_mod.latest(paper_id) or decisions_mod.added(paper_id))
+    kept = (
+        decisions_mod.apply_to_lines(
+            paper_id, run_id, lines, _names(decisions_mod.people(paper_id))
+        )
+        if decided
+        else lines
+    )
+    ctx = rp.viewer_ctx(conn, paper_id, readable, run_id)
+    guarded = [rp.for_viewer(ln, ctx) for ln in kept]  # the one guard (rule 5)
+    hidden = sorted(
+        str(a.get("item_id")) for a, b in zip(kept, guarded, strict=True) if a is not b
+    )
+    if not decided and not hidden:
+        return None
     folder = Path(folder)
     meta = run_meta(conn, run_id, paper_id, folder)
-    kept = decisions_mod.apply_to_lines(
-        paper_id, run_id, lines, _names(decisions_mod.people(paper_id))
-    )
+    kept = guarded
     agent_review_crs._refuse_unproven(kept)  # the exit's own refusal still stands
-    return crs_ai_workbook.write(kept, folder / f"crs-{copy}-decided.xlsx", meta, copy)
+    digest = hashlib.sha256("\n".join(hidden).encode()).hexdigest()[:16]
+    name = f"crs-{copy}-decided{'-viewer-' + digest if hidden else ''}.xlsx"
+    return crs_ai_workbook.write(kept, folder / name, meta, copy)
 
 
 def _contractor_copy(conn, ai_run: str | None) -> dict:

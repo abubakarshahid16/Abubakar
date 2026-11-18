@@ -266,7 +266,7 @@ class FindingsMixin:
                 s["what"],
             ):
                 line = {**line, "verdict_class": CLASS_QUERY, "subkind": core.SUB_UNREAD, "figures": None,
-                        "text": f"{core.UNREAD_QUERY} ({s['what']})"}  # fmt: skip
+                        "text": f"{core.UNREAD_QUERY} ({s['what']})", **core.framed(core.UNREAD_QUERY, s["what"])}  # fmt: skip
             self.add(line)
         self.part_counts[3]["shown"] = kept
 
@@ -401,15 +401,16 @@ class FindingsMixin:
                 "quote_paper": {"document": self.paper, **qp} if qp else None, "quote_other": {"document": d, **qo},
                 "second_model_reason": reason, "second_model": sorted(self.second_models)}  # fmt: skip
         if s["kind"] == "silent":  # silence is a Query, never "not met"
-            text = f"the paper is silent on this requirement of {d}: {s['what']}"
+            frame = f"the paper is silent on this requirement of {d}"
             if self.unread:  # the place to look may be a page of pictures: not "silent"
-                text = f"could not be checked: {core.unread_words(self.unread)}; the requirement of {d} may be met there: {s['what']}"
+                frame = f"could not be checked: {core.unread_words(self.unread)}; the requirement of {d} may be met there"
             self.add(
                 {
                     **base,
                     "verdict_class": CLASS_QUERY,
                     "subkind": core.SUB_SILENT,
-                    "text": text,
+                    "text": f"{frame}: {s['what']}",
+                    **core.framed(frame, s["what"]),
                 }
             )
         elif (
@@ -417,7 +418,8 @@ class FindingsMixin:
         ):  # kept, but the second model says the two quotes are not about one thing: never "disagrees with"
             self.add({**base, "quote_other": None, "second_model_reason": None, "verdict_class": CLASS_NOTE,
                       "subkind": core.SUB_ENGINEERING,
-                      "text": f"a possible conflict with {d} was raised, but the two quotes do not relate; the paper quote is shown for the engineer to look"})  # fmt: skip
+                      "text": f"a possible conflict with {d} was raised, but the two quotes do not relate; the paper quote is shown for the engineer to look",
+                      "text_source": None})  # fmt: skip
         else:
             self.add(
                 {
@@ -525,6 +527,7 @@ class FindingsMixin:
                 "verdict_class": CLASS_QUERY,
                 "subkind": core.SUB_UNREAD,
                 "text": f"{core.UNREAD_QUERY} ({text})",
+                **core.framed(core.UNREAD_QUERY, text),
             }
         self.add(line)
         return True

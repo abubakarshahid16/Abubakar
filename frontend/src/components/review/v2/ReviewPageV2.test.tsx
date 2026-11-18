@@ -83,7 +83,7 @@ function listing(over: Partial<PointsListing> = {}): PointsListing {
         does_not_apply: { label: "Does not apply", total: 0, proven_by_code: null },
       },
       total: 9, rule_books: [{ name: "API 610", points: 6 }, { name: "Other Book", points: 1 }], other_rule_books_points: 2,
-      other_rule_books_note: "points on rule books you may not read: counted, not named",
+      other_rule_books_note: "points on rule books that are not available to you: counted, not named",
       not_held: { names: ["Book A", "Book B", "Book C"], more: 2, total: 5, note: "Not checked, rule book not held" },
       decided: 2, decided_of: 9,
     },
@@ -313,7 +313,7 @@ describe("5 and 6 the rule book chips and the rule books not held", () => {
     expect(within(chips).getByRole("button", { name: "All rule books" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(chips).getByRole("button", { name: "Other Book (1)" }));
     expect(screen.getAllByTestId("v2-point")).toHaveLength(1);
-    expect(screen.getByText("2 on rule books you may not read")).toBeInTheDocument();
+    expect(screen.getByText("2 on rule books that are not available to you")).toBeInTheDocument();
   });
   it("names the first three rule books not held and counts the rest", async () => {
     mount(); await loaded();

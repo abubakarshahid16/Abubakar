@@ -100,6 +100,19 @@ HELD_FIT_LINE = "rule books we hold that fit this paper were not used: rule revi
 UNREAD_QUERY = "could not be checked: the page holds pictures that were not read"
 
 
+def framed(code_words: str, model_words: str | None) -> dict:
+    """Whose words a line's sentence is (CLAUDE.md rule 4), for a sentence code built: with the model's words inside it, both parts
+    kept apart (`code_words`, `model_words`) so a CRS row labels each (`agent_general_crs.rests_on`); with none, code's own words
+    (`text_source` None, never "the model's words"). The line's `text` stays the whole sentence."""
+    if model_words:
+        return {
+            "code_words": code_words,
+            "model_words": model_words,
+            "text_source": TEXT_FROM_MODEL,
+        }
+    return {"text_source": None}
+
+
 class GeneralModeViolation(ValueError):
     """A line (or a call) that this mode must never produce."""
 
