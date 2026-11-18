@@ -532,12 +532,51 @@ class BookText:
 # ------------------------------------------------------------------ plan time: the books a review MAY use
 
 
+#: A RECORDED document number shorter than this, or with no digit, is never matched in a paper's text: a short or all-letter
+#: number is too easily an ordinary word or a part of another number. Such a book is still found by the standard families.
+NUMBER_MIN = 6
+
+
 def _paper_citations(conn, paper_id: str) -> list[str]:
-    """The standards the paper names, read by code (names of standards only, never the paper's text)."""
+    """The standards the paper names, read by code (names of standards only, never the paper's text): the known standard
+    families (`standard_ids.cited_standards`), and the identifiers of the held rule books (`is_rule_book`: never a submittal, a
+    contract, a drawing or the paper itself) that stand in the text as whole tokens: the RECORDED document number, else the
+    identifier its file name records (`identifier_of`; on 18 Nov no rule book of the library had a recorded number). 18 Nov 2026:
+    a company book with a new numbering could never be "cited by the paper". Every caller narrows the books to those it may
+    read. Counted on the real library before it was added: the ten scored papers cite 0 more books."""
     from app import agent_review_standards, standard_ids
 
     pages = agent_review_standards.read_book(conn, str(paper_id)).pages
-    return standard_ids.cited_standards("\n".join(t for _n, t in sorted(pages.items())))
+    text = "\n".join(t for _n, t in sorted(pages.items()))
+    names = standard_ids.cited_standards(text)
+    have = {_fold(n) for n in names}
+    for e in library(conn, exclude=frozenset({str(paper_id)})):
+        number = str(
+            identifier_of(e) or ""
+        ).strip()  # the recorded number, else the identifier its file name records
+        if is_rule_book(e) and _fold(number) not in have and _number_in(number, text):
+            names.append(number)
+            have.add(_fold(number))
+    return names
+
+
+def _number_in(number: str, text: str) -> bool:
+    """The recorded number stands in the text as a whole token, case ignored, its parts apart by spaces, hyphens, dots,
+    slashes or underscores or by nothing (the variants `resolve` folds away); never a number under `NUMBER_MIN` or with no
+    digit."""
+    parts = re.findall(r"[A-Za-z0-9]+", number or "")
+    if (
+        len(number or "") < NUMBER_MIN
+        or not any(c.isdigit() for c in number)
+        or not parts
+    ):
+        return False
+    pattern = (
+        r"(?<![A-Za-z0-9])"
+        + r"[\s\-_./]*".join(map(re.escape, parts))
+        + r"(?![A-Za-z0-9])"
+    )
+    return re.search(pattern, text or "", re.IGNORECASE) is not None
 
 
 def stored_reading(
