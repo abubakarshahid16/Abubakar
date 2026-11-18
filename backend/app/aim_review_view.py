@@ -421,6 +421,8 @@ def _same_point(members: list[dict]) -> dict:
                             for m in members if m["quote"]),
         "code_note": "; ".join(dict.fromkeys(m["code_note"] for m in members if m["code_note"])),
         "quote_unverified": any(m["quote_unverified"] for m in members),
+        # the Field cell names every member's field (a reader, and the score, find each field in its own cell)
+        "field": "; ".join(dict.fromkeys(m.get("field") or "no field" for m in members)),
         "standard": "; ".join(dict.fromkeys(m["standard"] for m in members if m.get("standard"))),
         "clause": "; ".join(dict.fromkeys(m["clause"] for m in members if m.get("clause"))),
         "book_document_id": first.get("book_document_id")
