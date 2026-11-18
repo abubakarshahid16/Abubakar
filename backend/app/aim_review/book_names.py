@@ -90,9 +90,11 @@ def as_chosen(conn, ids: list[str], cat: list[dict], why: str) -> list[dict]:
     by_id = {e["id"]: e for e in L.library(conn, within=frozenset(ids))}
     out = []
     for b in ids:
+        # a book with no rule for this type is not in the catalog: it gets the next alias (S3 maps every chosen book by alias)
         line = by_cat.get(b) or {"book": b, "identifier": L.identifier_of(by_id[b]) if b in by_id else b,
                                  "committee": (by_id.get(b) or {}).get("committee") or "", "rules": 0, "tagged": 0,
-                                 "subjects": [], "text_only": True}  # fmt: skip
+                                 "subjects": [], "text_only": True, "required": False,
+                                 "alias": f"B{len(cat) + 1 + sum(1 for x in out if x['book'] not in by_cat):02d}"}  # fmt: skip
         out.append({**line, "why": why, "chosen_subjects": "all"})
     return out
 

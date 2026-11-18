@@ -221,7 +221,9 @@ def test_a_fault_inside_a_step_is_a_stopped_run_not_a_crash(aim_db, monkeypatch)
 
     monkeypatch.setattr(S, "s4_judge", boom)
     r, _m, _s = _run(aim_db)
-    assert r.status == "stopped" and r.stop_reason == "fault: KeyError"
+    assert r.status == "stopped" and r.stop_reason.startswith(
+        "fault: KeyError at "
+    )  # and where (file:line)
 
 
 def test_a_paper_with_no_stored_pages_stops_with_a_code(aim_db):
@@ -591,3 +593,20 @@ def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(
     assert len(answered) == 1 and not aim_review.sendable(
         answered[0]
     )  # any source now (v3), held rule lines included
+
+
+def test_a_fault_names_its_file_and_line_in_the_run_record(aim_db, monkeypatch):
+    """A fault stops the run with its kind AND where it was raised (file:line in the app), never its message."""
+    from app.aim_review import checklist as CL
+
+    def broken(*a, **k):
+        return {}["alias"]
+
+    monkeypatch.setattr(CL, "build", broken)
+    r, _model, _s = _run(aim_db)
+    assert r.status == "stopped" and r.stop_reason.startswith("fault: KeyError at ")
+    assert (
+        "/" in r.stop_reason
+        and ":" in r.stop_reason.rsplit(" ", 1)[-1]
+        and "alias" not in r.stop_reason
+    )

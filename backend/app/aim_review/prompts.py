@@ -87,7 +87,7 @@ nothing can be checked against its words. At most %(most)d items. Reply with ONE
  "topic": "at most 8 words", "what_to_check": "one line", "applies_when": "the condition, or always",
  "paper_fields": ["the field(s) or section(s) of the paper it needs"], "kind": one of %(kinds)s,
  "stands_in_for": "the standard's public name, or engineering practice",
- "carried_by": "this paper" when THIS kind of paper, for THIS equipment or subject, is where the value or requirement is
+ "carried_by": "HERE" when THIS kind of paper, for THIS equipment or subject, is where the value or requirement is
  stated; otherwise the kind of paper that states it (another item's datasheet, a study, a calculation, a drawing, a
  procedure). A standard on the list above may govern a neighbouring paper: write its items only where THIS paper carries
  them, and an item another paper carries is not checked here.}]}"""
