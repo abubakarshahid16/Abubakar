@@ -232,19 +232,30 @@ not on these pages, reply for it {"id": "C..", "not_here": true} and nothing els
 # ------------------------------------------------------------------ the request shape
 
 
+#: At most this many opening braces are tried in one answer (a long answer of words is not scanned without end).
+PARSE_TRIES = 200
+
+
 def parse_json(text: str):
+    """The JSON object (or list) of a model's answer: inside a fenced block when there is one, else the first opening brace or
+    bracket from which a whole JSON value decodes. Every opener is tried in order (18 Nov 2026: a second reader's answer that
+    opened with words holding a brace was read as no JSON at all; only the first "{" and the first "[" were tried)."""
     s = (text or "").strip()
     fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.S)
     if fence:
         s = fence.group(1).strip()
-    for opener in ("{", "["):
-        i = s.find(opener)
-        if i >= 0:
+    decoder = json.JSONDecoder()
+    for opener, kind in (
+        ("{", dict),
+        ("[", list),
+    ):  # an object first: words like "clause [3]" never hide it
+        for i in [m.start() for m in re.finditer(re.escape(opener), s)][:PARSE_TRIES]:
             try:
-                obj, _ = json.JSONDecoder().raw_decode(s[i:])
-                return obj
+                obj, _ = decoder.raw_decode(s[i:])
             except ValueError:
                 continue
+            if isinstance(obj, kind):
+                return obj
     return None
 
 

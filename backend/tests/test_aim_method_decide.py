@@ -1687,3 +1687,25 @@ def test_by_contractor_with_no_figure_stays_a_question_never_proven():
         and d["deferred"]
         and not d["comment"].startswith(S.PROVEN_FAIL)
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        (
+            'Reading the items {n} in turn. {"reads": [{"n": 1}]}',
+            {"reads": [{"n": 1}]},
+        ),  # a brace in the words before it
+        (
+            'Clause [3] applies. {"reads": []}',
+            {"reads": []},
+        ),  # an object is preferred to a bracket in the words
+        ('```json\n{"a": 1}\n```', {"a": 1}),
+        ("[1, 2]", [1, 2]),
+        ("no json here at all", None),
+    ],
+)
+def test_the_answer_is_read_from_the_first_opener_that_decodes(text, want):
+    from app.aim_review.prompts import parse_json
+
+    assert parse_json(text) == want
