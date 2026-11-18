@@ -21,7 +21,7 @@ read in part says which pages). The model answers "agrees", "differs" or "not_st
 counts only if code finds the quote on that page of the part (`steps._verified`). "agrees": the question is answered by the part, the
 line becomes an AI "Met" (kept in "All points", not sent; never "by code"). "differs": a sent "AI opinion" that says what the part
 states. "not_stated": the question stays, and says the part was read. No quote found: the question stays as it was. A value the
-vendor left open (`deferred`) is never touched. Every line keeps "AI, to be checked".
+vendor left open (`deferred`) is never touched. Every line keeps the mark (`aim_review_gate.AI_MARK`).
 """
 
 from __future__ import annotations
