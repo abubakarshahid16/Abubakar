@@ -290,10 +290,14 @@ def run(
     except StepFailed as exc:
         state.stop(str(exc))
     except Exception as exc:  # noqa: BLE001 - a fault is a stopped run with its code, never a crash of the worker
+        where = _fault_at(exc)
         log.warning(
-            "general review %s stopped by a fault (%s)", run_id, type(exc).__name__
+            "general review %s stopped by a fault (%s at %s)",
+            run_id,
+            type(exc).__name__,
+            where,
         )
-        state.stop(f"fault: {type(exc).__name__}")
+        state.stop(f"fault: {type(exc).__name__} at {where}")
     say(100, "counts")
     # THE COST IS THE LEDGER'S (review R1 N4; REVIEW.md: a paid run's cost is read from the ledger's lines, never from one stored
     # field): what this run's lines in `claude_spend` hold, an open hold at its worst case. The run's own meter only stops calls.
@@ -511,6 +515,23 @@ def _after_judge(
         )  # after the second reader: its words are claims too
     say(96, "judge")
     s5_edit(mdl, paper, state.decided, lead)
+
+
+def _fault_at(exc: BaseException) -> str:
+    """Where a fault was raised, as "file.py:line" of the innermost frame in the app's own code (no message: a key or value
+    could hold document words), or "unknown"."""
+    import traceback
+    from pathlib import Path
+
+    frames = [
+        f
+        for f in traceback.extract_tb(exc.__traceback__)
+        if "/app/" in f.filename.replace("\\", "/")
+    ]
+    if not frames:
+        return "unknown"
+    f = frames[-1]
+    return f"{Path(f.filename).parent.name}/{Path(f.filename).name}:{f.lineno}"
 
 
 def _book_reasons(checklist: dict) -> dict[str, str]:

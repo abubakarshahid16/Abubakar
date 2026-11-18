@@ -5,8 +5,9 @@ set-aside list, as "for <kind> paper". No answer keeps the item, as before."""
 
 from __future__ import annotations
 
-#: The words of a knowledge item that THIS paper carries (the model's "carried_by").
-THIS_PAPER = "this paper"
+#: The answer for an item THIS paper carries. The build rewords "this paper" to "a paper of this type" in every task it sends
+#: (`checklist._for_type`), so the asked word is "HERE"; the other forms are kept too.
+HERE = ("here", "this paper", "a paper of this type", "this type", "this kind")
 
 
 def knowledge_rows(
@@ -22,7 +23,7 @@ def knowledge_rows(
         )  # labelled first: no book, no quote, no clause number
         it["stands_in_for"] = it["stands_in_for"] or "engineering practice"
         carried = " ".join(str(r.get("carried_by") or "").split())[:80]
-        if carried and not carried.lower().startswith(THIS_PAPER):
+        if carried and not carried.lower().startswith(HERE):
             elsewhere.append(
                 {
                     "topic": it["topic"],

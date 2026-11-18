@@ -317,6 +317,51 @@ def test_a_knowledge_item_another_paper_carries_is_set_aside_not_checked_here():
 
 def test_the_knowledge_step_asks_which_paper_carries_each_item():
     assert (
-        '"carried_by": "this paper"' in CL.P.KNOWLEDGE_TASK
+        '"carried_by": "HERE"' in CL.P.KNOWLEDGE_TASK
         and "not checked here" in CL.P.KNOWLEDGE_TASK
     )
+
+
+def test_an_item_this_type_of_paper_carries_is_kept_in_any_of_its_words():
+    """The build rewords "this paper" to "a paper of this type" in every task (no paper is shown): the answer "HERE" and those
+    words both mean this paper, so the item is kept; the asked word survives the rewording."""
+    rows = _knowledge_answer(3)["items"]
+    rows[0]["carried_by"], rows[1]["carried_by"], rows[2]["carried_by"] = (
+        "HERE",
+        "a paper of this type",
+        "This paper",
+    )
+    sel = {"not_held": NOT_HELD, "books": [{"alias": "B01", "book": BOOK_A}]}
+    got = CL.s3_knowledge(
+        _Model({"items": rows}),
+        {"kind": "procedure"},
+        sel,
+        _made(14),
+        "claude-sonnet-5-5",
+    )
+    assert len(got["items"]) == 17 and not got.get("dropped")
+    assert '"carried_by": "HERE"' in CL._for_type(CL.P.KNOWLEDGE_TASK)
+
+
+def test_a_needed_held_book_outside_the_catalog_gets_an_alias_and_the_checklist_step_runs(
+    aim_db, monkeypatch
+):
+    """A book the AI names as needed, held and on the list, with no rule for this type, is not in the catalog: its chosen line
+    gets the next alias, so the checklist step maps it (the vessel fault of 18 Nov: KeyError 'alias' before any S3 call)."""
+    from app.aim_review import book_names as BN
+
+    cat = [{"book": BOOK_A, "alias": "B01", "identifier": "API 9991", "committee": "", "rules": 1, "tagged": 0,
+            "subjects": [], "required": True}]  # fmt: skip
+    lines = BN.as_chosen(aim_db, [BOOK_A, BOOK_B], cat, "AI: needed; held")
+    assert [x["alias"] for x in lines] == ["B01", "B02"]
+    sel = {"books": lines, "_pool": [], "not_held": []}
+    model = E.FakeModel(kind="procedure", subject_key="test_item")
+    from app import claude_approved
+
+    monkeypatch.setattr(
+        claude_approved, "refusal", lambda *a, **k: None
+    )  # the fake sends nothing
+    made = CL.s3_checklist(
+        model, {"kind": "procedure"}, sel, L.BookText(aim_db), "claude-sonnet-5-5"
+    )
+    assert isinstance(made["items"], list)
