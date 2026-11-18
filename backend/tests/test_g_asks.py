@@ -31,10 +31,27 @@ def decided(
         "The 3.2 mm allowance is at the maximum of 3.2 mm.",
     ],
 )
-def test_a_pass_statement_or_a_restatement_asks_nothing(text):
+def test_a_confirm_that_states_a_pass_or_a_restatement_asks_nothing(text):
     assert not asks.has_request(text)
-    assert asks.asks_nothing(decided(text))
     assert asks.asks_nothing(decided(text, ask="confirm"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The stated set pressure is above the vessel rating.",
+        "Material grade here conflicts with the grade on sheet 2.",
+        "Design pressure 3.5 bar is below the maximum operating pressure 3.8 bar.",
+        "Pressure-part corrosion allowance of 3.2 mm is within the 3.2 mm maximum.",  # even a pass-looking sentence: a concern is the judge's own suspicion
+    ],
+)
+def test_a_concern_is_never_taken_off_for_having_no_request_word(text):
+    """A concern states a conflict and needs no request word to be a real find; only the judge's "confirm" can be a no-ask line."""
+    assert not asks.has_request(text)
+    assert not asks.asks_nothing(decided(text, ask="concern"))
+    assert not asks.asks_nothing(
+        decided(text)
+    )  # the helper's default mark is "concern"
 
 
 @pytest.mark.parametrize(
@@ -55,8 +72,12 @@ def test_a_comment_with_any_request_or_named_gap_is_kept(text):
 
 def test_only_a_question_on_a_stated_value_is_judged():
     quiet = "The value is within the limit."
+    assert asks.asks_nothing(decided(quiet, ask="confirm"))
+    assert not asks.asks_nothing(
+        decided(quiet, ask="concern")
+    )  # the judge suspects the value: never taken off
     assert not asks.asks_nothing(decided(quiet, ask="open"))  # a blank IS the question
-    assert not asks.asks_nothing(decided(quiet, deferred=True))
+    assert not asks.asks_nothing(decided(quiet, ask="confirm", deferred=True))
     assert not asks.asks_nothing(
         decided(quiet, ask="")
     )  # an older run recorded no mark: never touched
@@ -68,19 +89,28 @@ def test_only_a_question_on_a_stated_value_is_judged():
 
 def test_mark_keeps_the_line_and_says_why_and_it_is_no_longer_sent():
     lines = [
-        decided("The thickness is within the limit."),
-        decided("State the thickness."),
+        decided("The thickness is within the limit.", ask="confirm"),
+        decided("State the thickness.", ask="confirm"),
+        decided(
+            "The thickness is above the rating.", ask="concern"
+        ),  # a concern is never marked
     ]
     from app.aim_review.engine import to_line
 
     assert [aim_review.sendable(to_line(n, d)) for n, d in enumerate(lines, 1)] == [
         True,
         True,
+        True,
     ]
     assert asks.mark(lines) == 1
-    assert aim_review.NO_ASK in lines[0]["code"] and lines[1]["code"] == ""
+    assert (
+        aim_review.NO_ASK in lines[0]["code"]
+        and lines[1]["code"] == ""
+        and lines[2]["code"] == ""
+    )
     assert [aim_review.sendable(to_line(n, d)) for n, d in enumerate(lines, 1)] == [
         False,
+        True,
         True,
     ]
     assert asks.mark(lines) == 0  # nothing left to mark: a second pass changes nothing
