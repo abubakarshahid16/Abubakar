@@ -54,7 +54,8 @@ def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
 def _ask(model, paper, shown_lines: dict, lead: str) -> dict | None:
     """One editor call on these lines; None (and a line in the run's calls) when it failed or its answer was cut."""
     shown = [
-        {"n": n, "field": d.get("field") or "", "page": d.get("page"), "comment": d.get("comment") or "", "quote": d.get("quote") or ""}
+        {"n": n, "field": d.get("field") or "", "page": d.get("page"), "rule": " ".join(x for x in (d.get("standard"), d.get("clause")) if x),
+         "comment": d.get("comment") or "", "quote": d.get("quote") or ""}
         for n, d in shown_lines.items()
     ]  # fmt: skip
     carries = {paper.paper_id} | {

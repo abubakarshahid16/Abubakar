@@ -986,11 +986,12 @@ def test_different_items_are_never_merged_whatever_their_source_or_rule_book(wor
     assert body["completeness"]["ok"] is True
 
 
-def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_by_label_and_compare_kind(
+def test_an_editor_group_mark_merges_only_the_same_kind_and_one_item_splits_by_label_and_compare_kind(
     world,
 ):
-    """The editor's "same point" mark joins nothing in the view now (it spanned different items); one item's lines merge only
-    when they show the same label and the same compare kind (a code-compared Fail never joins a Question)."""
+    """The editor's "same point" mark joins the comments of one group when every member shows the same label and compare kind (lead 3,
+    18 Nov: the editor's groups are applied by code, lossless); a mark that crosses kinds (a Fail, a code-compared line) merges nothing;
+    one item's lines merge only when they show the same label and the same compare kind."""
     mark = "same point as line 1"
     cmp_rule = json.dumps(
         {
@@ -1003,9 +1004,9 @@ def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_b
     lines = [
         _line(1, "Question", "Question", item_id="C01", code_note=mark),
         _line(2, "Question", "Question", item_id="C02", code_note=mark),  # another item: its own comment
-        _line(3, "Not met", "Fail, compared by code", item_id="C03", code_compare_json=cmp_rule),
+        _line(3, "Not met", "Fail, compared by code", item_id="C03", code_compare_json=cmp_rule, code_note=mark),  # a mark never joins a Fail
         _line(4, "Question", "Question", item_id="C03"),  # same item, another label
-        _line(5, "Question", "Question", item_id="C04", code_compare_json=cmp_other),
+        _line(5, "Question", "Question", item_id="C04", code_compare_json=cmp_other, code_note=mark),  # nor another compare kind
         _line(6, "Question", "Question", item_id="C04"),  # same item and label, another compare kind
         _line(7, "Question", "Question", item_id="C05"),
         _line(8, "Question", "Question", item_id="C05"),  # a true repeat
@@ -1017,18 +1018,17 @@ def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_b
         .json()
     )
     assert [c["lines"] for c in body["comments"]] == [
-        [1],
-        [2],
+        [1, 2],  # the editor's group: two items, the same label and kind: one comment keeping both lines' words
         [3],
         [4],
         [5],
         [6],
         [7, 8],
     ]
-    assert body["comments"][2]["shown_label"] == "Fail, compared by code"
+    assert body["comments"][1]["shown_label"] == "Fail, compared by code"
     rep = body["completeness"]
     assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 8
-    assert rep["comments"] == rep["comment_rows"] == 7
+    assert rep["comments"] == rep["comment_rows"] == 6  # lines 1 and 2 are one comment
 
 
 # ---- the recorded ask, the value-left-open flag and the judge's numbers reach the page and the file (18 Nov 2026) --------------

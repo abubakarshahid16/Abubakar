@@ -86,6 +86,9 @@ def _named_books(row: dict) -> list[dict]:
 def line_view(row: dict, n: int, hidden: bool = False) -> dict:
     """One stored line as the page and the file show it. `n` is the 1-based position in line order. `hidden` (from `book_hidden`):
     the book's name, clause and id are not served, and the name is not left in the comment either; the line is still counted."""
+    group = _group_of(
+        row.get("code_note")
+    )  # read from the STORED note: the same for every viewer
     if hidden:
         comment = str(row.get("comment") or "")
         names = [str(row.get("standard") or "")] + [
@@ -136,7 +139,17 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "ask": row.get("ask") or "",
         "deferred": bool(row.get("deferred")),
         "numbers": None if hidden else _numbers(row),
+        "same_point_as": group,
     }
+
+
+#: The editor's mark on a line it grouped with others ("same point as line 7"): the group's first line number.
+_GROUP_RE = re.compile(r"same point as line (\d+)")
+
+
+def _group_of(code_note) -> int | None:
+    found = _GROUP_RE.search(str(code_note or ""))
+    return int(found.group(1)) if found else None
 
 
 def _numbers(row: dict) -> dict | None:
@@ -259,7 +272,7 @@ def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dic
     by_n = {p["n"]: p for p in points}
     confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
     sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
-    return _same_place(_same_finding(sent, by_n), by_n), confirm
+    return _same_group(_same_place(_same_finding(sent, by_n), by_n), by_n), confirm
 
 
 def _confirm_only(p: dict) -> bool:
@@ -374,6 +387,51 @@ def _same_place(comments: list[dict], by_n: dict) -> list[dict]:
     out = []
     for c in comments:
         keys = {_place_key(by_n[n]) for n in c["lines"]}
+        if len(keys) == 1 and None not in keys:
+            groups.setdefault(keys.pop(), []).append(c)
+        else:
+            out.append(c)
+    for cs in groups.values():
+        if len(cs) == 1:
+            out.append(cs[0])
+            continue
+        members = sorted(
+            (by_n[n] for c in cs for n in c["lines"]),
+            key=lambda m: (m["page"] is None, m["page"] or 0, m["n"]),
+        )
+        out.append(_same_point(members))
+    return sorted(out, key=lambda g: g["n"])
+
+
+def _group_key(p: dict) -> tuple | None:
+    """The editor's GROUP of a sent line (its mark `same_point_as`) with its shown label, compare kind and provisional kind; None
+    without a mark, and ALWAYS None for a Not met or a Fail (a firm finding never joins a Question)."""
+    group = p.get("same_point_as")
+    shown = str(p.get("shown_label") or "").lower()
+    if (
+        not isinstance(group, int)
+        or p.get("label") == "Not met"
+        or "not met" in shown
+        or "fail" in shown
+    ):
+        return None
+    return (
+        group,
+        p["shown_label"],
+        p.get("compare_kind") or "",
+        _provisional_kind(p.get("code_note")),
+    )
+
+
+def _same_group(comments: list[dict], by_n: dict) -> list[dict]:
+    """The comments the editor (S5) grouped as ONE point (repeats under several rules, fields or pages that no code key sees): the
+    comments whose lines ALL carry the same group mark, the same shown label and compare kind become one comment, lossless
+    (`_same_point`: every rule's own words, every page, every quote). Code re-checks the kind here, so a mark that crosses kinds
+    merges nothing. NO CHAIN: a comment whose lines are in different groups stays as it is."""
+    groups: dict[tuple, list[dict]] = {}
+    out = []
+    for c in comments:
+        keys = {_group_key(by_n[n]) for n in c["lines"]}
         if len(keys) == 1 and None not in keys:
             groups.setdefault(keys.pop(), []).append(c)
         else:
