@@ -378,9 +378,10 @@ def test_a_stated_value_is_not_taken_for_a_deferred_one():
     assert d["label"] == "Met" and d["deferred"] is False
 
 
-# ---- a provisional figure: a stated figure beside a who-supplies note (the lead's decision of 18 Nov 2026; invented values) ----
-# The standing order: a value left to the vendor is a Question, nothing unproven is Pass or Fail. So such a figure is CHECKED by
-# code from the verified quotes, but its label is always Question; only a failed check is sent, with both numbers.
+# ---- a figure the contractor FILLED IN beside a who-supplies note ("380 psig (By Contractor)") is a STATED value (owner, 18 Nov
+# 2026 after live: "judge a filled-in value beside (By Contractor)"; it replaces the earlier provisional rule). Pass or Fail only
+# when CODE compared it with a held rule; an AI Met / Not met stays an AI verdict; the note "filled in by the contractor" stays on
+# the line; a who-supplies note with NO figure stays a Question (invented values).
 
 OPEN_PAGES = {
     1: "Set pressure 380 psig (By Contractor, as per Code)\nInlet size psig (By Contractor)\n",
@@ -406,39 +407,83 @@ def _sent(d) -> bool:
     return aim_review.sendable(to_line(1, d))
 
 
-def test_a_provisional_figure_over_the_limit_is_a_sent_question_with_both_numbers():
-    d = _stated(limit="340")
-    assert d["label"] == "Question" and d["code"] == "provisional_fails"
+def _shown(d) -> str:
+    from app import aim_review_store
+    from app.aim_review.engine import to_line
+
+    line = to_line(1, d)
+    return aim_review_store.shown_label(
+        line["label"], line["code_compare_json"], line["deferred"], line["code_note"]
+    )
+
+
+def test_a_filled_figure_over_a_held_limit_is_a_fail_compared_by_code_with_the_note():
+    from app import aim_review_store
+
+    d = _stated(
+        label="Met", limit="340"
+    )  # the model said Met; code compared 380 <= 340: false
     assert (
-        d["code_compare"]["result"] == "fail"
-        and d["code_compare"]["read_from"] == "verified quotes"
+        d["label"] == "Not met" and d["code_compare"]["result"] == "fail" and _sent(d)
     )
-    assert d["quote"] == STATED and _sent(d)
-    assert d["comment"] == (
-        "The stated 380 psig (by contractor) appears above the 340 psig limit of QX-STD-101 clause 4.1; please confirm."
+    assert (
+        _shown(d) == aim_review_store.FAIL_BY_CODE and S.CONTRACTOR_FILLED in d["code"]
     )
+    assert d["quote"] == STATED and not d["deferred"]
 
 
-def test_a_provisional_figure_under_the_limit_stays_in_all_points_and_is_not_sent():
-    d = _stated(limit="400")
-    assert d["label"] == "Question" and d["code"] == "provisional"
-    assert d["code_compare"]["result"] == "pass" and not _sent(d)
+def test_a_filled_figure_under_a_held_limit_is_a_pass_by_code_and_not_sent():
+    from app import aim_review_store
+
+    d = _stated(label="Not met", limit="400")
+    assert (
+        d["label"] == "Met"
+        and _shown(d) == aim_review_store.PASS_BY_CODE
+        and not _sent(d)
+    )
+    assert S.CONTRACTOR_FILLED in d["code"]
 
 
-def test_a_provisional_figure_code_cannot_check_is_a_sent_question_with_the_ai_comment():
-    """The lead, 18 Nov 2026 (valve-A AFTER run): an unchecked provisional line hid real findings; it is SENT, only a passed
-    check is held back."""
+@pytest.mark.parametrize("label", ["Met", "Not met"])
+def test_a_filled_figure_code_did_not_compare_stays_an_ai_verdict_never_by_code(label):
+    from app import aim_review_store
+
     j = {
-        "label": "Met",
+        "label": label,
         "quote": STATED,
         "page": 1,
         "comment": "the model's words",
-    }  # no numbers: code cannot check it
+    }  # no numbers: no comparison
     d = S._decide(_item(), j, OPEN_PAPER, BOOKS, "")
     assert (
-        d["label"] == "Question" and d["code"] == "provisional_unchecked" and _sent(d)
+        d["label"] == label
+        and d["code_compare"] is None
+        and S.CONTRACTOR_FILLED in d["code"]
     )
-    assert d["comment"] == "the model's words"
+    assert _shown(d) not in (
+        aim_review_store.PASS_BY_CODE,
+        aim_review_store.FAIL_BY_CODE,
+    )
+    assert _shown(d).startswith("AI opinion")
+
+
+def test_a_filled_figure_with_numbers_but_no_held_rule_is_never_by_code():
+    from app import aim_review_store
+
+    j = {"label": "Not met", "quote": STATED, "page": 1, "comment": "the model's words",
+         "numbers": {"paper_value": "380", "paper_unit": "psig", "operator": "<=", "rule_value": "340", "rule_unit": "psig"}}  # fmt: skip
+    d = S._decide(_item(source=S.KNOWLEDGE), j, OPEN_PAPER, BOOKS, "")
+    assert d["code_compare"] is None and _shown(d) not in (
+        aim_review_store.PASS_BY_CODE,
+        aim_review_store.FAIL_BY_CODE,
+    )
+    assert d["label"] == "AI opinion" and S.CONTRACTOR_FILLED in d["code"]
+
+
+def test_the_judges_left_open_flag_never_turns_a_filled_figure_into_a_question():
+    j = {"label": "Met", "quote": STATED, "page": 1, "comment": "c", "deferred": True}
+    d = S._decide(_item(), j, OPEN_PAPER, BOOKS, "")
+    assert d["label"] == "Met" and not d["deferred"]
 
 
 # ---- paper vs paper: the value AND its limit are on the paper (the lead, 18 Nov 2026; invented values) ------------------------
@@ -471,16 +516,23 @@ def _pp(
     return S._decide(_item(kind="limit", rule_quote=rule_quote), j, PP_PAPER, BOOKS, "")
 
 
-def test_a_provisional_figure_over_a_limit_the_paper_states_is_sent_with_both_numbers():
+def test_a_filled_figure_over_a_limit_the_paper_states_is_a_sent_ai_opinion_with_both_numbers():
+    """Paper vs paper is never a code verdict (the AI paired the values): an AI opinion with both numbers and the note."""
+    from app import aim_review_store
+
     d = _pp("Set pressure 380 psig (By Contractor)", "380", "psig", "23.5", "barg",
             "Allowed pressure of the protected item 23.5 barg", SET_ABOVE)  # fmt: skip
-    assert d["label"] == "Question" and d["code"] == "provisional_fails" and _sent(d)
     assert (
         d["code_compare"]["read_from"] == "verified paper quotes"
         and d["code_compare"]["result"] == "fail"
     )
-    assert d["comment"] == (
-        "The stated 380 psig (by contractor) appears above the 23.5 barg stated on page 2 (the AI paired these two values; code compared them); please confirm."
+    assert _sent(d) and _shown(d) not in (
+        aim_review_store.PASS_BY_CODE,
+        aim_review_store.FAIL_BY_CODE,
+    )
+    assert (
+        S.CONTRACTOR_FILLED in d["code"]
+        and "23.5 barg stated on page 2" in d["comment"]
     )
 
 
@@ -598,23 +650,6 @@ def test_the_rule_operator_is_read_only_when_the_words_name_one(rule_quote, op):
     from app.aim_review.verify import rule_operator
 
     assert rule_operator(rule_quote) == op
-
-
-@pytest.mark.parametrize("label", ["Met", "Not met", "AI opinion", "Question"])
-@pytest.mark.parametrize("limit", ["340", "400"])
-def test_a_who_supplies_line_is_never_met_or_not_met_nor_shown_pass_or_fail(
-    label, limit
-):
-    from app import aim_review_store
-    from app.aim_review.engine import to_line
-
-    d = _stated(label=label, limit=limit)
-    assert d["label"] == "Question", (label, limit)
-    line = to_line(1, d)
-    shown = aim_review_store.shown_label(
-        line["label"], line["code_compare_json"], line["deferred"]
-    )
-    assert shown not in (aim_review_store.PASS_BY_CODE, aim_review_store.FAIL_BY_CODE)
 
 
 @pytest.mark.parametrize(
