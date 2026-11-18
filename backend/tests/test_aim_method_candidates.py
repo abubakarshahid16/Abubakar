@@ -182,8 +182,9 @@ def test_at_most_twenty_books(aim_db, no_model, kind_datasheet, monkeypatch):
         L,
         "library",
         lambda conn, exclude=frozenset(), within=None: [
-            {"id": m["book"]} for m in many
-        ],
+            {"id": m["book"], "filename": f"ISO 9{i:04d}.pdf"}
+            for i, m in enumerate(many)
+        ],  # public-family books: a company standard is offered only when cited or table-named
     )
     allowed = frozenset(m["book"] for m in many)
     c = aim_review.candidates(aim_db, PAPER, allowed, MemoryStore())
@@ -196,12 +197,12 @@ def test_a_cited_book_is_found_by_its_identifier(
     from app import standard_ids
 
     monkeypatch.setattr(
-        standard_ids, "cited_standards", lambda text: ["QX-STD-202", "QX-STD-999"]
-    )
+        standard_ids, "cited_standards", lambda text: ["ISO 99202", "ISO 99999"]
+    )  # the helper books are invented public-family books
     c = aim_review.candidates(aim_db, PAPER, ALL, MemoryStore())
     whys = {b["id"]: b["why"] for b in c.books}
     assert whys[BOOK_B] == L.WHY_CITED
-    assert {"name": "QX-STD-999", "why": f"{L.WHY_CITED}; not held"} in c.not_held
+    assert {"name": "ISO 99999", "why": f"{L.WHY_CITED}; not held"} in c.not_held
 
 
 def test_the_stored_kind_spelling_is_the_methods():
@@ -209,3 +210,97 @@ def test_the_stored_kind_spelling_is_the_methods():
     assert L.method_kind("transmittal") == "other"
     assert L.method_kind(None) is None
     assert L.method_kind("datasheet") == "datasheet"
+
+
+# ---- a COMPANY standard (an owner's own rule book) is offered only when the paper cites it or a table names it ----------------
+
+COMPANY = "doc_aimcompany1"
+
+
+def _company_book(conn):
+    """An invented company-family book holding rules labelled for the kind, like the public helper books."""
+    import json
+
+    from tests.test_aim_method_helpers import _doc, _hex
+
+    with conn:
+        _doc(
+            conn,
+            COMPANY,
+            "ZQ-ENG-501.pdf",
+            "COMPANY_STANDARD",
+            {3: "Section heading\nThe item shall be tagged.\n"},
+        )
+        conn.execute(
+            "INSERT INTO standard_requirements (id, standard_document_id, clause, page, requirement_text, source_text,"
+            " created_at, updated_at) VALUES ('req_zq', ?, '2.1', 3, 'The item shall be tagged.', 'The item shall be tagged.',"
+            " 'x', 'x')",
+            (COMPANY,),
+        )
+        conn.execute(
+            "INSERT INTO rule_label (source, rule_ref, paper_kind, state, a_model, a_prompt, a_answer_sha256, b_model, b_prompt,"
+            " b_answer_sha256, reading_json, quote_page, quote_sha256, labelled_at) VALUES ('requirement', 'req_zq', 'datasheet',"
+            " 'ai_approved', 'model-a', 'p', ?, 'model-b', 'p', ?, ?, 3, ?, 'x')",
+            (_hex("a"), _hex("b"), json.dumps({"subject": "tagging"}), _hex("q")),
+        )
+
+
+def test_a_company_standard_the_paper_does_not_cite_is_not_listed(
+    aim_db, no_model, kind_datasheet
+):
+    _company_book(aim_db)
+    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
+    ids = [b["id"] for b in c.books]
+    assert COMPANY not in ids and BOOK_A in ids  # public books unaffected
+    assert L.is_public({"filename": "ISO 99101.pdf"}) and not L.is_public(
+        {"filename": "ZQ-ENG-501.pdf"}
+    )
+
+
+def test_a_company_standard_the_paper_cites_is_listed(
+    aim_db, no_model, kind_datasheet, monkeypatch
+):
+    from app import standard_ids
+
+    _company_book(aim_db)
+    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["ZQ-ENG-501"])
+    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
+    assert {b["id"]: b["why"] for b in c.books}[COMPANY] == L.WHY_CITED
+
+
+def test_a_company_standard_a_table_names_is_listed(
+    aim_db, no_model, kind_datasheet, monkeypatch
+):
+    _company_book(aim_db)
+    monkeypatch.setattr(
+        L,
+        "method_books",
+        lambda lib, kind: [(next(e for e in lib if e["id"] == COMPANY), "ZQ-ENG-501")],
+    )
+    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
+    assert {b["id"]: b["why"] for b in c.books}[COMPANY] == L.WHY_METHOD
+
+
+def test_s2s_catalog_holds_a_company_standard_only_when_a_table_names_it(
+    aim_db, no_model
+):
+    from app.aim_review import checklist as CL
+
+    _company_book(aim_db)
+    listed = frozenset({BOOK_A, BOOK_B, COMPANY})
+    ident = {"kind": "datasheet", "equipment_type": None}
+    cat, _pool, _req, _ref = CL._catalog(
+        aim_db, PAPER, ident, listed, {"listed": {}}, lambda b: None
+    )
+    assert COMPANY not in {c["book"] for c in cat} and BOOK_A in {
+        c["book"] for c in cat
+    }
+    cat, _pool, _req, _ref = CL._catalog(
+        aim_db,
+        PAPER,
+        ident,
+        listed,
+        {"listed": {COMPANY: L.WHY_GOVERNS}},
+        lambda b: None,
+    )
+    assert COMPANY in {c["book"] for c in cat}

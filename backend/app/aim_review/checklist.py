@@ -267,6 +267,8 @@ def _catalog(
                 }
             )
     cat = [c for c in cat if L.role_applies(by_id[c["book"]], kind)]
+    # a COMPANY standard only when a governing / method table names it for the type (the build sees no paper, so no citation)
+    cat = [c for c in cat if c["book"] in required or L.is_public(by_id[c["book"]])]
     cat = [c for c in cat if c["book"] in required or not gate_ok(c["book"])]
     for i, c in enumerate(cat):
         c["alias"] = f"B{i + 1:02d}"

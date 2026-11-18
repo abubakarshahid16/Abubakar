@@ -694,6 +694,31 @@ def _checklist(
     return checklist
 
 
+NOT_CITED = (
+    "a company standard this paper neither cites nor is governed by: it does not apply"
+)
+
+
+def _company_books(conn, state, books: dict, allowed_books) -> frozenset[str]:
+    """The saved checklist's books that are COMPANY standards not offered for this paper (`library.not_offered_company`)."""
+    from . import library as L
+
+    ids = {str(b.get("book")) for b in books.values() if b.get("book")} - set(
+        allowed_books
+    )
+    return L.not_offered_company(conn, state.paper_id, state.identity, ids)
+
+
+def _not_cited_line(S, it: dict, paper, books: dict) -> dict:
+    """An item of a saved checklist from a company standard this paper does not cite: "Does not apply" (never sent, never counted
+    as a book to review again)."""
+    line = S._decide(
+        it, {"label": "Does not apply", "comment": NOT_CITED}, paper, books, ""
+    )
+    line["code"] = NOT_CITED
+    return line
+
+
 def _judge(
     state: _RunState,
     mdl,
@@ -723,10 +748,15 @@ def _judge(
     items += always.items(
         text.conn, state.identity, checklist, allowed_books, paper.pages
     )
-    judged, held_back = [], set()
+    judged, held_back, not_cited = [], set(), set()
+    company = _company_books(text.conn, state, books, allowed_books)
     for it in items:
         bid = S.item_book(it, books)
-        if bid and bid not in allowed_books:
+        if bid and bid not in allowed_books and bid in company:
+            not_cited.add(
+                it["id"]
+            )  # a company standard this paper neither cites nor is governed by: it does not apply
+        elif bid and bid not in allowed_books:
             held_back.add(it["id"])
             state.unlisted.add(bid)
         else:
@@ -746,7 +776,9 @@ def _judge(
     for ln in lines:
         by_id.setdefault(ln["item_id"], []).append(ln)
     for it in items:
-        if it["id"] in held_back:
+        if it["id"] in not_cited:
+            own = [dict(_not_cited_line(S, it, paper, books), finding_no=1)]
+        elif it["id"] in held_back:
             own = [dict(S._decide(it, None, paper, books, NOT_ON_LIST), finding_no=1)]
         else:
             own = by_id[it["id"]]

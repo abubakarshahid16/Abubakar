@@ -485,3 +485,30 @@ def test_the_editor_is_one_call_per_paper_after_the_judge(aim_db):
     assert (
         steps.count("aim_edit") == 1 and steps[-1] == "aim_edit" and r.status == "done"
     )
+
+
+def test_a_saved_item_of_a_company_standard_this_paper_does_not_cite_does_not_apply(
+    aim_db,
+):
+    """An older saved checklist may hold an item of a company standard (an owner's own rule book). For a paper that neither cites
+    it nor is governed by it, the item does not apply: never sent, never counted as a book to review again."""
+    from tests.test_aim_method_candidates import COMPANY, _company_book
+
+    _company_book(aim_db)
+    store = MemoryStore()
+    first, _m, _s = _run(aim_db, store=store)
+    sha, body = store.saved[first.checklist_key][-1]
+    item = {"id": "C099", "topic": "tagging", "what_to_check": "x", "book": "B09", "book_id": COMPANY, "clause": "2.1",
+            "page": 3, "rule_quote": "The item shall be tagged.", "applies_when": "always", "paper_fields": [],
+            "paper_pages": [], "kind": "presence", "source": S.HELD}  # fmt: skip
+    body = {**body, "books": [*body["books"], {"alias": "B09", "book": COMPANY, "identifier": "ZQ-ENG-501"}],
+            "items": [*body["items"], item]}  # fmt: skip
+    store.saved[first.checklist_key][-1] = (sha, body)
+    r, _m, _s = _run(aim_db, store=store)
+    line = next(ln for ln in r.lines if ln["item_id"] == "C099")
+    assert (
+        line["label"] == "Does not apply"
+        and line["code_note"] == E.NOT_CITED
+        and not aim_review.sendable(line)
+    )
+    assert COMPANY not in r.unlisted_books
