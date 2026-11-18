@@ -5,7 +5,8 @@ field and the page, never the first reader's label or comment. Code decides:
   agree    = the second reader also finds a fault (Not met or AI opinion) and its quote is found by code on a page of the paper;
              the line is sent as it is, with the note `TWO_READERS_AGREE`;
   disagree = anything else (another label, no answer for the line, a quote code cannot find): the line is sent as a QUESTION to
-             be checked, with BOTH readers' words, and the note `READERS_DIFFER`; never dropped (no find is lost), never Met.
+             be checked (the comment is the first reader's own plain words), and the note `READERS_DIFFER: first <label>, second <label>[: <reason>]`
+             carries what the readers said; never dropped (no find is lost), never Met.
 A comparison by code (any result), a Question and a Met are never offered. One call per `READ_CHUNK` lines, the paper cached as for
 the judge; each call applied whole or not at all (a failed call changes nothing and the run's calls say so)."""
 
@@ -142,15 +143,18 @@ def _apply(out: dict, shown: dict, paper) -> int:
             d["code"] = "; ".join(x for x in (d.get("code"), TWO_READERS_AGREE) if x)
             continue
         second = str((read or {}).get("label") or "no answer")
-        why = str((read or {}).get("reason") or "")[:200]
+        why = " ".join(str((read or {}).get("reason") or "").replace(";", ",").split())[
+            :200
+        ]
         first = d.get("label") or ""
-        d["comment"] = (f"To be checked: the two readers differ. First reader ({first}): {d.get('comment') or ''} "
-                        f"Second reader ({second}): {why or 'no reason given'}")[:900]  # fmt: skip
+        # The comment stays the FIRST reader's own plain words: process wording (reader names, labels) never enters a comment's text.
+        # What the readers said goes in the line's code note, shown as a small tag on the card and in the team copy only.
         d["code"] = "; ".join(
             x
             for x in (
                 d.get("code"),
-                f"{READERS_DIFFER}: first {first}, second {second}",
+                f"{READERS_DIFFER}: first {first}, second {second}"
+                + (f": {why}" if why else ""),
             )
             if x
         )

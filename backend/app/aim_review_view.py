@@ -90,6 +90,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
     group = _group_of(
         row.get("code_note")
     )  # read from the STORED note: the same for every viewer
+    raw_note = row.get("code_note")
     if hidden:
         comment = str(row.get("comment") or "")
         names = [str(row.get("standard") or "")] + [
@@ -111,6 +112,7 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
             # and how it groups, the same for every viewer); the comparison's words are not served either (`compared`)
             "code_note": _state_words(row.get("code_note")),
         }
+    plain, readers = aim_review_card.split_readers(row.get("comment"), raw_note, hidden)
     page = row.get("page")
     return {
         "n": n,
@@ -118,7 +120,8 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
         "page": page if isinstance(page, int) else None,
         "label": row.get("label") or "",
         "shown_label": row.get("shown_label") or "",
-        "comment": row.get("comment") or "",
+        "comment": plain,
+        "readers": readers,
         "quote": row.get("quote") or "",
         "item_id": row.get("item_id") or "",
         "standard": row.get("standard") or "",
