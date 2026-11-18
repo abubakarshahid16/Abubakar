@@ -64,7 +64,7 @@ export function usePoints(documentId: string | null) {
 }
 
 /** The plan for one engine choice, read again when the choice (or the paper) changes. Reading it changes nothing on the server. */
-export function usePlan(documentId: string | null, engine: EngineChoice) {
+export function usePlan(documentId: string | null, engine: EngineChoice, ticked: string[] = []) {
   const [plan, setPlan] = useState<Loaded<ReviewPlan>>({ state: "loading" });
   /** The choice the plan on screen was read for. A plan is used only for the choice on screen. */
   const [forEngine, setForEngine] = useState<EngineChoice | null>(null);
@@ -72,12 +72,12 @@ export function usePlan(documentId: string | null, engine: EngineChoice) {
   const reload = useCallback(async () => {
     if (!documentId) return;
     const mine = ++latest.current;
-    const r = await reviewPoints.plan(documentId, engine);
+    const r = await reviewPoints.plan(documentId, engine, ...(ticked.length ? [ticked] : []));
     // OUT-OF-ORDER ANSWERS: a plan that is not the answer to the LAST request (an earlier choice answering late) is ignored.
     if (mine !== latest.current) return;
     setForEngine(engine);
     setPlan(r.ok ? { state: "ok", data: r.data } : { state: "error", message: r.error.message });
-  }, [documentId, engine]);
+  }, [documentId, engine, ticked.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setPlan({ state: "loading" }); setForEngine(null); void reload(); }, [reload]);
   useEffect(() => () => { latest.current += 1; }, []);
   // The plan on screen is used only for the choice on screen: in the render between a changed choice and the effect that clears the

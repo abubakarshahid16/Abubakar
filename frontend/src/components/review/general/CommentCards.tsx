@@ -39,7 +39,7 @@ function Box({ label, children, wide = false }: { label: string; children: strin
   if (!children) return null; // a part the card does not have renders as nothing
   return (
     <div className={`rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 p-3 ${wide ? "md:col-span-2" : ""}`}>
-      <h4 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slateish-400">{label}</h4>
+      <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-slateish-400">{label}</h4>
       <p className="whitespace-pre-line text-sm text-slateish-100">{children}</p>
     </div>
   );
@@ -169,7 +169,7 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
           </div>
         </details>
       )}
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slateish-400">
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slateish-400">
         <span data-testid="card-mark" className="rounded-[var(--radius-sm)] border border-dashed border-ink-500 px-2 py-0.5">
           {mark}{line.proven && line.proven !== mark ? ` · ${line.proven}` : ""}
         </span>

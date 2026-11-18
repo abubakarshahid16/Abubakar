@@ -488,7 +488,9 @@ def plan_for(
     if aim_review_gate.general_on():
         from .review_engine_general import general_plan
 
-        return general_plan(conn, document_id, allowed, plan, facts, reading, out)
+        return general_plan(
+            conn, document_id, allowed, plan, facts, reading, out, project_ids
+        )
     if plan.unscored:
         from . import agent_review_gate
 

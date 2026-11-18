@@ -21,17 +21,19 @@ type Loaded = { kind: "loading" } | { kind: "ready"; plan: ReviewPlan } | { kind
 export function StartPanel({ submittalId, starting, onStart, onCancel }: {
   submittalId: string;
   starting: boolean;
-  onStart: (engine: Engine, shownDocumentIds: string[]) => void;
+  onStart: (engine: Engine, shownDocumentIds: string[], ticked?: string[]) => void;
   onCancel: () => void;
 }) {
   const [engine, setEngine] = useState<Engine>("automatic");
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
+  /** The held Schedules the engineer ticked: they are asked of the plan (so they join the list shown) and named at the start. */
+  const [ticked, setTicked] = useState<string[]>([]);
 
   useEffect(() => {
     let live = true;
     setLoaded({ kind: "loading" });
     reviewPlan
-      .plan(submittalId, engine)
+      .plan(submittalId, engine, ...(ticked.length ? [ticked] : []))
       .then((result) => {
         if (live) setLoaded(result.ok ? { kind: "ready", plan: result.data } : { kind: "failed" });
       })
@@ -41,7 +43,7 @@ export function StartPanel({ submittalId, starting, onStart, onCancel }: {
     return () => {
       live = false;
     };
-  }, [submittalId, engine]);
+  }, [submittalId, engine, ticked.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const failed = loaded.kind === "failed";
   const plan = loaded.kind === "ready" ? loaded.plan : null;
@@ -53,7 +55,7 @@ export function StartPanel({ submittalId, starting, onStart, onCancel }: {
 
   function start() {
     if (chosen === "local") return onStart("local", []);
-    if (plan) onStart(chosen, plan.documents.leaving.map((d) => d.id));
+    if (plan) onStart(chosen, plan.documents.leaving.map((d) => d.id), ...(ticked.length ? [ticked] : []));
   }
 
   const cost = plan?.cost;
@@ -104,6 +106,8 @@ export function StartPanel({ submittalId, starting, onStart, onCancel }: {
             notReadable={plan.documents.not_readable}
             textLeaves={plan.text_leaves}
             webSearch={plan.documents.web_search}
+            offered={plan.documents.offered}
+            onTick={(id, on) => setTicked((t) => (on ? [...new Set([...t, id])] : t.filter((x) => x !== id)))}
           />
         </>
       )}

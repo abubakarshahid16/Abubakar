@@ -259,6 +259,9 @@ def without_titles(plan: dict) -> dict:
     # ids and counts only: not the file names of the paper's earlier rule books either
     docs["rule_books_count"] = len(docs.pop("rule_books", None) or [])
     docs.pop("rule_books_note", None)
+    docs.pop(
+        "offered", None
+    )  # titles of papers offered before the start: not stored with the run
     if "leaving" in docs:
         docs["leaving"] = [
             {k: d.get(k) for k in ("id", "kind", "why")} for d in docs["leaving"]
