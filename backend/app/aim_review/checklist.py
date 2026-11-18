@@ -23,7 +23,7 @@ from . import book_names as BN
 from . import library as L
 from . import prompts as P
 from . import scope_books as SB
-from .carried import knowledge_rows
+from .carried import knowledge_rows, say_none
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
     FLOOR_ITEMS,
@@ -101,6 +101,11 @@ class NoPaper:
 
     def __init__(self, model, conn, paper_id: str) -> None:
         self.model, self.conn, self.paper_id = model, conn, str(paper_id)
+
+    @property
+    def meter(self):
+        """The run's meter (the build's notes go to the run's calls)."""
+        return getattr(self.model, "meter", None)
 
     def ask(self, **kw):
         if kw.get("cached"):
@@ -566,9 +571,20 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
             "general review: knowledge items not written (%s)",
             str(exc).split(" ", 2)[:2],
         )
+        say_none(
+            model, names, f"the call failed: {str(exc).split(':', 1)[-1].strip()[:60]}"
+        )
         return made
     rows = (out or {}).get("items") if isinstance(out, dict) else None
     added, elsewhere = knowledge_rows(rows, most, _clean_item, KNOWLEDGE_NOT_HELD)
+    if not added:
+        say_none(
+            model,
+            names,
+            f"{len(elsewhere)} set aside as carried by another paper"
+            if elsewhere
+            else "the answer held no items",
+        )
     for n, it in enumerate(added, have + 1):
         it["id"] = f"C{n:03d}"
     return {
