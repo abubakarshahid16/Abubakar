@@ -48,3 +48,41 @@ describe("EngineBar with the general review (order 14)", () => {
     expect(start).not.toHaveBeenCalled();
   });
 });
+
+describe("EngineBar: held Schedules the paper cites", () => {
+  const OFFER = { id: "s1", title: "invented-schedule.pdf", part: "Schedule C", why: "cited by this paper; tick to compare it" };
+  const withOffer = (engine: string, ticked: string[]) => {
+    const g = general(engine) as { ok: boolean; data: { documents: Record<string, unknown> & { leaving: unknown[] } } };
+    if (engine === "local") return g;
+    const on = ticked.includes("s1");
+    return { ...g, data: { ...g.data, documents: { ...g.data.documents,
+      leaving: on ? [...g.data.documents.leaving, { id: "s1", title: OFFER.title, kind: "reference paper", why: "cited by this paper; chosen by you to compare" }] : g.data.documents.leaving,
+      offered: [{ ...OFFER, ticked: on }] } } };
+  };
+
+  it("ticking re-asks the plan with the id and the start carries it; unticked it carries nothing extra", async () => {
+    plan.mockImplementation(async (_d: string, e: string, ticked: string[] = []) => withOffer(e, ticked));
+    start.mockResolvedValue({ ok: true, data: { review_run_id: "run1" } });
+    render(<EngineBar documentId="p1" isAdmin onStarted={() => {}} />);
+    const box = await screen.findByRole("checkbox", { name: "Compare Schedule C" });
+    expect(box).not.toBeChecked();
+    expect(screen.getByText(/cited by this paper; tick to compare it/)).toBeInTheDocument();
+    fireEvent.click(box);
+    await waitFor(() => expect(plan).toHaveBeenLastCalledWith("p1", "automatic", ["s1"]));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Compare Schedule C" })).toBeChecked());
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(start).toHaveBeenCalledWith("p1", "automatic", ["p1", "b1", "s1"], ["s1"]));
+  });
+
+  it("offers nothing under Local only and forgets a tick when the engine changes", async () => {
+    plan.mockImplementation(async (_d: string, e: string, ticked: string[] = []) => withOffer(e, ticked));
+    render(<EngineBar documentId="p1" isAdmin onStarted={() => {}} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Compare Schedule C" }));
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "Compare Schedule C" })).toBeChecked());
+    fireEvent.click(screen.getByRole("radio", { name: "Local only" }));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Compare Schedule C" })).toBeNull());
+    fireEvent.click(screen.getByRole("radio", { name: "Claude" }));
+    expect((await screen.findByRole("checkbox", { name: "Compare Schedule C" }))).not.toBeChecked();
+  });
+});
