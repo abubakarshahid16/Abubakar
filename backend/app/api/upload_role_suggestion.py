@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from .. import access
+from .. import access, aim_review_gate
 from ..config import settings
 
 router = APIRouter()
@@ -21,9 +21,16 @@ router = APIRouter()
 SUBMITTAL, CONTRACT = "CONTRACTOR_SUBMITTAL", "CONTRACT_DOCUMENT"
 
 
+#: The roles that are never a paper under review: a rule book and the CRS template. With the general review on, the review page
+#: lists EVERY other readable paper (a paper with no role recorded included): the general review takes every kind of paper.
+NOT_A_PAPER_ROLES = ["COMPANY_STANDARD", "CRS_TEMPLATE"]
+
+
 class UploadRoleSuggestionOut(BaseModel):
     enabled: bool
     review_roles: list[str]
+    #: Non-empty: the review page lists every paper EXCEPT these roles (`GET /api/documents?exclude_role=`), not only `review_roles`.
+    exclude_roles: list[str] = []
 
 
 def review_roles() -> list[str]:
@@ -42,4 +49,5 @@ def upload_role_suggestion(
     return {
         "enabled": bool(settings.upload_role_suggestion_enabled),
         "review_roles": review_roles(),
+        "exclude_roles": list(NOT_A_PAPER_ROLES) if aim_review_gate.general_on() else [],
     }

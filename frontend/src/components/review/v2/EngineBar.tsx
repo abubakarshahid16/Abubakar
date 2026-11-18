@@ -83,7 +83,8 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
         <div data-testid="v2-engine-line" className="space-y-0.5 text-right text-xs text-slateish-300">
           <p>{engineWords(ready)}</p>
           {costWords(ready) && <p>{costWords(ready)}</p>}
-          {wontRunWords(ready).map((w) => <p key={w}>{w}</p>)}
+          {/* a refused plan already said why in the line above: its AI part's "will not run" would only repeat it */}
+          {wontRunWords(ready).filter((w) => !(ready.refused && w.startsWith("The AI review"))).map((w) => <p key={w}>{w}</p>)}
           {ready.unscored_note && <p>{ready.unscored_note}.</p>}
           {ready.needs_yes && <p data-testid="v2-needs-yes">This paper {NEEDS_YES}.</p>}
           {ready.notes.map((n) => <p key={n}>{n}</p>)}

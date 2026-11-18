@@ -1,0 +1,122 @@
+"""The measured score of a paper KIND, shown beside a general review (order 14, piece G).
+
+Owner's rule (18 Nov 2026): a kind below 7 of 10 still goes live if it beats the old engine, with its real score shown on the
+screen as "below target". This module only READS `reference/general_review_measured.json` (filled from the score files by the
+lead) and words it. No model, no network, no database, no number made up here.
+
+Honesty: a kind with no measured number says "has not been measured yet", never a score; the score is always stated with its
+denominator ("of 10"); a number that is not a real score between 0 and the denominator counts as not measured; a missing kind
+renders as nothing (None). The verdict compares two numbers in code; no AI opinion is involved.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import math
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+log = logging.getLogger(__name__)
+
+TABLE_PATH = Path(__file__).parent / "reference" / "general_review_measured.json"
+
+AT_OR_ABOVE = "at or above target"
+BELOW = "below target"
+NOT_MEASURED = "not measured"
+VERDICTS = (AT_OR_ABOVE, BELOW, NOT_MEASURED)
+
+
+@lru_cache(maxsize=1)
+def _table() -> dict:
+    try:
+        data = json.loads(TABLE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        log.info("measured scores not read (%s)", type(exc).__name__)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _word(value: Any) -> str:
+    return " ".join(str(value or "").strip().lower().replace("_", " ").split())
+
+
+def _number(value: Any, top: float) -> float | None:
+    """A real score only: a number (not a bool) from 0 to `top`; anything else is None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if 0 <= value <= top else None
+
+
+def _row(kind: str, equipment_type: str) -> dict | None:
+    kinds = _table().get("kinds")
+    if not isinstance(kinds, dict):
+        return None
+    base = next(
+        (v for k, v in kinds.items() if _word(k) == kind and isinstance(v, dict)), None
+    )
+    if base is None:
+        return None
+    types = base.get("equipment_types")
+    if equipment_type and isinstance(types, dict):
+        for name, row in types.items():
+            # An equipment type with its own measured number wins; one without falls back to the kind's row.
+            if (
+                _word(name) == equipment_type
+                and isinstance(row, dict)
+                and row.get("found_mean") is not None
+            ):
+                return row
+    return base
+
+
+def _fmt(number: float) -> str:
+    """One decimal, NEVER rounded up (6.96 -> "6.9"): a score is never shown above what was measured."""
+    return f"{math.floor(round(number * 10, 6)) / 10:.1f}"
+
+
+def _not_measured(label: str, target) -> dict:
+    return {
+        "kind_label": label,
+        "found": None,
+        "target": target,
+        "verdict": NOT_MEASURED,
+        "sentence": "This kind has not been measured on test copies yet.",
+    }
+
+
+def for_run(identity: dict | None) -> dict | None:
+    """What a run's page and file say about the measured score of its kind, or None when the run names no kind."""
+    if not isinstance(identity, dict):
+        return None
+    kind = _word(identity.get("kind"))
+    if not kind:
+        return None
+    equipment_type = _word(identity.get("equipment_type"))
+    row = _row(kind, equipment_type)
+    label = _word((row or {}).get("label")) or kind
+    top = _number(_table().get("out_of"), 1000)
+    target = _number(_table().get("target"), top) if top else None
+    if (
+        not top or not target
+    ):  # a denominator or target missing or 0: not measured, never a silent default
+        return _not_measured(label, target or None)
+    found = _number((row or {}).get("found_mean"), top)
+    if found is None:
+        return _not_measured(label, target)
+    verdict = AT_OR_ABOVE if found >= target else BELOW
+    sentence = (
+        f"Measured on planted test copies of this kind: {_fmt(found)} of {_fmt(top).rstrip('0').rstrip('.')} "
+        f"mistakes found (target {_fmt(target).rstrip('0').rstrip('.')}): {verdict}."
+    )
+    old = _number((row or {}).get("old_engine_mean"), top)
+    if old is not None:
+        sentence += f" The earlier version found {_fmt(old)} of {_fmt(top).rstrip('0').rstrip('.')}."
+    return {
+        "kind_label": label,
+        "found": found,
+        "target": target,
+        "verdict": verdict,
+        "sentence": sentence,
+    }

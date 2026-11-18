@@ -339,14 +339,16 @@ def last_rule_check_run(conn, document_id) -> str | None:
     AI run (told apart by its explicit marker, its job's stage `agent_review_gate.STAGE`, written with the run in one transaction
     by `agent_review_jobs`) counts only when it holds rows of its own: with no reusable rule check, `agent_review_jobs._scope_run_id`
     runs the selection inline under the AI run's id. A run without a job (older rule-check paths) counts. None: no such run."""
-    from . import agent_review_gate
+    from . import agent_review_gate, aim_review_store
 
     marks = ",".join("?" for _ in DONE)
     row = conn.execute(
         "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.status IN ("
         + marks
         + ")"
-        " AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
+        # a general review run (order 14) is not a rule check
+        + aim_review_store.exclude(conn)
+        + " AND (NOT EXISTS (SELECT 1 FROM jobs j WHERE j.review_run_id = r.id AND j.stage = ?)"
         " OR EXISTS (SELECT 1 FROM review_applicable_standards s WHERE s.review_run_id = r.id))"
         " ORDER BY r.started_at DESC, r.id DESC LIMIT 1",
         (document_id, *DONE, agent_review_gate.STAGE),
@@ -382,12 +384,118 @@ def _earlier_scope_books(conn, document_id, allowed, put, rows_of) -> None:
         put(row, kind, WHY_EARLIER_SCOPE)
 
 
+GENERAL_BOOKS_NOTE = "chosen from the library's own records before the start; the general review uses only the books on this list"
+
+
+def general_leaving(
+    conn, document_id, allowed, facts, *, leaves: bool, explicit: bool
+) -> dict:
+    """The general review's list (order 14, CONTRACT section 2): the paper and the rule books `aim_review.candidates` chooses from
+    the library's own records (no model, no write), each through the same send gate as the older list; books not held are named
+    as not sent; a book the caller may not read is counted, never named. Never raises (an EMPTY list with the reason)."""
+    out: dict = {"leaving": [], "not_sent": [], "not_readable": 0}
+    if not leaves:
+        out["summary"] = LOCAL_WORDS
+        return _finish(out)
+    try:
+        _general_fill(conn, document_id, allowed, facts, out, explicit)
+    except (sqlite3.Error, ValueError, OSError, LookupError) as exc:
+        log.warning("general review leaving list unreadable (%s)", type(exc).__name__)
+        out.update(leaving=[], not_sent=[], not_readable=0, unreadable=True)
+        out["summary"] = (
+            "The list of documents that would leave could not be worked out, so no Claude start is offered"
+        )
+        return _finish(out)
+    out["summary"] = (
+        f"{len(out['leaving'])} document(s) will be sent to Claude"
+        if out["leaving"]
+        else LOCAL_WORDS
+    )
+    return _finish(out)
+
+
+def _general_fill(conn, document_id, allowed, facts, out, explicit) -> None:
+    from . import aim_review, aim_review_store
+
+    gate = _Gate(facts, explicit)
+    paper = _doc_rows(conn, [document_id]).get(document_id)
+    if paper is None or document_id not in allowed:
+        return
+    out["leaving"].append(
+        {"id": document_id, "title": _title(paper), "kind": PAPER, "why": WHY_PAPER,
+         "contract": _is_contract(document_id)}
+    )  # fmt: skip
+    found = aim_review.candidates(
+        conn,
+        document_id,
+        allowed,
+        aim_review_store.DbChecklistStore(conn),
+        aim_review_store.unlisted_of_last(conn, document_id),
+    )
+    rows = _doc_rows(conn, [b["id"] for b in found.books])
+    seen = {document_id}
+    for book in found.books:
+        row = rows.get(book["id"])
+        if row is None or row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        if (
+            row["id"] not in allowed
+        ):  # candidates already narrows; counted, never named, if one ever slips through
+            out["not_readable"] += 1
+            continue
+        kind = (
+            SPECIFICATION
+            if row["role"] == claude_approved.SPECIFICATION_ROLE
+            else RULE_BOOK
+        )
+        entry = {
+            "id": row["id"],
+            "title": _title(row),
+            "kind": kind,
+            "why": str(book.get("why") or ""),
+        }
+        reason = gate.why_not(row, kind)
+        if reason:
+            out["not_sent"].append({**entry, "reason": reason})
+        else:
+            out["leaving"].append({**entry, "contract": _is_contract(row["id"])})
+    out["not_readable"] += int(found.unreadable or 0)
+    for n in found.not_held:
+        out["not_sent"].append(
+            {
+                "name": str(n.get("name") or ""),
+                "kind": RULE_BOOK,
+                "why": str(n.get("why") or ""),
+                "reason": NOT_HELD,
+            }
+        )
+
+
 def documents_block(ctx, plan, project_ids) -> dict:  # noqa: PLR0915
     """`documents` of the plan: the older keys (the last review's rule book names) and the list of what would leave.
     `ctx` is `(conn, document_id, allowed, facts, reading)`."""
+    from . import aim_review_gate
     from .review_engine import _earlier_books
 
     conn, document_id, allowed, facts, reading = ctx
+    if aim_review_gate.general_on():
+        leaves = bool(plan.text_leaves)
+        docs: dict = {"paper": leaves, "rule_books": [], "rule_books_note": None}
+        docs.update(
+            general_leaving(
+                conn,
+                document_id,
+                allowed,
+                facts,
+                leaves=leaves,
+                explicit=plan.choice == "claude",
+            )
+        )
+        books = [d for d in docs["leaving"] if d["kind"] != PAPER]
+        docs["rule_books"] = sorted(d["title"] for d in books)
+        docs["rule_books_note"] = GENERAL_BOOKS_NOTE if leaves else None
+        return docs
     leaves = bool(plan.text_leaves)
     docs: dict = {"paper": leaves, "rule_books": [], "rule_books_note": None}
     if leaves:

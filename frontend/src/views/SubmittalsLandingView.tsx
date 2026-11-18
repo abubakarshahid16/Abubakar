@@ -26,6 +26,7 @@ import { INBOX_IS_DEFAULT } from "../routing";
 import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/review/reviewFormat";
 import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
 import { type FailedResult, plainError } from "../components/review/workspace/plainError";
+import { latestGeneralRun } from "../components/review/v2/OlderFiles";
 
 /** Order 95 piece 3: while a review is queued or running, the list re-reads
  *  on this interval so its state moves without a refresh. */
@@ -81,6 +82,8 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
   const [startError, setStartError] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batching, setBatching] = useState(false);
+  /** Order 14 (G3): the general review is on, so "Review all" (Local only, which the general review refuses) is not offered. */
+  const [generalOn, setGeneralOn] = useState(false);
 
   // Order 109: ONE list request at a time. React's StrictMode runs the
   // first effect twice in development (the owner's app runs `npm run dev`),
@@ -100,9 +103,15 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
 
   const fetchBoth = async () => {
     // Order 14 lane E: the roles this page lists come from the suggested-role switch: off, contractor submittals only (as before).
-    const roles = (await roleSuggestionSwitch()).review_roles;
+    const listing = await roleSuggestionSwitch();
+    // Order 14 (G2): the general review takes every kind of paper, so the list is every paper that is not a rule book (a paper
+    // with no role recorded included); the earlier engine keeps the roles it always listed.
+    const exclude = listing.exclude_roles ?? [];
+    setGeneralOn(exclude.length > 0);
     const [subs, runsResult] = await Promise.all([
-      api.documents({ document_role: roles, limit: LIST_MAX }),
+      exclude.length > 0
+        ? api.documents({ exclude_role: exclude, limit: LIST_MAX })
+        : api.documents({ document_role: listing.review_roles, limit: LIST_MAX }),
       reviewsApi.reviewRuns(),
     ]);
     if (!runsResult.ok) {
@@ -128,10 +137,16 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
     return () => window.clearInterval(timer);
   }, [moving, load]);
 
-  function reviewDocument(documentId: string) {
+  async function reviewDocument(documentId: string) {
     const existing = groupRunsByDocument(runs).find((group) => group.documentId === documentId);
     if (existing) {
       onOpenRun(existing.latest.review_run_id);
+      return;
+    }
+    // Order 14: a paper whose only reviews are general ones is not in the old run list: open its newest general review
+    const general = await latestGeneralRun(documentId);
+    if (general) {
+      onOpenRun(general);
       return;
     }
     // THE ONE START: the pre-start step (engine, what will leave this Mac, the list, the cost) opens first; its Start begins.
@@ -229,7 +244,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
       {phase.kind === "ready" && workspace && !inbox && (
         <WorkspaceLanding
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
-          documentsFailed={documentsFailed} isAdmin={isAdmin}
+          documentsFailed={documentsFailed} isAdmin={isAdmin} generalReviewOn={generalOn}
           onOpenRun={onOpenRun} onOpenRunTab={onOpenRunTab} onReload={reload}
           loadReadyCounts={loadReadyCounts}
         />
@@ -249,7 +264,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
           onOpenRun={onOpenRun}
-          onReviewAll={(targets) => void reviewAll(targets)}
+          onReviewAll={generalOn ? undefined : (targets) => void reviewAll(targets)}
           reviewingAll={batching}
           startingDocumentId={startingDocumentId}
           loadReadyCounts={loadReadyCounts}

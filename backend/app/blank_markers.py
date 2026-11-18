@@ -52,10 +52,21 @@ _WHOLE_CELL = re.compile(
 _PLACEHOLDER = re.compile(r"^[\s_\-*.·–—]{2,}$")
 
 #: ANSWERS, not blanks. Checked first so no rule above can swallow one.
-_ANSWERS = frozenset({
-    "n/a", "na", "n.a.", "n.a", "not applicable", "nil", "none", "not required",
-    "no", "not req'd", "not reqd",
-})
+_ANSWERS = frozenset(
+    {
+        "n/a",
+        "na",
+        "n.a.",
+        "n.a",
+        "not applicable",
+        "nil",
+        "none",
+        "not required",
+        "no",
+        "not req'd",
+        "not reqd",
+    }
+)
 
 
 def classify(value: str | None) -> tuple[bool, str | None]:
@@ -232,10 +243,14 @@ _UNIT_TAIL = r"(?:\s+(?P<unit>\S+))?"
 #: The WHOLE forms (after the field's own label is taken out) that mean "the value is still to be given": a to-be-given abbreviation,
 #: placeholder ink (stars, a run of "_" or of "."), or "later", optionally followed by a unit ON A FIELD THAT ASKS FOR A VALUE. Nothing
 #: else: no word is dropped to reach one, so a quote that holds anything more is never one (FTU-16 review: the safe side).
-_WHOLE_DEFERRAL = re.compile(r"^(?:tba|tbd|tbc|[_*]+|\.{2,}|later)" + _UNIT_TAIL + r"$", re.IGNORECASE)
+_WHOLE_DEFERRAL = re.compile(
+    r"^(?:tba|tbd|tbc|[_*]+|\.{2,}|later)" + _UNIT_TAIL + r"$", re.IGNORECASE
+)
 #: "By vendor" / "by contractor" as the whole quote: a value left to someone ONLY on a field that asks for a value (otherwise it may be
 #: a scope answer: "Painting: By Contractor").
-_WHOLE_WHO = re.compile(r"^by\s+(?:the\s+)?(?:vendor|contractor)" + _UNIT_TAIL + r"$", re.IGNORECASE)
+_WHOLE_WHO = re.compile(
+    r"^by\s+(?:the\s+)?(?:vendor|contractor)" + _UNIT_TAIL + r"$", re.IGNORECASE
+)
 
 
 def _real_unit(token: str) -> bool:
@@ -260,4 +275,83 @@ def is_whole_deferral(text: str | None, *, value_field: bool = False) -> bool:
     vendor" / "by contractor" on a field that asks for a value. A word after the form counts only on a field that asks for a value
     and only when it is a real unit (`_real_unit`); otherwise the quote is not a deferral and the caller decides it neutrally. Pure."""
     t = " ".join(str(text or "").split())
-    return bool(t) and (_whole(_WHOLE_DEFERRAL, t, value_field) or (value_field and _whole(_WHOLE_WHO, t, value_field)))
+    return bool(t) and (
+        _whole(_WHOLE_DEFERRAL, t, value_field)
+        or (value_field and _whole(_WHOLE_WHO, t, value_field))
+    )
+
+
+# ---------------------------------------------------------------- order 14, the general review: pending vs who supplies
+
+#: A PENDING marker: the value is not final yet, whatever figure stands beside it ("380 psig TBC", "12 mm *"). The lead's decision of
+#: 18 Nov 2026: only these, the blank forms, or a who-supplies note with NO figure leave a value open. A stated figure beside a
+#: who-supplies note is PROVISIONAL (`is_provisional_figure`): checked, never a verdict (a value left to the vendor is a Question).
+_PENDING = re.compile(
+    r"\b(?:tba|tbd|tbc|tbn|vta"
+    r"|to\s+be\s+(?:advised|confirmed|determined|decided|specified|finali[sz]ed)"
+    r"|(?:vendor|contractor|supplier|manufacturer|seller|bidder)\s+to\s+(?:confirm|determine|decide)"
+    # "hold" anywhere, bracketed or not ("25 bar gauge (HOLD)"), but not a hold time, a hold-down bolt or a holding value
+    r"|hold(?![\s-]*(?:time|period|down|up|back|open|closed|pressure|test|point)\b)(?!-)"
+    # "later" anywhere ("later stage", "(later)", "to follow later"), but not a later revision or edition
+    r"|later(?!\s+(?:revision|rev|edition|issue|version)\b))\b",
+    re.IGNORECASE,
+)
+#: A lone star or "(*)" standing as its own word ("12 mm *", "380 (*) psig"): the enquiry sheet's "vendor to advise" mark.
+_LONE_STAR = re.compile(r"(?<!\S)\(?\*+\)?(?!\S)")
+#: A WHO-SUPPLIES note: it says whose job the value is, not that it is still open. Beside a stated figure the figure is the value.
+_WHO_SUPPLIES = re.compile(
+    r"\b(?:by\s+(?:the\s+)?(?:contractor|vendor|supplier|manufacturer|seller|bidder|others|purchaser|buyer)"
+    r"(?:\s*/\s*(?:vendor|contractor|supplier|manufacturer))?"
+    r"|as\s+per\s+(?:the\s+)?(?:code|vendor|supplier|manufacturer|contractor|standard)"
+    r"|(?:vendor|contractor|supplier|manufacturer|seller|bidder)\s+to\s+(?:advise|specify|furnish|provide|state)"
+    r"|to\s+be\s+(?:furnished|provided|supplied))\b",
+    re.IGNORECASE,
+)
+
+
+def who_supplies(text: str | None) -> str | None:
+    """The who-supplies note in `text` as printed ("By Contractor", "as per Code", "vendor to advise"), or None."""
+    found = _WHO_SUPPLIES.search(text or "")
+    return found.group(0) if found else None
+
+
+def names_who_supplies(text: str | None) -> bool:
+    """True when `text` holds a who-supplies note ("By Contractor", "as per Code", "vendor to advise")."""
+    return who_supplies(text) is not None
+
+
+def is_provisional_figure(quote: str | None) -> bool:
+    """A STATED figure beside a who-supplies note ("Set pressure 380 psig (By Contractor)"): a who-supplies note and the value is
+    not left open (`value_left_open`). The general review checks such a figure by code but never gives it a verdict."""
+    return names_who_supplies(quote) and not value_left_open(quote)
+
+
+def value_left_open(quote: str | None) -> bool:
+    """THE general review's question "does this paper quote leave the value open?" (the lead's decision of 18 Nov 2026).
+
+    Open when (a) a PENDING marker stands anywhere in it (`_PENDING`: TBA, TBD, TBC, "to be confirmed", "later", VTA; a lone "*"
+    or "(*)" that is no note pointer), (b) the value (after the field's own label, the text after the last colon) is a blank form
+    (`_WHOLE_CELL`, `_PLACEHOLDER`, `is_whole_deferral`, `star_fills_value`), or (c) a who-supplies note stands with NO figure
+    stated for the value ("Set pressure psig (By Contractor)", "By Vendor"). A who-supplies note beside a stated figure
+    ("Set pressure 380 psig (By Contractor, as per Code)") does NOT leave it open: it is a provisional figure
+    (`is_provisional_figure`), checked by code and still a Question. Pure."""
+    text = " ".join(str(quote or "").split())
+    if not text:
+        return False
+    if _PENDING.search(text):
+        return True
+    if any(
+        not _STAR_POINTER.match(text[m.start() :]) for m in _LONE_STAR.finditer(text)
+    ):
+        return True
+    value = text.rsplit(":", 1)[-1].strip() if ":" in text else text
+    if (
+        not value or value.lower() in _ANSWERS
+    ):  # a label with nothing after it, or an answer ("N/A"): not a value left open
+        return False
+    blank = _WHOLE_CELL.match(value) or _PLACEHOLDER.match(value)
+    if blank or is_whole_deferral(value, value_field=True) or star_fills_value(text):
+        return True
+    return names_who_supplies(text) and not _has_standalone_figure(
+        _BRACKETED_CLAUSE.sub(" ", value)
+    )

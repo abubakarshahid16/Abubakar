@@ -58,14 +58,15 @@ def latest_run(document_id: str) -> dict | None:
     or None when none was ever started. Ordered as `list_review_runs` orders,
     so "the latest run" means one thing. The caller has already checked the
     document is readable; a run is its submittal's."""
-    from . import run_finishing, submittal_review  # lazy: it reaches back into review
+    from . import aim_review_store, run_finishing, submittal_review  # lazy: it reaches back into review
 
     submittal_review.ensure_schema()
     row = (
         connect()
-        .execute(
+        .execute(  # a general review run (order 14) has its own file: not this export's run
             f"SELECT r.id, {run_finishing.STATUS} AS status, r.outcome_json FROM review_runs r"
-            " WHERE r.submittal_document_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
+            f" WHERE r.submittal_document_id = ?{aim_review_store.exclude(connect())}"
+            " ORDER BY r.created_at DESC, r.id DESC LIMIT 1",
             (document_id,),
         )
         .fetchone()

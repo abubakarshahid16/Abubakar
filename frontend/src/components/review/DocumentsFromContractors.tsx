@@ -53,7 +53,7 @@ export function DocumentsFromContractors(
   },
 ) {
   const rows = rowsFor(documents, runs);
-  const boundary = truncationNote(documents.length, submittalsTotal, "contractor submittals");
+  const boundary = truncationNote(documents.length, submittalsTotal, "papers");
 
   if (rows.length === 0) {
     return (

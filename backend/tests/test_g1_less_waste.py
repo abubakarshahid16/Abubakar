@@ -69,7 +69,7 @@ def test_a_new_agent_review_or_crs_ai_file_is_listed_or_off_on_purpose():
 def test_the_full_review_sentence_is_the_same_in_every_home():
     sentence = "whether or not the file is on the list; the list only decides where style stops block."
     for home in (
-        "CLAUDE.md",
+        "docs/claude-md-old.md",  # moved there from CLAUDE.md on 18 Nov 2026 (owner, #1584)
         ".claude/skills/release-train/SKILL.md",
         ".claude/commands/review.md",
     ):
@@ -109,7 +109,10 @@ def test_the_list_is_short_enough_to_be_honest():
     # raised to 66 on 17 Nov (LP0, lead's review of PR #1878, rule 14d): agent_review_ai_answer.py words the AI's own answer on a
     # line code did not prove (a CRS cell and the page's pill); agent_review_wording.py, where it would belong, is at its limit
     # raised to 67 on 17 Nov (merge round 19a): LP1 (firm_clause.py) and LP0 (agent_review_ai_answer.py) each added one module
-    assert len(vp.VERDICT_PATH) <= 67
+    # raised to 73 on 18 Nov (order 14, CONTRACT section 7, the integrator): the general review behind the ONE Review button: its
+    # method package, its gate (which engine runs), its job (which books it may send), its resolver (review_engine_general, split
+    # out of review_engine at its 800-line limit), its store (the label a person sees), its page, its file and its completeness
+    assert len(vp.VERDICT_PATH) <= 75
 
 
 def test_the_ratchet_the_lint_baseline_and_the_hook_read_the_one_list():

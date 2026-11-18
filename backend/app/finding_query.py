@@ -67,11 +67,14 @@ def latest_run_ids(allowed_document_ids: frozenset[str] | None) -> dict[str, str
     `submittal_review.list_review_runs` uses). None = no restriction; an empty set = nothing."""
     if allowed_document_ids is not None and not allowed_document_ids:
         return {}
-    sql, args = "SELECT id, submittal_document_id FROM review_runs", []
+    from . import aim_review_store
+
+    sql, args = "SELECT r.id, r.submittal_document_id FROM review_runs r WHERE 1 = 1", []
     if allowed_document_ids is not None:
-        sql += " WHERE submittal_document_id IN (" + ",".join("?" for _ in allowed_document_ids) + ")"
+        sql += " AND r.submittal_document_id IN (" + ",".join("?" for _ in allowed_document_ids) + ")"
         args = sorted(allowed_document_ids)
-    sql += " ORDER BY created_at DESC, id DESC"
+    sql += aim_review_store.exclude(connect())  # a general review run (order 14) holds no findings
+    sql += " ORDER BY r.created_at DESC, r.id DESC"
     latest: dict[str, str] = {}
     for row in connect().execute(sql, args).fetchall():
         latest.setdefault(row["submittal_document_id"], row["id"])

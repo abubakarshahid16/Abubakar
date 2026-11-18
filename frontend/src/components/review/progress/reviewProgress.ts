@@ -70,3 +70,15 @@ export function shown(d: ReviewProgressDetail, extra = 0): Shown {
     stall,
   };
 }
+
+/** The five steps the general review reports (`aim_review_jobs.STEPS`), in order. */
+export const GENERAL_STEPS = ["read the paper", "name the paper", "checklist", "judge", "counts"] as const;
+
+/** Order 14 (G4): is this job the general review's? Its job reports five steps by name (the earlier engine reports three, and its
+ *  detail block counts four of its own). The screen's one step line then comes from the job's own words; the earlier engine's
+ *  step names, bands and "No progress" light do not apply to it. */
+export function isGeneralJob(job: { progress_total?: number | null; progress_label?: string | null } | null | undefined): boolean {
+  if (!job || job.progress_total !== GENERAL_STEPS.length) return false;
+  const label = job.progress_label;
+  return label == null || label === "queued" || (GENERAL_STEPS as readonly string[]).includes(label);
+}

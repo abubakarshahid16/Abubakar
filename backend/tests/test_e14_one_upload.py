@@ -146,11 +146,13 @@ def test_the_route_says_the_switch_and_the_review_roles(monkeypatch):
     assert client.get("/api/document-kinds/role-suggestion").json() == {
         "enabled": False,
         "review_roles": ["CONTRACTOR_SUBMITTAL"],
+        "exclude_roles": [],  # the test world keeps the earlier engine on (G2: the general review lists every paper)
     }
     monkeypatch.setattr(settings, "upload_role_suggestion_enabled", True)
     assert client.get("/api/document-kinds/role-suggestion").json() == {
         "enabled": True,
         "review_roles": ["CONTRACTOR_SUBMITTAL", "CONTRACT_DOCUMENT"],
+        "exclude_roles": [],
     }
 
 

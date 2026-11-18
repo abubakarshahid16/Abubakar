@@ -22,6 +22,12 @@ from .db import connect
 
 TABLE = "review_shown_lists"
 SPECIFICATION_ROLE = "SPECIFICATION"
+#: ONE home of the sentence for rule books a review found it should use but did not send because they were not on the list shown
+#: before the start (the rule check's notes and the general review's page and file). `{n}`: how many.
+FOUND_DURING_REVIEW_WORDS = (
+    "{n} more rule book(s) apply to this paper. They were not sent because they were not on the list you saw. "
+    "Review again to include them."
+)
 NOT_SHOWN_WORDS = "not sent: this review cites a specification that was not on the list shown before the start"
 
 

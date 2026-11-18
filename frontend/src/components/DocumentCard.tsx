@@ -88,7 +88,7 @@ export function DocumentCard({
   onConfirmType?: (doc: DocumentRecord, docType: string) => void;
   /** The router's document kinds, and the admin's confirm of one (W5b-02). */
   kinds?: DocumentKindOption[];
-  onConfirmKind?: (doc: DocumentRecord, kind: string) => void;
+  onConfirmKind?: (doc: DocumentRecord, kind: string) => void | Promise<string | null | void>;
   /** Whether this row is in the bulk selection. `undefined` means the page is
    *  not offering selection at all and NO checkbox renders - a non-admin must
    *  not be given a control whose only endpoint 404s them. */

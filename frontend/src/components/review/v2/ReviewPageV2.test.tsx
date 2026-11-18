@@ -12,6 +12,7 @@ import { costWords, engineWords, signWaits, tileLine, wontRunWords } from "./wor
 
 const api = {
   list: vi.fn(), plan: vi.fn(), decide: vi.fn(), keepAll: vi.fn(), add: vi.fn(), start: vi.fn(), confirmNa: vi.fn(), undoNa: vi.fn(),
+  general: vi.fn(), method: vi.fn(), history: vi.fn(), downloadGeneral: vi.fn(),
   ofDocument: vi.fn(), kinds: vi.fn(), confirmKind: vi.fn(), decideCode: vi.fn(), downloadCrs: vi.fn(), downloadAgentCrs: vi.fn(), downloadPaperCrs: vi.fn(),
 };
 vi.mock("../../../api/reviewPoints", async (orig) => ({
@@ -21,6 +22,10 @@ vi.mock("../../../api/reviewPoints", async (orig) => ({
     keepAll: (...a: unknown[]) => api.keepAll(...a), add: (...a: unknown[]) => api.add(...a), start: (...a: unknown[]) => api.start(...a),
     confirmNotApplicable: (...a: unknown[]) => api.confirmNa(...a), undoNotApplicable: (...a: unknown[]) => api.undoNa(...a),
   },
+}));
+vi.mock("../../../api/generalReview", () => ({
+  generalReview: { get: (...a: unknown[]) => api.general(...a), method: (...a: unknown[]) => api.method(...a), history: (...a: unknown[]) => api.history(...a) },
+  downloadGeneralSheet: (...a: unknown[]) => api.downloadGeneral(...a),
 }));
 vi.mock("../../../api/documents", () => ({
   classification: {
@@ -115,8 +120,14 @@ function mount(over: Partial<React.ComponentProps<typeof ReviewPageV2>> = {}) {
   return { ...render(<ReviewPageV2 {...props} />), props };
 }
 
+const NO_GENERAL = { ok: false, disconnected: false, error: { code: "not_found", message: "this paper has no general review" } };
+
 beforeEach(() => {
   Object.values(api).forEach((f) => f.mockReset());
+  api.general.mockResolvedValue(NO_GENERAL);
+  api.method.mockResolvedValue(ok({ method: "earlier" }));
+  api.history.mockResolvedValue(ok({ paper_document_id: "doc1", boundary: "reviews of this paper you may read", runs: [] }));
+  api.downloadGeneral.mockResolvedValue(null);
   api.list.mockResolvedValue(ok(listing()));
   api.plan.mockResolvedValue(ok(plan()));
   api.ofDocument.mockResolvedValue(ok({ document_kind: "datasheet", document_kind_state: "suggested", equipment_type: "pressure_relief_valve" }));
@@ -878,5 +889,143 @@ describe("the AI's own answer on a line code did not prove", () => {
     mount();
     const section = await screen.findByTestId("v2-na-section");
     expect(within(section).getByTestId("v2-na-line")).toHaveTextContent("Does not apply (AI, engineer to confirm) · not confirmed yet");
+  });
+});
+
+// ---- order 14, piece C: the general review's results page ------------------------------------------------------------------------
+import type { GeneralReview } from "../../../api/generalReview";
+
+const MARK = "AI, to be checked";
+function general(over: Partial<GeneralReview> = {}): GeneralReview {
+  const line = (n: number, label: string, shown: string, page: number | null) => ({
+    n, field: `Invented field ${n}`, page, label, shown_label: shown, comment: `invented comment ${n}`, quote: `invented quote ${n}`,
+    item_id: `C0${n}`, standard: "STD-X", clause: `4.${n}`, source: "held standard",
+  });
+  const points = [line(1, "Not met", "Fail, compared by code", 4), line(2, "Met", "AI opinion: met", 5), line(3, "Question", "Question", null)];
+  return {
+    paper_document_id: "doc1", run_id: "g1", method: "aim-1", mark: MARK, status: "completed",
+    identity: { kind: "datasheet", equipment_type: null, subject: "invented" },
+    counts: { points: 3, comments: 2, by_label: { "Not met": 1, Met: 1, Question: 1 }, by_shown_label: { "Fail, compared by code": 1, "AI opinion: met": 1, Question: 1 }, boundary: "this paper, this review" },
+    comments: [points[0], points[2]], points, books: [{ id: "bk1", title: "invented-book.pdf", why: "cited by the paper" }], books_not_readable: 1,
+    not_held: [{ name: "Invented Public Standard", why: "cited, not held" }],
+    unlisted_books: { count: 2, sentence: "2 more rule book(s) apply to this paper. They were not sent because they were not on the list you saw. Review again to include them." },
+    checklist: { key: "k", items: 3, reused: true, built_from: "standards only, no paper" }, cost: { usd: 0.51 },
+    completeness: { ok: true, page: 3, database: 3, file_rows: 3, sentence: null }, is_latest: true, ...over,
+  };
+}
+
+describe("12 the general review's results page (order 14)", () => {
+  it("draws the general results: the mark, the counts, the comments with page links, and no old sections", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    mount();
+    const results = await screen.findByTestId("general-results");
+    expect(screen.getByTestId("general-mark")).toHaveTextContent(MARK);
+    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, as 2 comments (this paper, this review)");
+    const rows = within(results).getAllByTestId("general-row");
+    expect(rows).toHaveLength(2); // the comments only, until "All points" is ticked
+    rows.forEach((r) => expect(r).toHaveTextContent(MARK)); // the mark is on every row
+    expect(rows[0]).toHaveTextContent("Fail, compared by code");
+    expect(within(rows[0]).getByRole("button", { name: "page 4" })).toBeInTheDocument();
+    expect(within(rows[1]).queryByRole("button", { name: /page/ })).toBeNull(); // a null page renders as nothing
+    expect(screen.queryByTestId("v2-points")).toBeNull();
+    expect(screen.queryByTestId("v2-code-box")).toBeNull();
+  });
+
+  it("has NO contractor button, NO sign row and NO review code; one Download button gives the team file", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    mount(); await screen.findByTestId("general-results");
+    expect(screen.queryByRole("button", { name: /contractor/i })).toBeNull();
+    expect(screen.queryByTestId("v2-sign")).toBeNull();
+    expect(screen.queryByTestId("v2-bottom")).toBeNull();
+    expect(screen.queryByText(/Sign and issue/)).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Download/ })).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("general-download"));
+    await waitFor(() => expect(api.downloadGeneral).toHaveBeenCalledWith("doc1", "g1"));
+    expect(api.downloadPaperCrs).not.toHaveBeenCalled();
+  });
+
+  it("the All points toggle shows every point, and the server's refusal sentence is shown whole", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    api.downloadGeneral.mockResolvedValue("This general review's file is not complete and was not given out: the page has 3 points, the database holds 4 lines.");
+    mount(); await screen.findByTestId("general-results");
+    fireEvent.click(screen.getByTestId("general-all-toggle"));
+    expect(screen.getAllByTestId("general-row")).toHaveLength(3);
+    fireEvent.click(screen.getByTestId("general-download"));
+    expect(await screen.findByTestId("general-download-problem")).toHaveTextContent("the database holds 4 lines");
+  });
+
+  it("says when the counts differ, from the server's own sentence", async () => {
+    api.general.mockResolvedValue(ok(general({ completeness: { ok: false, page: 3, database: 4, file_rows: 3, sentence: "This general review's file is not complete and was not given out: x." } })));
+    mount();
+    expect(await screen.findByTestId("general-incomplete")).toHaveTextContent("not complete and was not given out");
+  });
+
+  it("How it was reviewed holds the books, the books not held, the unlisted sentence and the history", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    api.history.mockResolvedValue(ok({ paper_document_id: "doc1", boundary: "reviews of this paper you may read", runs: [
+      { run_id: "g1", version: "general", part: "general review", status: "done", started_at: "t", finished_at: "2026-11-18T10:00:00Z", points: 3, files: [] },
+      { run_id: "old1", version: "earlier version", part: "AI review", status: "completed", started_at: "t", finished_at: "2026-11-01T10:00:00Z", points: 9, files: [] },
+    ] }));
+    mount(); await screen.findByTestId("general-results");
+    fireEvent.click(screen.getByRole("tab", { name: "How it was reviewed" }));
+    expect(screen.getByTestId("general-how")).toHaveTextContent("invented-book.pdf");
+    expect(screen.getByTestId("general-how")).toHaveTextContent("and 1 you may not open");
+    expect(screen.getByTestId("general-how")).toHaveTextContent("Invented Public Standard");
+    expect(screen.getByTestId("general-unlisted")).toHaveTextContent("2 more rule book(s) apply to this paper");
+    const history = await screen.findByTestId("general-history");
+    expect(history).toHaveTextContent("General review");
+    expect(history).toHaveTextContent("Earlier version");
+  });
+
+  it("a page link opens the page viewer at that page", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    mount(); await screen.findByTestId("general-results");
+    fireEvent.click(screen.getByRole("button", { name: "page 4" }));
+    expect(await screen.findByTestId("viewer")).toHaveTextContent("page 4");
+  });
+
+  it("a paper whose latest review is an earlier one keeps the old page, under the heading Earlier version", async () => {
+    api.general.mockResolvedValue(ok(general({ is_latest: false })));
+    mount(); await loaded();
+    expect(screen.queryByTestId("general-results")).toBeNull();
+    expect(screen.getByTestId("earlier-version")).toHaveTextContent("Earlier version");
+    expect(screen.getByTestId("v2-sign")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "CRS for the contractor (working copy, not issued)" })).toBeInTheDocument();
+  });
+
+  it("a paper with no general review keeps the old page; the heading appears only while the general method is the one in use", async () => {
+    mount(); await loaded();
+    expect(screen.queryByTestId("general-results")).toBeNull();
+    expect(screen.queryByTestId("earlier-version")).toBeNull(); // the old engine is the method: no label
+    expect(screen.getByTestId("v2-sign")).toBeInTheDocument();
+  });
+
+  it("under the general method an old-only paper is labelled Earlier version", async () => {
+    api.method.mockResolvedValue(ok({ method: "general" }));
+    mount(); await loaded();
+    expect(await screen.findByTestId("earlier-version")).toBeInTheDocument();
+  });
+
+  it("a stopped general review says so", async () => {
+    api.general.mockResolvedValue(ok(general({ status: "stopped", stop_reason: "the spend limit was reached" })));
+    mount();
+    expect(await screen.findByTestId("general-stopped")).toHaveTextContent("the spend limit was reached");
+  });
+});
+
+describe("13 the measured score of the paper's kind on the general results (order 14, piece G)", () => {
+  it("shows the kind's measured score under the mark, and nothing when the run names no kind", async () => {
+    const measured = { kind_label: "relief valve", found: 6.5, target: 7, verdict: "below target", sentence: "Invented: 6.5 of 10 found, below target" };
+    api.general.mockResolvedValue(ok(general({ measured } as Partial<GeneralReview>)));
+    mount();
+    await screen.findByTestId("general-results");
+    expect(screen.getByTestId("general-measured-sentence")).toHaveTextContent("6.5 of 10 found, below target");
+  });
+
+  it("shows no measured line for a run with no kind", async () => {
+    api.general.mockResolvedValue(ok(general({ measured: null } as Partial<GeneralReview>)));
+    mount();
+    await screen.findByTestId("general-results");
+    expect(screen.queryByTestId("general-measured-sentence")).toBeNull();
   });
 });

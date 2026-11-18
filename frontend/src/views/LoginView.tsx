@@ -16,6 +16,7 @@
  */
 import { useId, useState, type FormEvent } from "react";
 
+import { SIGN_IN_ENDED_LINE, clearSignInEnded, useSignInEndedOnStart } from "../components/review/workspace/startFailures";
 import type { SessionExpired } from "../hooks/useSessionExpiry";
 import type { LoginRequest, Me } from "../types/api";
 
@@ -72,6 +73,7 @@ export function LoginView({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const endedOnStart = useSignInEndedOnStart();
   const emailId = useId();
   const passwordId = useId();
   const errorId = useId();
@@ -87,6 +89,7 @@ export function LoginView({
     setSubmitting(true);
     try {
       const result = await onLogin({ email: email.trim(), password });
+      if (result.ok) clearSignInEnded();
       if (!result.ok) {
         if (result.kind === "rate_limited") setError(result.message ?? RATE_LIMITED_MESSAGE);
         else if (result.kind === "offline") setError(OFFLINE_MESSAGE);
@@ -134,6 +137,11 @@ export function LoginView({
             <ConnectionLine connected={connected} />
           </header>
 
+      {endedOnStart && (
+        <p role="status" data-testid="sign-in-ended-on-start" className="mb-4 rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-warn-500">
+          {SIGN_IN_ENDED_LINE}.
+        </p>
+      )}
       {expired && <ExpiredNotice unsaved={expired.unsaved} />}
 
       <form onSubmit={submit} noValidate className="space-y-4" aria-describedby={errorId}>

@@ -837,6 +837,10 @@ def list_review_runs(
     # orders this way and picks the first row per document, so the two
     # must agree or "the latest run" means two different things in one
     # module.
+    from . import aim_review_store
+
+    # order 14: a general review run is listed by its own history route
+    sql += aim_review_store.exclude(connect())
     sql += " ORDER BY r.created_at DESC, r.id DESC"
     return [run_finishing.shown(r) for r in connect().execute(sql, args).fetchall()]
 

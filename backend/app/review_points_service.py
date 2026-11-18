@@ -31,13 +31,17 @@ DONE = ("complete", "completed")
 
 
 def runs_of_paper(conn, paper_id: str) -> tuple[str | None, str | None]:
-    """(the paper's latest finished rule-check run, its latest finished AI review run), None where there is none."""
+    """(the paper's latest finished rule-check run, its latest finished AI review run), None where there is none. A general
+    review run (order 14, `aim_review_store`) is neither."""
+    from . import aim_review_store
+
     marks = ",".join("?" for _ in DONE)
     base = (
         "SELECT r.id FROM review_runs r WHERE r.submittal_document_id = ? AND r.status IN ("
         + marks
         + ") {extra}"
-        " ORDER BY r.started_at DESC LIMIT 1"
+        + aim_review_store.exclude(conn).replace("{", "{{").replace("}", "}}")
+        + " ORDER BY r.started_at DESC LIMIT 1"
     )
     ai = None
     if conn.execute(

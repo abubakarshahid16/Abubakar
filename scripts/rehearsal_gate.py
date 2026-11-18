@@ -33,6 +33,15 @@ What `compare` refuses (exit 1), per paper and per metric (rules asked, comments
   * WRONG (from the KEEP/WEAK/WRONG tables) is higher in the rehearsal than live, or could not be read;
   * the rehearsal shows the same review run as live (the paper was not re-reviewed on the copy, so nothing was compared).
 `--accept <paper>:<metric>:<reason>` turns ONE refusal into ACCEPTED, printed with its reason: the gate is never bypassed silently.
+
+`history` (the general-review update, DONE-MEANS check 5): snapshot live BEFORE the update and the copy AFTER it WITHOUT
+re-reviewing, then
+       python scripts/rehearsal_gate.py history --live live.json --rehearsal rehearsal.json [--accept PAPER:<row>:"<why>"]
+It refuses (exit 1) unless, per paper: the copy shows the SAME old run ids; rules asked, comments and points are EXACTLY equal
+(0 on both sides refuses, missing is NOT MEASURED); every old CRS file (team, contractor) has the same page count and rows; and
+the copy's GET /api/reviews/papers/{id}/history lists every old run as "earlier version". The snapshot now also keeps the history
+route's run list (ids, version and part words, status, points: no text); live, before the update, has no such route and that
+error is kept in its `errors`.
 """
 
 from __future__ import annotations
@@ -243,7 +252,31 @@ def snapshot_paper(client: Client, document_id: str) -> dict:
     paper["crs_check"] = _crs_part(check) if check else None
     if err:
         paper["errors"].append(err)
+    # the history route exists only after the general review lands: before it, the error is kept and `history` uses the other side
+    history, err = client.get(f"/api/reviews/papers/{doc}/history")
+    paper["history"] = _history_part(history) if isinstance(history, dict) else None
+    if err:
+        paper["errors"].append(err)
     return paper
+
+
+def _history_part(history: dict) -> list[dict] | None:
+    """The runs GET /papers/{doc}/history lists: ids, the app's version and part words, status and points (no text)."""
+    runs = history.get("runs")
+    if not isinstance(runs, list):
+        return None
+    return [
+        {
+            "run_id": r.get("run_id"),
+            "version": _words(r.get("version")),
+            "part": _words(r.get("part")),
+            "status": _words(r.get("status")),
+            "points": _int(r.get("points")),
+            "files": len(r.get("files") or []),
+        }
+        for r in runs
+        if isinstance(r, dict)
+    ]
 
 
 def parse_papers(items: list[str]) -> dict[str, str]:
@@ -272,8 +305,22 @@ def cmd_snapshot(args) -> int:
     except (OSError, ValueError) as exc:
         print(f"REFUSED: {exc}")
         return 2
+    commit = getattr(args, "commit", None)
+    if getattr(args, "commit_of", None):
+        import subprocess
+
+        got = subprocess.run(
+            ["git", "-C", args.commit_of, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if got.returncode != 0:
+            print("REFUSED: --commit-of: not a git checkout")
+            return 2
+        commit = got.stdout.strip()
     snap = {
         "schema": SCHEMA,
+        "commit": commit,  # the code the snapshotted app runs (N1: a snapshot is bound to a commit and a time)
         "taken_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "app": urllib.parse.urlsplit(args.base_url).netloc,
         "papers": {label: snapshot_paper(client, doc) for label, doc in papers.items()},
@@ -373,7 +420,9 @@ def change_percent(live, rehearsal) -> str:
     return f"{(rehearsal - live) * 100 / live:+.1f}%"
 
 
-def parse_accepts(items: list[str]) -> dict[tuple[str, str], str]:
+def parse_accepts(
+    items: list[str], allowed: tuple[str, ...] = ALL_ROWS
+) -> dict[tuple[str, str], str]:
     out: dict[tuple[str, str], str] = {}
     for item in items or []:
         parts = item.split(":", 2)
@@ -382,12 +431,279 @@ def parse_accepts(items: list[str]) -> dict[tuple[str, str], str]:
                 f"--accept must be <paper>:<metric>:<reason>, got {item!r}"
             )
         paper, metric, reason = (p.strip() for p in parts)
-        if metric not in ALL_ROWS:
+        if metric not in allowed:
             raise ValueError(
-                f"--accept metric must be one of {', '.join(ALL_ROWS)}, got {metric!r}"
+                f"--accept metric must be one of {', '.join(allowed)}, got {metric!r}"
             )
         out[(paper.lower(), metric)] = reason
     return out
+
+
+# ------------------------------------------------------------------- history (check 5: old reviews unchanged)
+
+#: The rows `history` prints per paper, in order.
+SAME_RUNS = "old_runs"
+CRS_FILES = "crs_files"
+LISTED = "history_listed"
+HISTORY_ROWS = (SAME_RUNS, *METRICS, CRS_FILES, LISTED)
+#: The version word the history route gives an old run (CONTRACT section D).
+EARLIER = "earlier version"
+
+
+def judge_same(live, rehearsal) -> tuple[bool, str]:
+    """The old review's count must be EXACTLY the same on the copy (it was not re-reviewed). Missing is NOT MEASURED; 0 on
+    both sides is not a pass (a review that checks nothing cannot be told from a broken one)."""
+    if live is None or rehearsal is None:
+        side = (
+            "either side"
+            if live is None and rehearsal is None
+            else ("live" if live is None else "rehearsal")
+        )
+        return False, f"NOT MEASURED: could not be read on {side}"
+    if live != rehearsal:
+        return False, f"changed: live {live}, rehearsal {rehearsal}"
+    if live == 0:
+        return (
+            False,
+            "0 on both sides: a review that checks nothing cannot be told from a broken one",
+        )
+    return True, "same"
+
+
+def judge_same_runs(
+    live_runs: dict | None, rehearsal_runs: dict | None
+) -> tuple[bool, str]:
+    live = {k: v for k, v in (live_runs or {}).items() if v}
+    if not live:
+        return False, "NOT MEASURED: live shows no review run"
+    differ = sorted(k for k, v in live.items() if (rehearsal_runs or {}).get(k) != v)
+    if differ:
+        return (
+            False,
+            f"the copy shows another run for {', '.join(differ)} (re-reviewed, or the old run is gone)",
+        )
+    return True, "the same run ids"
+
+
+def judge_crs(live: dict | None, rehearsal: dict | None) -> tuple[bool, str]:
+    """Every old CRS file (team, contractor) reads back with the same page count and the same rows on the copy."""
+    if not live:
+        return False, "NOT MEASURED: live CRS check could not be read"
+    if not rehearsal:
+        return False, "NOT MEASURED: rehearsal CRS check could not be read"
+    team = (live.get("team") or {}).get("rows_in_file")
+    if not isinstance(team, int) or team == 0:
+        return False, "NOT MEASURED: live team file has no rows"
+    bad = []
+    for copy, a in sorted(live.items()):
+        b = rehearsal.get(copy) or {}
+        for key in ("page", "rows_in_file"):
+            if a.get(key) is None or a.get(key) != b.get(key):
+                bad.append(f"{copy} {key} {_show(a.get(key))} -> {_show(b.get(key))}")
+    return (
+        (False, "changed: " + "; ".join(bad))
+        if bad
+        else (True, "same rows in every file")
+    )
+
+
+def judge_listed(live_runs: dict | None, history: list | None) -> tuple[bool, str]:
+    if history is None:
+        return False, "NOT MEASURED: the rehearsal's history route could not be read"
+    live = {k: v for k, v in (live_runs or {}).items() if v}
+    if not live:
+        return False, "NOT MEASURED: live shows no review run"
+    by_id = {h.get("run_id"): h for h in history if isinstance(h, dict)}
+    bad = []
+    for kind, run_id in sorted(live.items()):
+        h = by_id.get(run_id)
+        if h is None:
+            bad.append(f"{kind} not listed")
+        elif (h.get("version") or "").lower() != EARLIER:
+            bad.append(f"{kind} listed as {h.get('version')!r}")
+    return (
+        (False, "; ".join(bad))
+        if bad
+        else (True, f'every old run listed as "{EARLIER}"')
+    )
+
+
+def accept_outcome(ok: bool, reason: str, accepted: str | None) -> tuple[str, str]:
+    """(outcome, reason) for one row. A refusal becomes ACCEPTED only with a reason; a NOT MEASURED row only when the reason
+    itself names it ("NOT MEASURED ... because ..."), so a missing number is never waved through by a reason about something else."""
+    if ok:
+        return "PASS", reason
+    if not accepted:
+        return "REFUSE", reason
+    if reason.startswith("NOT MEASURED") and "not measured" not in accepted.lower():
+        return "REFUSE", (
+            f"{reason}; accept refused: a NOT MEASURED row is accepted only when the reason names it "
+            "(write NOT MEASURED and why)"
+        )
+    return "ACCEPTED", f"{reason}; accepted: {accepted}"
+
+
+def print_accepted(rows: list[dict]) -> None:
+    """Every accepted row on its own line, with its reason (N2: never only a count)."""
+    for r in rows:
+        if r["outcome"] == "ACCEPTED":
+            print(f"ACCEPTED: {r['paper']} {r['metric']}: {r['reason']}")
+
+
+#: The papers the live gate must see on both sides (owner, completeness rule 4: valve and pump are counted after every update).
+REQUIRED_PAPERS = ("VALVE", "PUMP")
+
+
+def missing_required(live: dict, rehearsal: dict, required) -> list[str]:
+    out = []
+    for name in required:
+        for side, snap in (("live", live), ("rehearsal", rehearsal)):
+            if name.lower() not in {k.lower() for k in (snap.get("papers") or {})}:
+                out.append(f"{name} is not in the {side} snapshot")
+    return out
+
+
+#: A snapshot dated more than this far in the future is refused (a clock-skew allowance, not a window).
+FUTURE_SKEW_HOURS = 5 / 60
+
+
+def gate_problems(live: dict, rehearsal: dict, args) -> list[str]:
+    """The checks `history` and `compare` both make before any row (review S3): the required papers on both sides, each
+    snapshot taken on its expected commit, not older than --max-age-hours, and never dated in the future."""
+    problems = missing_required(live, rehearsal, args.require)
+    for side, snap, commit in (
+        ("live", live, args.live_commit),
+        ("rehearsal", rehearsal, args.rehearsal_commit),
+    ):
+        problems += snapshot_problems(snap, side, commit, args.max_age_hours)
+        if args.max_age_hours is None and snap.get(
+            "taken_at"
+        ):  # the future check stands even without an age limit
+            problems += [
+                x for x in snapshot_problems(snap, side, None, 1e9) if "future" in x
+            ]
+    return problems
+
+
+def _guard_args(cmd) -> None:
+    """The snapshot guards shared by `history` and `compare` (review S3)."""
+    cmd.add_argument(
+        "--require",
+        nargs="+",
+        default=list(REQUIRED_PAPERS),
+        help="papers that must be in both snapshots (at least one name; default VALVE PUMP)",
+    )
+    cmd.add_argument(
+        "--live-commit",
+        default=None,
+        help="the live snapshot must have been taken on this commit",
+    )
+    cmd.add_argument(
+        "--rehearsal-commit",
+        default=None,
+        help="the rehearsal snapshot must have been taken on this commit",
+    )
+    cmd.add_argument(
+        "--max-age-hours",
+        type=float,
+        default=None,
+        help="refuse a snapshot older than this (the live script passes 2)",
+    )
+
+
+def snapshot_problems(
+    snap: dict, side: str, commit: str | None, max_age_hours: float | None
+) -> list[str]:
+    """N1: the snapshot must name the expected commit and (when asked) be younger than max_age_hours."""
+    out = []
+    if commit:
+        got = snap.get("commit")
+        if not got:
+            out.append(
+                f"the {side} snapshot names no commit (take it with --commit-of)"
+            )
+        elif not (commit.startswith(got) or got.startswith(commit)):
+            out.append(
+                f"the {side} snapshot was taken on {got[:8]}, expected {commit[:8]}"
+            )
+    if max_age_hours is not None:
+        try:
+            taken = datetime.fromisoformat(str(snap.get("taken_at")))
+            age = (datetime.now(UTC) - taken).total_seconds() / 3600
+        except (TypeError, ValueError):
+            out.append(f"the {side} snapshot has no readable time")
+        else:
+            if age < -FUTURE_SKEW_HOURS:
+                out.append(f"the {side} snapshot's time is {-age:.1f} h in the future")
+            elif age > max_age_hours:
+                out.append(
+                    f"the {side} snapshot is {age:.1f} h old (limit {max_age_hours:g} h)"
+                )
+    return out
+
+
+def history_rows(live: dict, rehearsal: dict, accepts: dict) -> list[dict]:
+    lp, rp = live.get("papers") or {}, rehearsal.get("papers") or {}
+    rows = []
+    for paper in sorted(set(lp) | set(rp)):
+        a, b = lp.get(paper) or {}, rp.get(paper) or {}
+        checks = [
+            (SAME_RUNS, None, None, judge_same_runs(a.get("runs"), b.get("runs")))
+        ]
+        checks += [
+            (m, a.get(m), b.get(m), judge_same(a.get(m), b.get(m))) for m in METRICS
+        ]
+        checks.append(
+            (CRS_FILES, None, None, judge_crs(a.get("crs_check"), b.get("crs_check")))
+        )
+        checks.append(
+            (LISTED, None, None, judge_listed(a.get("runs"), b.get("history")))
+        )
+        for metric, lv, rv, (ok, reason) in checks:
+            outcome, reason = accept_outcome(
+                ok, reason, accepts.get((paper.lower(), metric))
+            )
+            rows.append(
+                {
+                    "paper": paper,
+                    "metric": metric,
+                    "live": lv,
+                    "rehearsal": rv,
+                    "change": change_percent(lv, rv) if metric in METRICS else "",
+                    "outcome": outcome,
+                    "reason": reason,
+                }
+            )
+    return rows
+
+
+def cmd_history(args) -> int:
+    """Check 5 of the general-review update: the copy, NOT re-reviewed, still shows every old review exactly as live did."""
+    try:
+        live, rehearsal = _load_snapshot(args.live), _load_snapshot(args.rehearsal)
+        accepts = parse_accepts(args.accept, HISTORY_ROWS)
+    except (OSError, ValueError) as exc:
+        print(f"REFUSED: {exc}")
+        return 1
+    if not (live.get("papers") or rehearsal.get("papers")):
+        print("REFUSED: NOT MEASURED: neither snapshot names a paper")
+        return 1
+    problems = gate_problems(live, rehearsal, args)
+    if problems:
+        print("REFUSED: NOT MEASURED: " + "; ".join(problems) + ". No live update.")
+        return 1
+    rows = history_rows(live, rehearsal, accepts)
+    print(render(rows, blank=(SAME_RUNS, CRS_FILES, LISTED)))
+    print_accepted(rows)
+    refused = [r for r in rows if r["outcome"] == "REFUSE"]
+    accepted = sum(1 for r in rows if r["outcome"] == "ACCEPTED")
+    if refused:
+        print(
+            f"HISTORY: REFUSED ({len(refused)} of {len(rows)} rows refuse; {accepted} accepted). No live update."
+        )
+        return 1
+    print(f"HISTORY: PASS ({len(rows)} rows; {accepted} accepted with a reason).")
+    return 0
 
 
 def gate_rows(
@@ -409,10 +725,9 @@ def gate_rows(
         )
         checks.append((FRESH, None, None, judge_fresh(a.get("runs"), b.get("runs"))))
         for metric, lv, rv, (ok, reason) in checks:
-            outcome = "PASS" if ok else "REFUSE"
-            accepted = accepts.get((paper.lower(), metric))
-            if not ok and accepted:
-                outcome, reason = "ACCEPTED", f"{reason}; accepted: {accepted}"
+            outcome, reason = accept_outcome(
+                ok, reason, accepts.get((paper.lower(), metric))
+            )
             rows.append(
                 {
                     "paper": paper,
@@ -427,14 +742,14 @@ def gate_rows(
     return rows
 
 
-def render(rows: list[dict]) -> str:
+def render(rows: list[dict], blank: tuple[str, ...] = (FRESH,)) -> str:
     head = ("paper", "metric", "live", "rehearsal", "change %", "result", "reason")
     body = [
         (
             r["paper"],
             r["metric"],
-            "" if r["metric"] == FRESH else _show(r["live"]),
-            "" if r["metric"] == FRESH else _show(r["rehearsal"]),
+            "" if r["metric"] in blank else _show(r["live"]),
+            "" if r["metric"] in blank else _show(r["rehearsal"]),
             r["change"],
             r["outcome"],
             r["reason"],
@@ -476,8 +791,13 @@ def cmd_compare(args) -> int:
     if not labels:
         print("REFUSED: NOT MEASURED: neither snapshot names a paper")
         return 1
+    problems = gate_problems(live, rehearsal, args)
+    if problems:
+        print("REFUSED: NOT MEASURED: " + "; ".join(problems) + ". No live update.")
+        return 1
     rows = gate_rows(live, rehearsal, kww_live, kww_rehearsal, accepts)
     print(render(rows))
+    print_accepted(rows)
     used = {
         (r["paper"].lower(), r["metric"]) for r in rows if r["outcome"] == "ACCEPTED"
     }
@@ -515,6 +835,12 @@ def main(argv: list[str] | None = None) -> int:
         help="LABEL=<doc id> (label as in <LABEL>-KWW.md) or <doc id>",
     )
     s.add_argument("--out", required=True)
+    s.add_argument("--commit", default=None, help="the commit the app runs (N1)")
+    s.add_argument(
+        "--commit-of",
+        default=None,
+        help="read the commit from this checkout (git rev-parse HEAD, read only)",
+    )
     c = sub.add_parser(
         "compare", help="refuse when a paper's review drops on the rehearsal copy"
     )
@@ -531,8 +857,24 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="<paper>:<metric>:<reason>, one refusal accepted",
     )
+    h = sub.add_parser(
+        "history",
+        help="check 5: the copy, not re-reviewed, shows every old review exactly as live",
+    )
+    h.add_argument("--live", required=True)
+    h.add_argument("--rehearsal", required=True)
+    h.add_argument(
+        "--accept",
+        action="append",
+        default=[],
+        help="<paper>:<row>:<reason>, one refusal accepted (a NOT MEASURED row only when the reason names it)",
+    )
+    _guard_args(h)
+    _guard_args(c)
     args = ap.parse_args(argv)
-    return cmd_snapshot(args) if args.cmd == "snapshot" else cmd_compare(args)
+    return {"snapshot": cmd_snapshot, "compare": cmd_compare, "history": cmd_history}[
+        args.cmd
+    ](args)
 
 
 if __name__ == "__main__":

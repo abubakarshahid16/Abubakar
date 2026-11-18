@@ -19,6 +19,26 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
 
+def _general(run_id: str, scope, completeness) -> int:
+    """The three counts of a general run: page, database, rows on "All points"; comments on the page and rows on "Comments"."""
+    try:
+        r = completeness.verify(run_id, scope)
+    except Exception as exc:  # noqa: BLE001 - a run that has not ended has no file to count: said in plain words, exit 1
+        print(f"run {run_id}: cannot count ({type(exc).__name__}: {exc})")
+        return 1
+    print(f"run {run_id}  (general review)")
+    print(f"points on the page      {r['page']}")
+    print(f"lines in the database   {r['database']}")
+    print(f"rows in the file        {r['file_rows']}  (sheet All points)")
+    print(f"comments on the page    {r['comments']}; rows on sheet Comments {r['comment_rows']}")
+    print(f"cut cells with mark and full text {r['cut_cells_marked']}; other problems {len(r['problems'])}")
+    if not r["ok"]:
+        print(f"DIFFERENT: {r['sentence']}")
+        return 1
+    print("all counts agree")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("run_id")
@@ -30,9 +50,17 @@ def main(argv: list[str] | None = None) -> int:
         db_path = Path(args.db).resolve()
         settings.data_dir, settings.db_path = db_path.parent, db_path
     settings.startup_warmup = False
-    from app import access, crs_completeness, db
+    from app import (
+        access,
+        aim_review_completeness,
+        aim_review_store,
+        crs_completeness,
+        db,
+    )
 
     conn = db.connect()
+    if aim_review_store.is_general(conn, args.run_id):  # a general review (order 14): its own three counts, same exit rule
+        return _general(args.run_id, access.unrestricted_scope(), aim_review_completeness)
     row = conn.execute("SELECT submittal_document_id FROM review_runs WHERE id = ?", (args.run_id,)).fetchone()
     if row is None:
         print(f"no review run {args.run_id}")

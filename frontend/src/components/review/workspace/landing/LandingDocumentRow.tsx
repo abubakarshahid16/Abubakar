@@ -15,8 +15,9 @@ import { ReviewJobControl } from "../../panels/ReviewJobControl";
 import { AiMark } from "../../agent/AiMark";
 import { PastReviewsButton } from "../PastReviewsButton";
 import { ReviewAgainButton } from "../ReviewAgainButton";
+import { useStartFailure } from "../startFailures";
 import { dayTimeWords } from "./dateWords";
-import { type ChipTone, type LandingRow, countsLine, hasFinishedReview, rowChip } from "./landingRows";
+import { type ChipTone, type LandingRow, NO_ROLE_LINE, countsLine, hasFinishedReview, rowChip } from "./landingRows";
 
 const TONE: Record<ChipTone, string> = {
   attention: "border-warn-500/50 bg-warn-500/10 text-warn-500",
@@ -56,7 +57,11 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   /** Something changed (a review was cancelled): re-read the list. */
   onChanged: () => void;
 }) {
-  const chip = rowChip(row.state, row.latest, counts);
+  // G3: a paper never reviewed whose start failed says so, with the reason (kept even when the screen that pressed Start is gone).
+  const failedStart = useStartFailure(row.documentId);
+  const chip = row.state.kind === "not_reviewed" && failedStart
+    ? { text: `Not reviewed: the start failed (${failedStart})`, tone: "failed" as const }
+    : rowChip(row.state, row.latest, counts);
   const detail = simple ? "" : countsLine(row.state, counts);
   const moving = row.state.kind === "queued" || row.state.kind === "running";
   const step = row.state.kind === "running" && row.state.label ? row.state.label : "";
@@ -72,6 +77,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
               earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {step && <span data-testid="row-step">Now: {step}</span>}
+            {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
             {dayTimeWords(row.activityAt) && <span data-testid="row-date">{dayTimeWords(row.activityAt)}</span>}
           </p>
         </div>

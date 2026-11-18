@@ -316,7 +316,8 @@ def test_changed_mode_selects_only_mutations_of_changed_files():
 # ---------------------------------------------------------------- the docs
 
 def test_claude_md_documents_the_lock_and_the_batching_rules():
-    text = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
+    # the lock rules moved with the old text to docs/claude-md-old.md (owner, #1584, 18 Nov 2026)
+    text = (REPO / "docs" / "claude-md-old.md").read_text(encoding="utf-8")
     assert ".heavy-job.lock" in text
     assert "HEAVY_JOB_LOCK" in text
     assert "once per merge round" in text.lower()

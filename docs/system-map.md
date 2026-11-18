@@ -163,6 +163,9 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.agent_review_schemas` | The AI reviewer's request and response shapes (#1690): status, summary, lines, trace and Rules used, with closed word lists; contract only, no route yet, no behaviour; read by the TypeScript generator |
 | `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
 | `api.review_start` | Routes: GET /api/reviews/plan (what a Review would do, no side effect), POST /api/reviews/start (admin), POST and DELETE /api/reviews/contract-yes (admin): the ONE Review button's three choices (12 Nov 2026, #1584) |
+| `api.aim_history` | Routes: a paper's review history (general and earlier version) and the saved checklists of the general review (order 14) |
+| `api.aim_method` | Route: GET /api/reviews/method: which review method the Review button runs and the Local-only sentence (order 14) |
+| `api.aim_review` | Routes: the general review's results page and its file, team copy only (order 14) |
 | `api.upload_role_suggestion` | Route: GET /api/document-kinds/role-suggestion: whether the one-upload role suggestion is on and which roles the review page lists (order 14 lane E); read only |
 | `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api.rule_labels` | Route: POST /api/admin/rule-labels/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a label file after checking each row again |
@@ -457,8 +460,28 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `review_engine_start` | Starting a review from the plan: queues the rule check, then the AI review the plan runs, checked again before it starts |
 | `contract_yes` | The owner's yes to send ONE contract upload to Claude: recorded by checksum on the approved list with who and when, audited, withdrawable |
 | `contract_checks` | Order 14 lane E: the contract checks code can decide on a contract's own text (CT-01 stages add to 100%, CT-02 every labelled attachment present, CT-03 one giver per guarantee) against the draft checklist `reference/contract_checks.json`; each result quoted and verified on its page, internal only; pure |
+| `review_engine_general` | The ONE Review button's resolver and pre-start answer for the general review (order 14): every kind taken, the rule check never runs, a start that would run nothing refused with a code; cost at most the run's meter |
 | `review_leaving` | The documents a Claude review of one paper may send, worked out before the start for the caller's access (paper, cited rule books, cited specifications, chosen project papers) and what will not go, with reasons |
 | `review_cost` | The cost lines of the Review plan: a paper's last measured AI review cost and the upper bound per part and in total (moved out of `review_engine`) |
+| `aim_review_jobs` | The general review's job (stage `aim_review`): queued by the Review button's start with its list, run by the review worker with only the shown rule books, never retried by itself; nothing with the old engine on (order 14) |
+| `aim_review_gate` | Which review method the ONE Review button runs (`REVIEW_OLD_ENGINE_ENABLED`, the one way back; default: the general review), the general review's run meter and models, and its fixed sentences (order 14) |
+| `aim_review_completeness` | The hard completeness rule for the general review file: page = database = rows on "All points", comments = rows on "Comments", the mark on every sheet, the cut-mark check; refuses a download (409) that differs; stores its result with the run (order 14) |
+| `aim_review_sheet` | The general review file (Summary, Comments, All points, How it was reviewed), team copy only, every sheet marked "AI, to be checked" (order 14) |
+| `aim_review_measured` | The measured score of a paper kind (found of 10 on planted test copies, target 7) worded for the results page and the file; reads `reference/general_review_measured.json`; a kind below target says "below target", an unmeasured kind says so (order 14) |
+| `aim_review_view` | The general review results page JSON, one assembly of a stored run that the page, the file and the check all read (order 14) |
+| `aim_review_store` | The general review's storage: its runs, lines and saved checklists (`aim_runs`, `aim_lines`, `aim_checklists`), and `exclude`, which keeps a general run out of every old reader of `review_runs` (order 14) |
+| `aim_review_history` | A paper's review history, general and earlier, newest first (read only; earlier runs keep their own download routes; a paper outside the caller's scope has none) (order 14) |
+| `aim_review.always` | The general review's three always-on method items of every review: G1 cited standards, G2 internal consistency, G3 required entries (order 14) |
+| `aim_review.checklist` | The general review's checklist of a paper TYPE: S2 chooses books among the listed ones, S3 writes items from their clauses only (no paper), the attack by a stronger model (order 14) |
+| `aim_review.editor` | The general review's S5 editor: it may only take a sent comment off the sheet (a repeat of the same place, or a claim the paper answers), every move checked by code (order 14) |
+| `aim_review.engine` | The general review's run and its model: Claude through the one lane (carrying -> metered -> transport, inside the run's spend and review context), the fake model for tests (order 14) |
+| `aim_review.fake` | The general review's fake model (tests and the dry run): no network, fixed answers built from the prompt (order 14) |
+| `aim_review.library` | The general review's library metadata (governing and method books, rule labels, citations) and the plan-time book list (`candidates`); reads only (order 14) |
+| `aim_review.parallel` | The general review's judge calls side by side: at most N in flight, each counted on the run meter before it starts, results by position (order 14) |
+| `aim_review.paper` | The paper the general review reads: its stored pages (text, else OCR) and its page windows (order 14) |
+| `aim_review.prompts` | The general review's task texts and the request-shape check run before every send (order 14) |
+| `aim_review.steps` | The general review's S1 identify and S4 judge by page windows; `_decide`: code verifies every quote and compares every number (order 14) |
+| `aim_review.verify` | The general review's quote check and number comparison, through `numparse` and the app's unit code (no second reader) (order 14) |
 | `review_shown` | The list a review run was started with (the documents the screen showed would leave): a cited specification that is not the paper is sent only if the run's stored list names it; ids only |
 | `review_progress` | #1494: the progress block of a running review (pages, elapsed, stall) from the jobs row; read-only, behind a switch |
 | `review_recovery` | Put back, or cancel, the review jobs a dead process left running; at startup every claim of another process (order 231) |

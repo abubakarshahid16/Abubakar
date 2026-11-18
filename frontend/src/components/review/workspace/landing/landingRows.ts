@@ -23,7 +23,12 @@ export interface LandingRow {
   state: InboxState;
   /** The newest moment anything happened to this document (ISO), or null. */
   activityAt: string | null;
+  /** The paper has no role recorded (a null role, never a default): the page says how it will be reviewed. */
+  noRole?: boolean;
 }
+
+/** One plain line for a paper with no role recorded. Nothing sets the role: the review treats it as a contractor paper. */
+export const NO_ROLE_LINE = "No role recorded yet: it will be reviewed as a contractor paper";
 
 function time(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -53,6 +58,7 @@ export function landingRowsOf(documents: DocumentRecord[], runs: ReviewRunSummar
     byId.set(doc.id, {
       documentId: doc.id, filename: doc.filename, latest: null, runs: [],
       state: inboxStateOf(undefined), activityAt: newest([doc.uploaded_at, doc.indexed_at]),
+      noRole: !doc.document_role,
     });
   }
   for (const group of groupRunsByDocument(runs)) {
@@ -65,6 +71,7 @@ export function landingRowsOf(documents: DocumentRecord[], runs: ReviewRunSummar
       runs: all,
       state: inboxStateOf(group.latest),
       activityAt: newest([existing?.activityAt, ...all.map(runActivityAt)]),
+      noRole: existing?.noRole,
     });
   }
   return [...byId.values()].sort(byActivity);

@@ -4,7 +4,7 @@
  * mounts this.)
  *
  *   +- New review ------------------------------------------------------+
- *   | Choose a submittal [find...] [select v] [Start review]      (L1)  |
+ *   | Choose a paper [find...] [select v] [Start review]          (L1)  |
  *   | or drop a contractor's file here                       (drop zone) |
  *   +--------------------------------------------------------------------+
  *   [Review all not reviewed (N of the contractor documents listed here)]
@@ -74,6 +74,9 @@ export const LANDING_COUNTS_NOTE =
   '"Found by the review" counts the findings each review still holds as a comment or as needing your judgement. '
   + "Findings removed by an engineer are not counted, and the comment sheet groups findings into fewer comment lines.";
 
+/** The general review reviews one paper at a time; there is no review-everything button. */
+export const REVIEW_EACH_LINE = "Each paper is reviewed on its own with the Review button.";
+
 export const NOT_ADMIN_LANDING_MESSAGE =
   "Only an administrator can start a review. You can open any review listed below.";
 
@@ -85,7 +88,7 @@ interface BatchResult {
 
 export function WorkspaceLanding({
   documents, runs, submittalsTotal, documentsFailed = false, isAdmin, onOpenRun, onOpenRunTab, onReload,
-  loadReadyCounts = defaultLoadReadyCounts,
+  loadReadyCounts = defaultLoadReadyCounts, generalReviewOn = false,
 }: {
   documents: DocumentRecord[];
   runs: ReviewRunSummary[];
@@ -100,6 +103,9 @@ export function WorkspaceLanding({
    *  Left out, no "Open CRS" button is drawn. */
   onOpenRunTab?: (runId: string, tab: WorkspaceTab) => void;
   onReload: () => Promise<void> | void;
+  /** Order 14 (G3): the general review is on. "Review all" runs Local only, which the general review refuses, so it is not drawn;
+   *  one plain line says how papers are reviewed instead. Left out: the button, as before (the earlier engine). */
+  generalReviewOn?: boolean;
   loadReadyCounts?: (runIds: string[]) => Promise<Record<string, ReadyCounts | null>>;
 }) {
   const mayStart = isAdmin !== false;
@@ -128,7 +134,7 @@ export function WorkspaceLanding({
   const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
   /** Rule 4: the not-reviewed count comes from the contractor documents
    *  list, which may be cut short; say so where that count is shown. */
-  const documentsCut = truncationNote(documents.length, submittalsTotal, "contractor submittals");
+  const documentsCut = truncationNote(documents.length, submittalsTotal, "papers");
   const anyCountKnown = Object.values(counts).some((c) => c !== null);
   // The same rule as the count lines themselves: the rows show theirs only in
   // Detailed view (LandingDocumentRow `simple`); the flat list always does.
@@ -207,7 +213,7 @@ export function WorkspaceLanding({
           <>
             {documentsFailed && (
               <p role="alert" className="text-sm text-danger-500">
-                The list of contractor submittals could not be loaded, so there is nothing to choose from. You can still drop a file.
+                The list of papers could not be loaded, so there is nothing to choose from. You can still drop a file.
               </p>
             )}
             <StartReviewBar documents={documents} submittalsTotal={submittalsTotal} runs={runs} onStarted={onOpenRun} />
@@ -217,7 +223,10 @@ export function WorkspaceLanding({
         )}
       </section>
 
-      {mayStart && notReviewed.length > 0 && (
+      {mayStart && notReviewed.length > 0 && generalReviewOn && (
+        <p className="text-sm text-slateish-300" data-testid="review-each-line">{REVIEW_EACH_LINE}</p>
+      )}
+      {mayStart && notReviewed.length > 0 && !generalReviewOn && (
         <div className="flex flex-wrap items-center gap-3 text-sm text-slateish-300">
           {confirmAll && !batching ? (
             <span role="group" aria-label="Start all the reviews?" className="flex flex-wrap items-center gap-2 text-slateish-200">

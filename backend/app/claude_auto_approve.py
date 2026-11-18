@@ -585,13 +585,14 @@ def run_lines(outcome: dict) -> list[dict]:
     check still read those standards, so the sheet is not called incomplete."""
     unlisted = outcome.get(RUN_KEY) or {}
     out = []
+    from . import review_shown
+
     found = (outcome.get(SHOWN_KEY) or {}).get("found_during_review")
     if found:
         out.append(
             {
                 "part": SHOWN_KEY,
-                "line": f"{found} more rule book(s) apply to this paper. They were not sent because they were not on "
-                "the list you saw. Review again to include them.",
+                "line": review_shown.FOUND_DURING_REVIEW_WORDS.format(n=found),
                 "note": "Not read by the cloud model",
                 "detail": True,
             }

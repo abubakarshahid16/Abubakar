@@ -105,11 +105,11 @@ describe("WorkspaceLanding: the New review card (L1)", () => {
     renderLanding();
     const card = screen.getByTestId("new-review-card");
     expect(within(card).getByTestId("drop-zone")).toHaveTextContent("admin: true");
-    const select = within(card).getByLabelText("Choose a submittal");
+    const select = within(card).getByLabelText("Choose a paper");
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
       "Choose one of 4", "Heat exchanger sheet.pdf", "Motor sheet.pdf", "Pump datasheet rev B.pdf", "Valve list.pdf",
     ]);
-    await userEvent.type(within(card).getByLabelText("Find a submittal by file name"), "valve");
+    await userEvent.type(within(card).getByLabelText("Find a paper by file name"), "valve");
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose one of 1", "Valve list.pdf"]);
     expect(within(card).getByRole("button", { name: "Start review" })).toBeDisabled();
   });
@@ -117,7 +117,7 @@ describe("WorkspaceLanding: the New review card (L1)", () => {
   it("L1: Start review ALWAYS starts a fresh review (even of a reviewed document), watches it and opens it", async () => {
     const { onOpenRun } = renderLanding();
     const card = screen.getByTestId("new-review-card");
-    await userEvent.selectOptions(within(card).getByLabelText("Choose a submittal"), "doc-1");
+    await userEvent.selectOptions(within(card).getByLabelText("Choose a paper"), "doc-1");
     await userEvent.click(within(card).getByRole("button", { name: "Start review" }));
     // THE ONE START: the pre-start step opens first (engine, what will leave this Mac, the list); nothing has started yet
     expect(await within(card).findByTestId("start-review-step")).toBeInTheDocument();
@@ -133,7 +133,7 @@ describe("WorkspaceLanding: the New review card (L1)", () => {
     readiness.mockResolvedValue({ ok: true, data: { nothing_changed: true } });
     renderLanding();
     const card = screen.getByTestId("new-review-card");
-    await userEvent.selectOptions(within(card).getByLabelText("Choose a submittal"), "doc-1");
+    await userEvent.selectOptions(within(card).getByLabelText("Choose a paper"), "doc-1");
     await userEvent.click(within(card).getByRole("button", { name: "Start review" }));
     expect(await within(card).findByText(/Nothing has changed since the latest review/)).toBeInTheDocument();
     await userEvent.click(within(card).getByRole("button", { name: "Cancel" }));
@@ -278,7 +278,7 @@ describe("WorkspaceLanding: every count states its boundary (rule 4)", () => {
     renderLanding({ submittalsTotal: 9 });
     expect(screen.getByRole("button", { name: "Review all not reviewed (1 of the contractor documents listed here)" })).toBeInTheDocument();
     expect(screen.getByTestId("review-all-cut-note")).toHaveTextContent(
-      "Showing the newest 4 of 9 contractor submittals. Older ones are not listed here. Documents not listed are not counted or started.",
+      "Showing the newest 4 of 9 papers. Older ones are not listed here. Documents not listed are not counted or started.",
     );
   });
 
