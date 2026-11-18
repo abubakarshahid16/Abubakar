@@ -689,6 +689,11 @@ def test_a_paper_whose_first_page_heads_an_attachment_is_not_the_main_schedule(c
         (("1", "Rev. 2"), [SCHED_B2]),
         (("B", "A"), [SCHED_B1]),
         (
+            ("Z", "AA"),
+            [SCHED_B2],
+        ),  # letters order like a spreadsheet column: by length, then letters
+        (("ab", "AA"), [SCHED_B1]),
+        (
             ("1", "B"),
             [SCHED_B1, SCHED_B2],
         ),  # a number and a letter: no order, still tied

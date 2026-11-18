@@ -214,8 +214,9 @@ def _is_lower_part(conn, doc_id: str) -> bool:
     return any(h and CC.DEPTH.get(h[0][0], 0) > 0 for h in heads)
 
 
-def _revision(conn, doc_id: str) -> int | str | None:
-    """The RECORDED revision as a number or a letter code ("Rev. 2" -> 2, "B" -> "B"); None when none is recorded or unreadable."""
+def _revision(conn, doc_id: str) -> int | tuple[int, str] | None:
+    """The RECORDED revision as a number ("Rev. 2" -> 2) or a letter code ordered like a spreadsheet column, by length then
+    letters ("Z" < "AA": (1, "Z") < (2, "AA")); None when none is recorded or unreadable."""
     row = conn.execute(
         "SELECT revision FROM document_classification WHERE document_id = ?",
         (str(doc_id),),
@@ -225,7 +226,7 @@ def _revision(conn, doc_id: str) -> int | str | None:
     ).strip()
     if re.fullmatch(r"\d+", text):
         return int(text)
-    return text.upper() if re.fullmatch(r"[A-Za-z]{1,2}", text) else None
+    return (len(text), text.upper()) if re.fullmatch(r"[A-Za-z]{1,2}", text) else None
 
 
 def plan_entries(conn, paper_id: str, allowed: frozenset[str]) -> tuple[list[Ref], int]:
