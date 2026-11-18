@@ -633,7 +633,7 @@ def build(conn, run: dict, scope=None) -> dict:
         "finished_at": run.get("finished_at"),
     }
     view["signoff"] = aim_review_signoff.status(
-        conn, run, view, bool(scope is not None and scope.is_admin)
+        conn, run, view, bool(getattr(scope, "is_admin", False))
     )
     return view
 
