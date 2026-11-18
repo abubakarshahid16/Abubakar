@@ -161,6 +161,45 @@ def identifier_of(entry: dict) -> str:
     )
 
 
+def is_public(entry: dict | None) -> bool:
+    """Is this held book a PUBLIC standard: the first word of its identifier is one of the app's own publisher families
+    (`standards_web_search.FAMILIES`, the table the online search uses)? Else it is a COMPANY standard (an owner's own rule book):
+    offered only when the paper cites it or the app's governing / method tables name it (`company_ok`)."""
+    from app import standards_web_search
+
+    m = re.match(r"\s*([A-Za-z]+)", identifier_of(entry) if entry else "")
+    return bool(m) and m.group(1).upper() in standards_web_search.FAMILIES
+
+
+def company_ok(conn, paper_id: str, kind, type_id, lib: list[dict]) -> frozenset[str]:
+    """The held books a company standard may be offered as for this paper: the ones the paper CITES (resolved by code) and the
+    ones the governing table (for the stored type) or the method table (for the kind) names."""
+    ok = {e["id"] for e, _n in governing_books(lib, type_id) if e} | {
+        e["id"] for e, _n in method_books(lib, kind) if e
+    }
+    for name in _paper_citations(conn, paper_id):
+        found = resolve(lib, name)
+        if found:
+            ok.add(found["id"])
+    return frozenset(ok)
+
+
+def not_offered_company(
+    conn, paper_id: str, identity: dict, ids: set[str]
+) -> frozenset[str]:
+    """Of `ids`, the held COMPANY standards this paper neither cites nor is governed by (`is_public`, `company_ok`)."""
+    if not ids:
+        return frozenset()
+    lib = library(conn, exclude=frozenset({paper_id}))
+    by_id = {e["id"]: e for e in lib}
+    ok = company_ok(
+        conn, paper_id, identity.get("kind"), identity.get("equipment_type"), lib
+    )
+    return frozenset(
+        b for b in ids if b in by_id and not is_public(by_id[b]) and b not in ok
+    )
+
+
 def _fold(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
@@ -467,7 +506,8 @@ def candidates(
     is true for it; light check e1c61001). Otherwise: books governing the stored equipment
     type, method books of the stored kind, books an earlier review of this paper wanted but could not send, books the paper cites
     (resolved by code), then books holding the most rules labelled for the kind (and type). Intersected with `allowed` (rule 5):
-    a book outside it is counted in `unreadable`, never named. At most MAX_CANDIDATES books."""
+    a book outside it is counted in `unreadable`, never named. A COMPANY standard is offered only when the paper cites it or the
+    governing / method tables name it (`is_public`, `company_ok`). At most MAX_CANDIDATES books."""
     from . import Candidates
 
     paper_id = str(paper_id)
@@ -479,6 +519,13 @@ def candidates(
         if saved is not None
         else _ordered_books(conn, paper_id, kind, type_id, earlier_unlisted)
     )
+    # a COMPANY standard (not a public family) only when the paper cites it or a governing / method table names it
+    lib = library(conn, exclude=frozenset({paper_id}))
+    by_id, ok = (
+        {e["id"]: e for e in lib},
+        company_ok(conn, paper_id, kind, type_id, lib),
+    )
+    order = [(d, w) for d, w in order if d in ok or is_public(by_id.get(d))]
     readable = [(d, w) for d, w in order if d in allowed]
     unreadable = sum(1 for d, _w in order if d not in allowed)
     books = [{"id": d, "why": w} for d, w in readable[:MAX_CANDIDATES]]

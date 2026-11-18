@@ -52,10 +52,11 @@ BOOK_RULES = {
         )
     ],
 }
+#: Invented PUBLIC-family books (offered by subject and type); a company standard is offered only when cited or table-named.
 FILENAMES = {
-    BOOK_A: "QX-STD-101.pdf",
-    BOOK_B: "QX-STD-202.pdf",
-    BOOK_C: "QX-STD-303.pdf",
+    BOOK_A: "ISO 99101.pdf",
+    BOOK_B: "ISO 99202.pdf",
+    BOOK_C: "ISO 99303.pdf",
 }
 
 
