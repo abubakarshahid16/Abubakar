@@ -62,18 +62,34 @@ def _known_ids(conn, run: dict, ids: list[str], entries: list[dict]) -> set[str]
 def _hidden_names(
     conn, run: dict, scope, ids: list[str]
 ) -> tuple[list[str], list[str]]:
-    """(squashed names, aliases) of every book the viewer may not read, from its file name and the catalog's identifier and alias."""
+    """(squashed names, aliases) of every book the viewer may not read: its file name, its catalog identifier and alias (a chosen
+    book's, from the saved checklist) and its library identifier (`library.identifier_of`: the document number or the identifier its
+    file name holds), so a book that was listed but never chosen is caught by its identifier too."""
+    from .aim_review import library
+
     entries = _catalog_entries(conn, run)
-    names: list[str] = []
-    aliases: list[str] = []
+    hidden: list[str] = []
+    files: dict[str, str] = {}
     for doc_id in sorted(_known_ids(conn, run, ids, entries)):
         row = conn.execute(
             "SELECT filename FROM documents WHERE id = ?", (doc_id,)
         ).fetchone()
         if row is not None and scope.may_read(doc_id):
             continue
-        raw = [str(row["filename"] or "")] if row is not None else []
-        raw += [Path(raw[0]).stem] if raw and raw[0] else []
+        hidden.append(doc_id)
+        if row is not None:
+            files[doc_id] = str(row["filename"] or "")
+    by_id = {e["id"]: e for e in library.library(conn, within=frozenset(hidden))}
+    names: list[str] = []
+    aliases: list[str] = []
+    for doc_id in hidden:
+        raw = [files.get(doc_id, "")]
+        raw += [Path(raw[0]).stem] if raw[0] else []
+        if doc_id in by_id:
+            raw += [
+                library.identifier_of(by_id[doc_id]),
+                str(by_id[doc_id].get("document_number") or ""),
+            ]
         for e in entries:
             if str(e.get("book") or "") == doc_id:
                 raw.append(str(e.get("identifier") or ""))
