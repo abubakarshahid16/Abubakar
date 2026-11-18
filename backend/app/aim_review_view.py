@@ -630,6 +630,18 @@ def _cost(run: dict) -> dict:
     )
 
 
+def _not_held(run: dict) -> list[dict]:
+    """The rule books not held, each standard said ONCE (the page and the team file read this one list; a run stored before the
+    engine de-duplicated them is read the same way: `book_names.unique_not_held`, the first of each key stays)."""
+    from .aim_review import book_names
+
+    named = [d for d in _json(run.get("not_held_json"), []) if isinstance(d, dict)]
+    return [
+        {"name": str(d.get("name") or ""), "why": str(d.get("why") or "")}
+        for d in book_names.unique_not_held(named)
+    ]
+
+
 def build(conn, run: dict, scope=None) -> dict:
     """The page's JSON for ONE stored general run, without the completeness answer (that needs the built file). Raises
     `NotFinished` for a run that has not ended."""
@@ -688,11 +700,7 @@ def build(conn, run: dict, scope=None) -> dict:
         "points_from_books_not_readable": sum(
             1 for p in points if p["standard"] == HIDDEN_BOOK_WORDS
         ),
-        "not_held": [
-            {"name": str(d.get("name") or ""), "why": str(d.get("why") or "")}
-            for d in _json(run.get("not_held_json"), [])
-            if isinstance(d, dict)
-        ],
+        "not_held": _not_held(run),
         "unlisted_books": {
             "count": len(unlisted),
             "sentence": UNLISTED_SENTENCE.format(n=len(unlisted)) if unlisted else None,
