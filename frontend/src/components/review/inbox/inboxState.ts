@@ -80,6 +80,8 @@ export interface ReadyCounts {
   needs_you: number | null;
   /** Order 14: a general review's OWN numbers (the server's `general` counts); present only for a run of that method. */
   general?: GeneralRunCounts;
+  /** Order 14: the lines the earlier AI reviewer stored for this run (they are not findings); absent when it stored none. */
+  aiLines?: number;
 }
 
 /** A general review's numbers: the points it reviewed, the comments it sent, the confirmations held back (absent when not counted). */
@@ -109,6 +111,13 @@ export function foundLine(counts: ReadyCounts | null | undefined): string {
   if (counts.general) return generalLine(counts.general);
   const n = counts.findings;
   const m = counts.needs_you;
+  const tiers = n == null || m == null ? "" : `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `
+    + `${m.toLocaleString("en-US")} needing your judgement`;
+  if (counts.aiLines) {
+    // the earlier AI reviewer keeps its lines apart from the findings: say them, and the findings only when there are some
+    const ai = `AI review: ${counts.aiLines.toLocaleString("en-US")} line${counts.aiLines === 1 ? "" : "s"} (earlier method)`;
+    return n && tiers ? `${ai}. ${tiers}` : ai;
+  }
   if (n == null || m == null) return ""; // a count not known renders as nothing, never 0
   return `Found by the review: ${n.toLocaleString("en-US")} finding${n === 1 ? "" : "s"}, `
     + `${m.toLocaleString("en-US")} needing your judgement`;

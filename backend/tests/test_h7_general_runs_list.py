@@ -96,3 +96,19 @@ def test_the_counts_route_leaves_out_a_general_review_the_caller_may_not_read(wo
         client(BOOK).get("/api/reviews/runs/counts", params={"ids": ["gen_new"]}).json()
     )
     assert body["counts"] == {} and body["general"] == {}
+
+
+def test_the_counts_route_says_the_earlier_ai_reviewers_lines_apart_from_the_findings(world):
+    """Those lines are stored outside the findings table, so the earlier counter said 0 for them: the route now gives their count
+    (only for a run that has some), and the tier counts stay as they were."""
+    with db.connect() as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS agent_review_line (run_id TEXT NOT NULL)")
+        conn.executemany("INSERT INTO agent_review_line (run_id) VALUES (?)", [("rr_between",)] * 55)
+    body = client(PAPER, BOOK).get("/api/reviews/runs/counts", params={"ids": ["rr_between"]}).json()
+    assert body["ai_lines"] == {"rr_between": 55}
+    assert body["counts"]["rr_between"]["total"] == 0  # the findings count is unchanged: it is truly 0 for that table
+
+
+def test_a_run_with_no_ai_line_is_absent_from_the_ai_lines_never_zero(world):
+    body = client(PAPER, BOOK).get("/api/reviews/runs/counts", params={"ids": ["rr_between"]}).json()
+    assert body["ai_lines"] == {}

@@ -121,3 +121,21 @@ def counts_for(conn, run_ids: list[str], allowed: frozenset[str]) -> dict[str, d
 
 def is_general(conn, run_id: str) -> bool:
     return aim_review_store.is_general(conn, run_id)
+
+
+def ai_line_counts(conn, run_ids: list[str]) -> dict[str, int]:
+    """{run id: how many lines the earlier AI reviewer stored} for the runs that have any. Those lines live in `agent_review_line`,
+    not in the findings table, so the earlier counter (findings only) said 0 for them. A run with no AI line is absent: nothing is
+    said about it, never 0."""
+    if not conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE name = 'agent_review_line'"
+    ).fetchone():
+        return {}
+    out: dict[str, int] = {}
+    for run_id in run_ids:
+        n = conn.execute(
+            "SELECT COUNT(*) FROM agent_review_line WHERE run_id = ?", (run_id,)
+        ).fetchone()[0]
+        if n:
+            out[run_id] = int(n)
+    return out

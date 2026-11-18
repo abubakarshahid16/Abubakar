@@ -24,11 +24,13 @@ export async function loadReadyCounts(runIds: string[]): Promise<Record<string, 
   await Promise.all(chunks.map(async (chunk) => {
     let got: Record<string, { comment: number; needs_you: number }> | null = null;
     let general: Record<string, GeneralRunCounts> = {};
+    let ai: Record<string, number> = {};
     try {
       const res = await reviewsApi.reviewRunCounts(chunk);
       if (res.ok) {
         got = res.data.counts;
         general = (res.data as { general?: Record<string, GeneralRunCounts> }).general ?? {};
+        ai = (res.data as { ai_lines?: Record<string, number> }).ai_lines ?? {};
       }
     } catch {
       got = null;
@@ -37,7 +39,9 @@ export async function loadReadyCounts(runIds: string[]): Promise<Record<string, 
       const c = got && Object.prototype.hasOwnProperty.call(got, id) ? got[id] : undefined;
       const g = Object.prototype.hasOwnProperty.call(general, id) ? general[id] : undefined;
       // a general review has its own numbers and no tiers: never "0 findings"
-      out[id] = g ? { findings: null, needs_you: null, general: g } : c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you } : null;
+      const lines = Object.prototype.hasOwnProperty.call(ai, id) ? ai[id] : undefined;
+      out[id] = g ? { findings: null, needs_you: null, general: g }
+        : c ? { findings: c.comment + c.needs_you, needs_you: c.needs_you, ...(lines ? { aiLines: lines } : {}) } : null;
     }
   }));
   return out;

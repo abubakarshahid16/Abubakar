@@ -118,4 +118,6 @@ export interface ReviewRunCountsBatch {
   boundary: string;
   counts: Record<string, RunSummaryTierCounts>;
   general?: Record<string, ReviewRunGeneralCounts>;
+  /** Order 14: the earlier AI reviewer's stored lines per run (they are not findings, so `counts` says 0 for them); a run with none is absent. */
+  ai_lines?: Record<string, number>;
 }
