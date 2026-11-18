@@ -222,21 +222,32 @@ def test_the_books_a_line_names_are_declared_as_carried():
     assert model.asked[0]["carries"] == {"doc_ans", "doc_book_x", "doc_sched_y"}
 
 
-def test_the_lines_own_quote_disproves_a_claim_that_the_value_is_blank():
-    """A claim that the paper LACKS a value (the second reader said a filled row was blank) is disproved by the line's own quote
-    holding that value; any other claim on the line's own evidence is still refused (a value conflict is never dropped)."""
-    line = _line("C01", page=2, quote="the chair and the scribe shall each hold")
+def test_the_lines_own_quote_disproves_its_own_comment_that_the_value_is_blank():
+    """The LINE'S comment says the value is blank (the second reader's words): its own quote holding the value disproves it. The
+    model's claim never opens this door, and a Not met or a code-compared line is never taken off on its own quote (review of
+    d4dceeeb: a 150# vs 300# Not met was taken off on a model claim holding "only")."""
     ok = {"n": 1, "page": 2, "quote": TEAM}
-    blank = A.answer_reason(
-        {**ok, "claim": "the second reader says the team row has no value"},
-        {1: line},
-        PAPER,
+    blank = _line("C01", page=2, quote="the chair and the scribe shall each hold",
+                  comment="Second reader (Question): the team row has no value.")  # fmt: skip
+    assert A.answer_reason(ok, {1: blank}, PAPER) is not None
+    plain = _line(
+        "C01",
+        page=2,
+        quote="the chair and the scribe shall each hold",
+        comment="The team differs from page 3.",
     )
-    assert blank is not None and "covers what it says" in blank
     assert (
         A.answer_reason(
-            {**ok, "claim": "the team differs from page 3"}, {1: line}, PAPER
+            {**ok, "claim": "the sheet only says no value"}, {1: plain}, PAPER
         )
         is None
     )
-    assert A.answer_reason(ok, {1: line}, PAPER) is None
+    for line in (
+        _line("C01", label="Not met", page=2, quote="the chair and the scribe shall each hold", comment="Rating is blank: only 150#."),
+        _line("C01", page=2, quote="the chair and the scribe shall each hold", comment="Rating is blank.",
+              code_compare={"result": "fail", "read_from": "verified quotes"}),
+    ):  # fmt: skip
+        assert (
+            A.answer_reason({**ok, "claim": "only 150# is stated"}, {1: line}, PAPER)
+            is None
+        )

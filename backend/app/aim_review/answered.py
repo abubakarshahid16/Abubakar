@@ -30,11 +30,12 @@ ANSWER_MAX_TOKENS = 8000
 OFFERED_LABELS = ("Question", "AI opinion", "Not met")
 #: What the run's calls say when an answer was not applied (no model, no cost).
 NOT_APPLIED = "whole-paper check not applied"
-#: A claim that the paper LACKS a value or only says something: the line's own quote, holding that value on its own page, does
-#: disprove it (valve copy of 18 Nov: the second reader said a filled row was blank; the only proof was the line's own quote).
+#: The LINE'S OWN comment says the value is absent (valve copy of 18 Nov: the second reader said a filled row was blank; the only
+#: proof was the line's own quote). Read on the line's comment, never on the model's claim (review of d4dceeeb), and never
+#: relaxed for a Not met or a line code compared: a value conflict is never dropped.
 ABSENCE = re.compile(
-    r"\b(blank|empty|no value|has no|not (?:stated|given|shown|specified|provided|filled)|missing|left (?:blank|empty|open)|"
-    r"only|lacks?|absent)\b",
+    r"\b(blank|empty|no value|has no value|not (?:stated|given|shown|specified|provided|filled)|missing|left (?:blank|empty)|"
+    r"absent)\b",
     re.IGNORECASE,
 )
 #: A quote of the paper as code accepts it: words, at most this many.
@@ -149,11 +150,21 @@ def answer_reason(a: dict, shown: dict, paper) -> str | None:
         page == shown[n].get("page")
         and own
         and (own in said or said in own)
-        and not ABSENCE.search(claim)
+        and not _says_absent(shown[n])
     ):
         return None  # the line's own evidence (its quote, on its own page) is no answer: a value conflict is never dropped
     what = f'what it says ("{claim}")' if claim else "it"
     return f'{ANSWERED}: the paper covers {what} on page {page}: "{quote[:300]}"; an engineer to check'
+
+
+def _says_absent(line: dict) -> bool:
+    """The line's own comment says its value is absent, and the line is neither a Not met nor compared by code: only then may
+    its own quote disprove it."""
+    return (
+        line.get("label") != "Not met"
+        and not line.get("code_compare")
+        and bool(ABSENCE.search(str(line.get("comment") or "")))
+    )
 
 
 def _apply(out: dict, shown: dict, paper) -> int:

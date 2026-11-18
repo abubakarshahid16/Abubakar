@@ -39,30 +39,42 @@ _REQUEST = re.compile(r"\b(" + _REQUEST_WORDS + r")\b|" + _GAP, re.IGNORECASE)
 
 
 #: A PASS VERDICT (lead 3, after the fixed round of 18 Nov: the judge marked statements such as "the flange rating meets the
-#: minimum" or "set pressure is well above the operating pressure" as concerns, and the strict judges called each WRONG). A
-#: Question, a concern included, whose comment states a pass with NO contrast or negation word and NO explicit request (a
-#: question mark, "please", a modal, or a request verb opening a sentence) asks nothing. Replayed on every judged stored run
-#: (18 Nov): 5 WRONG and 1 WEAK held back, no KEEP. A concern that states a conflict always holds a contrast word and stays.
+#: minimum" as concerns, and the strict judges called each WRONG). A Question, a concern included, whose comment is ONE sentence
+#: stating a pass, with NO contrast, negation or comparison word and NO explicit request (a question mark, "please", a modal, or
+#: a request verb opening a sentence), asks nothing. Narrow on purpose (review of d4dceeeb): "well above" is no pass (it is how a
+#: conflict is stated too), and a figure beside any comparison word always stays sent.
 _PASS = re.compile(
     r"\b(meets?|satisf(?:y|ies|ied)|compl(?:y|ies|iant)|acceptable|adequate|sufficient|conforms?|in line with|consistent with|"
-    r"well (?:above|below|within)|within (?:the )?(?:limit|range|rating|allowable)|is (?:fine|correct|ok))\b",
+    r"within (?:the )?(?:limit|range|rating|allowable)|is (?:fine|correct|ok))\b",
     re.IGNORECASE,
 )
 _CONTRA = re.compile(
-    r"\b(not|no|never|exceed\w*|below|less than|greater than|higher than|lower than|conflict\w*|differ\w*|inconsistent|but|"
-    r"however|although|whereas|instead|only|unless|mismatch\w*|contradict\w*|wrong|incorrect|misleading|missing|blank|open)\b",
+    r"\b(not|no|never|exceed\w*|above|below|higher|lower|greater|less|more|over|under|than|while|yet|two|zero|different|"
+    r"conflict\w*|differ\w*|inconsistent|but|however|although|whereas|instead|only|unless|mismatch\w*|contradict\w*|wrong|"
+    r"incorrect|misleading|missing|blank|open)\b",
     re.IGNORECASE,
+)
+#: A figure beside a comparison word is a comparison, never a plain pass (it stays sent).
+_COMPARE = re.compile(
+    r"\b(above|below|higher|lower|greater|less|more|over|under|than|exceed\w*|within|up to|at (?:least|most))\b",
+    re.I,
 )
 _EXPLICIT = re.compile(
     r"\?|\b(please|must|should|shall)\b|(?:^|[.;:]\s*)(confirm|state|provide|clarify|specify|verify|revise|add|advise|explain|"
     r"submit|correct|update|amend|include|supply|indicate|review|ensure|show|give|align|check)\b",
     re.IGNORECASE,
 )
+_SENTENCE_END = re.compile(r"[.;!?](?:\s|$)")
 
 
 def states_a_pass(comment: str) -> bool:
-    """The comment states a pass (see `_PASS`) with no contrast or negation word and no explicit request: it asks nothing."""
-    text = str(comment or "")
+    """The comment is ONE sentence stating a pass (`_PASS`) with no contrast, negation or comparison word, no figure beside a
+    comparison word, and no explicit request: it asks nothing."""
+    text = str(comment or "").strip()
+    if len([x for x in _SENTENCE_END.split(text) if x.strip()]) != 1:
+        return False
+    if any(c.isdigit() for c in text) and _COMPARE.search(text):
+        return False
     return (
         bool(_PASS.search(text))
         and not _CONTRA.search(text)
