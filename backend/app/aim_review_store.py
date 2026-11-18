@@ -23,6 +23,8 @@ from .db import connect
 RUNS = "aim_runs"
 LINES = "aim_lines"
 CHECKLISTS = "aim_checklists"
+#: The engineer's decision on each comment (append-only; `aim_review_decisions`).
+DECISIONS = "aim_comment_decisions"
 #: The only `built_from` a saved checklist may have: it was written from the rule books alone, never from a paper.
 BUILT_FROM = "standards only, no paper"
 #: A checklist that also holds engineering-knowledge items where a governing book is not held (still no paper).
@@ -99,6 +101,20 @@ _SCHEMA = (
         usd            REAL,
         PRIMARY KEY (key, sha256)
     )""",
+    f"""CREATE TABLE IF NOT EXISTS {DECISIONS} (
+        id                TEXT PRIMARY KEY,
+        run_id            TEXT NOT NULL,
+        paper_document_id TEXT NOT NULL,
+        comment_key       TEXT NOT NULL,
+        part              TEXT NOT NULL CHECK (part IN ('comment', 'confirmation')),
+        state             TEXT NOT NULL CHECK (state IN ('accept', 'edit', 'reject')),
+        text              TEXT,
+        original          TEXT,
+        reason            TEXT,
+        decided_by        TEXT NOT NULL,
+        decided_at        TEXT NOT NULL
+    )""",
+    f"CREATE INDEX IF NOT EXISTS {DECISIONS}_run ON {DECISIONS} (run_id, part, comment_key)",
 )
 
 

@@ -32,6 +32,22 @@ export interface GeneralLine {
   applies_to?: { page: number | null; field: string; quote: string }[];
   /** "compared by code", or the mark when it is an AI reading. */
   proven?: string;
+  /** The engineer's latest decision on this comment (append-only on the server); null when undecided. */
+  decision?: CommentDecision | null;
+}
+
+export type DecisionState = "accept" | "edit" | "reject";
+
+export interface CommentDecision {
+  state: DecisionState;
+  words: string;
+  text: string | null;
+  original: string | null;
+  reason: string | null;
+  by: string;
+  at: string;
+  revisions: number;
+  sentence?: string;
 }
 
 export type Severity = "Must fix" | "Check a value" | "Missing information" | "Please confirm";
@@ -111,7 +127,17 @@ export interface PaperHistory { paper_document_id: string; boundary: string; run
 const isObject = (b: unknown): b is Record<string, unknown> => typeof b === "object" && b !== null;
 const paper = (documentId: string) => `/reviews/papers/${encodeURIComponent(documentId)}`;
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 export const generalReview = {
+  /** Accept, edit or reject ONE comment (or confirmation). Only a signed-in user who may read the paper; the answer is the comment's
+   *  latest decision. Edit needs the engineer's text, reject a one-line reason (the server refuses otherwise, in its own words). */
+  decide: (documentId: string, body: { run_id: string; comment: number; part: "comment" | "confirmation"; state: DecisionState; text?: string; reason?: string }) =>
+    request<{ run_id: string; comment: number; part: string; decision: CommentDecision }>(
+      `${paper(documentId)}/general/decision`,
+      { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) },
+      (b) => isObject(b) && isObject(b.decision),
+    ),
   /** Which method the Review button runs now (piece E's route): "general" or "earlier". */
   method: () => request<{ method: "general" | "earlier" }>("/reviews/method", undefined, (b) => isObject(b) && typeof b.method === "string"),
   /** The paper's latest finished general review (or the one asked for). A 404 means: this paper has none. */

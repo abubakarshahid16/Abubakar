@@ -15,11 +15,12 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import (
     access,
     aim_review_completeness,
+    aim_review_decisions,
     aim_review_gate,
     aim_review_view,
     crs_one,
@@ -27,6 +28,7 @@ from .. import (
     schemas,
 )
 from ..api_utils import reject_unknown_params, require_document
+from ..claude_api import _require_identity_to_write
 from ..db import connect
 
 router = APIRouter()
@@ -141,3 +143,61 @@ def _stem(document_id: str) -> str:
         .fetchone()
     )
     return Path(str(row["filename"] or "")).stem if row else ""
+
+
+class CommentDecisionIn(BaseModel):
+    """One decision on one comment. The caller's identity and the time are the server's, never the body's."""
+
+    run_id: str | None = None
+    comment: int = Field(..., ge=1, description="the comment's number on the page (`n`)")
+    part: Literal["comment", "confirmation"] = "comment"
+    state: Literal["accept", "edit", "reject"]
+    text: str | None = Field(None, max_length=aim_review_decisions.MAX_TEXT)
+    reason: str | None = Field(None, max_length=300)
+
+
+@router.post(
+    "/api/reviews/papers/{document_id}/general/decision",
+    responses={**schemas.ERRORS_404},
+)
+def decide_comment(
+    document_id: str,
+    body: CommentDecisionIn,
+    request: Request,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Accept, edit or reject one comment of a general review. Only a signed-in user who may read the paper (404 otherwise, like every
+    route here); append-only: the answer is the comment's latest decision. No sign-off or contractor copy comes from this."""
+    reject_unknown_params(request, set())
+    _require_identity_to_write(scope)
+    if scope.user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail=errors.safe_error(errors.UNAUTHENTICATED, "a decision must name the engineer who made it"),
+        )
+    require_document(document_id, scope)
+    conn = connect()
+    run = aim_review_view.resolve(conn, document_id, body.run_id)
+    if run is None:
+        raise _not_found(document_id)
+    try:
+        view = aim_review_view.build(conn, run, scope)
+    except aim_review_view.NotFinished as exc:
+        raise _not_finished(exc) from exc
+    group = view["comments"] if body.part == "comment" else view.get("confirmations") or []
+    comment = next((c for c in group if c["n"] == body.comment), None)
+    if comment is None:
+        raise HTTPException(
+            status_code=404,
+            detail=errors.safe_error(errors.NOT_FOUND, "no such comment in this review", document_id=document_id),
+        )
+    try:
+        with conn:
+            aim_review_decisions.record(
+                conn, run["run_id"], document_id, comment, body.part, body.state,
+                actor=scope.user_id, text=body.text, reason=body.reason,
+            )  # fmt: skip
+    except aim_review_decisions.Refused as exc:
+        raise HTTPException(status_code=422, detail=errors.safe_error(errors.INVALID_PARAMETER, str(exc))) from exc
+    aim_review_decisions.attach(conn, run["run_id"], [comment] if body.part == "comment" else [], [comment] if body.part == "confirmation" else [])
+    return {"run_id": run["run_id"], "comment": comment["n"], "part": body.part, "decision": comment["decision"]}

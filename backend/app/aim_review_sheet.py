@@ -94,7 +94,7 @@ COLUMN_WIDTHS = {
     "No.": 6, "Lines": 9, "Item": 7, "Note": 14, "Status": 12, "Page": 7, "Field": 28, "Shown label": 20, "Comment": 70,
     "Quote": 45, "Standard": 18, "Clause": 10, "Source": 14, "Topic": 26, "Quote not verified by code": 30, "Code note": 20,
     "Asks": 10, "Value left open": 10, "Numbers": 22,
-    "Severity": 16, "Title": 36, "Paper says": 42, "Rule says": 34, "We ask": 48, "Applies to": 30, "Engineer decision": 18,
+    "Severity": 16, "Title": 36, "Paper says": 42, "Rule says": 34, "We ask": 48, "Applies to": 30, "Engineer decision": 34,
 }  # fmt: skip
 DEFAULT_WIDTH = 14
 
@@ -198,7 +198,7 @@ def comment_rows(model: dict, part: str = "comments") -> list[list]:
         cells = {
             "No.": p["n"], "Severity": p.get("severity"), "Title": p.get("title"), "Paper says": said or None,
             "Rule says": p.get("rule_says") or None, "We ask": ask or None, "Applies to": applies_text(p.get("applies_to")),
-            "Page": page, "Status": model["mark"], "Engineer decision": None, "Lines": lines_cell(lines), "Field": p["field"],
+            "Page": page, "Status": model["mark"], "Engineer decision": (p.get("decision") or {}).get("sentence"), "Lines": lines_cell(lines), "Field": p["field"],
             "Shown label": p["shown_label"], "Comment": comment, "Quote": quote, "Standard": p["standard"], "Clause": p["clause"],
             "Source": p["source"], "Item": p["item_id"], "Note": note,
         }  # fmt: skip

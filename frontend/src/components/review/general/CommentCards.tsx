@@ -6,11 +6,14 @@
  * proven. The severity is the server's (decided by code from the points, never from the wording); nothing is computed here. The summary
  * tiles filter the list; "Please confirm" cards are the confirmations, not sent, in their own closed part.
  *
- * Not built here: Accept / Edit / Reject per card. No engineer decision on a general review is stored yet, so no button pretends to.
+ * Each card has Accept / Edit / Reject: the engineer's decision, stored append-only on the server (the latest one is shown; the earlier
+ * ones stay). Edit needs the engineer's text (the original is kept), Reject a one-line reason. Only a signed-in user who may read the
+ * paper can decide; the server's own sentence is shown when it refuses. No contractor copy follows from a decision here.
  */
 import { useMemo, useState } from "react";
 
-import type { GeneralLine, GeneralReview, Severity } from "../../../api/generalReview";
+import { type CommentDecision, type DecisionState, type GeneralLine, type GeneralReview, type Severity, generalReview } from "../../../api/generalReview";
+import { dayTimeWords } from "../workspace/landing/dateWords";
 
 export const SEVERITIES: Severity[] = ["Must fix", "Check a value", "Missing information", "Please confirm"];
 
@@ -43,8 +46,78 @@ function Box({ label, children, wide = false }: { label: string; children: strin
 }
 
 const CHIPS_SHOWN = 12;
+const MIN_REASON = 10;
 
-export function CommentCard({ line, mark, onViewPage }: { line: GeneralLine; mark: string; onViewPage: (page: number) => void }) {
+export type DecideFn = (line: GeneralLine, state: DecisionState, text?: string, reason?: string) => Promise<string | null>;
+
+/** The decision on a card: what the engineer decided (by whom, when), and the three buttons. Edit and Reject ask for what they need. */
+function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision: CommentDecision | null | undefined; onDecide: DecideFn }) {
+  const [open, setOpen] = useState<"edit" | "reject" | null>(null);
+  const [text, setText] = useState(line.we_ask ?? "");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  async function send(state: DecisionState) {
+    setBusy(true);
+    setProblem(null);
+    const bad = await onDecide(line, state, state === "edit" ? text : undefined, state === "reject" ? reason : undefined);
+    setBusy(false);
+    if (bad) setProblem(bad);
+    else setOpen(null);
+  }
+
+  const tone = decision?.state === "reject" ? "text-pill-fail-fg" : decision ? "text-pill-pass-fg" : "text-slateish-400";
+  return (
+    <div data-testid="card-decision" className="space-y-2 border-t border-ink-600 pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {decision ? (
+          <p data-testid="card-decision-state" className={`text-sm ${tone}`}>
+            <strong>{decision.words}</strong> by {decision.by}, {dayTimeWords(decision.at)}
+            {decision.state === "edit" && decision.text ? <span className="block text-slateish-200">Engineer's text: {decision.text}</span> : null}
+            {decision.state === "reject" && decision.reason ? <span className="block text-slateish-200">Reason: {decision.reason}</span> : null}
+            {decision.revisions > 1 ? <span className="ml-2 text-xs text-slateish-400">({decision.revisions} decisions on record; the latest counts)</span> : null}
+          </p>
+        ) : <p className="text-sm text-slateish-400">Not decided yet</p>}
+        <span className="ml-auto flex gap-1.5">
+          <button type="button" disabled={busy} onClick={() => void send("accept")}
+            className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Accept</button>
+          <button type="button" disabled={busy} onClick={() => { setOpen(open === "edit" ? null : "edit"); setProblem(null); }}
+            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100">Edit</button>
+          <button type="button" disabled={busy} onClick={() => { setOpen(open === "reject" ? null : "reject"); setProblem(null); }}
+            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100">Reject</button>
+        </span>
+      </div>
+      {open === "edit" && (
+        <div className="space-y-1">
+          <label className="block text-xs text-slateish-400" htmlFor={`edit-${line.n}`}>Your text for this comment (the original is kept)</label>
+          <textarea id={`edit-${line.n}`} value={text} onChange={(e) => setText(e.target.value)} rows={3}
+            className="w-full rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 p-2 text-sm text-slateish-100" />
+          <div className="flex gap-2">
+            <button type="button" disabled={busy || !text.trim()} onClick={() => void send("edit")} className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Save my text</button>
+            <button type="button" onClick={() => setOpen(null)} className="text-sm text-slateish-300 hover:underline">Cancel</button>
+          </div>
+        </div>
+      )}
+      {open === "reject" && (
+        <div className="space-y-1">
+          <label className="block text-xs text-slateish-400" htmlFor={`reject-${line.n}`}>One line: why this comment is rejected</label>
+          <input id={`reject-${line.n}`} value={reason} onChange={(e) => setReason(e.target.value)}
+            className="w-full rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 p-2 text-sm text-slateish-100" />
+          <div className="flex gap-2">
+            <button type="button" disabled={busy || reason.trim().length < MIN_REASON} onClick={() => void send("reject")} className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Save rejection</button>
+            <button type="button" onClick={() => setOpen(null)} className="text-sm text-slateish-300 hover:underline">Cancel</button>
+          </div>
+        </div>
+      )}
+      {problem && <p role="alert" data-testid="card-decision-problem" className="text-sm text-danger-500">{problem}</p>}
+    </div>
+  );
+}
+
+export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
+  line: GeneralLine; mark: string; onViewPage: (page: number) => void; decision?: CommentDecision | null; onDecide?: DecideFn;
+}) {
   const sev = (line.severity ?? "Check a value") as Severity;
   const tone = TONE[sev];
   const places = line.applies_to ?? [];
@@ -102,6 +175,7 @@ export function CommentCard({ line, mark, onViewPage }: { line: GeneralLine; mar
         </span>
         {line.shown_label && <span className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">{line.shown_label}</span>}
       </div>
+      {onDecide && <DecisionBar line={line} decision={decision ?? line.decision} onDecide={onDecide} />}
     </li>
   );
 }
@@ -130,6 +204,14 @@ export function CommentCards({ review, mark, onViewPage, renderPlain }: {
 }) {
   const [severity, setSeverity] = useState<Severity | null>(null);
   const [page, setPage] = useState<number | null>(null);
+  const [decided, setDecided] = useState<Record<string, CommentDecision>>({});
+  /** Records one decision on the server; null when it was recorded, else the server's own sentence. The card then shows it. */
+  const decide = (part: "comment" | "confirmation"): DecideFn => async (line, state, text, reason) => {
+    const res = await generalReview.decide(review.paper_document_id, { run_id: review.run_id, comment: line.n, part, state, text, reason });
+    if (!res.ok) return res.error.code === "unauthenticated" ? "Sign in to record a decision." : res.error.message;
+    setDecided((was) => ({ ...was, [`${part}:${line.n}`]: res.data.decision }));
+    return null;
+  };
   const pages = useMemo(() => [...new Set(review.comments.flatMap((c) => (c.applies_to ?? []).map((a) => a.page)).filter((p): p is number => p != null))].sort((a, b) => a - b), [review.comments]);
   const shown = review.comments.filter((c) => (severity == null || c.severity === severity) && (page == null || (c.applies_to ?? []).some((a) => a.page === page)));
   const confirmations = review.confirmations ?? [];
@@ -151,7 +233,7 @@ export function CommentCards({ review, mark, onViewPage, renderPlain }: {
         </div>
       )}
       {shown.length === 0 && <p className="text-sm text-slateish-300">{review.comments.length === 0 ? "This review has no comments." : "No comment matches this filter."}</p>}
-      <ul className="space-y-3">{shown.map((l) => hasCard(l) ? <CommentCard key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} /> : renderPlain(l))}</ul>
+      <ul className="space-y-3">{shown.map((l) => hasCard(l) ? <CommentCard key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`comment:${l.n}`]} onDecide={decide("comment")} /> : renderPlain(l))}</ul>
       {confirmations.length > 0 && severity == null && page == null && (
         <details data-testid="general-confirmations" className="rounded-[var(--radius-sm)] border border-ink-600 p-3">
           <summary className="cursor-pointer text-sm text-slateish-200">
@@ -159,7 +241,7 @@ export function CommentCards({ review, mark, onViewPage, renderPlain }: {
           </summary>
           <ul className="mt-2 space-y-3">
             {confirmations.map((l) => hasCard(l)
-              ? <CommentCard key={`c-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />
+              ? <CommentCard key={`c-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`confirmation:${l.n}`]} onDecide={decide("confirmation")} />
               : renderPlain(l))}
           </ul>
         </details>

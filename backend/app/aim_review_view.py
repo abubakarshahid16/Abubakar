@@ -16,6 +16,7 @@ from . import (
     aim_review,
     aim_review_book_why,
     aim_review_card,
+    aim_review_decisions,
     aim_review_gate,
     aim_review_measured,
     aim_review_store,
@@ -558,6 +559,7 @@ def build(conn, run: dict, scope=None) -> dict:
     # a "not judged" Question stays a point, never a comment; one point's lines make ONE comment; each comment gets its card
     comments, confirmations = comments_and_confirmations(points)
     by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
+    aim_review_decisions.attach(conn, run["run_id"], comments, confirmations)
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS

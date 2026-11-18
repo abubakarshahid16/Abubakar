@@ -1,6 +1,12 @@
 /** The comment cards of the general review (planner's design, 18 Nov 2026). Invented values only. */
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const decide = vi.fn();
+vi.mock("../../../api/generalReview", async (orig) => ({
+  ...(await orig<typeof import("../../../api/generalReview")>()),
+  generalReview: { decide: (...a: unknown[]) => decide(...a) },
+}));
 
 import type { GeneralLine, GeneralReview } from "../../../api/generalReview";
 import { CommentCards, SeverityTiles } from "./CommentCards";
@@ -16,7 +22,7 @@ const card = (n: number, over: Partial<GeneralLine> = {}): GeneralLine => ({
 
 function review(comments: GeneralLine[], confirmations: GeneralLine[] = [], by?: GeneralReview["counts"]["by_severity"]): GeneralReview {
   return {
-    comments, confirmations, counts: { points: 9, comments: comments.length, by_label: {}, boundary: "this paper", by_severity: by },
+    paper_document_id: "doc1", run_id: "run1", comments, confirmations, counts: { points: 9, comments: comments.length, by_label: {}, boundary: "this paper", by_severity: by },
   } as unknown as GeneralReview;
 }
 
@@ -99,5 +105,86 @@ describe("comment cards", () => {
     expect(part).not.toHaveAttribute("open");
     expect(within(part).getByTestId("card-severity")).toHaveTextContent("Please confirm");
     expect(screen.getAllByTestId("general-row").filter((r) => !part.contains(r))).toHaveLength(1);
+  });
+});
+
+
+const ok = (state: string, extra: Record<string, unknown> = {}) => ({
+  ok: true, data: { run_id: "run1", comment: 1, part: "comment", decision: { state, words: state === "accept" ? "Accepted" : state === "edit" ? "Edited" : "Rejected", text: null, original: null, reason: null, by: "Dana Engineer", at: "2026-11-18T12:00:00+00:00", revisions: 1, ...extra } },
+});
+
+describe("H10: Accept / Edit / Reject on each card", () => {
+  beforeEach(() => decide.mockReset());
+  const first = () => screen.getAllByTestId("general-row")[0];
+
+  it("says 'Not decided yet' and offers the three buttons", () => {
+    mount(review(THREE));
+    expect(within(first()).getByTestId("card-decision")).toHaveTextContent("Not decided yet");
+    for (const name of ["Accept", "Edit", "Reject"]) expect(within(first()).getByRole("button", { name })).toBeInTheDocument();
+  });
+
+  it("Accept records the decision on the server and the card then says who decided", async () => {
+    decide.mockResolvedValue(ok("accept"));
+    mount(review(THREE));
+    fireEvent.click(within(first()).getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(within(first()).getByTestId("card-decision-state")).toHaveTextContent("Accepted by Dana Engineer"));
+    expect(decide).toHaveBeenCalledWith("doc1", { run_id: "run1", comment: 1, part: "comment", state: "accept", text: undefined, reason: undefined });
+  });
+
+  it("Edit opens the AI's text, sends the engineer's own, and cannot be saved empty", async () => {
+    decide.mockResolvedValue(ok("edit", { text: "My own words." }));
+    mount(review(THREE));
+    fireEvent.click(within(first()).getByRole("button", { name: "Edit" }));
+    const box = within(first()).getByLabelText(/Your text for this comment/) as HTMLTextAreaElement;
+    expect(box.value).toBe("please confirm 1");
+    fireEvent.change(box, { target: { value: "  " } });
+    expect(within(first()).getByRole("button", { name: "Save my text" })).toBeDisabled();
+    fireEvent.change(box, { target: { value: "My own words." } });
+    fireEvent.click(within(first()).getByRole("button", { name: "Save my text" }));
+    await waitFor(() => expect(within(first()).getByTestId("card-decision-state")).toHaveTextContent("Engineer's text: My own words."));
+    expect(decide.mock.calls[0][1]).toMatchObject({ state: "edit", text: "My own words." });
+  });
+
+  it("Reject needs a one-line reason of at least ten characters before it can be saved", async () => {
+    decide.mockResolvedValue(ok("reject", { reason: "The paper states it on page 3." }));
+    mount(review(THREE));
+    fireEvent.click(within(first()).getByRole("button", { name: "Reject" }));
+    const save = within(first()).getByRole("button", { name: "Save rejection" });
+    expect(save).toBeDisabled();
+    fireEvent.change(within(first()).getByLabelText(/why this comment is rejected/), { target: { value: "too short" } });
+    expect(save).toBeDisabled();
+    fireEvent.change(within(first()).getByLabelText(/why this comment is rejected/), { target: { value: "The paper states it on page 3." } });
+    fireEvent.click(save);
+    await waitFor(() => expect(within(first()).getByTestId("card-decision-state")).toHaveTextContent("Reason: The paper states it on page 3."));
+    expect(decide.mock.calls[0][1]).toMatchObject({ state: "reject", reason: "The paper states it on page 3." });
+  });
+
+  it("shows the server's own sentence when it refuses, and says to sign in on a 401, and records nothing on the card", async () => {
+    decide.mockResolvedValueOnce({ ok: false, error: { code: "invalid_parameter", message: "a rejected comment needs a one-line reason" } });
+    mount(review(THREE));
+    fireEvent.click(within(first()).getByRole("button", { name: "Accept" }));
+    expect(await within(first()).findByTestId("card-decision-problem")).toHaveTextContent("a rejected comment needs a one-line reason");
+    decide.mockResolvedValueOnce({ ok: false, error: { code: "unauthenticated", message: "sign in to continue" } });
+    fireEvent.click(within(first()).getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(within(first()).getByTestId("card-decision-problem")).toHaveTextContent("Sign in to record a decision."));
+    expect(within(first()).getByTestId("card-decision")).toHaveTextContent("Not decided yet");
+  });
+
+  it("a confirmation is decided as a confirmation", async () => {
+    decide.mockResolvedValue(ok("accept"));
+    mount(review([card(1)], [card(5, { severity: "Please confirm" })]));
+    const part = screen.getByTestId("general-confirmations");
+    fireEvent.click(part.querySelector("summary") as HTMLElement);
+    fireEvent.click(within(within(part).getByTestId("general-row")).getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(decide).toHaveBeenCalled());
+    expect(decide.mock.calls[0][1]).toMatchObject({ comment: 5, part: "confirmation" });
+  });
+
+  it("a decision already on record is shown, with how many decisions the comment has", () => {
+    const decided = card(1, { decision: { state: "reject", words: "Rejected", text: null, original: null, reason: "Not a real problem.", by: "Dana", at: "2026-11-18T12:00:00+00:00", revisions: 3 } });
+    mount(review([decided]));
+    expect(screen.getByTestId("card-decision-state")).toHaveTextContent("Rejected by Dana");
+    expect(screen.getByTestId("card-decision-state")).toHaveTextContent("Not a real problem.");
+    expect(screen.getByTestId("card-decision-state")).toHaveTextContent("3 decisions on record; the latest counts");
   });
 });
