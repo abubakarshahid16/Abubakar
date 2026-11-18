@@ -305,8 +305,22 @@ def cmd_snapshot(args) -> int:
     except (OSError, ValueError) as exc:
         print(f"REFUSED: {exc}")
         return 2
+    commit = getattr(args, "commit", None)
+    if getattr(args, "commit_of", None):
+        import subprocess
+
+        got = subprocess.run(
+            ["git", "-C", args.commit_of, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if got.returncode != 0:
+            print("REFUSED: --commit-of: not a git checkout")
+            return 2
+        commit = got.stdout.strip()
     snap = {
         "schema": SCHEMA,
+        "commit": commit,  # the code the snapshotted app runs (N1: a snapshot is bound to a commit and a time)
         "taken_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "app": urllib.parse.urlsplit(args.base_url).netloc,
         "papers": {label: snapshot_paper(client, doc) for label, doc in papers.items()},
@@ -514,6 +528,70 @@ def judge_listed(live_runs: dict | None, history: list | None) -> tuple[bool, st
     )
 
 
+def accept_outcome(ok: bool, reason: str, accepted: str | None) -> tuple[str, str]:
+    """(outcome, reason) for one row. A refusal becomes ACCEPTED only with a reason; a NOT MEASURED row only when the reason
+    itself names it ("NOT MEASURED ... because ..."), so a missing number is never waved through by a reason about something else."""
+    if ok:
+        return "PASS", reason
+    if not accepted:
+        return "REFUSE", reason
+    if reason.startswith("NOT MEASURED") and "not measured" not in accepted.lower():
+        return "REFUSE", (
+            f"{reason}; accept refused: a NOT MEASURED row is accepted only when the reason names it "
+            "(write NOT MEASURED and why)"
+        )
+    return "ACCEPTED", f"{reason}; accepted: {accepted}"
+
+
+def print_accepted(rows: list[dict]) -> None:
+    """Every accepted row on its own line, with its reason (N2: never only a count)."""
+    for r in rows:
+        if r["outcome"] == "ACCEPTED":
+            print(f"ACCEPTED: {r['paper']} {r['metric']}: {r['reason']}")
+
+
+#: The papers the live gate must see on both sides (owner, completeness rule 4: valve and pump are counted after every update).
+REQUIRED_PAPERS = ("VALVE", "PUMP")
+
+
+def missing_required(live: dict, rehearsal: dict, required) -> list[str]:
+    out = []
+    for name in required:
+        for side, snap in (("live", live), ("rehearsal", rehearsal)):
+            if name.lower() not in {k.lower() for k in (snap.get("papers") or {})}:
+                out.append(f"{name} is not in the {side} snapshot")
+    return out
+
+
+def snapshot_problems(
+    snap: dict, side: str, commit: str | None, max_age_hours: float | None
+) -> list[str]:
+    """N1: the snapshot must name the expected commit and (when asked) be younger than max_age_hours."""
+    out = []
+    if commit:
+        got = snap.get("commit")
+        if not got:
+            out.append(
+                f"the {side} snapshot names no commit (take it with --commit-of)"
+            )
+        elif not (commit.startswith(got) or got.startswith(commit)):
+            out.append(
+                f"the {side} snapshot was taken on {got[:8]}, expected {commit[:8]}"
+            )
+    if max_age_hours is not None:
+        try:
+            taken = datetime.fromisoformat(str(snap.get("taken_at")))
+            age = (datetime.now(UTC) - taken).total_seconds() / 3600
+        except (TypeError, ValueError):
+            out.append(f"the {side} snapshot has no readable time")
+        else:
+            if age > max_age_hours:
+                out.append(
+                    f"the {side} snapshot is {age:.1f} h old (limit {max_age_hours:g} h)"
+                )
+    return out
+
+
 def history_rows(live: dict, rehearsal: dict, accepts: dict) -> list[dict]:
     lp, rp = live.get("papers") or {}, rehearsal.get("papers") or {}
     rows = []
@@ -532,10 +610,9 @@ def history_rows(live: dict, rehearsal: dict, accepts: dict) -> list[dict]:
             (LISTED, None, None, judge_listed(a.get("runs"), b.get("history")))
         )
         for metric, lv, rv, (ok, reason) in checks:
-            outcome = "PASS" if ok else "REFUSE"
-            accepted = accepts.get((paper.lower(), metric))
-            if not ok and accepted:
-                outcome, reason = "ACCEPTED", f"{reason}; accepted: {accepted}"
+            outcome, reason = accept_outcome(
+                ok, reason, accepts.get((paper.lower(), metric))
+            )
             rows.append(
                 {
                     "paper": paper,
@@ -561,8 +638,17 @@ def cmd_history(args) -> int:
     if not (live.get("papers") or rehearsal.get("papers")):
         print("REFUSED: NOT MEASURED: neither snapshot names a paper")
         return 1
+    problems = missing_required(live, rehearsal, args.require)
+    problems += snapshot_problems(live, "live", args.live_commit, args.max_age_hours)
+    problems += snapshot_problems(
+        rehearsal, "rehearsal", args.rehearsal_commit, args.max_age_hours
+    )
+    if problems:
+        print("REFUSED: NOT MEASURED: " + "; ".join(problems) + ". No live update.")
+        return 1
     rows = history_rows(live, rehearsal, accepts)
     print(render(rows, blank=(SAME_RUNS, CRS_FILES, LISTED)))
+    print_accepted(rows)
     refused = [r for r in rows if r["outcome"] == "REFUSE"]
     accepted = sum(1 for r in rows if r["outcome"] == "ACCEPTED")
     if refused:
@@ -593,10 +679,9 @@ def gate_rows(
         )
         checks.append((FRESH, None, None, judge_fresh(a.get("runs"), b.get("runs"))))
         for metric, lv, rv, (ok, reason) in checks:
-            outcome = "PASS" if ok else "REFUSE"
-            accepted = accepts.get((paper.lower(), metric))
-            if not ok and accepted:
-                outcome, reason = "ACCEPTED", f"{reason}; accepted: {accepted}"
+            outcome, reason = accept_outcome(
+                ok, reason, accepts.get((paper.lower(), metric))
+            )
             rows.append(
                 {
                     "paper": paper,
@@ -662,6 +747,7 @@ def cmd_compare(args) -> int:
         return 1
     rows = gate_rows(live, rehearsal, kww_live, kww_rehearsal, accepts)
     print(render(rows))
+    print_accepted(rows)
     used = {
         (r["paper"].lower(), r["metric"]) for r in rows if r["outcome"] == "ACCEPTED"
     }
@@ -699,6 +785,12 @@ def main(argv: list[str] | None = None) -> int:
         help="LABEL=<doc id> (label as in <LABEL>-KWW.md) or <doc id>",
     )
     s.add_argument("--out", required=True)
+    s.add_argument("--commit", default=None, help="the commit the app runs (N1)")
+    s.add_argument(
+        "--commit-of",
+        default=None,
+        help="read the commit from this checkout (git rev-parse HEAD, read only)",
+    )
     c = sub.add_parser(
         "compare", help="refuse when a paper's review drops on the rehearsal copy"
     )
@@ -725,7 +817,29 @@ def main(argv: list[str] | None = None) -> int:
         "--accept",
         action="append",
         default=[],
-        help="<paper>:<row>:<reason>, one refusal accepted",
+        help="<paper>:<row>:<reason>, one refusal accepted (a NOT MEASURED row only when the reason names it)",
+    )
+    h.add_argument(
+        "--require",
+        nargs="*",
+        default=list(REQUIRED_PAPERS),
+        help="papers that must be in both snapshots",
+    )
+    h.add_argument(
+        "--live-commit",
+        default=None,
+        help="the live snapshot must have been taken on this commit",
+    )
+    h.add_argument(
+        "--rehearsal-commit",
+        default=None,
+        help="the rehearsal snapshot must have been taken on this commit",
+    )
+    h.add_argument(
+        "--max-age-hours",
+        type=float,
+        default=None,
+        help="refuse a snapshot older than this (the seal uses 2)",
     )
     args = ap.parse_args(argv)
     return {"snapshot": cmd_snapshot, "compare": cmd_compare, "history": cmd_history}[
