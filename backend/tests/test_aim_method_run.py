@@ -512,3 +512,36 @@ def test_a_saved_item_of_a_company_standard_this_paper_does_not_cite_does_not_ap
         and not aim_review.sendable(line)
     )
     assert COMPANY not in r.unlisted_books
+
+
+def test_a_checklist_built_for_one_company_family_is_not_reused_for_another(
+    aim_db, monkeypatch
+):
+    """The key carries the relevant company families: a paper citing family ZQ and one citing family YW get two checklists."""
+    from app import standard_ids
+    from app.aim_review import library as L
+    from tests.test_aim_method_candidates import COMPANY, _company_book
+
+    _company_book(aim_db)
+    monkeypatch.setattr(
+        L,
+        "method_books",
+        lambda lib, kind: [(next(e for e in lib if e["id"] == COMPANY), "ZQ-ENG-501")],
+    )
+    store = MemoryStore()
+    every = frozenset({BOOK_A, BOOK_B, COMPANY})
+    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["ZQ-ENG-777"])
+    zq, _m, _s = _run(aim_db, store=store, allowed=every)
+    assert zq.checklist_key.endswith("__family-zq") and not zq.checklist_reused
+    again, _m, _s = _run(aim_db, store=store, allowed=every)
+    assert (
+        again.checklist_key == zq.checklist_key and again.checklist_reused
+    )  # the same family: reused
+    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["YW-STD-12"])
+    yw, _m, _s = _run(aim_db, store=store, allowed=every)
+    assert (
+        "__family-" not in yw.checklist_key
+        and not yw.checklist_reused
+        and len(store.puts) == 2
+    )
+    assert COMPANY not in yw.books  # ZQ's book never carried for a YW paper
