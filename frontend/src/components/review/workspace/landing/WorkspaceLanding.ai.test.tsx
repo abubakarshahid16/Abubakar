@@ -21,6 +21,7 @@ vi.mock("../../../../api/client", () => ({
 vi.mock("../NewReviewDropZone", () => ({ NewReviewDropZone: () => <p /> }));
 vi.mock("../reviewWatch", () => ({ watchRun: vi.fn() }));
 
+import { VIEW_MODE_KEY } from "../useViewMode";
 import { WorkspaceLanding } from "./WorkspaceLanding";
 
 const run = (id: string, doc: string, at: string) => ({
@@ -54,8 +55,17 @@ describe("WorkspaceLanding: AI mark and first line", () => {
     render(<WorkspaceLanding documents={[doc("c")]} onOpenRun={vi.fn()} onReload={vi.fn()} submittalsTotal={1}
       loadReadyCounts={async () => ({})} isAdmin
       runs={[run("run-old-c", "c", "2026-10-01T08:00:00Z"), run("run-new-c", "c", "2026-10-05T08:00:00Z")]} />);
-    await waitFor(() => expect(screen.getByTestId("ai-earlier-hint")).toHaveTextContent("An earlier review of this file has an AI review"));
+    await waitFor(() => expect(screen.getByTestId("ai-earlier-hint")).toHaveTextContent("An earlier review of this file has AI review lines (earlier method)"));
     expect(screen.queryByTestId("ai-mark")).toBeNull();
     expect(summary).not.toHaveBeenCalled();
   });
+  it("says the earlier AI review's lines once: the counts line has them, so the small mark is not drawn too (planner 18 Nov 23:40)", async () => {
+    localStorage.setItem(VIEW_MODE_KEY, "detailed");
+    render(<WorkspaceLanding documents={[doc("a")]} onOpenRun={vi.fn()} onReload={vi.fn()} submittalsTotal={1}
+      loadReadyCounts={async () => ({ "run-new-a": { findings: null, needs_you: null, aiLines: 20 } })} isAdmin
+      runs={[run("run-new-a", "a", "2026-10-05T08:00:00Z")]} />);
+    await waitFor(() => expect(screen.getByTestId("row-counts")).toHaveTextContent("AI review: 20 lines (earlier method)"));
+    expect(screen.queryByTestId("ai-mark")).toBeNull();
+  });
 });
+
