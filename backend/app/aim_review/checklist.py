@@ -54,6 +54,12 @@ WANTED_GOVERNS, WANTED_METHOD = "governing table", "method table"
 WANTED_SOURCES = (WANTED_GOVERNS, WANTED_METHOD)
 ITEM_KINDS = ("limit", "presence", "consistency", "material", "procedure")
 SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the required ones)
+#: The version of HOW a checklist is built (the build's prompts and code). A saved checklist from another version is not reused:
+#: the first run after a change rebuilds it once, and the old one stays readable as history (18 Nov 2026: a live review reused a
+#: checklist saved before the night's checklist fixes). Change it with every change to S2, S3, S3K, the attack or their code.
+#: "2026-11-18.1": knowledge items say which paper carries them; a cut answer is asked again in halves; a needed book outside
+#: the catalog gets an alias.
+CHECKLIST_METHOD = "2026-11-18.1"
 
 
 def _dumps(o) -> str:
@@ -705,6 +711,7 @@ def build(
     cl.update(
         {
             "key": key,
+            "method": CHECKLIST_METHOD,
             "built_from": BUILT_FROM_KNOWLEDGE if knows else BUILT_FROM,
             "made_at": made_at,
             "identity": {

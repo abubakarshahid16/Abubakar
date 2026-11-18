@@ -610,3 +610,32 @@ def test_a_fault_names_its_file_and_line_in_the_run_record(aim_db, monkeypatch):
         and ":" in r.stop_reason.rsplit(" ", 1)[-1]
         and "alias" not in r.stop_reason
     )
+
+
+def test_a_checklist_saved_by_another_checklist_method_is_built_again_once(aim_db):
+    """A saved checklist from an older checklist method (or with none recorded) is not reused: the first run after the change
+    builds it again and saves it; the next run reuses the new one. The old one stays in the store (history)."""
+    from app.aim_review import checklist as CL
+
+    store = MemoryStore()
+    _first, _m, _s = _run(aim_db, store=store)
+    key = next(iter(store.saved))
+    sha, body = store.saved[key][-1]
+    assert body["method"] == CL.CHECKLIST_METHOD
+    store.saved[key][-1] = (
+        sha,
+        {k: v for k, v in body.items() if k != "method"},
+    )  # saved by an older method
+    second, model, _s = _run(aim_db, store=store)
+    assert not second.checklist_reused and any(
+        c["step"] == "aim_checklist" for c in model.asked
+    )
+    assert len(store.saved[key]) == 2  # the old one stays as history
+    store.saved[key][-1][1]["method"] = CL.CHECKLIST_METHOD
+    third, model3, _s = _run(aim_db, store=store)
+    assert third.checklist_reused and not any(
+        c["step"] == "aim_checklist" for c in model3.asked
+    )
+    store.saved[key].append((sha, dict(body, method="2026-01-01.0")))
+    fourth, _m4, _s = _run(aim_db, store=store)
+    assert not fourth.checklist_reused
