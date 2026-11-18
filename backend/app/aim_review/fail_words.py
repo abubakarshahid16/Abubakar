@@ -62,7 +62,12 @@ def _fails_comment(
     else:
         where = "the rule"
     if firm:
-        return f"{PROVEN_FAIL}: the stated {stated} {verb} the {rule} {noun} of {where}; revise it to meet the rule."
+        mixed = (
+            " (gauge against absolute: the answer is the same for any atmospheric pressure)"
+            if "gauge" in str(code_cmp.get("why") or "")
+            else ""
+        )
+        return f"{PROVEN_FAIL}: the stated {stated} {verb} the {rule} {noun} of {where}{mixed}; revise it to meet the rule."
     return f"The stated {stated} {verb} the {rule} {noun} of {where}; {ask}."
 
 
