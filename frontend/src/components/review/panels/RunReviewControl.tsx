@@ -15,6 +15,7 @@ import { reviews as reviewsApi } from "../../../api/client";
 import { type Engine, reviewPlan } from "../../../api/reviewPlan";
 import type { ReviewReadiness } from "../../../types/api";
 import { ReadinessStrip } from "../ReadinessStrip";
+import { SIGN_IN_ENDED_LINE, clearStartFailure, isSignInEnded, recordStartFailure, startFailureReason } from "../workspace/startFailures";
 import { StartPanel } from "./StartPanel";
 
 export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpenStandards, onReread }: {
@@ -60,9 +61,14 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
     if (!result.ok) {
       // SHOWN AS THE API RETURNED IT - a refusal ("a review of this submittal
       // is already running") is a real answer, never retried silently.
-      setLaunch({ kind: "error", message: result.error.message });
+      const ended = isSignInEnded(result.error);
+      if (!/already (?:queued or )?running/i.test(result.error.message ?? "")) {
+        recordStartFailure(submittalId, startFailureReason(result.error, result.error.message), ended);
+      }
+      setLaunch({ kind: "error", message: ended ? `${SIGN_IN_ENDED_LINE}.` : result.error.message || startFailureReason(result.error, "") });
       return;
     }
+    clearStartFailure(submittalId);
     setLaunch({ kind: "idle" });
     onStarted(result.data.review_run_id);
     void loadReadiness();

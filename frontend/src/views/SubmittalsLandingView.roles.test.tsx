@@ -1,6 +1,6 @@
 /** Order 14 lane E: the review page lists contractor submittals; with the suggested-role switch on, contract documents too.
  *  Switch off: the list request is the one it always was (CONTRACTOR_SUBMITTAL only). */
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const documents = vi.fn();
@@ -48,5 +48,23 @@ describe("G2: the general review lists every paper that is not a rule book", () 
     const asked = documents.mock.calls[0][0];
     expect(asked.exclude_role).toEqual(["COMPANY_STANDARD", "CRS_TEMPLATE"]);
     expect(asked.document_role).toBeUndefined();
+  });
+});
+
+describe("G3: Review all is not offered while the general review is on", () => {
+  const paper = { id: "d1", filename: "Invented paper.pdf", document_role: null, uploaded_at: "2026-11-18T08:00:00Z", indexed_at: null };
+  it("general review on: one plain line, no Review all button", async () => {
+    sw = { enabled: true, review_roles: ["CONTRACTOR_SUBMITTAL"], exclude_roles: ["COMPANY_STANDARD", "CRS_TEMPLATE"] } as typeof sw;
+    documents.mockResolvedValue({ ok: true, data: [paper] });
+    render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
+    expect(await screen.findByTestId("review-each-line")).toHaveTextContent("Each paper is reviewed on its own with the Review button.");
+    expect(screen.queryByRole("button", { name: /Review all not reviewed/ })).toBeNull();
+  });
+  it("earlier engine (no exclusion): the button is as before", async () => {
+    sw = { enabled: false, review_roles: ["CONTRACTOR_SUBMITTAL"] };
+    documents.mockResolvedValue({ ok: true, data: [paper] });
+    render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
+    expect(await screen.findByRole("button", { name: /Review all not reviewed \(1 of the contractor documents listed here\)/ })).toBeInTheDocument();
+    expect(screen.queryByTestId("review-each-line")).toBeNull();
   });
 });

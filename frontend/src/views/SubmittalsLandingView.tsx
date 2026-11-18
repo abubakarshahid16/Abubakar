@@ -82,6 +82,8 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
   const [startError, setStartError] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batching, setBatching] = useState(false);
+  /** Order 14 (G3): the general review is on, so "Review all" (Local only, which the general review refuses) is not offered. */
+  const [generalOn, setGeneralOn] = useState(false);
 
   // Order 109: ONE list request at a time. React's StrictMode runs the
   // first effect twice in development (the owner's app runs `npm run dev`),
@@ -105,6 +107,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
     // Order 14 (G2): the general review takes every kind of paper, so the list is every paper that is not a rule book (a paper
     // with no role recorded included); the earlier engine keeps the roles it always listed.
     const exclude = listing.exclude_roles ?? [];
+    setGeneralOn(exclude.length > 0);
     const [subs, runsResult] = await Promise.all([
       exclude.length > 0
         ? api.documents({ exclude_role: exclude, limit: LIST_MAX })
@@ -241,7 +244,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
       {phase.kind === "ready" && workspace && !inbox && (
         <WorkspaceLanding
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
-          documentsFailed={documentsFailed} isAdmin={isAdmin}
+          documentsFailed={documentsFailed} isAdmin={isAdmin} generalReviewOn={generalOn}
           onOpenRun={onOpenRun} onOpenRunTab={onOpenRunTab} onReload={reload}
           loadReadyCounts={loadReadyCounts}
         />
@@ -261,7 +264,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
           documents={documents} runs={runs} submittalsTotal={submittalsTotal}
           onReview={(documentId) => void reviewDocument(documentId)}
           onOpenRun={onOpenRun}
-          onReviewAll={(targets) => void reviewAll(targets)}
+          onReviewAll={generalOn ? undefined : (targets) => void reviewAll(targets)}
           reviewingAll={batching}
           startingDocumentId={startingDocumentId}
           loadReadyCounts={loadReadyCounts}
