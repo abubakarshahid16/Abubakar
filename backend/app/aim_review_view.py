@@ -555,12 +555,9 @@ def build(conn, run: dict, scope=None) -> dict:
     points = [
         line_view(r, i, book_hidden(conn, r, scope)) for i, r in enumerate(rows, 1)
     ]
-    # a Question whose only content is "not judged" stays on "All points" (counted there), never a comment (ASK A -> C); the sent
-    # lines of one point make ONE comment listing every place (`group_comments`)
+    # a "not judged" Question stays a point, never a comment; one point's lines make ONE comment; each comment gets its card
     comments, confirmations = comments_and_confirmations(points)
-    by_severity = aim_review_card.add(
-        comments, confirmations, points
-    )  # each comment's card (severity by code)
+    by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
     by_label = {
         label: sum(1 for p in points if p["label"] == label)
         for label in aim_review.LABELS
