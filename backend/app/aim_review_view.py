@@ -259,7 +259,7 @@ def comments_and_confirmations(points: list[dict]) -> tuple[list[dict], list[dic
     by_n = {p["n"]: p for p in points}
     confirm = [c for c in comments if all(_confirm_only(by_n[n]) for n in c["lines"])]
     sent = [c for c in comments if not all(_confirm_only(by_n[n]) for n in c["lines"])]
-    return _same_finding(sent, by_n), confirm
+    return _same_place(_same_finding(sent, by_n), by_n), confirm
 
 
 def _confirm_only(p: dict) -> bool:
@@ -332,6 +332,48 @@ def _same_finding(comments: list[dict], by_n: dict) -> list[dict]:
     out = []
     for c in comments:
         keys = {_finding_key(by_n[n]) for n in c["lines"]}
+        if len(keys) == 1 and None not in keys:
+            groups.setdefault(keys.pop(), []).append(c)
+        else:
+            out.append(c)
+    for cs in groups.values():
+        if len(cs) == 1:
+            out.append(cs[0])
+            continue
+        members = sorted(
+            (by_n[n] for c in cs for n in c["lines"]),
+            key=lambda m: (m["page"] is None, m["page"] or 0, m["n"]),
+        )
+        out.append(_same_point(members))
+    return sorted(out, key=lambda g: g["n"])
+
+
+def _place_key(p: dict) -> tuple | None:
+    """The PLACE a sent line speaks about: its field (folded) and its page, with its shown label and compare kind. None without a
+    field or a page, and ALWAYS None for a Not met or a Fail (two findings of different items are never merged)."""
+    shown = str(p.get("shown_label") or "").lower()
+    field, page = _field_key(p.get("field")), p.get("page")
+    if p.get("label") == "Not met" or "not met" in shown or "fail" in shown:
+        return None
+    if not field or not isinstance(page, int):
+        return None
+    return (
+        p["shown_label"],
+        p.get("compare_kind") or "",
+        _provisional_kind(p.get("code_note")),
+        field,
+        page,
+    )
+
+
+def _same_place(comments: list[dict], by_n: dict) -> list[dict]:
+    """The same point sent under several rules (repeats a strict judge marks WEAK): comments whose lines ALL speak about ONE
+    field on the SAME pages (`_place_key`, the same shown label) become one comment that keeps every line's own words and
+    lists every rule (`_same_point`). NO CHAIN: a comment whose lines are in different places stays as it is."""
+    groups: dict[tuple, list[dict]] = {}
+    out = []
+    for c in comments:
+        keys = {_place_key(by_n[n]) for n in c["lines"]}
         if len(keys) == 1 and None not in keys:
             groups.setdefault(keys.pop(), []).append(c)
         else:

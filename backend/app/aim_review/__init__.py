@@ -111,6 +111,9 @@ READERS_DIFFER = "readers differ"
 #: `code_note` part of a line that sets a value of one equipment item against another item's (`items.py`): "different_items: page
 #: 2 "X" / page 3 "Y"" (both names found on their pages). No finding: it stays in "All points", never sent.
 DIFFERENT_ITEMS = "different_items"
+#: `code_note` part of a Question that states a pass or repeats the paper and asks nothing (`asks.mark`, after every AI step): kept on
+#: "All points" with its reason, never sent.
+NO_ASK = "no_ask"
 NOT_SENT_NOTES = (
     NOT_JUDGED,
     PROVISIONAL,
@@ -118,6 +121,7 @@ NOT_SENT_NOTES = (
     EDITED,
     DIFFERENT_ITEMS,
     ANSWERED,
+    NO_ASK,
 )
 
 
@@ -184,6 +188,7 @@ __all__ = [
     "MAX_BOOKS",
     "METHOD_VERSION",
     "NOT_JUDGED",
+    "NO_ASK",
     "NOT_SENT_NOTES",
     "PAPER_COMPARE_PASSED",
     "PROVISIONAL",

@@ -448,7 +448,7 @@ def test_an_item_that_fails_in_two_places_gives_two_lines_through_run_and_the_st
                 "label": "Question",
                 "page": p,
                 "quote": q,
-                "comment": f"place {p}",
+                "comment": f"Please confirm place {p}.",  # a comment that asks nothing is not sent (`asks.mark`)
             }
             for p, q in reversed(places)
         ]
