@@ -86,7 +86,11 @@ paper. Do not repeat a topic already covered. Never quote a clause and never giv
 nothing can be checked against its words. At most %(most)d items. Reply with ONE JSON object only: {"items": [{
  "topic": "at most 8 words", "what_to_check": "one line", "applies_when": "the condition, or always",
  "paper_fields": ["the field(s) or section(s) of the paper it needs"], "kind": one of %(kinds)s,
- "stands_in_for": "the standard's public name, or engineering practice"}]}"""
+ "stands_in_for": "the standard's public name, or engineering practice",
+ "carried_by": "this paper" when THIS kind of paper, for THIS equipment or subject, is where the value or requirement is
+ stated; otherwise the kind of paper that states it (another item's datasheet, a study, a calculation, a drawing, a
+ procedure). A standard on the list above may govern a neighbouring paper: write its items only where THIS paper carries
+ them, and an item another paper carries is not checked here.}]}"""
 
 S3_RETRY = """The rule_quote of these checklist items was NOT found in the book's stored text. For each, copy the exact words
 from the clause material below (8 to 40 words, character for character) and give the right book alias and page; drop an item
