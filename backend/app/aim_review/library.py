@@ -184,32 +184,47 @@ def is_own(entry: dict | None) -> bool:
     return bool(entry) and (entry.get("document_role") or "") == STANDARD_ROLE
 
 
+def is_rule_book(entry: dict | None) -> bool:
+    """May this held document be a RULE BOOK at all, decided from its RECORDED role first: the company-standard role (the
+    client's own standards), or NO role and a public standard's name. Any other recorded role (a contract, a submittal, a
+    specification, a supporting document) is never a rule book, whatever its file name or a citation says (fix check 961f7126, N2)."""
+    if not entry:
+        return False
+    role = entry.get("document_role") or ""
+    if role:
+        return role == STANDARD_ROLE
+    return is_public(entry)
+
+
 def cited_company(conn, paper_id: str) -> frozenset[str]:
-    """The ids of the held books that are neither public nor the client's own (`is_own`) and that the paper cites: its
-    code-read citations (`_paper_citations`) resolved to a held book (`resolve`, the same as WHY_CITED), any identifier shape.
-    Ids only: what the job may pass into the build."""
+    """The ids of the cited held RULE BOOKS that are neither public nor the client's own: with today's roles (the company-
+    standard role is the only rule-book role) this set is EMPTY by construction, so the checklist key keeps its plain form. Kept
+    as the one home of "cited ids" (`run(cited_books=...)`, `cited_key`) should another rule-book role be recorded."""
     lib = library(conn, exclude=frozenset({str(paper_id)}))
     found = (resolve(lib, name) for name in _paper_citations(conn, str(paper_id)))
-    return frozenset(e["id"] for e in found if e and not is_public(e) and not is_own(e))
+    return frozenset(
+        e["id"]
+        for e in found
+        if e and is_rule_book(e) and not is_public(e) and not is_own(e)
+    )
 
 
-def usable(entry: dict | None, cited: frozenset[str]) -> bool:
-    """May this held book be used for this paper at all: a PUBLIC one, one of the client's OWN standards (its recorded role), or
-    one the paper cites. Measured (head 9dee5805): judging by name shape alone kept 7 of 310 books; the role keeps the library."""
-    return is_public(entry) or is_own(entry) or (bool(entry) and entry["id"] in cited)
+def usable(entry: dict | None) -> bool:
+    """May this held book be used for this paper: a rule book (`is_rule_book`): the client's own standard by its recorded role,
+    or an unroled public standard. Measured (head 9dee5805): judging by name shape alone kept 7 of 310 books; the role keeps the
+    library. A citation never makes a document of another role a rule book."""
+    return is_rule_book(entry)
 
 
-def usable_ids(
-    conn, ids, cited: frozenset[str], identifiers: dict | None = None
-) -> frozenset[str]:
+def usable_ids(conn, ids, identifiers: dict | None = None) -> frozenset[str]:
     """Of `ids`, the usable held books (`usable`), read from the library. Without a database (a caller with no connection) only
-    the book's identifier is known: public by name, or cited."""
+    the book's identifier is known: an unroled public name."""
     ids = {str(i) for i in ids if i}
     if conn is None:
         names = identifiers or {}
-        return frozenset(i for i in ids if i in cited or is_public_name(names.get(i)))
+        return frozenset(i for i in ids if is_public_name(names.get(i)))
     by_id = {e["id"]: e for e in library(conn)}
-    return frozenset(i for i in ids if usable(by_id.get(i), cited))
+    return frozenset(i for i in ids if usable(by_id.get(i)))
 
 
 CITED_MARK = "__cited-"
@@ -232,20 +247,18 @@ def base_key(key: str) -> str:
     return str(key).split(CITED_MARK, 1)[0]
 
 
-def not_offered_company(
-    conn, paper_id: str, ids: set[str], cited: frozenset[str]
-) -> frozenset[str]:
-    """Of `ids`, the held COMPANY books this paper does not cite."""
+def not_offered_company(conn, paper_id: str, ids: set[str]) -> frozenset[str]:
+    """Of `ids`, the held documents that are not usable rule books for this paper (`usable`)."""
     if not ids:
         return frozenset()
     by_id = {e["id"]: e for e in library(conn, exclude=frozenset({str(paper_id)}))}
-    return frozenset(b for b in ids if b in by_id and not usable(by_id[b], cited))
+    return frozenset(b for b in ids if b in by_id and not usable(by_id[b]))
 
 
-def company_books_not_cited(conn, paper_id: str, books: dict, cited) -> frozenset[str]:
-    """A checklist's books (alias -> {book}) that are COMPANY standards this paper does not cite, on the shown list or not."""
+def company_books_not_cited(conn, paper_id: str, books: dict) -> frozenset[str]:
+    """A checklist's books (alias -> {book}) that are not usable rule books for this paper, on the shown list or not."""
     ids = {str(b.get("book")) for b in books.values() if b.get("book")}
-    return not_offered_company(conn, paper_id, ids, cited or frozenset())
+    return not_offered_company(conn, paper_id, ids)
 
 
 def wanted_not_held(not_held) -> frozenset[str]:
@@ -610,7 +623,7 @@ def candidates(
     )
     # a book is used when it is public, one of the client's own standards (its recorded role), or cited by the paper
     by_id = {e["id"]: e for e in library(conn, exclude=frozenset({paper_id}))}
-    order = [(d, w) for d, w in order if usable(by_id.get(d), cited)]
+    order = [(d, w) for d, w in order if usable(by_id.get(d))]
     readable = [(d, w) for d, w in order if d in allowed]
     unreadable = sum(1 for d, _w in order if d not in allowed)
     books = [{"id": d, "why": w} for d, w in readable[:MAX_CANDIDATES]]

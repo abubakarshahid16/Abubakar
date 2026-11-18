@@ -144,10 +144,6 @@ def wanted(
     unlisted: list[str] = []
     not_held: list[dict] = []
     for e, name in L.governing_books(lib, etype):
-        if e is not None and not L.usable(
-            e, cited
-        ):  # a held book: public, the client's own, or cited
-            continue
         if not e:
             not_held.append(
                 {
@@ -163,10 +159,6 @@ def wanted(
         elif e["id"] not in unlisted:
             unlisted.append(e["id"])
     for e, name in L.method_books(lib, kind):
-        if e is not None and not L.usable(
-            e, cited
-        ):  # a held book: public, the client's own, or cited
-            continue
         if not e:
             not_held.append(
                 {
@@ -297,7 +289,7 @@ def _catalog(
     cat = [c for c in cat if L.role_applies(by_id[c["book"]], kind)]
     # a book only when it is public, the client's own (its recorded role) or cited (the build sees no paper: the job passes the
     # cited ids, no text)
-    cat = [c for c in cat if L.usable(by_id[c["book"]], cited)]
+    cat = [c for c in cat if L.usable(by_id[c["book"]])]
     cat = [c for c in cat if c["book"] in required or not gate_ok(c["book"])]
     for i, c in enumerate(cat):
         c["alias"] = f"B{i + 1:02d}"

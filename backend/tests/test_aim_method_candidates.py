@@ -275,16 +275,30 @@ def test_a_non_public_book_without_the_role_that_the_paper_does_not_cite_is_not_
     assert COMPANY not in ids and BOOK_A in ids  # public books unaffected
 
 
-def test_a_non_public_book_without_the_role_is_listed_when_the_paper_cites_it(
+def test_a_document_of_another_role_is_never_a_rule_book_even_when_the_paper_cites_it(
     aim_db, no_model, kind_datasheet, monkeypatch
 ):
+    """Fix check 961f7126, N2: the recorded role decides first; a citation by file name never makes a reference document (or a
+    contract) a rule book, and a public-looking file name never makes a contract one."""
     from app import standard_ids
 
     _company_book(aim_db)
     monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["ZQ-ENG-501"])
-    assert L.cited_company(aim_db, PAPER) == frozenset({COMPANY})
+    assert L.cited_company(aim_db, PAPER) == frozenset()
     c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
-    assert {b["id"]: b["why"] for b in c.books}[COMPANY] == L.WHY_CITED
+    assert COMPANY not in [b["id"] for b in c.books]
+    contract = {
+        "id": "x",
+        "filename": "ISO 99999 purchase contract.pdf",
+        "document_role": "CONTRACT_DOCUMENT",
+    }
+    assert L.is_public(contract) and not L.is_rule_book(contract)
+    assert L.is_rule_book(
+        {"id": "y", "filename": "ISO 99101.pdf", "document_role": None}
+    )  # an unroled public standard
+    assert not L.is_rule_book(
+        {"id": "z", "filename": "ZQ-ENG-501.pdf", "document_role": None}
+    )  # unroled, not public
 
 
 def test_an_own_standard_is_never_in_the_cited_key_set(
@@ -299,35 +313,19 @@ def test_an_own_standard_is_never_in_the_cited_key_set(
     )  # the cited key stays for cited books that are not the client's own
 
 
-def test_s2s_catalog_holds_an_own_or_a_cited_book_never_another(aim_db, no_model):
+def test_s2s_catalog_holds_an_own_book_never_another_role_even_cited(aim_db, no_model):
     from app.aim_review import checklist as CL
 
     ident = {"kind": "datasheet", "equipment_type": None}
     listed = frozenset({BOOK_A, BOOK_B, COMPANY})
     _company_book(aim_db)
-    cat, *_ = CL._catalog(
-        aim_db,
-        PAPER,
-        ident,
-        listed,
-        {"listed": {COMPANY: L.WHY_GOVERNS}},
-        lambda b: None,
-    )
-    assert COMPANY not in {c["book"] for c in cat} and BOOK_A in {
-        c["book"] for c in cat
-    }  # not own, not cited
-    cat, *_ = CL._catalog(
-        aim_db,
-        PAPER,
-        ident,
-        listed,
-        {"listed": {}},
-        lambda b: None,
-        frozenset({COMPANY}),
-    )
-    assert COMPANY in {
-        c["book"] for c in cat
-    }  # cited (its id passed in): it may enter a new checklist
+    for cited in (frozenset(), frozenset({COMPANY})):
+        cat, *_ = CL._catalog(
+            aim_db, PAPER, ident, listed, {"listed": {}}, lambda b: None, cited
+        )
+        assert COMPANY not in {c["book"] for c in cat} and BOOK_A in {
+            c["book"] for c in cat
+        }
     with aim_db:
         aim_db.execute(
             "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
@@ -364,12 +362,29 @@ def test_g3_lists_an_own_books_items_uncited_and_another_only_when_cited(aim_db)
 
 def test_an_own_standard_is_never_not_cited(aim_db):
     _company_book(aim_db, role=OWN)
-    assert L.not_offered_company(aim_db, PAPER, {COMPANY}, frozenset()) == frozenset()
+    assert L.not_offered_company(aim_db, PAPER, {COMPANY}) == frozenset()
     with aim_db:
         aim_db.execute(
             "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
             (OTHER, COMPANY),
         )
-    assert L.not_offered_company(aim_db, PAPER, {COMPANY}, frozenset()) == frozenset(
-        {COMPANY}
-    )
+    assert L.not_offered_company(aim_db, PAPER, {COMPANY}) == frozenset({COMPANY})
+
+
+def test_the_online_search_sends_only_public_standard_names():
+    """Fix check 961f7126, N5: with not-held names now listed whatever their shape, the online search still sends only a name
+    from the app's own table of public standards (`known_public_name`): never a company name, a file name or a paper's words."""
+    from app import standards_web_search as W
+
+    for name in (
+        "ZQ-ENG-501",
+        "97-ZQ-707",
+        "ISO 99999 purchase contract of the invented unit",
+        "the invented unit",
+    ):
+        assert W.known_public_name(name) is None, name
+    known = W.known_names()
+    assert known and all(W.known_public_name(k) == k for k in known[:5])
+    assert all(
+        L.is_public_name(k) for k in known
+    )  # every name that may leave is a public publisher's

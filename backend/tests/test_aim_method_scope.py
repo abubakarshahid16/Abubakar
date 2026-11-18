@@ -283,22 +283,45 @@ def test_the_strict_rule_moves_a_not_stated_line_on_any_kind_and_says_what_code_
     )
 
 
-def test_a_scope_reason_without_a_verified_scope_is_a_question():
-    """N1, enforced in code: "Does not apply" for scope only with S1's verified scope quote; else a Question with a note."""
-    dna = {
-        "label": "Does not apply",
-        "comment": "Outside the paper's stated scope: operating-phase revalidation.",
-        "code": "",
+@pytest.mark.parametrize(
+    "comment,becomes_question",
+    [
+        ("Outside the paper's stated scope: operating-phase revalidation.", True),
+        ("The procedure covers the design phase only; this is for operation.", True),
+        ("No relief device is in the vendor's scope of supply.", False),  # a supply scope, not the paper's
+        ("The paper states its scope clearly on page 1.", False),  # the word alone
+        ("The item has no relief device.", False),
+    ],
+)  # fmt: skip
+def test_a_scope_reason_without_a_verified_scope_is_a_question(
+    comment, becomes_question
+):
+    """N1 on the MODEL's own "Does not apply" (fix check 961f7126, B1): a narrow phrase that the paper's scope, phase or stage
+    differs; with no verified scope it is judged as a Question; with a verified scope it stands."""
+    dna = {"label": "Does not apply", "comment": comment}
+    got = S._scope_unverified(dna, False)
+    assert (got["label"] == "Question") is becomes_question
+    assert S._scope_unverified(dna, True) is dna  # a verified scope: the answer stands
+
+
+def test_a_knowledge_items_met_relabelled_by_code_is_never_made_a_question_by_the_scope_rule():
+    """Fix check 961f7126, B1: code's own relabel (a knowledge item's Met -> Does not apply) happens in _decide, after the
+    guard, which reads only the model's label."""
+    j = {
+        "label": "Met",
+        "comment": "The paper states its scope clearly on page 1 for the design stage.",
     }
-    S._scope_unverified(dna)
-    assert dna["label"] == "Question" and dna["code"] == S.SCOPE_NOT_VERIFIED
-    other = {
-        "label": "Does not apply",
-        "comment": "The item has no relief device.",
-        "code": "",
+    assert S._scope_unverified(j, False) is j
+    it = {
+        "id": "C001",
+        "book": "",
+        "clause": "",
+        "source": S.KNOWLEDGE,
+        "topic": "t",
+        "kind": "procedure",
     }
-    S._scope_unverified(other)
-    assert other["label"] == "Does not apply"
+    d = S._decide(it, {**j, "page": 1, "quote": SCOPE}, PROC_PAPER, {}, "")
+    assert d["label"] == "Does not apply" and S.SCOPE_NOT_VERIFIED not in d["code"]
 
 
 def test_through_s4_a_scope_reason_stands_only_with_the_verified_scope():

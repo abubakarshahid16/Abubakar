@@ -383,7 +383,11 @@ def s4_judge(
                     stop = code
                 continue
             for it in batch:
-                answers[it["id"]].extend(got.get(it["id"]) or [])
+                # N1: the guard reads the MODEL's own label, before code relabels anything (fix check 961f7126, B1)
+                answers[it["id"]].extend(
+                    _scope_unverified(j, bool(_scope_line(scope)))
+                    for j in got.get(it["id"]) or []
+                )
             done += 1
             if progress is not None:
                 progress(int(100 * done / total), "judge")
@@ -396,32 +400,32 @@ def s4_judge(
             it, answers[it["id"]], paper, books, errors.get(it["id"], ""), windowed
         )
     ]
-    if not _scope_line(
-        scope
-    ):  # no scope the paper states, verified: a scope reason is never a "Does not apply" (N1)
-        for line in lines:
-            _scope_unverified(line)
     return lines, stop
 
 
-#: A comment that gives SCOPE as its reason ("outside the paper's stated scope", "the scope covers ...", "this life-cycle phase").
+#: A reason that says the PAPER'S scope, phase or stage differs ("outside the paper's stated scope", "the procedure covers the
+#: design phase only"): never a supply scope ("the vendor's scope of supply") nor the word "scope" alone.
 _SCOPE_REASON = re.compile(
-    r"\bscope\b|\blife[- ]?cycle\b|\b(?:project|design|operating|operation)\s+(?:phase|stage)\b",
-    re.I,
+    r"\b(?:outside|beyond|not\s+within|out\s+of)\s+(?:the\s+)?"
+    r"(?:(?:paper|document|procedure|study)'?s\s+(?:stated\s+)?|stated\s+)scope\b"
+    r"|\bthe\s+(?:paper|document|procedure|study)\s+(?:only\s+)?(?:covers|is\s+(?:for|about|limited\s+to)|applies\s+to)\b"
+    r"[^.;]*?\b(?:phase|stage)s?\b",
+    re.IGNORECASE,
 )
 SCOPE_NOT_VERIFIED = (
     "a scope reason with no scope the paper states (verified): a question"
 )
 
 
-def _scope_unverified(line: dict) -> None:
-    """N1, enforced in code: "Does not apply" for a scope reason stands only when S1 found the paper's scope quote on its page.
-    Without it the line is a Question with that note."""
-    if line.get("label") == "Does not apply" and _SCOPE_REASON.search(
-        str(line.get("comment") or "")
-    ):
-        line["label"] = "Question"
-        line["code"] = "; ".join(x for x in (line.get("code"), SCOPE_NOT_VERIFIED) if x)
+def _scope_unverified(j: dict, verified: bool) -> dict:
+    """N1, enforced in code on the MODEL's own answer: a "Does not apply" whose reason says the paper's scope, phase or stage
+    differs stands only when S1 found the paper's scope quote on its page; without it the answer is judged as a Question (and
+    `_decide` notes why). Code's own relabels (a knowledge item's Met) are never touched: they happen later, in `_decide`."""
+    if verified or not isinstance(j, dict) or j.get("label") != "Does not apply":
+        return j
+    if not _SCOPE_REASON.search(str(j.get("comment") or "")):
+        return j
+    return {**j, "label": "Question", "scope_unverified": True}
 
 
 def _scope_line(identity: dict | None) -> str:
@@ -579,6 +583,8 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
             label = "Question"
     if label in ("Met", "Not met") and not quote:
         label, _ = "Question", notes.append("no paper quote for a verdict")
+    if j.get("scope_unverified"):
+        notes.append(SCOPE_NOT_VERIFIED)
     if page is not None and _provisional_figure(quote):
         return _provisional(it, j, quote, page, base, paper)
     deferred = bool(j.get("deferred")) or _deferred(quote)
