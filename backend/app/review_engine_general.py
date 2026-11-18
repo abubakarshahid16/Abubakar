@@ -7,6 +7,7 @@ the general review does with them. Pure resolver; the plan reads and writes noth
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import replace
 
 from . import review_leaving
@@ -148,7 +149,7 @@ def _last_general_cost(conn, document_id: str) -> tuple[float | None, str | None
 
     try:
         run = aim_review_store.latest_run(conn, str(document_id), ended=True)
-    except Exception:  # noqa: BLE001 - an unreadable store says nothing about a past cost
+    except sqlite3.Error:  # an unreadable store says nothing about a past cost
         return None, None
     if run is None:
         return None, None
