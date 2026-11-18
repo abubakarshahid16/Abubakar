@@ -509,6 +509,7 @@ def _checklist(
     """The saved checklist of the paper's type, else one built from the listed books (standards only) and saved."""
     from . import checklist as CL
     from . import library as L
+    from . import scope_books as SB
 
     saved = store.get(state.key) if store is not None else None
     if (
@@ -521,7 +522,7 @@ def _checklist(
         )
         if L.wanted_not_held(saved.get("not_held")) == L.wanted_not_held(
             want["not_held"]
-        ):
+        ) and SB.saved_fits_scope(conn, saved, ident, state.cited or frozenset()):
             state.reused = True
             state.sha = str(saved.get("sha256") or "")
             state.not_held = list(saved.get("not_held") or [])
