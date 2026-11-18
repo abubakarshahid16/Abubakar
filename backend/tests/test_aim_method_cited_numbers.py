@@ -134,3 +134,37 @@ def test_a_book_with_no_recorded_number_is_found_by_the_identifier_its_file_name
         )
     _cite(aim_db)
     assert BN.paper_cited(aim_db, PAPER, frozenset({NEW, BOOK_A})) == {NEW}
+
+
+def test_a_held_contract_or_specification_sharing_the_name_is_never_the_cited_rule_book(
+    aim_db,
+):
+    """Integrator's check of d03d62c9: a citation is resolved against the RULE BOOKS only, before the reader's narrowing. A held
+    contract document named like the cited public standard is never "cited by the paper", even when the reader may read it."""
+    public, contract = "doc_pub_9990", "doc_con_9990"
+    with aim_db:
+        _doc(
+            aim_db,
+            public,
+            "API 9990.pdf",
+            "",
+            {1: "API 9990 invented public standard\n1.1 A rule.\n"},
+        )
+        _doc(
+            aim_db,
+            contract,
+            "API 9990.pdf",
+            "CONTRACT_DOCUMENT",
+            {1: "Invented contract part\n"},
+        )
+    _cite(aim_db, "Design follows API 9990 throughout.")
+    got = BN.paper_cited(aim_db, PAPER, frozenset({public, contract, BOOK_A}))
+    assert contract not in got and got <= {public}
+    names = [n for _e, n in L.cited_rule_books(aim_db, PAPER)]
+    assert (
+        all(
+            e is None or L.is_rule_book(e)
+            for e, _n in L.cited_rule_books(aim_db, PAPER)
+        )
+        and names
+    )

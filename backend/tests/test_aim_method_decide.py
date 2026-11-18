@@ -1611,7 +1611,7 @@ def test_a_forged_value_never_makes_a_proven_fail():
     )
 
 
-def test_a_value_left_to_the_vendor_or_a_contractor_filled_figure_is_never_a_proven_fail():
+def test_a_value_left_to_the_vendor_is_never_a_proven_fail():
     open_q = "Noise level of the test item: to be advised by the vendor later"
     left = S._decide(
         _item(kind="limit", rule_quote=_LIMIT),
@@ -1621,12 +1621,6 @@ def test_a_value_left_to_the_vendor_or_a_contractor_filled_figure_is_never_a_pro
         "",
     )
     assert left["label"] == "Question" and not left["comment"].startswith(S.PROVEN_FAIL)
-    assert not S.proven_fail(
-        "Not met",
-        {"read_from": "verified quotes", "result": "fail"},
-        False,
-        [S.CONTRACTOR_FILLED],
-    )
     assert not S.proven_fail(
         "Not met", {"read_from": "verified quotes", "result": "fail"}, True, []
     )  # left open
@@ -1643,3 +1637,53 @@ def test_a_knowledge_item_never_says_proven_by_code():
     d = S._decide(_item(kind="limit", source="engineering knowledge (book not held)", rule_quote=""), _judged("Not met"), PAPER,
                   BOOKS, "")  # fmt: skip
     assert d["label"] != "Not met" and not d["comment"].startswith(S.PROVEN_FAIL)
+
+
+_FILLED = Paper(
+    paper_id="doc_f",
+    pages={
+        1: "Set pressure of the invented valve: 380 psig (By Contractor)\nBack pressure of the invented valve: By Contractor\n"
+    },
+)
+_SET = {
+    "paper_value": "380",
+    "paper_unit": "psig",
+    "operator": "<=",
+    "rule_value": "300",
+    "rule_unit": "psig",
+}
+
+
+def test_a_figure_filled_in_beside_by_contractor_that_breaks_the_limit_is_proven_firmly():
+    """Owner's after-live order (18 Nov, item 5): a figure FILLED IN beside "By Contractor" is a stated value; code proves it."""
+    j = {"label": "Question", "comment": "Confirm.", "page": 1, "field": "set pressure", "numbers": _SET,
+         "quote": "Set pressure of the invented valve: 380 psig (By Contractor)"}  # fmt: skip
+    d = S._decide(
+        _item(kind="limit", rule_quote="The set pressure shall not exceed 300 psig."),
+        j,
+        _FILLED,
+        BOOKS,
+        "",
+    )
+    assert d["label"] == "Not met" and S.CONTRACTOR_FILLED in d["code"]
+    assert d["comment"].startswith(
+        S.PROVEN_FAIL
+        + ": the stated 380 psig (by contractor) is above the 300 psig limit"
+    )
+
+
+def test_by_contractor_with_no_figure_stays_a_question_never_proven():
+    j = {"label": "Not met", "comment": "Exceeds the limit.", "page": 1, "field": "back pressure", "numbers": _SET,
+         "quote": "Back pressure of the invented valve: By Contractor"}  # fmt: skip
+    d = S._decide(
+        _item(kind="limit", rule_quote="The set pressure shall not exceed 300 psig."),
+        j,
+        _FILLED,
+        BOOKS,
+        "",
+    )
+    assert (
+        d["label"] == "Question"
+        and d["deferred"]
+        and not d["comment"].startswith(S.PROVEN_FAIL)
+    )

@@ -3,7 +3,7 @@ verified quotes; and THE one decision "Not met, proven by code" (`proven_fail`).
 
 from __future__ import annotations
 
-from . import CONTRACTOR_FILLED, PROVISIONAL
+from . import PROVISIONAL
 
 #: The process note a paper-vs-paper comparison sentence carries (the AI chose the pairing). A card's "We ask" is read without it (the card's
 #: own `proven` field says how the comment is proven); the stored comment and the team file's Comment cell keep it whole.
@@ -78,13 +78,14 @@ PROVEN_FAIL = "Not met, proven by code"
 def proven_fail(label: str, code_cmp, deferred: bool, notes: list[str]) -> bool:
     """THE one decision "Not met, proven by code" (lead 4, owner's order of 18 Nov 2026): code compared the paper's VERIFIED
     quote with the HELD rule's verified words (`read_from` "verified quotes": both inputs are quotes) and the value breaks the
-    limit. Never a value left open, never a provisional figure, never a figure filled in beside a who-supplies note (By
-    Contractor), never the AI's words alone (no comparison, or a pairing of two paper values the AI chose)."""
+    limit. A figure FILLED IN beside a who-supplies note ("380 psig (By Contractor)") is a stated value (owner, after-live order
+    of 18 Nov, item 5; lead 4's decision): it is proven too. Never a value left open (no figure: By Contractor, TBA, TBD, *),
+    never a provisional figure, never the AI's words alone (no comparison, or a pairing of two paper values the AI chose)."""
     return (
         label == "Not met"
         and not deferred
         and isinstance(code_cmp, dict)
         and code_cmp.get("read_from") == "verified quotes"
         and code_cmp.get("result") == "fail"
-        and not any(str(n).startswith((PROVISIONAL, CONTRACTOR_FILLED)) for n in notes)
+        and not any(str(n).startswith(PROVISIONAL) for n in notes)
     )
