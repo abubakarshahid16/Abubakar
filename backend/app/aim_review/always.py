@@ -51,6 +51,7 @@ def items(
     checklist: dict,
     allowed_books: frozenset[str],
     text: dict[int, str],
+    cited: frozenset[str] = frozenset(),
 ) -> list[dict]:
     """The three always-on items for this paper, in order G1, G2, G3, as checklist items (same fields). G3 lists ONLY the held
     items whose rule book is on this review's list (an item of another book is never judged, so its words never go out), and
@@ -66,7 +67,7 @@ def items(
         if isinstance(it, dict) and it.get("source") == HELD
     ]
     listed = [(it, b) for it, b in listed if b and b in allowed_books]
-    facts, named = _library_facts(conn, identity, allowed_books, text)
+    facts, named = _library_facts(conn, identity, allowed_books, text, cited)
     g3_named = {
         b: str((books.get(it.get("book") or "") or {}).get("identifier") or "")
         for it, b in listed
@@ -123,7 +124,11 @@ def _required(held: list[dict]) -> str:
 
 
 def _library_facts(
-    conn, identity: dict, allowed_books: frozenset[str], text: dict[int, str]
+    conn,
+    identity: dict,
+    allowed_books: frozenset[str],
+    text: dict[int, str],
+    cited: frozenset[str] = frozenset(),
 ) -> tuple[str, dict[str, str]]:
     """G1's facts, from the app's own tables: each cited standard and whether a book on this review's list holds it (with the edition
     its file name or title prints), and the standards governing the paper's type. Never a book that is not on the list. Returns
@@ -151,9 +156,6 @@ def _library_facts(
             rows.append(
                 f"- cited: {ident}" + (f" ({year})" if year else "") + f"; {where}"
             )
-        active = L.active_families_of(
-            text
-        )  # a company standard of a family the paper does not cite does not apply
         gov = [
             (
                 f"{name} (on this review's list as {L.identifier_of(entry)})"
@@ -161,12 +163,14 @@ def _library_facts(
                 else f"{name} (not among this review's books)"
             )
             for entry, name in L.governing_books(lib, identity.get("equipment_type"))
-            if (L.applies(entry, active) if entry else L.name_applies(name, active))
+            if (
+                L.usable(entry, cited) if entry else L.is_public_name(name)
+            )  # a company standard only when cited
         ]
         named |= {
             str(entry["id"]): L.identifier_of(entry)
             for entry, _name in L.governing_books(lib, identity.get("equipment_type"))
-            if entry and L.applies(entry, active)
+            if entry and L.usable(entry, cited)
         }
     except Exception as exc:  # noqa: BLE001 - the facts are a help to the judge; without them G1 is judged on the paper alone
         log.info(

@@ -401,8 +401,10 @@ def run(
     progress=None,
     cancelled=None,
     model=None,
+    cited_books=None,
 ):
-    """The general review of one paper. Never writes the database itself (the checklist is saved through `store`), never raises
+    """The general review of one paper. `cited_books`: the ids of the held company books the paper cites (the job may pass
+    them; ids only); None: read by code from the stored paper (`library.cited_company`). Never writes the database itself (the checklist is saved through `store`), never raises
     for a model failure: a stopped run keeps the lines it judged and the rest as Question "not judged (<code>)"."""
     from app import claude_approved, claude_spend
 
@@ -414,6 +416,9 @@ def run(
     inner.meter = meter
     allowed_books = frozenset(str(b) for b in allowed_books or ()) - {str(paper_id)}
     state = _RunState(run_id=str(run_id), paper_id=str(paper_id))
+    state.cited = (
+        None if cited_books is None else frozenset(str(b) for b in cited_books)
+    )
     mdl = _Carried(inner, state.books, str(paper_id))
 
     def say(pct: int, words: str) -> None:
@@ -493,6 +498,9 @@ class _RunState:
         self.not_held: list[dict] = []
         self.unlisted: set[str] = set()
         self.decided: list[dict] = []
+        self.cited: frozenset[str] | None = (
+            None  # the held company books the paper cites (ids)
+        )
 
     def stop(self, why: str) -> None:
         if not self.stop_reason:
@@ -568,12 +576,12 @@ def _steps(
         k: ident.get(k)
         for k in ("kind", "equipment_type", "subject", "subject_key", "service")
     }
-    state.key = L.family_key(
+    if state.cited is None:
+        state.cited = L.cited_company(conn, state.paper_id)
+    state.key = L.cited_key(
         L.checklist_key(ident["kind"], ident["equipment_type"], ident["subject_key"])
         or f"{ident['kind']}__other",
-        L.relevant_families(
-            conn, state.paper_id, ident["kind"], ident["equipment_type"]
-        ),
+        state.cited,
     )
     text = L.BookText(conn)
     say(15, "checklist")
@@ -612,26 +620,6 @@ def _known_keys(store) -> list[str]:
         return []
 
 
-def _wanted_not_held(not_held) -> frozenset[str]:
-    """The governing and method books a checklist was written WITHOUT (`checklist.wanted`'s not-held part, by name): when this set
-    changes (a book is now held, or the governing table changed), a saved checklist is not reused. Told apart by the explicit
-    `source` key (`checklist.WANTED_SOURCES`), never by the words of `why`: an AI's "needed" name never forces a rebuild. A name
-    saved before the key existed has no `source` at all (an AI name always had one): it is read by its `why`."""
-    from . import WHY_GOVERNS, WHY_METHOD
-    from . import checklist as CL
-
-    def table_name(n: dict) -> bool:
-        if "source" in n:
-            return n.get("source") in CL.WANTED_SOURCES
-        return str(n.get("why") or "").startswith((WHY_GOVERNS, WHY_METHOD))
-
-    return frozenset(
-        str(n.get("name") or "")
-        for n in not_held or []
-        if isinstance(n, dict) and table_name(n)
-    )
-
-
 def _checklist(
     conn,
     state: _RunState,
@@ -645,6 +633,7 @@ def _checklist(
 ) -> dict:
     """The saved checklist of the paper's type, else one built from the listed books (standards only) and saved."""
     from . import checklist as CL
+    from . import library as L
 
     saved = store.get(state.key) if store is not None else None
     if (
@@ -652,8 +641,10 @@ def _checklist(
         and saved.get("built_from") in CL.BUILT_FROMS
         and isinstance(saved.get("items"), list)
     ):
-        want = CL.wanted(conn, state.paper_id, CL.type_identity(ident), allowed_books)
-        if _wanted_not_held(saved.get("not_held")) == _wanted_not_held(
+        want = CL.wanted(
+            conn, state.paper_id, CL.type_identity(ident), allowed_books, state.cited
+        )
+        if L.wanted_not_held(saved.get("not_held")) == L.wanted_not_held(
             want["not_held"]
         ):
             state.reused = True
@@ -679,6 +670,7 @@ def _checklist(
         text=text,
         key=state.key,
         made_at=_stamp(),
+        cited=state.cited,
     )
     state.not_held = list(sel["not_held"])
     state.unlisted |= set(sel["unlisted"])
@@ -699,19 +691,17 @@ def _checklist(
     return checklist
 
 
-NOT_CITED = (
-    "a company standard this paper neither cites nor is governed by: it does not apply"
-)
+#: The code note of a saved item from a COMPANY rule book this paper does not cite (the store shows it as
+#: `aim_review_store.NOT_CITED_SHOWN`): true by construction, the book is used only when the paper cites it.
+NOT_CITED = "rule book not cited by this paper"
 
 
-def _company_books(conn, state, books: dict, allowed_books) -> frozenset[str]:
-    """The saved checklist's books that are COMPANY standards not offered for this paper (`library.not_offered_company`)."""
+def _company_books(conn, state, books: dict) -> frozenset[str]:
+    """The checklist's books that are COMPANY standards this paper does not cite (`library.not_offered_company`), on the list or not."""
     from . import library as L
 
-    ids = {str(b.get("book")) for b in books.values() if b.get("book")} - set(
-        allowed_books
-    )
-    return L.not_offered_company(conn, state.paper_id, state.identity, ids)
+    ids = {str(b.get("book")) for b in books.values() if b.get("book")}
+    return L.not_offered_company(conn, state.paper_id, ids, state.cited or frozenset())
 
 
 def _not_cited_line(S, it: dict, paper, books: dict) -> dict:
@@ -752,13 +742,20 @@ def _judge(
     ]
     # the three always-on checks of every review (G1 cited standards, G2 internal consistency, G3 required entries)
     items += always.items(
-        text.conn, state.identity, checklist, allowed_books, paper.pages
+        text.conn,
+        state.identity,
+        checklist,
+        allowed_books,
+        paper.pages,
+        state.cited or frozenset(),
     )
     judged, held_back, not_cited = [], set(), set()
-    company = _company_books(text.conn, state, books, allowed_books)
+    company = _company_books(text.conn, state, books)
     for it in items:
         bid = S.item_book(it, books)
-        if bid and bid not in allowed_books and bid in company:
+        if (
+            bid and bid in company
+        ):  # a company book the paper does not cite: it does not apply, listed or not
             not_cited.add(
                 it["id"]
             )  # a company standard this paper neither cites nor is governed by: it does not apply

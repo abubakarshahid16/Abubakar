@@ -14,6 +14,7 @@ Nothing here writes, and nothing here asks a model.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -161,119 +162,103 @@ def identifier_of(entry: dict) -> str:
     )
 
 
-def family_of(name) -> str:
-    """A standard's family: the first word of its identifier or name, upper case ("ISO", "API", or a company's own prefix)."""
+def is_public_name(name) -> bool:
+    """Is this standard's identifier or name a PUBLIC one: its first word is one of the app's own publisher families
+    (`standards_web_search.FAMILIES`, the table the online search uses)? Anything else (whatever its shape: a letter prefix,
+    digits first) is a COMPANY standard (an owner's own rule book)."""
+    from app import standards_web_search
+
     m = re.match(r"\s*([A-Za-z]+)", str(name or ""))
-    return m.group(1).upper() if m else ""
+    return bool(m) and m.group(1).upper() in standards_web_search.FAMILIES
 
 
 def is_public(entry: dict | None) -> bool:
-    """Is this held book a PUBLIC standard: its family is one of the app's own publisher families (`standards_web_search.FAMILIES`,
-    the table the online search uses)? Else it is a COMPANY standard (an owner's own rule book), offered only when its family is
-    ACTIVE for the paper and the paper cites it or a governing / method table names it (`company_ok`)."""
-    from app import standards_web_search
-
-    return (
-        bool(entry) and family_of(identifier_of(entry)) in standards_web_search.FAMILIES
-    )
+    """A held book is PUBLIC (`is_public_name` of its identifier); else a COMPANY standard, used ONLY when the paper cites it
+    (`cited_company`). Table-naming never brings a company book in (light check 85651ad2: no company is guessed from a name)."""
+    return bool(entry) and is_public_name(identifier_of(entry))
 
 
-def _company_families(names) -> frozenset[str]:
-    from app import standards_web_search
-
-    return frozenset(
-        f
-        for f in (family_of(n) for n in names)
-        if f and f not in standards_web_search.FAMILIES
-    )
-
-
-def active_families(conn, paper_id: str) -> frozenset[str]:
-    """The COMPANY families ACTIVE for this paper: those of the standards the paper cites (read by code; family words only)."""
-    return _company_families(_paper_citations(conn, paper_id))
-
-
-def active_families_of(text: dict[int, str]) -> frozenset[str]:
-    """The same, from the paper's page texts (G1, which holds them)."""
-    from app import standard_ids
-
-    return _company_families(
-        standard_ids.cited_standards("\n".join(text[n] for n in sorted(text)))
-    )
-
-
-def applies(entry: dict | None, active: frozenset[str]) -> bool:
-    """A held book may be offered at all for this paper: a public one always; a company one only when its family is active."""
-    return is_public(entry) or (
-        bool(entry) and family_of(identifier_of(entry)) in active
-    )
-
-
-def name_applies(name: str, active: frozenset[str]) -> bool:
-    """A standard NAME (one not held) applies: a public family, or an active company family."""
-    from app import standards_web_search
-
-    fam = family_of(name)
-    return fam in standards_web_search.FAMILIES or fam in active
-
-
-def company_ok(conn, paper_id: str, kind, type_id, lib: list[dict]) -> frozenset[str]:
-    """The held books a company standard may be offered as for this paper: the ones the paper CITES (resolved by code) and the
-    ones the governing table (for the stored type) or the method table (for the kind) names, and ONLY when the book's company
-    family is active for the paper (`active_families`): table-naming alone no longer suffices."""
-    active = active_families(conn, paper_id)
-    ok = {e["id"] for e, _n in governing_books(lib, type_id) if e} | {
-        e["id"] for e, _n in method_books(lib, kind) if e
-    }
-    for name in _paper_citations(conn, paper_id):
-        found = resolve(lib, name)
-        if found:
-            ok.add(found["id"])
-    by_id = {e["id"]: e for e in lib}
-    return frozenset(b for b in ok if b in by_id and applies(by_id[b], active))
-
-
-def relevant_families(conn, paper_id: str, kind, type_id) -> frozenset[str]:
-    """The active company families that change a type's checklist: those of the table-named held company books (governing for
-    the type, method for the kind). They go into the checklist key, so a checklist built with one company's books is never
-    reused for a paper of another family."""
+def cited_company(conn, paper_id: str) -> frozenset[str]:
+    """The ids of the held COMPANY books the paper cites: its code-read citations (`_paper_citations`) resolved to a held book
+    (`resolve`, the same as WHY_CITED), for any identifier shape. Ids only: what the job may pass into the build."""
     lib = library(conn, exclude=frozenset({str(paper_id)}))
-    named = [e for e, _n in governing_books(lib, type_id) if e] + [
-        e for e, _n in method_books(lib, kind) if e
-    ]
-    fams = {family_of(identifier_of(e)) for e in named if not is_public(e)}
-    return frozenset(fams & active_families(conn, paper_id))
+    found = (resolve(lib, name) for name in _paper_citations(conn, str(paper_id)))
+    return frozenset(e["id"] for e in found if e and not is_public(e))
 
 
-FAMILY_MARK = "__family-"
+def usable(entry: dict | None, cited: frozenset[str]) -> bool:
+    """May this held book be used for this paper at all: a public one always; a company one only when the paper cites it."""
+    return is_public(entry) or (bool(entry) and entry["id"] in cited)
 
 
-def family_key(key: str | None, families: frozenset[str]) -> str | None:
-    """The checklist key with the relevant company families: `<kind>__<type>__family-<a>+<b>` (none: the key as it was)."""
-    if not key or not families:
+CITED_MARK = "__cited-"
+
+
+def cited_key(key: str | None, cited: frozenset[str]) -> str | None:
+    """The checklist key with a short stable hash of the cited company book ids: a checklist built with those books is reused
+    only for a paper citing the same set. No cited company book: the key as it was."""
+    if not key or not cited:
         return key
-    return key + FAMILY_MARK + "+".join(sorted(f.lower() for f in families))
+    return (
+        key
+        + CITED_MARK
+        + hashlib.sha256(",".join(sorted(cited)).encode()).hexdigest()[:10]
+    )
 
 
 def base_key(key: str) -> str:
-    """The key without its family part (what S1 is shown as a type already made)."""
-    return str(key).split(FAMILY_MARK, 1)[0]
+    """The key without its cited part (what S1 is shown as a type already made)."""
+    return str(key).split(CITED_MARK, 1)[0]
 
 
 def not_offered_company(
-    conn, paper_id: str, identity: dict, ids: set[str]
+    conn, paper_id: str, ids: set[str], cited: frozenset[str]
 ) -> frozenset[str]:
-    """Of `ids`, the held COMPANY standards this paper neither cites nor is governed by (`is_public`, `company_ok`)."""
+    """Of `ids`, the held COMPANY books this paper does not cite."""
     if not ids:
         return frozenset()
-    lib = library(conn, exclude=frozenset({paper_id}))
-    by_id = {e["id"]: e for e in lib}
-    ok = company_ok(
-        conn, paper_id, identity.get("kind"), identity.get("equipment_type"), lib
-    )
+    by_id = {e["id"]: e for e in library(conn, exclude=frozenset({str(paper_id)}))}
+    return frozenset(b for b in ids if b in by_id and not usable(by_id[b], cited))
+
+
+def wanted_not_held(not_held) -> frozenset[str]:
+    """The governing and method books a checklist was written WITHOUT (`checklist.wanted`'s not-held part, by name): when this set
+    changes (a book is now held, or the governing table changed), a saved checklist is not reused. Told apart by the explicit
+    `source` key (`checklist.WANTED_SOURCES`), never by the words of `why`: an AI's "needed" name never forces a rebuild. A name
+    saved before the key existed has no `source` at all (an AI name always had one): it is read by its `why`."""
+    from . import WHY_GOVERNS, WHY_METHOD
+    from . import checklist as CL
+
+    def table_name(n: dict) -> bool:
+        if "source" in n:
+            return n.get("source") in CL.WANTED_SOURCES
+        return str(n.get("why") or "").startswith((WHY_GOVERNS, WHY_METHOD))
+
     return frozenset(
-        b for b in ids if b in by_id and not is_public(by_id[b]) and b not in ok
+        str(n.get("name") or "")
+        for n in not_held or []
+        if isinstance(n, dict) and table_name(n)
     )
+
+
+#: The coverage floor of a checklist for a kind with no main equipment (a procedure, a contract: long papers of many topics).
+FLOOR_ITEMS = 30
+
+
+def floor_for(kind: str | None) -> int:
+    """The coverage floor of a type's checklist: FLOOR_ITEMS for a kind with no main equipment (`kind_review_table`), else 0. The
+    table holds no expected size per kind; this is the method's own floor (the lead, 18 Nov 2026)."""
+    from app import kind_review_table
+
+    table_kind = str(kind or "").strip().lower().replace(" ", "_")
+    try:
+        long_kinds = kind_review_table.no_main_equipment_kinds()
+    except Exception as exc:  # noqa: BLE001 - an unreadable table gives no floor, never a stop
+        log.info(
+            "general review: kind table not read for the floor (%s)", type(exc).__name__
+        )
+        return 0
+    return FLOOR_ITEMS if table_kind in long_kinds else 0
 
 
 def _fold(s: str) -> str:
@@ -582,30 +567,29 @@ def candidates(
     is true for it; light check e1c61001). Otherwise: books governing the stored equipment
     type, method books of the stored kind, books an earlier review of this paper wanted but could not send, books the paper cites
     (resolved by code), then books holding the most rules labelled for the kind (and type). Intersected with `allowed` (rule 5):
-    a book outside it is counted in `unreadable`, never named. A COMPANY standard is offered only when the paper cites it or the
-    governing / method tables name it (`is_public`, `company_ok`). At most MAX_CANDIDATES books."""
+    a book outside it is counted in `unreadable`, never named. A COMPANY standard is offered only when the paper cites it
+    (`is_public`, `cited_company`). At most MAX_CANDIDATES books."""
     from . import Candidates
 
     paper_id = str(paper_id)
     kind, type_id, source = stored_reading(conn, paper_id, allowed)
-    key = family_key(
-        checklist_key(kind, type_id), relevant_families(conn, paper_id, kind, type_id)
-    )
+    cited = cited_company(conn, paper_id)
+    key = cited_key(checklist_key(kind, type_id), cited)
     saved = store.get(key) if key and store is not None else None
     order, not_held = (
         _saved_order(conn, paper_id, saved, kind, type_id, earlier_unlisted)
         if saved is not None
         else _ordered_books(conn, paper_id, kind, type_id, earlier_unlisted)
     )
-    # a COMPANY standard (not a public family) only when the paper cites it or a governing / method table names it
-    lib = library(conn, exclude=frozenset({paper_id}))
-    by_id, ok = (
-        {e["id"]: e for e in lib},
-        company_ok(conn, paper_id, kind, type_id, lib),
-    )
-    order = [(d, w) for d, w in order if d in ok or is_public(by_id.get(d))]
-    active = active_families(conn, paper_id)
-    not_held = [n for n in not_held if name_applies(n["name"], active)]
+    # a COMPANY standard only when the paper cites it (any reason it was listed; table-naming alone never brings it in)
+    by_id = {e["id"]: e for e in library(conn, exclude=frozenset({paper_id}))}
+    order = [(d, w) for d, w in order if usable(by_id.get(d), cited)]
+    # a not-held name is said when it is public, or the paper itself cites it
+    not_held = [
+        n
+        for n in not_held
+        if is_public_name(n["name"]) or str(n.get("why") or "").startswith(WHY_CITED)
+    ]
     readable = [(d, w) for d, w in order if d in allowed]
     unreadable = sum(1 for d, _w in order if d not in allowed)
     books = [{"id": d, "why": w} for d, w in readable[:MAX_CANDIDATES]]
