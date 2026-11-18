@@ -83,7 +83,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1510", phase=1510, runner="vitest",
              description="the recent reviews table prints the raw database status",
              path=_PANEL,
-             anchor="{runStatusLabel(run.status)}</td>",
+             anchor="{rowStatus(run)}</td>",
              replacement="{run.status}</td>",
              target=_T_PANEL, keyword="status in plain words",
              tags=("ui",)),
