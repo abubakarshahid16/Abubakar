@@ -8,9 +8,11 @@ through the app's own unit code (`verify.compare`) instead of the experiment's o
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from . import (
+    EDITED,
     PAPER_COMPARE_PASSED,
     PROVISIONAL,
     PROVISIONAL_FAILS,
@@ -19,7 +21,9 @@ from . import (
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
-from .verify import compare, find_page, norm, quoted_value, rule_operator
+from .verify import compare, find_page, norm, quote_in, quoted_value, rule_operator
+
+log = logging.getLogger(__name__)
 
 LABELS = ("Met", "Not met", "Question", "Does not apply", "AI opinion")
 HELD = "held standard"
@@ -239,7 +243,7 @@ def _provisional(
         "label": "Question",
         "quote": quote,
         "quote_unverified": "",
-        "comment": _fails_comment(code_cmp, quote, base)
+        "comment": _fails_comment(code_cmp, quote, base, asking=True)
         if fails
         else str(j.get("comment") or "")[:400],
         "code": note,
@@ -253,7 +257,19 @@ def _num(v) -> str:
     return f"{float(v):f}".rstrip("0").rstrip(".")
 
 
-def _fails_comment(code_cmp: dict, quote: str, base: dict) -> str:
+#: The same check worded as a QUESTION, for a provisional figure (it is never a finding that it fails).
+_APPEARS = {
+    "is above": "appears above",
+    "is not below": "appears not below",
+    "is below": "appears below",
+    "is not above": "appears not above",
+    "is not": "appears not to be",
+    "is": "appears to be",
+    "does not meet": "appears not to meet",
+}
+
+
+def _fails_comment(code_cmp: dict, quote: str, base: dict, asking: bool = False) -> str:
     """The sent comment of a failed check (a provisional figure, or two paper values), every number from code's check of the
     verified quotes; the who-supplies note beside the figure when the quote has one."""
     from app import blank_markers
@@ -265,16 +281,21 @@ def _fails_comment(code_cmp: dict, quote: str, base: dict) -> str:
     if who:
         stated = f"{stated} ({who.lower()})"
     verb, noun = _FAILS_AS.get(str(code_cmp.get("op") or ""), ("does not meet", "rule"))
+    verb, ask = (
+        (_APPEARS.get(verb, verb), "please confirm")
+        if asking
+        else (verb, "contractor to confirm the value")
+    )
     if code_cmp.get("read_from") == "verified paper quotes":
         # the AI chose which paper number is the limit: said as the AI's reading, never as a fact
         page = code_cmp.get("limit_page")
         where = f"on page {page}" if page else "on this paper"
-        return f"The stated {stated} {verb} {rule}, which the AI read as the {noun} {where}; contractor to confirm the value."
+        return f"The stated {stated} {verb} {rule}, which the AI read as the {noun} {where}; {ask}."
     if base.get("standard"):
         where = f"{base['standard']} clause {base['clause']}".strip()
     else:
         where = "the rule"
-    return f"The stated {stated} {verb} the {rule} {noun} of {where}; contractor to confirm the value."
+    return f"The stated {stated} {verb} the {rule} {noun} of {where}; {ask}."
 
 
 def _shown_item(it: dict, books: dict, text: L.BookText) -> dict:
@@ -599,3 +620,80 @@ def _numbers(
     return {"pass": "Met", "fail": "Not met"}.get(
         code_cmp["result"], "Question"
     ), code_cmp
+
+
+# ------------------------------------------------------------------ S5: the editor (it may only take a comment off the sheet)
+
+EDIT_MAX_TOKENS = 4000
+REPEATS, CONTRADICTED = "repeats", "paper_states_otherwise"
+
+
+def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
+    """ONE call per paper after S4 (the lead, 18 Nov 2026): the editor sees the SENT lines only (n = the line's number, field,
+    page, comment, quote) and the paper, and may only take a line off the comment sheet. Code checks every move
+    (`_edit_reason`): a repeat names a real, sent line of the same item or field; a contradiction gives a paper quote that code
+    finds on the page it names. A moved line keeps its label and gets "edited: <reason>" (never sent, still in All points).
+    Nothing is added, rewritten or relabelled. A failed call moves nothing. Returns the number of lines moved."""
+    from . import sendable
+    from .engine import to_line
+
+    sent = {n: d for n, d in enumerate(lines, 1) if sendable(to_line(n, d))}
+    if not sent:
+        return 0
+    shown = [
+        {"n": n, "field": d.get("field") or "", "page": d.get("page"), "comment": d.get("comment") or "", "quote": d.get("quote") or ""}
+        for n, d in sent.items()
+    ]  # fmt: skip
+    carries = {paper.paper_id} | {
+        str(d["book_document_id"]) for d in sent.values() if d.get("book_document_id")
+    }
+    try:
+        out = model.ask(
+            step="aim_edit",
+            model=lead,
+            system="",
+            cached=paper_block(paper),
+            prompt=P.EDIT_TASK % {"comments": "\n".join(_dumps(x) for x in shown)},
+            carries=carries,
+            max_tokens=EDIT_MAX_TOKENS,
+        )
+    except StepFailed as exc:  # the editor only removes repeats: without it every judged line stays as judged
+        log.info(
+            "general review: the editor step moved nothing (%s)",
+            str(exc).split(" ", 2)[:2],
+        )
+        return 0
+    moves = (out or {}).get("moves") if isinstance(out, dict) else None
+    moved = 0
+    for mv in moves if isinstance(moves, list) else []:
+        n = mv.get("n") if isinstance(mv, dict) else None
+        why = (
+            _edit_reason(mv, n, sent, paper)
+            if isinstance(n, int) and n in sent
+            else None
+        )
+        if why:
+            d = sent.pop(n)
+            d["code"] = "; ".join(x for x in (d.get("code"), f"{EDITED}: {why}") if x)
+            moved += 1
+    return moved
+
+
+def _edit_reason(mv: dict, n: int, sent: dict, paper) -> str | None:
+    """Code's check of one move: the reason words, or None (refused: the line stays sent)."""
+    if mv.get("reason") == REPEATS:
+        m = mv.get("of")
+        if not isinstance(m, int) or m == n or m not in sent:
+            return None
+        a, b = sent[n], sent[m]
+        same_item = a.get("item_id") and a.get("item_id") == b.get("item_id")
+        same_field = norm(a.get("field") or "") and norm(a.get("field") or "") == norm(
+            b.get("field") or ""
+        )
+        return f"repeats line {m}" if same_item or same_field else None
+    if mv.get("reason") == CONTRADICTED:
+        page, quote = mv.get("page"), str(mv.get("quote") or "")
+        if not isinstance(page, int) or not quote_in(quote, paper.pages.get(page, "")):
+            return None
+        return f'paper states otherwise (page {page}: "{quote[:200]}")'
+    return None
