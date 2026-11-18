@@ -23,7 +23,18 @@ export interface GeneralLine {
   /** What code compared, in words ("380 psig <= 23.5 barg: false"); empty when code compared nothing. */
   compared?: string;
   compare_kind?: string;
+  /** The comment card (code-decided, from the server; absent on an older answer): how serious, a short title, and the parts of the card. */
+  severity?: Severity;
+  title?: string;
+  paper_says?: string;
+  rule_says?: string;
+  we_ask?: string;
+  applies_to?: { page: number | null; field: string; quote: string }[];
+  /** "compared by code", or the mark when it is an AI reading. */
+  proven?: string;
 }
+
+export type Severity = "Must fix" | "Check a value" | "Missing information" | "Please confirm";
 
 /** One model or code call of the run, as the server recorded it. `usd` null: the cost of this call was not read. */
 export interface GeneralCall {
@@ -58,6 +69,8 @@ export interface GeneralReview {
     /** The points inside the comments sent, and inside the confirmations: comment_lines + confirmation_lines = the points that qualified to be sent. */
     comment_lines?: number;
     confirmation_lines?: number;
+    /** The summary tiles: how many comments (and confirmations) of each severity. */
+    by_severity?: Partial<Record<Severity, number>>;
   };
   comments: GeneralLine[];
   /** The confirmations not sent (absent on an older answer). */

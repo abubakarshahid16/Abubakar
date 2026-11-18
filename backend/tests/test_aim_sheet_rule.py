@@ -378,7 +378,14 @@ def test_every_sheet_carries_the_mark_and_the_first_sheet_states_the_counts(worl
             )
             if r[0] is not None
         ]
-        assert rows and all(r[-1] == "AI, to be checked" for r in rows)
+        # H9 (card layout): the mark stands in the "Status" cell, found by its header (hidden technical columns now follow it)
+        headers = (
+            aim_review_sheet.COMMENT_HEADERS
+            if name == "Comments"
+            else aim_review_sheet.POINT_HEADERS
+        )
+        at = headers.index("Status")
+        assert rows and all(r[at] == "AI, to be checked" for r in rows)
 
 
 def test_the_rows_on_the_sheets_are_the_counts(world):

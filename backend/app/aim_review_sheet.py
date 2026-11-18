@@ -19,7 +19,7 @@ from __future__ import annotations
 from io import BytesIO
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -49,9 +49,18 @@ EXCEL_CELL_LIMIT = 32000
 FIRST_HEADER = "No."
 COMMENT_HEADERS = (
     "No.",
+    "Severity",
+    "Title",
+    "Paper says",
+    "Rule says",
+    "We ask",
+    "Applies to",
+    "Page",
+    "Status",
+    "Engineer decision",
+    # the technical columns: kept for the file's checks and for an engineer who wants them, hidden by default (HIDDEN_COLUMNS)
     "Lines",
     "Field",
-    "Page",
     "Shown label",
     "Comment",
     "Quote",
@@ -60,7 +69,19 @@ COMMENT_HEADERS = (
     "Source",
     "Item",
     "Note",
-    "Status",
+)
+#: Columns hidden when the file opens: the card columns above them are what a person reads; these stay for the checks that read them back.
+HIDDEN_COLUMNS = (
+    "Lines",
+    "Field",
+    "Shown label",
+    "Comment",
+    "Quote",
+    "Standard",
+    "Clause",
+    "Source",
+    "Item",
+    "Note",
 )
 POINT_HEADERS = (
     "No.", "Item", "Field", "Page", "Shown label", "Topic", "Comment", "Quote", "Quote not verified by code",
@@ -73,6 +94,7 @@ COLUMN_WIDTHS = {
     "No.": 6, "Lines": 9, "Item": 7, "Note": 14, "Status": 12, "Page": 7, "Field": 28, "Shown label": 20, "Comment": 70,
     "Quote": 45, "Standard": 18, "Clause": 10, "Source": 14, "Topic": 26, "Quote not verified by code": 30, "Code note": 20,
     "Asks": 10, "Value left open": 10, "Numbers": 22,
+    "Severity": 16, "Title": 36, "Paper says": 42, "Rule says": 34, "We ask": 48, "Applies to": 30, "Engineer decision": 18,
 }  # fmt: skip
 DEFAULT_WIDTH = 14
 
@@ -106,10 +128,18 @@ def _table(ws: Worksheet, headers: tuple[str, ...], rows: list[list]) -> None:
         for c, v in enumerate(values, 1):
             cell = _put(ws, r, c, v)
             cell.alignment = Alignment(wrap_text=True, vertical="top")
+    if "Severity" in headers:
+        col = headers.index("Severity") + 1
+        for r in range(HEADER_ROW + 1, HEADER_ROW + 1 + len(rows)):
+            cell = ws.cell(row=r, column=col)
+            if cell.value in SEVERITY_FILLS:
+                cell.fill = PatternFill("solid", fgColor=SEVERITY_FILLS[cell.value])
+                cell.font = Font(bold=True)
     for c, h in enumerate(headers, 1):
-        ws.column_dimensions[get_column_letter(c)].width = COLUMN_WIDTHS.get(
-            h, DEFAULT_WIDTH
-        )
+        dim = ws.column_dimensions[get_column_letter(c)]
+        dim.width = COLUMN_WIDTHS.get(h, DEFAULT_WIDTH)
+        if headers is COMMENT_HEADERS and h in HIDDEN_COLUMNS:
+            dim.hidden = True
     # a filter on the header row, so an engineer can sort and filter the table
     ws.auto_filter.ref = f"A{HEADER_ROW}:{get_column_letter(len(headers))}{HEADER_ROW + max(len(rows), 1)}"
     ws.freeze_panes = ws.cell(row=HEADER_ROW + 1, column=1)
@@ -118,6 +148,32 @@ def _table(ws: Worksheet, headers: tuple[str, ...], rows: list[list]) -> None:
 def lines_cell(lines: list[int]) -> str:
     """The "Lines" cell of a comment: the All points numbers it covers ("3, 7, 12"). The completeness check reads it back."""
     return ", ".join(str(n) for n in lines)
+
+
+def applies_text(places) -> str | None:
+    """The card's "Applies to" chips as lines of text: "p4 · Backpressure", one per place, no place twice; None when none."""
+    seen: list[str] = []
+    for pl in places or []:
+        page = pl.get("page")
+        text = " · ".join(
+            x
+            for x in (
+                f"p{page}" if page is not None else "",
+                str(pl.get("field") or "").strip(),
+            )
+            if x
+        )
+        if text and text not in seen:
+            seen.append(text)
+    return "\n".join(seen) or None
+
+
+SEVERITY_FILLS = {
+    "Must fix": "F8D7D3",
+    "Check a value": "FCE8B2",
+    "Missing information": "D6E4F8",
+    "Please confirm": "E6E6E6",
+}
 
 
 def comment_rows(model: dict, part: str = "comments") -> list[list]:
@@ -135,8 +191,18 @@ def comment_rows(model: dict, part: str = "comments") -> list[list]:
         )
         pages = p.get("pages") or ([p["page"]] if p["page"] is not None else [])
         page = pages[0] if len(pages) == 1 else (", ".join(map(str, pages)) or None)
-        out.append([p["n"], lines_cell(lines), p["field"], page, p["shown_label"], comment, quote, p["standard"], p["clause"],
-                    p["source"], p["item_id"], note, model["mark"]])  # fmt: skip
+        said, c3 = cut(p.get("paper_says") or "")
+        ask, c4 = cut(p.get("we_ask") or "")
+        if c3 or (c4 and note is None):
+            note = f"Cut: the full text of each place is on the sheet {ALL_POINTS}, No. {lines_cell(lines)}."
+        cells = {
+            "No.": p["n"], "Severity": p.get("severity"), "Title": p.get("title"), "Paper says": said or None,
+            "Rule says": p.get("rule_says") or None, "We ask": ask or None, "Applies to": applies_text(p.get("applies_to")),
+            "Page": page, "Status": model["mark"], "Engineer decision": None, "Lines": lines_cell(lines), "Field": p["field"],
+            "Shown label": p["shown_label"], "Comment": comment, "Quote": quote, "Standard": p["standard"], "Clause": p["clause"],
+            "Source": p["source"], "Item": p["item_id"], "Note": note,
+        }  # fmt: skip
+        out.append([cells[h] for h in COMMENT_HEADERS])
     return out
 
 
@@ -173,6 +239,19 @@ def point_rows(model: dict) -> list[list]:
     return out
 
 
+def severity_words(by_severity) -> str | None:
+    """ "Must fix 4 · Check a value 9 · Missing information 12 · Please confirm 16 (own sheet)"; None when the run has no card counts."""
+    if not isinstance(by_severity, dict) or not by_severity:
+        return None
+    parts = [f"{k} {by_severity[k]}" for k in SEVERITY_FILLS if k in by_severity]
+    return (
+        " · ".join(parts).replace(
+            "Please confirm", "Please confirm (own sheet, not sent)"
+        )
+        or None
+    )
+
+
 def _summary(ws: Worksheet, model: dict) -> None:
     _head(ws, "General review: summary")
     counts = model["counts"]
@@ -200,6 +279,7 @@ def _summary(ws: Worksheet, model: dict) -> None:
         ("Method", model["method"]),
         # piece G: the measured score of this paper's kind; a null prints as an empty cell ("below target" / "not measured yet")
         ("Measured score of this kind", (model.get("measured") or {}).get("sentence")),
+        ("Comments by severity", severity_words(counts.get("by_severity"))),
     ]
     row = 4
     for label, value in lines:

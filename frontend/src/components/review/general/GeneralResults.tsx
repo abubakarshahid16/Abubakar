@@ -9,6 +9,7 @@
 import { type ReactNode, useState } from "react";
 
 import { type GeneralLine, type GeneralReview, downloadGeneralSheet } from "../../../api/generalReview";
+import { CommentCards } from "./CommentCards";
 import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
 
@@ -114,18 +115,14 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded }: {
             <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} data-testid="general-all-toggle" />
             All points ({review.counts.points})
           </label>
-          {lines.length === 0 && <p className="text-sm text-slateish-300">{showAll ? "This review has no points." : "This review has no comments."}</p>}
-          <ul className="space-y-2">{lines.map((l) => <Row key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}</ul>
-          {!showAll && (review.confirmations?.length ?? 0) > 0 && (
-            <details data-testid="general-confirmations" className="rounded-[var(--radius-sm)] border border-ink-600 p-3">
-              <summary className="cursor-pointer text-sm text-slateish-200">
-                Confirmations, not sent ({review.confirmations!.length}): the value is stated and nothing is suspected; the vendor
-                is only asked to confirm it
-              </summary>
-              <ul className="mt-2 space-y-2">
-                {review.confirmations!.map((l) => <Row key={`c-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}
-              </ul>
-            </details>
+          {showAll ? (
+            <>
+              {lines.length === 0 && <p className="text-sm text-slateish-300">This review has no points.</p>}
+              <ul className="space-y-2">{lines.map((l) => <Row key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}</ul>
+            </>
+          ) : (
+            <CommentCards review={review} mark={mark} onViewPage={onViewPage}
+              renderPlain={(l) => <Row key={`p-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />} />
           )}
         </div>
       )}

@@ -140,9 +140,12 @@ def _row_problems(
     mark = aim_review_gate.AI_MARK
     problems = [f"the sheet {s} does not carry the mark" for s in aim_review_sheet.SHEETS
                 if s not in wb.sheetnames or wb[s].cell(row=1, column=1).value != mark]  # fmt: skip
-    if any(
-        r[-1] != mark for r in (*comments_rows, *points_rows)
-    ):  # comments_rows: Comments and Confirmations
+    status_at = aim_review_sheet.COMMENT_HEADERS.index("Status")
+    point_status_at = aim_review_sheet.POINT_HEADERS.index("Status")
+    if (
+        any(r[status_at] != mark for r in comments_rows)
+        or any(r[point_status_at] != mark for r in points_rows)
+    ):  # the "Status" cell, found by its header (comments_rows: Comments and Confirmations)
         problems.append("a row does not carry the mark")
     first = (
         wb[aim_review_sheet.SUMMARY]
