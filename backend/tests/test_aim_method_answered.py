@@ -135,3 +135,32 @@ def test_more_lines_than_one_call_holds_go_to_a_second_call(monkeypatch):
 
 def test_answered_is_a_not_sent_note():
     assert aim_review.ANSWERED in aim_review.NOT_SENT_NOTES
+
+
+def test_the_lines_own_evidence_on_its_own_page_is_never_an_answer():
+    """A value conflict quotes its value; an "answer" that repeats that quote on the line's own page is the comment's evidence,
+    not an answer: refused, so the conflict stays sent. The same words on ANOTHER page, or other words on the same page, may
+    answer it."""
+    conflict = _line("C01", page=2, quote="the chair and the scribe shall each hold")
+    shown = {1: conflict}
+    assert (
+        A.answer_reason({"n": 1, "page": 2, "quote": TEAM}, shown, PAPER) is None
+    )  # holds the line's own quote
+    assert (
+        A.answer_reason(
+            {"n": 1, "page": 2, "quote": "the chair and the scribe shall each hold"},
+            shown,
+            PAPER,
+        )
+        is None
+    )
+    other_page = dict(conflict, page=3)
+    assert (
+        A.answer_reason({"n": 1, "page": 2, "quote": TEAM}, {1: other_page}, PAPER)
+        is not None
+    )
+    no_quote = dict(conflict, quote="")
+    assert (
+        A.answer_reason({"n": 1, "page": 2, "quote": TEAM}, {1: no_quote}, PAPER)
+        is not None
+    )

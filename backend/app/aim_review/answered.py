@@ -13,7 +13,7 @@ from . import ANSWERED, PROVISIONAL
 from . import prompts as P
 from .engine import StepFailed
 from .steps import HELD, _dumps, paper_block
-from .verify import quote_in
+from .verify import norm, quote_in
 
 log = logging.getLogger(__name__)
 
@@ -105,7 +105,8 @@ def _note(model, words: str) -> None:
 
 def answer_reason(a: dict, shown: dict, paper) -> str | None:
     """Code's check of ONE answer: the line was offered in this call; the page is a page of the paper; the quote has no "..." part,
-    is `QUOTE_WORDS` words long and is found by code on THAT page. The note words, or None (refused: the line stays sent)."""
+    is `QUOTE_WORDS` words long and is found by code on THAT page; and it is not the line's own evidence (on the line's own page,
+    holding or held in the line's own quote). The note words, or None (refused: the line stays sent)."""
     n, page, quote = a.get("n"), a.get("page"), str(a.get("quote") or "").strip()
     if not isinstance(n, int) or isinstance(n, bool) or n not in shown:
         return None
@@ -116,6 +117,9 @@ def answer_reason(a: dict, shown: dict, paper) -> str | None:
         return None
     if not quote_in(quote, paper.pages.get(page, "")):
         return None
+    own, said = norm(str(shown[n].get("quote") or "")), norm(quote)
+    if page == shown[n].get("page") and own and (own in said or said in own):
+        return None  # the line's own evidence (its quote, on its own page) is no answer: a value conflict is never dropped
     return f'{ANSWERED}: the paper answers it on page {page}: "{quote[:300]}"'
 
 
