@@ -1,17 +1,18 @@
 """S5, the editor of the general review's comment sheet (order 14): ONE call per paper after the judge, which may only take a
-sent line off the sheet; code checks every move. Moved out of `steps` unchanged, then K2 (the lead, 18 Nov 2026): a line that
-claims something is missing, limited or "only" may be answered by a quote from ANY page of the paper, under code's checks."""
+sent line off the sheet; code checks every move. A "paper states otherwise" move follows the strict E1 rule for every kind of
+paper (`_contradicted`); a looser rule for procedures (K2) was tried and dropped (light check 9dee5805; the record of what was
+tried is kept as skipped tests in tests/test_aim_method_scope.py)."""
 
 from __future__ import annotations
 
 import logging
 import re
 
-from . import EDITED, PROVISIONAL_FAILS
+from . import EDITED, PROVISIONAL, PROVISIONAL_FAILS
 from . import prompts as P
 from .engine import StepFailed
 from .steps import NOT_ON_ANY_PAGE, _dumps, paper_block
-from .verify import find_page, norm, quote_in
+from .verify import norm, quote_in
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ EDIT_MAX_TOKENS = 4000
 REPEATS, CONTRADICTED = "repeats", "paper_states_otherwise"
 
 
-def s5_edit(model, paper, lines: list[dict], lead: str, kind: str | None = None) -> int:
+def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
     """ONE call per paper after S4 (the lead, 18 Nov 2026): the editor sees the SENT lines only (n = the line's number, field,
     page, comment, quote) and the paper, and may only take a line off the comment sheet. Code checks every move
     (`_edit_reason`): a repeat names a real, sent line about the same place; a contradiction is only for a line that claims a
@@ -66,7 +67,7 @@ def s5_edit(model, paper, lines: list[dict], lead: str, kind: str | None = None)
     for mv in moves if isinstance(moves, list) else []:
         n = mv.get("n") if isinstance(mv, dict) else None
         why = (
-            _edit_reason(mv, n, offered, sent, paper, kind)
+            _edit_reason(mv, n, offered, sent, paper)
             if isinstance(n, int) and n in offered
             else None
         )
@@ -109,107 +110,6 @@ def _claims_missing(d: dict) -> bool:
     )
 
 
-#: K2: a line's own words claim an ABSENCE or a LIMITATION ("only defined for", "limited to", "not covered", "missing for",
-#: "no provision"): read by code from the line, never from the editor.
-_CLAIMS_ABSENCE = re.compile(
-    r"\b(?:only|limited\s+to|not\s+(?:covered|addressed|included|defined|described)|missing\s+for|no\s+provision"
-    r"|does\s+not\s+(?:cover|address|include|define|describe))\b",
-    re.IGNORECASE,
-)
-#: A quote from another page must be this long (folded) to answer a claim of absence.
-MIN_ANY_PAGE_QUOTE = 40
-#: Words too common to tie a quote to a line's field or topic.
-_COMMON = frozenset(
-    [
-        "about",
-        "after",
-        "also",
-        "been",
-        "before",
-        "being",
-        "between",
-        "both",
-        "each",
-        "from",
-        "have",
-        "into",
-        "more",
-        "must",
-        "none",
-        "only",
-        "other",
-        "over",
-        "shall",
-        "should",
-        "such",
-        "than",
-        "that",
-        "their",
-        "them",
-        "then",
-        "there",
-        "these",
-        "they",
-        "this",
-        "those",
-        "through",
-        "under",
-        "were",
-        "what",
-        "when",
-        "where",
-        "which",
-        "while",
-        "will",
-        "with",
-        "within",
-        "without",
-        "would",
-        "paper",
-        "item",
-        "items",
-        "value",
-        "values",
-        "stated",
-        "state",
-        "page",
-    ]
-)
-
-
-def _content_words(text) -> set[str]:
-    return {
-        w
-        for w in re.findall(r"[a-z0-9]+", norm(str(text or "")))
-        if len(w) >= 4 and w not in _COMMON
-    }
-
-
-def _claims_absence(d: dict) -> bool:
-    """The line claims something is missing, not covered, limited or "only" (a Question or an AI opinion), by its own words."""
-    return _claims_missing(d) or (
-        d.get("label") in ("Question", "AI opinion")
-        and bool(_CLAIMS_ABSENCE.search(str(d.get("comment") or "")))
-    )
-
-
-def _label_printed(d: dict, paper) -> bool:
-    """The line's field label is printed on the paper (a datasheet): then the strict E1 rule holds (its own page, label + value)."""
-    label = norm(str(d.get("field") or ""))
-    return len(label) >= 4 and any(label in norm(t) for t in paper.pages.values())
-
-
-def _answered_elsewhere(d: dict, quote: str, paper, hint) -> int | None:
-    """K2: the page of a quote that answers the line's claim from ANY page: at least MIN_ANY_PAGE_QUOTE characters, sharing at
-    least two content words with the line's field or topic, and found on a page of the paper by code. Else None."""
-    if len(norm(quote)) < MIN_ANY_PAGE_QUOTE:
-        return None
-    tied = _content_words(f"{d.get('field') or ''} {d.get('topic') or ''}")
-    if len(tied & _content_words(quote)) < 2:
-        return None
-    return find_page(quote, paper.pages, hint if isinstance(hint, int) else None)
-
-
 def _states_value(quote: str, field: str) -> bool:
     """The quote holds the line's field label (folded) followed by a value: not empty, not a blank or deferral form."""
     from app import blank_markers
@@ -241,13 +141,10 @@ def _same_place(a: dict, b: dict) -> bool:
     )
 
 
-def _edit_reason(
-    mv: dict, n: int, offered: dict, sent: dict, paper, kind: str | None = None
-) -> str | None:
+def _edit_reason(mv: dict, n: int, offered: dict, sent: dict, paper) -> str | None:
     """Code's check of one move of an OFFERED line (never a code-proven failure): the reason words, or None (refused: the line
     stays sent). "repeats": line `of` is real, sent, not this line, and about the same place (`_same_place`). "paper states
-    otherwise": `_contradicted` (a datasheet: the strict E1 rule on the line's own page; any other kind: K2, a claim of absence
-    answered by a checked quote from ANY page)."""
+    otherwise": the strict E1 rule for every kind of paper (`_contradicted`)."""
     d = offered[n]
     if mv.get("reason") == REPEATS:
         m = mv.get("of")
@@ -255,34 +152,34 @@ def _edit_reason(
             return None
         return f"repeats line {m}" if _same_place(d, sent[m]) else None
     if mv.get("reason") == CONTRADICTED:
-        return _contradicted(d, str(mv.get("quote") or ""), mv.get("page"), paper, kind)
+        return _contradicted(d, str(mv.get("quote") or ""), mv.get("page"), paper)
     return None
 
 
-def _contradicted(
-    d: dict, quote: str, named_page, paper, kind: str | None = None
-) -> str | None:
-    """'Paper states otherwise', checked by code. Never for a line code compared (any result). A line whose field label is
-    printed on the paper (a datasheet) keeps the strict E1 rule: it claims "not stated", the quote is on ITS page and holds its
-    label with a value. Any other line (a procedure) may be answered from ANY page when it claims an absence or a limitation
-    (`_claims_absence`) and the quote passes `_answered_elsewhere` (K2)."""
-    if isinstance(d.get("code_compare"), dict):
+def _never_moved(d: dict) -> bool:
+    """A line that is never taken off as "paper states otherwise": one code compared (any result), a value the vendor left open
+    (deferred), or a provisional figure (any provisional note)."""
+    parts = {x.strip().split(":", 1)[0] for x in str(d.get("code") or "").split(";")}
+    return (
+        isinstance(d.get("code_compare"), dict)
+        or bool(d.get("deferred"))
+        or any(x.startswith(PROVISIONAL) for x in parts)
+    )
+
+
+def _contradicted(d: dict, quote: str, named_page, paper) -> str | None:
+    """THE STRICT E1 RULE, for every kind of paper (light check 9dee5805: a looser rule could not prove the quote answers the
+    claim; the third round, so rethought): the line claims a value is not stated (`_claims_missing`); it is not a line code
+    compared, deferred or provisional (`_never_moved`); the quote has no "..." part; code finds it on the line's OWN page (the
+    editor's page only when the line has none) and it holds the line's field label followed by a value (`_states_value`). The
+    reason says exactly what code checked."""
+    if _never_moved(d) or not _claims_missing(d) or "..." in quote or "\u2026" in quote:
         return None
-    # a datasheet keeps the strict E1 rule (by the paper's kind; with no kind known, by its field label printed on the paper)
-    if (kind == "datasheet") if kind else _label_printed(d, paper):
-        page = d.get("page") if d.get("page") is not None else named_page
-        if not _claims_missing(d) or not isinstance(page, int):
-            return None
-        if not quote_in(quote, paper.pages.get(page, "")) or not _states_value(
-            quote, str(d.get("field") or "")
-        ):
-            return None
-    else:
-        page = (
-            _answered_elsewhere(d, quote, paper, named_page)
-            if _claims_absence(d)
-            else None
-        )
-        if page is None:
-            return None
-    return f'paper states otherwise (page {page}: "{quote[:200]}")'
+    page = d.get("page") if d.get("page") is not None else named_page
+    if not isinstance(page, int):
+        return None
+    if not quote_in(quote, paper.pages.get(page, "")) or not _states_value(
+        quote, str(d.get("field") or "")
+    ):
+        return None
+    return f'the paper gives a value for this field on page {page}: "{quote[:200]}"'

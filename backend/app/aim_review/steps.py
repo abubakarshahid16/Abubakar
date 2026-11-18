@@ -396,7 +396,32 @@ def s4_judge(
             it, answers[it["id"]], paper, books, errors.get(it["id"], ""), windowed
         )
     ]
+    if not _scope_line(
+        scope
+    ):  # no scope the paper states, verified: a scope reason is never a "Does not apply" (N1)
+        for line in lines:
+            _scope_unverified(line)
     return lines, stop
+
+
+#: A comment that gives SCOPE as its reason ("outside the paper's stated scope", "the scope covers ...", "this life-cycle phase").
+_SCOPE_REASON = re.compile(
+    r"\bscope\b|\blife[- ]?cycle\b|\b(?:project|design|operating|operation)\s+(?:phase|stage)\b",
+    re.I,
+)
+SCOPE_NOT_VERIFIED = (
+    "a scope reason with no scope the paper states (verified): a question"
+)
+
+
+def _scope_unverified(line: dict) -> None:
+    """N1, enforced in code: "Does not apply" for a scope reason stands only when S1 found the paper's scope quote on its page.
+    Without it the line is a Question with that note."""
+    if line.get("label") == "Does not apply" and _SCOPE_REASON.search(
+        str(line.get("comment") or "")
+    ):
+        line["label"] = "Question"
+        line["code"] = "; ".join(x for x in (line.get("code"), SCOPE_NOT_VERIFIED) if x)
 
 
 def _scope_line(identity: dict | None) -> str:

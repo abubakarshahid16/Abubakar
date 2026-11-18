@@ -1021,9 +1021,11 @@ def test_a_contradiction_only_answers_a_line_that_says_a_thing_is_not_stated():
         for i in (2, 1)
     ]
     assert _edit(lines, moves) == 1
-    assert lines[0][
-        "code"
-    ] == f'edited: paper states otherwise (page 1: "{BP_Q}")' and _sent(lines[1])
+    assert (
+        lines[0]["code"]
+        == f'edited: the paper gives a value for this field on page 1: "{BP_Q}"'
+        and _sent(lines[1])
+    )  # what code checked (N3)
 
 
 def test_a_contradiction_quote_must_be_on_the_lines_page_and_hold_its_field_with_a_value():
@@ -1094,7 +1096,7 @@ def test_a_moved_line_stays_in_all_points_with_its_label_and_reason():
         and lines[2]["comment"] == "the back pressure is not stated"
     )
     assert to_line(3, lines[2])["code_note"].startswith(
-        "edited: paper states otherwise (page 1:"
+        "edited: the paper gives a value for this field on page 1:"
     ) and not _sent(lines[2])
 
 

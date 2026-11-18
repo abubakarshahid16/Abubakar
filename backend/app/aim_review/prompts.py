@@ -115,9 +115,7 @@ paper pages it names (and any other page where the thing is), and judge.
 Labels: "Met" (the paper states what the clause requires), "Not met" (the paper states something that breaks it), "Question"
 (the value or statement is missing, unclear, or left open by the vendor: TBA, TBC, TBD, later, *, blank, or "by
 vendor/contractor"; a figure stated beside a note of who supplies it, such as "380 psig (By Contractor)", is provisional: give
-its "numbers" so code can check it, and label it "Question", never Met or Not met), "Does not apply" (the item's condition does not hold for this paper; also an item whose own scope (a life-cycle phase, a
-stage, a kind of facility) differs from the scope the paper states: say so, "outside the paper's stated scope: ...", never a
-Question for it), "AI opinion" (a concern a senior engineer would raise that the
+its "numbers" so code can check it, and label it "Question", never Met or Not met), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
 clause does not decide).
 Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
 finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
@@ -143,9 +141,9 @@ EDIT_TASK = """TASK S5 - EDIT THE COMMENT SHEET. Below are the comments that wou
 You never add, rewrite or relabel a comment. Take one off for one of two reasons only:
  "repeats": it makes the same point as another comment on this sheet (the same value, the same concern, other words); keep
      the clearer one and give its n as "of";
- "paper_states_otherwise": the paper contradicts what the comment claims (it says a value is not stated and the paper states
-     it; it says the sheet shows an entry the paper's row leaves blank); give the exact paper words that show it (5 to 30
-     words from one page, character for character) and that page.
+ "paper_states_otherwise": the comment says a value is not stated and the paper states it ON THAT COMMENT'S PAGE: give the
+     exact paper words that show the field's label with its value (5 to 30 words, character for character, no "...") and
+     that page.
 Take nothing off for any other reason. Reply with ONE JSON object only:
 {"moves": [{"n": n, "reason": "repeats", "of": n} or {"n": n, "reason": "paper_states_otherwise", "page": p, "quote": "..."}]}
 THE COMMENTS:
@@ -153,6 +151,8 @@ THE COMMENTS:
 
 #: Added to S4 when S1 found the paper's own statement of its scope, verified by code on its page.
 SCOPE_LINE = """THE PAPER'S STATED SCOPE (page %(page)d): "%(quote)s"
+An item whose own scope (a life-cycle phase, a stage, a kind of facility) differs from this stated scope is "Does not apply":
+say so, "outside the paper's stated scope: ...", never a Question for it.
 """
 
 #: Added to S4 only when a long paper is judged in page windows (a paper that fits is judged whole, without this line).
