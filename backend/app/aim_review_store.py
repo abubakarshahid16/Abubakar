@@ -170,6 +170,8 @@ def _create(conn) -> None:
     add_column_if_missing(conn, LINES, "deferred", "INTEGER")
     # the reference papers of a contract review and what was done with each (order 14): not rule books, so not in books_json
     add_column_if_missing(conn, RUNS, "references_json", "TEXT")
+    # the whole-paper check's verdicts as answered (18 Nov 2026): the team's record of what it was told and did; never sent
+    add_column_if_missing(conn, RUNS, "answered_json", "TEXT")
 
 
 def has_tables(conn) -> bool:
@@ -349,7 +351,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
         cur = conn.execute(
             f"UPDATE {RUNS} SET status = ?, method_version = ?, identity_json = ?, checklist_key = ?, checklist_sha256 = ?,"
             " checklist_reused = ?, books_json = ?, not_held_json = ?, unlisted_json = ?, usd = ?, seconds = ?, calls_json = ?,"
-            " stop_reason = ?, finished_at = ?, references_json = ? WHERE run_id = ?",
+            " stop_reason = ?, finished_at = ?, references_json = ?, answered_json = ? WHERE run_id = ?",
             (
                 status,
                 result.get("method_version") or _method_version(),
@@ -366,6 +368,7 @@ def finish_run(conn, run_id: str, result: dict, now: str) -> None:
                 result.get("stop_reason") or "",
                 now,
                 _dump(list(result.get("references") or [])),
+                _dump(list(result.get("answered") or [])),
                 run_id,
             ),
         )
@@ -416,6 +419,7 @@ _RUN_JSON = {
     "calls": "calls_json",
     "completeness": "completeness_json",
     "references": "references_json",
+    "answered": "answered_json",
 }
 
 

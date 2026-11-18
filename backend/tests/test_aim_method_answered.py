@@ -251,3 +251,61 @@ def test_the_lines_own_quote_disproves_its_own_comment_that_the_value_is_blank()
             A.answer_reason({**ok, "claim": "only 150# is stated"}, {1: line}, PAPER)
             is None
         )
+
+
+def test_every_verdict_is_recorded_with_what_code_did_with_it():
+    """The local run record keeps each verdict as answered (line, answer, claim, page, quote) and whether code took the line off,
+    so a miss can be read later; a call that applied nothing is recorded too."""
+    lines = [_line("C01"), _line("C02")]
+    record: list = []
+    model = _Checker([{"n": 1, "page": 2, "quote": TEAM, "claim": "no team named"},
+                      {"n": 2, "answered": True, "page": 3, "quote": "words not on that page at all"}])  # fmt: skip
+    assert A.s4b_answered(model, PAPER, lines, MODEL, record) == 1
+    assert record == [
+        {
+            "n": 1,
+            "answered": True,
+            "claim": "no team named",
+            "page": 2,
+            "quote": TEAM,
+            "taken_off": True,
+        },
+        {
+            "n": 2,
+            "answered": True,
+            "claim": "",
+            "page": 3,
+            "quote": "words not on that page at all",
+            "taken_off": False,
+        },
+    ]
+    failed: list = []
+    A.s4b_answered(
+        _Checker(fail="transport ReadTimeout"), PAPER, [_line("C01")], MODEL, failed
+    )
+    assert failed == [{"lines": [1], "not_applied": True}]
+
+
+def test_the_verdicts_are_stored_with_the_run_and_read_back(tmp_path, monkeypatch):
+    from app import aim_review_store as ST
+    from tests.test_aim_method_helpers import open_aim_db
+
+    conn = next(open_aim_db(tmp_path, monkeypatch))
+    ST.start_run(conn, "run_rec", "doc_ans", "2026-11-18T21:00:00Z")
+    verdicts = [
+        {
+            "n": 1,
+            "answered": False,
+            "claim": "",
+            "page": None,
+            "quote": "",
+            "taken_off": False,
+        }
+    ]
+    ST.finish_run(
+        conn,
+        "run_rec",
+        {"status": "done", "lines": [], "answered": verdicts},
+        "2026-11-18T21:01:00Z",
+    )
+    assert ST.run(conn, "run_rec")["answered"] == verdicts

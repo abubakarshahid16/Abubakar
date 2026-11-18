@@ -137,6 +137,9 @@ QUESTION to the vendor, never a statement that it fails. A "Question" ASKS: its 
 exceeds or meets a limit (code compares the numbers you give). Compare a value only with a limit for the SAME quantity: a field
 with two names and two values split by "/" pairs them in order (the first value is the first name's), and a limit for one kind
 of a quantity (one part, one case, one state) never judges another kind of it.
+Read each item's "applies_when" against THIS place of the paper (this sheet, this item, its stated type and service): when the
+condition does not hold there (the item is for a part, a type or a service this place does not have), the label is "Does not
+apply" with the paper words that show it; a blank field for a part the condition excludes is never a Question.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for EVERY item that rests on a held rule with a numeric limit, give
 "numbers" (the paper's figure and the rule's limit) whenever both are stated, WHATEVER your label, and code will compare them (do not compare
