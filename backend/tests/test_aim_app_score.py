@@ -71,6 +71,7 @@ class FakeApp:
         self.requests: list[tuple[str, str, str]] = []  # (method, path, authorization)
         self.starts: list[dict] = []
         self.fail_runs = False
+        self.extra_comment_keys: dict = {}
         self.history_word = "running"
         self.peek_dir = None
         self.seen_in_file: list = []
@@ -85,6 +86,7 @@ class FakeApp:
     def lines(self, n):
         return [
             {
+                **self.extra_comment_keys,
                 "n": i + 1,
                 "field": f"invented field {i}",
                 "page": 1,
@@ -958,3 +960,29 @@ def test_the_run_file_shows_the_apps_status_while_the_review_runs(app, setup):
     assert (
         rec["app_status_final"] == "running"
     )  # the fake's history row; the real app says done
+
+
+def test_one_comment_per_point_keeps_pages_and_lines_and_counts_rows_by_the_header(
+    app, setup
+):
+    """A's one-comment-per-point sheet (69fc3683): a "Lines" column in 2nd place and a Page cell listing several pages; the page
+    JSON comments carry "lines" and "pages". The saved comments keep both; rows are counted under the header, never by position."""
+    app.extra_comment_keys = {"lines": [3, 7], "pages": [1, 4]}
+    assert _run(app, setup, papers=("pump",)) == 0
+    saved = json.loads((setup["out"] / "pump-A-comments.json").read_text())["comments"]
+    assert all(c["pages"] == [1, 4] and c["lines"] == [3, 7] for c in saved)
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Comments"
+    ws.append(["AI, to be checked"])
+    ws.append(["Comments: 2 of 5 points"])
+    ws.append(["2 comments from 5 points reviewed"])
+    ws.append(["No.", "Lines", "Field", "Page", "Label"])
+    ws.append([1, "3, 7", "invented field", "1, 4", "Question"])
+    ws.append([2, "9", "invented field 2", "2", "AI opinion"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    assert driver.xlsx_rows(buf.getvalue(), "Comments") == 2
