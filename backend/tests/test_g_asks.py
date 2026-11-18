@@ -244,3 +244,43 @@ def test_a_line_that_only_confirms_a_stated_value_leaves_the_sent_comment_of_its
     ]
     comments, confirmations = aim_review_view.comments_and_confirmations(keep)
     assert [c["lines"] for c in comments] == [[3, 4]] and confirmations == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        {
+            "comment": "",
+            "ask": "concern",
+        },  # update 5: an empty pass with numbers was marked "concern" and sent
+        {"comment": "   \n ", "ask": "confirm"},
+        {"comment": "", "label": "AI opinion", "ask": ""},
+        {"comment": "", "label": "Not met", "ask": ""},
+    ],
+)
+def test_a_line_whose_own_comment_has_no_words_is_never_sent(line):
+    """Kept on All points with the not-sent note and why; whatever its label or mark (an empty text is empty, no word list)."""
+    from app import aim_review
+    from app.aim_review.engine import to_line
+
+    d = decided(
+        **{
+            "comment": line["comment"],
+            "ask": line.get("ask", "concern"),
+            "label": line.get("label", "Question"),
+        }
+    )
+    assert asks.mark([d]) == 1 and asks.NO_WORDS_REASON in d["code"]
+    assert not aim_review.sendable(to_line(1, d))
+
+
+def test_a_line_with_words_or_an_open_value_is_not_held_for_having_no_words():
+    from app import aim_review
+    from app.aim_review.engine import to_line
+
+    for d in (
+        decided("The wall is thinner than the minimum."),
+        decided("x", ask="open", deferred=True),
+    ):
+        asks.mark([d])
+        assert aim_review.sendable(to_line(1, d))

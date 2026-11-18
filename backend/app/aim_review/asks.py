@@ -63,9 +63,25 @@ def mark(decided: list[dict]) -> int:
 
     marked = 0
     for n, d in enumerate(decided, 1):
-        if sendable(to_line(n, d)) and asks_nothing(d):
-            d["code"] = "; ".join(
-                x for x in (d.get("code"), f"{NO_ASK}: {NO_ASK_REASON}") if x
-            )
+        if not sendable(to_line(n, d)):
+            continue
+        why = (
+            NO_WORDS_REASON
+            if has_no_words(d)
+            else (NO_ASK_REASON if asks_nothing(d) else "")
+        )
+        if why:
+            d["code"] = "; ".join(x for x in (d.get("code"), f"{NO_ASK}: {why}") if x)
             marked += 1
     return marked
+
+
+#: Why a line whose own comment has no words is not sent (update 5's quick score: the judge gave a pass as an empty comment and
+#: numbers, code marked it "concern", and the empty line was sent alone or as a group of empty members).
+NO_WORDS_REASON = "the comment has no words"
+
+
+def has_no_words(line: dict) -> bool:
+    """The line's OWN comment holds no words (empty or only spaces), whatever its label or mark: there is nothing to send. Not a
+    word list: an empty text is empty."""
+    return not str(line.get("comment") or "").strip()
