@@ -126,3 +126,23 @@ def test_the_real_loader_reads_the_shipped_file(monkeypatch):
     got = M.for_run({"kind": "datasheet", "equipment_type": "pump"})
     assert got["verdict"] in M.VERDICTS and got["target"] == 7.0
     M._table.cache_clear()
+
+
+# ---------------------------------------------------------------------------------- wired into the page JSON (G-1)
+from tests.test_aim_sheet_rule import BOOK, PAPER, client, world  # noqa: E402, F401 - fixture
+from tests.test_crs_endpoint import temp_db  # noqa: E402, F401 - fixture
+
+
+def test_the_page_json_carries_the_measured_sentence_of_the_runs_kind(
+    world, monkeypatch
+):
+    got = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general").json()
+    assert got["identity"]["kind"]
+    assert set(got["measured"]) == {
+        "kind_label",
+        "found",
+        "target",
+        "verdict",
+        "sentence",
+    }
+    assert got["measured"]["verdict"] in M.VERDICTS and got["measured"]["sentence"]

@@ -11,7 +11,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from . import aim_review, aim_review_gate, aim_review_store, review_shown
+from . import (
+    aim_review,
+    aim_review_gate,
+    aim_review_measured,
+    aim_review_store,
+    review_shown,
+)
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
@@ -242,6 +248,10 @@ def build(conn, run: dict, scope=None) -> dict:
         "identity": {
             k: _blank(identity.get(k)) for k in ("kind", "equipment_type", "subject")
         },
+        # the measured score of this paper's kind ("below target" says so); None when the run names no kind (piece G)
+        "measured": aim_review_measured.for_run(
+            {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
+        ),
         "counts": {
             "points": len(points),
             "comments": len(comments),
