@@ -76,8 +76,15 @@ def test_values_of_two_different_items_are_no_finding_and_not_sent():
     ],
 )
 def test_anything_code_cannot_verify_changes_nothing(j):
+    """Still sent, never "different items"; when the judge named two items code did not accept, the reason is recorded."""
     d = I.check(dict(LINE), j, DOC)
-    assert d["code"] == "" and aim_review.sendable(to_line(1, d))
+    assert "different_items" not in d["code"] and aim_review.sendable(to_line(1, d))
+    named = (
+        isinstance(j, dict)
+        and isinstance(j.get("other"), dict)
+        and len(j.get("items") or []) == 2
+    )
+    assert d["code"].startswith(I.ITEMS_NOT_ACCEPTED) if named else d["code"] == ""
 
 
 def test_a_met_and_a_held_rule_comparison_are_never_touched():

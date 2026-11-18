@@ -9,6 +9,8 @@ from __future__ import annotations
 from . import DIFFERENT_ITEMS
 from .verify import norm, quote_in
 
+#: The code-note part when the judge named two items but code did not accept them (why, in fixed words; the line stays sent).
+ITEMS_NOT_ACCEPTED = "items not accepted"
 #: An item name shorter than this (folded) names nothing reliable.
 ITEM_MIN = 3
 
@@ -42,11 +44,27 @@ def check(d: dict, j: dict | None, paper) -> dict:
         or isinstance(page2, bool)
         or not quote_in(quote2, paper.pages.get(page2, ""))
     ):
-        return d
+        return _unverified(d, "the second quote is not on its page")
     first = _item(items[0], paper.pages.get(d["page"], ""))
     second = _item(items[1], paper.pages.get(page2, ""))
-    if not first or not second or first in second or second in first:
-        return d
+    if not first or not second:
+        return _unverified(d, "an item name is not on its page")
+    if first in second or second in first:
+        return _unverified(d, "the same item")
+    return _different(d, items, page2)
+
+
+def _unverified(d: dict, why: str) -> dict:
+    """The judge named the items, code did not accept them: the reason stays on the line (a record of the check; still sent)."""
+    return {
+        **d,
+        "code": "; ".join(
+            x for x in (d.get("code"), f"{ITEMS_NOT_ACCEPTED}: {why}") if x
+        ),
+    }
+
+
+def _different(d: dict, items: list, page2: int) -> dict:
     note = (
         f'{DIFFERENT_ITEMS}: page {d["page"]} "{items[0]}" / page {page2} "{items[1]}"'
     )
