@@ -11,6 +11,7 @@ import pytest
 from app import aim_review, aim_review_store
 from app.aim_review import checklist as CL
 from app.aim_review import engine as E
+from app.aim_review import library as L
 from app.aim_review import steps as S
 from app.aim_review.paper import Paper
 from tests.test_aim_method_helpers import (
@@ -258,10 +259,8 @@ def test_an_ai_needed_name_never_forces_a_rebuild_whatever_its_why_says():
         "name": "API 9992",
         "why": "governs the equipment type; not held",
     }  # saved before the key existed
-    assert E._wanted_not_held([table, ai, legacy]) == frozenset(
-        {"API 9990", "API 9992"}
-    )
-    assert E._wanted_not_held([table, ai]) == E._wanted_not_held([table])
+    assert L.wanted_not_held([table, ai, legacy]) == frozenset({"API 9990", "API 9992"})
+    assert L.wanted_not_held([table, ai]) == L.wanted_not_held([table])
 
 
 def test_the_attack_adds_at_most_ten_knowledge_items_and_a_knowledge_item_names_no_clause(

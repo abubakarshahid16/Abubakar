@@ -276,49 +276,56 @@ def _table_names_company(monkeypatch):
     )
 
 
-def test_a_paper_citing_family_x_gets_xs_table_named_book(
+DIGIT = "doc_aimcompany2"
+
+
+def _digit_book(conn):
+    """An invented company book whose identifier starts with digits (light check 85651ad2, B1)."""
+    from tests.test_aim_method_helpers import _doc
+
+    with conn:
+        _doc(
+            conn,
+            DIGIT,
+            "97-ZQ-707.pdf",
+            "COMPANY_STANDARD",
+            {1: "Section heading\n1.1 The item shall be marked.\n"},
+        )
+
+
+def test_a_cited_company_book_is_offered_whatever_its_identifier_shape(
+    aim_db, no_model, kind_datasheet, monkeypatch
+):
+    from app import standard_ids
+
+    _digit_book(aim_db)
+    assert not L.is_public({"filename": "97-ZQ-707.pdf"})
+    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["97-ZQ-707"])
+    assert L.cited_company(aim_db, PAPER) == frozenset({DIGIT})
+    c = aim_review.candidates(aim_db, PAPER, ALL | {DIGIT}, MemoryStore())
+    assert {b["id"]: b["why"] for b in c.books}[DIGIT] == L.WHY_CITED
+    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: [])
+    c = aim_review.candidates(aim_db, PAPER, ALL | {DIGIT}, MemoryStore())
+    assert DIGIT not in [b["id"] for b in c.books]
+
+
+def test_a_table_named_company_book_the_paper_does_not_cite_is_not_offered(
     aim_db, no_model, kind_datasheet, monkeypatch
 ):
     from app import standard_ids
 
     _company_book(aim_db)
     _table_names_company(monkeypatch)
+    # the paper cites another standard of the same prefix, and a public book: neither brings the table-named one in
     monkeypatch.setattr(
-        standard_ids, "cited_standards", lambda text: ["ZQ-ENG-777"]
-    )  # another ZQ standard, not held
-    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
-    assert {b["id"]: b["why"] for b in c.books}[COMPANY] == L.WHY_METHOD
-    assert c.checklist_key is None or "__family-zq" in c.checklist_key
-
-
-def test_a_paper_citing_only_family_y_does_not_get_xs_book(
-    aim_db, no_model, kind_datasheet, monkeypatch
-):
-    from app import standard_ids
-
-    _company_book(aim_db)
-    _table_names_company(
-        monkeypatch
-    )  # the table names it, but its family is not the paper's
-    monkeypatch.setattr(
-        standard_ids, "cited_standards", lambda text: ["YW-STD-12", "ISO 99101"]
+        standard_ids, "cited_standards", lambda text: ["ZQ-ENG-777", "ISO 99101"]
     )
     c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
     ids = [b["id"] for b in c.books]
     assert COMPANY not in ids and BOOK_A in ids  # public books unaffected
-    assert L.active_families(aim_db, PAPER) == frozenset({"YW"})
 
 
-def test_a_table_named_company_book_with_no_family_cited_is_not_listed(
-    aim_db, no_model, kind_datasheet, monkeypatch
-):
-    _company_book(aim_db)
-    _table_names_company(monkeypatch)
-    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
-    assert COMPANY not in [b["id"] for b in c.books]
-
-
-def test_s2s_catalog_holds_a_company_standard_only_when_a_table_names_it(
+def test_s2s_catalog_holds_a_company_book_only_when_the_paper_cites_it(
     aim_db, no_model
 ):
     from app.aim_review import checklist as CL
@@ -326,8 +333,11 @@ def test_s2s_catalog_holds_a_company_standard_only_when_a_table_names_it(
     _company_book(aim_db)
     listed = frozenset({BOOK_A, BOOK_B, COMPANY})
     ident = {"kind": "datasheet", "equipment_type": None}
+    table_named = {
+        "listed": {COMPANY: L.WHY_GOVERNS}
+    }  # named by a table, not cited: never in
     cat, _pool, _req, _ref = CL._catalog(
-        aim_db, PAPER, ident, listed, {"listed": {}}, lambda b: None
+        aim_db, PAPER, ident, listed, table_named, lambda b: None
     )
     assert COMPANY not in {c["book"] for c in cat} and BOOK_A in {
         c["book"] for c in cat
@@ -337,7 +347,10 @@ def test_s2s_catalog_holds_a_company_standard_only_when_a_table_names_it(
         PAPER,
         ident,
         listed,
-        {"listed": {COMPANY: L.WHY_GOVERNS}},
+        {"listed": {}},
         lambda b: None,
+        frozenset({COMPANY}),
     )
-    assert COMPANY in {c["book"] for c in cat}
+    assert COMPANY in {
+        c["book"] for c in cat
+    }  # cited (its id passed in): it may enter a new checklist

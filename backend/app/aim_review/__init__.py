@@ -133,6 +133,7 @@ def run(
     progress: Callable[[int, str], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
     model=None,
+    cited_books: frozenset[str] | None = None,
 ) -> Result:
     from .engine import run as _run
 
@@ -146,6 +147,7 @@ def run(
         progress=progress,
         cancelled=cancelled,
         model=model,
+        cited_books=cited_books,
     )
 
 

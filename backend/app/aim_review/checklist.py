@@ -23,6 +23,10 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
+from .library import (  # noqa: F401 - the coverage floor (one home: library)
+    FLOOR_ITEMS,
+    floor_for,
+)
 
 log = logging.getLogger(__name__)
 HELD = "held standard"
@@ -30,8 +34,6 @@ KNOWLEDGE = "not from a held standard"
 #: An item from the model's knowledge of a public standard the library does NOT hold (or of engineering practice): no clause
 #: quote, no clause number; judged like any knowledge item (never Met / Not met).
 KNOWLEDGE_NOT_HELD = "engineering knowledge (book not held)"
-#: The coverage floor of a checklist for a kind with no main equipment (a procedure, a contract: long papers of many topics).
-FLOOR_ITEMS = 30
 MAX_KNOWLEDGE = 40
 #: At most this many knowledge items the attack step may add (code cuts the rest; light check e1c61001).
 MAX_ATTACK_KNOWLEDGE = 10
@@ -122,21 +124,27 @@ class NoPaper:
 # ------------------------------------------------------------------ the books the type wants
 
 
-def wanted(conn, paper_id: str, ident: dict, allowed_books: frozenset[str]) -> dict:
+def wanted(
+    conn,
+    paper_id: str,
+    ident: dict,
+    allowed_books: frozenset[str],
+    cited: frozenset[str] | None = None,
+) -> dict:
     """The books the type requires (governing the equipment type, method books of the kind), split by the shown list.
 
     {"listed": {id: why}, "unlisted": [ids held but not on the list], "not_held": [{name, why}]}. Held is decided on the WHOLE
     library, so a held book that is merely not on the list is never called "not held"."""
     lib = L.library(conn, exclude=frozenset({str(paper_id)}))
     kind, etype = ident.get("kind"), ident.get("equipment_type")
-    # a company book or name applies only when its family is active for the paper (code reads the families from the paper's
-    # own citations; family words only, no text reaches any prompt)
-    active = L.active_families(conn, str(paper_id))
+    # a COMPANY book applies only when the paper cites it (ids, `library.cited_company`); a table-named company standard the
+    # paper does not cite, held or not, does not apply
+    cited = L.cited_company(conn, str(paper_id)) if cited is None else frozenset(cited)
     listed: dict[str, str] = {}
     unlisted: list[str] = []
     not_held: list[dict] = []
     for e, name in L.governing_books(lib, etype):
-        if not (L.applies(e, active) if e else L.name_applies(name, active)):
+        if not (L.usable(e, cited) if e else L.is_public_name(name)):
             continue
         if not e:
             not_held.append(
@@ -153,7 +161,7 @@ def wanted(conn, paper_id: str, ident: dict, allowed_books: frozenset[str]) -> d
         elif e["id"] not in unlisted:
             unlisted.append(e["id"])
     for e, name in L.method_books(lib, kind):
-        if not (L.applies(e, active) if e else L.name_applies(name, active)):
+        if not (L.usable(e, cited) if e else L.is_public_name(name)):
             continue
         if not e:
             not_held.append(
@@ -181,10 +189,11 @@ def s2_select(
     allowed_books: frozenset[str],
     gate_ok,
     lead: str,
+    cited: frozenset[str] = frozenset(),
 ) -> dict:
-    want = wanted(conn, paper_id, ident, allowed_books)
+    want = wanted(conn, paper_id, ident, allowed_books, cited)
     cat, pool, required, refused = _catalog(
-        conn, paper_id, ident, allowed_books, want, gate_ok
+        conn, paper_id, ident, allowed_books, want, gate_ok, cited
     )
     result = {
         "books": [],
@@ -242,7 +251,13 @@ def s2_select(
 
 
 def _catalog(
-    conn, paper_id: str, ident: dict, allowed_books: frozenset[str], want: dict, gate_ok
+    conn,
+    paper_id: str,
+    ident: dict,
+    allowed_books: frozenset[str],
+    want: dict,
+    gate_ok,
+    cited: frozenset[str] = frozenset(),
 ):
     """(catalog lines with aliases, the rule pool, required books {id: why}, refused {id: code}): ONLY listed books."""
     lib = L.library(
@@ -260,8 +275,10 @@ def _catalog(
     pool = L.rule_pool(conn, kind, etype, books=set(required), within=frozenset(by_id))
     cat = L.catalog(by_id, pool)
     in_cat = {c["book"] for c in cat}
-    for b in required:
+    # the company books the paper cites (ids from the job) may enter the checklist, with or without labelled rules
+    for b in [*required, *sorted(b for b in cited if b in by_id and b not in required)]:
         if b not in in_cat:
+            in_cat.add(b)
             cat.append(
                 {
                     "book": b,
@@ -274,8 +291,8 @@ def _catalog(
                 }
             )
     cat = [c for c in cat if L.role_applies(by_id[c["book"]], kind)]
-    # a COMPANY standard only when a governing / method table names it for the type (the build sees no paper, so no citation)
-    cat = [c for c in cat if c["book"] in required or L.is_public(by_id[c["book"]])]
+    # a COMPANY standard only when the paper cites it (the build sees no paper: the job passes the cited ids, no text)
+    cat = [c for c in cat if L.usable(by_id[c["book"]], cited)]
     cat = [c for c in cat if c["book"] in required or not gate_ok(c["book"])]
     for i, c in enumerate(cat):
         c["alias"] = f"B{i + 1:02d}"
@@ -562,22 +579,6 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
     }
 
 
-def floor_for(kind: str | None) -> int:
-    """The coverage floor of a type's checklist: FLOOR_ITEMS for a kind with no main equipment (`kind_review_table`), else 0. The
-    table holds no expected size per kind; this is the method's own floor (the lead, 18 Nov 2026)."""
-    from app import kind_review_table
-
-    table_kind = str(kind or "").strip().lower().replace(" ", "_")
-    try:
-        long_kinds = kind_review_table.no_main_equipment_kinds()
-    except Exception as exc:  # noqa: BLE001 - an unreadable table gives no floor, never a stop
-        log.info(
-            "general review: kind table not read for the floor (%s)", type(exc).__name__
-        )
-        return 0
-    return FLOOR_ITEMS if table_kind in long_kinds else 0
-
-
 def _not_held_line(sel: dict) -> str:
     return "; ".join(
         sorted(
@@ -766,11 +767,12 @@ def build(
     text: L.BookText,
     key: str,
     made_at: str,
+    cited: frozenset[str] = frozenset(),
 ) -> tuple[dict, dict]:
     """The checklist of the paper's TYPE from the listed books' clauses only. (checklist, selection summary). Raises StepFailed."""
     guarded = NoPaper(model, conn, paper_id)
     typed = type_identity(ident)
-    sel = s2_select(guarded, conn, paper_id, typed, allowed_books, gate_ok, lead)
+    sel = s2_select(guarded, conn, paper_id, typed, allowed_books, gate_ok, lead, cited)
     made = s3_checklist(guarded, typed, sel, text, lead)
     made = s3_knowledge(guarded, typed, sel, made, lead)
     cl = s3_attack(guarded, typed, sel, made, text, strong)
