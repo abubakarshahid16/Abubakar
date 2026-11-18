@@ -198,8 +198,8 @@ VERDICT_PATH: tuple[tuple[str, str], ...] = (
     (
         APP + "aim_review/",
         "the general review method: decides and words every line, what leaves, its cost; incl. parallel.py (judge calls side by"
-        " side: the run meter's worst-case hold before every call) and fake.py (the dry run's model: asks the send gate, sends"
-        " nothing)",
+        " side: the run meter's and the spend ledger's room before every call), editor.py (takes lines off the sheet, groups"
+        " them), always.py (the checks every review makes) and fake.py (the dry run's model: asks the send gate, sends nothing)",
     ),
     (APP + "aim_review_gate.py", "which review method the Review button runs (the way back)"),
     (APP + "aim_review_jobs.py", "the general review's job: which rule books it may send"),
