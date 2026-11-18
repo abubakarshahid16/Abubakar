@@ -215,10 +215,13 @@ def test_the_stored_kind_spelling_is_the_methods():
 # ---- a COMPANY standard (an owner's own rule book) is offered only when the paper cites it or a table names it ----------------
 
 COMPANY = "doc_aimcompany1"
+#: The recorded role of the client's OWN standards (the owner's choice at upload), and a role that is not that.
+OWN, OTHER = "COMPANY_STANDARD", "REFERENCE_DOCUMENT"
 
 
-def _company_book(conn):
-    """An invented company-family book holding rules labelled for the kind, like the public helper books."""
+def _company_book(conn, role: str = OTHER):
+    """An invented non-public book (prefix "ZQ") holding rules labelled for the kind. By default its recorded role is NOT the
+    client's own standard (a reference document): used only when the paper cites it. With role OWN it is the client's own."""
     import json
 
     from tests.test_aim_method_helpers import _doc, _hex
@@ -228,8 +231,8 @@ def _company_book(conn):
             conn,
             COMPANY,
             "ZQ-ENG-501.pdf",
-            "COMPANY_STANDARD",
-            {3: "Section heading\nThe item shall be tagged.\n"},
+            role,
+            {3: "Section heading\n2.1 The item shall be tagged.\n"},
         )
         conn.execute(
             "INSERT INTO standard_requirements (id, standard_document_id, clause, page, requirement_text, source_text,"
@@ -245,104 +248,75 @@ def _company_book(conn):
         )
 
 
-def test_a_company_standard_the_paper_does_not_cite_is_not_listed(
+def test_an_own_standard_with_an_invented_prefix_is_usable_and_listed_by_its_reason_uncited(
     aim_db, no_model, kind_datasheet
 ):
-    _company_book(aim_db)
+    """The owner (18 Nov 2026): the client is a joint operation of its owner companies, so every book recorded as a company
+    standard is the client's OWN and applies to every paper. The recorded role decides, never a name shape."""
+    _company_book(aim_db, role=OWN)
     c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
-    ids = [b["id"] for b in c.books]
-    assert COMPANY not in ids and BOOK_A in ids  # public books unaffected
-    assert L.is_public({"filename": "ISO 99101.pdf"}) and not L.is_public(
-        {"filename": "ZQ-ENG-501.pdf"}
+    whys = {b["id"]: b["why"] for b in c.books}
+    assert (
+        whys[COMPANY] == L.WHY_RULES and BOOK_A in whys
+    )  # not cited, still listed by its own reason
+    assert not L.is_public({"filename": "ZQ-ENG-501.pdf"}) and L.is_own(
+        {"document_role": OWN}
     )
 
 
-def test_a_company_standard_the_paper_cites_is_listed(
+def test_a_non_public_book_without_the_role_that_the_paper_does_not_cite_is_not_usable(
+    aim_db, no_model, kind_datasheet
+):
+    _company_book(
+        aim_db
+    )  # recorded as a reference document, not the client's own standard
+    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
+    ids = [b["id"] for b in c.books]
+    assert COMPANY not in ids and BOOK_A in ids  # public books unaffected
+
+
+def test_a_non_public_book_without_the_role_is_listed_when_the_paper_cites_it(
     aim_db, no_model, kind_datasheet, monkeypatch
 ):
     from app import standard_ids
 
     _company_book(aim_db)
     monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["ZQ-ENG-501"])
+    assert L.cited_company(aim_db, PAPER) == frozenset({COMPANY})
     c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
     assert {b["id"]: b["why"] for b in c.books}[COMPANY] == L.WHY_CITED
 
 
-def _table_names_company(monkeypatch):
-    monkeypatch.setattr(
-        L,
-        "method_books",
-        lambda lib, kind: [(next(e for e in lib if e["id"] == COMPANY), "ZQ-ENG-501")],
-    )
-
-
-DIGIT = "doc_aimcompany2"
-
-
-def _digit_book(conn):
-    """An invented company book whose identifier starts with digits (light check 85651ad2, B1)."""
-    from tests.test_aim_method_helpers import _doc
-
-    with conn:
-        _doc(
-            conn,
-            DIGIT,
-            "97-ZQ-707.pdf",
-            "COMPANY_STANDARD",
-            {1: "Section heading\n1.1 The item shall be marked.\n"},
-        )
-
-
-def test_a_cited_company_book_is_offered_whatever_its_identifier_shape(
+def test_an_own_standard_is_never_in_the_cited_key_set(
     aim_db, no_model, kind_datasheet, monkeypatch
 ):
     from app import standard_ids
 
-    _digit_book(aim_db)
-    assert not L.is_public({"filename": "97-ZQ-707.pdf"})
-    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["97-ZQ-707"])
-    assert L.cited_company(aim_db, PAPER) == frozenset({DIGIT})
-    c = aim_review.candidates(aim_db, PAPER, ALL | {DIGIT}, MemoryStore())
-    assert {b["id"]: b["why"] for b in c.books}[DIGIT] == L.WHY_CITED
-    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: [])
-    c = aim_review.candidates(aim_db, PAPER, ALL | {DIGIT}, MemoryStore())
-    assert DIGIT not in [b["id"] for b in c.books]
+    _company_book(aim_db, role=OWN)
+    monkeypatch.setattr(standard_ids, "cited_standards", lambda text: ["ZQ-ENG-501"])
+    assert (
+        L.cited_company(aim_db, PAPER) == frozenset()
+    )  # the cited key stays for cited books that are not the client's own
 
 
-def test_a_table_named_company_book_the_paper_does_not_cite_is_not_offered(
-    aim_db, no_model, kind_datasheet, monkeypatch
-):
-    from app import standard_ids
-
-    _company_book(aim_db)
-    _table_names_company(monkeypatch)
-    # the paper cites another standard of the same prefix, and a public book: neither brings the table-named one in
-    monkeypatch.setattr(
-        standard_ids, "cited_standards", lambda text: ["ZQ-ENG-777", "ISO 99101"]
-    )
-    c = aim_review.candidates(aim_db, PAPER, ALL | {COMPANY}, MemoryStore())
-    ids = [b["id"] for b in c.books]
-    assert COMPANY not in ids and BOOK_A in ids  # public books unaffected
-
-
-def test_s2s_catalog_holds_a_company_book_only_when_the_paper_cites_it(
-    aim_db, no_model
-):
+def test_s2s_catalog_holds_an_own_or_a_cited_book_never_another(aim_db, no_model):
     from app.aim_review import checklist as CL
 
-    _company_book(aim_db)
-    listed = frozenset({BOOK_A, BOOK_B, COMPANY})
     ident = {"kind": "datasheet", "equipment_type": None}
-    table_named = {
-        "listed": {COMPANY: L.WHY_GOVERNS}
-    }  # named by a table, not cited: never in
-    cat, _pool, _req, _ref = CL._catalog(
-        aim_db, PAPER, ident, listed, table_named, lambda b: None
+    listed = frozenset({BOOK_A, BOOK_B, COMPANY})
+    _company_book(aim_db)
+    cat, *_ = CL._catalog(
+        aim_db,
+        PAPER,
+        ident,
+        listed,
+        {"listed": {COMPANY: L.WHY_GOVERNS}},
+        lambda b: None,
     )
     assert COMPANY not in {c["book"] for c in cat} and BOOK_A in {
         c["book"] for c in cat
-    }
-    cat, _pool, _req, _ref = CL._catalog(
+    }  # not own, not cited
+    cat, *_ = CL._catalog(
         aim_db,
         PAPER,
         ident,
@@ -354,3 +328,48 @@ def test_s2s_catalog_holds_a_company_book_only_when_the_paper_cites_it(
     assert COMPANY in {
         c["book"] for c in cat
     }  # cited (its id passed in): it may enter a new checklist
+    with aim_db:
+        aim_db.execute(
+            "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
+            (OWN, COMPANY),
+        )
+    cat, *_ = CL._catalog(aim_db, PAPER, ident, listed, {"listed": {}}, lambda b: None)
+    assert COMPANY in {c["book"] for c in cat}  # the client's own: in, uncited
+
+
+def test_g3_lists_an_own_books_items_uncited_and_another_only_when_cited(aim_db):
+    from app.aim_review import always as A
+    from app.aim_review import steps as S
+
+    _company_book(aim_db)
+    checklist = {
+        "books": [{"alias": "B01", "book": COMPANY, "identifier": "ZQ-ENG-501"}],
+        "items": [{"id": "C001", "book": "B01", "source": S.HELD, "topic": "tagging", "what_to_check": "x", "paper_fields": []}],
+    }  # fmt: skip
+    shown = frozenset({COMPANY})
+    g3 = next(
+        it for it in A.items(aim_db, {}, checklist, shown, {}) if it["id"] == "G3"
+    )
+    assert g3["carries"] == []  # not own, not cited
+    with aim_db:
+        aim_db.execute(
+            "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
+            (OWN, COMPANY),
+        )
+    g3 = next(
+        it for it in A.items(aim_db, {}, checklist, shown, {}) if it["id"] == "G3"
+    )
+    assert g3["carries"] == [COMPANY]
+
+
+def test_an_own_standard_is_never_not_cited(aim_db):
+    _company_book(aim_db, role=OWN)
+    assert L.not_offered_company(aim_db, PAPER, {COMPANY}, frozenset()) == frozenset()
+    with aim_db:
+        aim_db.execute(
+            "UPDATE document_classification SET document_role = ? WHERE document_id = ?",
+            (OTHER, COMPANY),
+        )
+    assert L.not_offered_company(aim_db, PAPER, {COMPANY}, frozenset()) == frozenset(
+        {COMPANY}
+    )
