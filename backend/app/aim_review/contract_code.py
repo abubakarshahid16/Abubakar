@@ -22,8 +22,8 @@ Code checks (each line carries the page and a quote that verifies on that page; 
   terms          a term the contract defines in quotes ("Work", "COMPANY") used with a different capitalisation that is still
                  capitalised ("Company") -> a Question (never a verdict: the meaning may be the same).
 A value left to the vendor (blank, By Contractor, TBA, TBD, *) has no figure and is never compared. Nothing guesses the AI's meaning:
-code parses the paper's own words. Pure: no model, no network, no write. Hooked at ONE place: `engine._judge` adds
-`checklist_items` and `engine._after_judge` adds `lines` (after every AI step, so no AI step rewrites a code line).
+code parses the paper's own words. Pure: no model, no network, no write. Hooked in `engine._after_judge` (`add_lines`, after every AI step, so no AI step rewrites a code line). The fixed checklist
+(`checklist_items`) is NOT hooked in update 5: it must read the whole package first.
 """
 
 from __future__ import annotations
@@ -74,7 +74,9 @@ def checklist() -> dict:
 
 
 def checklist_items(identity: dict | None) -> list[dict]:
-    """The fixed contract checklist as judge items (same fields as the always-on items), for a contract only; [] otherwise.
+    """NOT HOOKED in update 5 (lead 4, 19 Nov 2026: 11 of 12 WRONG comments on contract copy A came from these generic asks for
+    items the incorporated Schedules already hold). Before it is hooked again it must read the whole package first.
+    The fixed contract checklist as judge items (same fields as the always-on items), for a contract only; [] otherwise.
     Not from a held standard: the judge's word is an AI opinion or a Question, never Met or Not met."""
     if not is_contract(identity):
         return []
@@ -298,24 +300,70 @@ def check_schedules(pages: dict[int, str], held: set[str] | None = None) -> list
 
 # ------------------------------------------------------------------------------------------------ defined terms
 
-_DEF = re.compile(
-    r"(?:referred\s+to\s+(?:collectively\s+|individually\s+)?as\s+(?:the\s+)?|\(\s*(?:the\s+)?|\bor\s+)"
-    r"[\"“](?P<term>[A-Z][A-Za-z\-]*(?:\s+[A-Z][A-Za-z\-]*){0,4})[\"”]"
+_TERM = r"[A-Z][A-Za-z\-]*(?:\s+[A-Z][A-Za-z\-]*){0,4}"
+_Q, _UQ = '["\u201c]', '["\u201d]'
+#: ONLY an explicit definition defines a term (lead 4, after the judge of 19 Nov 2026 marked party names and Schedule titles
+#: WRONG): '"X" means' / '"X" shall mean' / '"X" has the meaning'; '(hereinafter | herein | referred to ... as) "X" [or "Y"]';
+#: '"X" herein'. A quoted word in a bracket alone ('("Bond")') is not a definition.
+_DEFS = (
+    re.compile(
+        rf"{_Q}(?P<term>{_TERM}){_UQ}\s*(?:means|shall\s+mean|has\s+the\s+meaning)\b"
+    ),
+    re.compile(
+        rf"\b(?:here(?:in)?after|herein|referred\s+to)\b[^\"\u201c\u201d()]{{0,60}}?\bas\s+(?:the\s+)?{_Q}(?P<term>{_TERM}){_UQ}"
+        rf"(?:\s+or\s+(?:the\s+)?{_Q}(?P<alt>{_TERM}){_UQ})?"
+    ),
+    re.compile(rf"{_Q}(?P<term>{_TERM}){_UQ}\s+here(?:in)?(?:after)?\b"),
 )
+#: words that open a sentence or a noun phrase: a capitalised one before a term does not make the term part of a name
+_OPENERS = {
+    "the",
+    "this",
+    "that",
+    "a",
+    "an",
+    "such",
+    "each",
+    "any",
+    "said",
+    "every",
+    "all",
+    "no",
+    "if",
+    "where",
+    "when",
+    "and",
+    "or",
+}
 
 
 def defined_terms(pages: dict[int, str]) -> dict[str, tuple[int, str]]:
-    """{term as defined: (page, quote)} for every capitalised term the paper defines in quotes after 'referred to as' or an
-    opening bracket ('(the "Work")', '"Work" or "WORK"')."""
+    """{term as defined: (page, quote)} for every capitalised term the paper defines EXPLICITLY (`_DEFS`)."""
     out: dict[str, tuple[int, str]] = {}
     for page in sorted(pages):
         fp = flat(pages[page])
-        for m in _DEF.finditer(fp):
-            term = m.group("term").strip()
-            if len(term) < 3:
-                continue
-            out.setdefault(term, (page, _quote(fp, m.start(), m.end())))
+        for rx in _DEFS:
+            for m in rx.finditer(fp):
+                for g in ("term", "alt"):
+                    term = (m.groupdict().get(g) or "").strip()
+                    if len(term) >= 3:
+                        out.setdefault(term, (page, _quote(fp, m.start(), m.end())))
     return out
+
+
+def _in_name(fp: str, start: int, end: int) -> bool:
+    """The use stands inside a run of capitalised words: part of a proper name or a title ('Alpha Trading Company', 'Seller's
+    Drawings'), not a use of the defined term."""
+    before = re.findall(r"[A-Za-z]+", fp[max(0, start - 40) : start])
+    after = re.match(r"(?:['\u2019]s)?\s+([A-Za-z]+)", fp[end : end + 40])
+    prev_cap = (
+        bool(before)
+        and before[-1][0].isupper()
+        and before[-1].lower() not in _OPENERS
+        and not fp[:start].rstrip().endswith((".", ";", ":"))
+    )
+    next_cap = bool(after) and after.group(1)[0].isupper()
+    return prev_cap or next_cap
 
 
 def check_terms(pages: dict[int, str]) -> list[dict]:
@@ -342,6 +390,13 @@ def check_terms(pages: dict[int, str]) -> list[dict]:
                     continue
                 if m.start() > 0 and fp[m.start() - 1] in '"\u201c':
                     continue  # a definition or a quoted mention
+                if _in_name(fp, m.start(), m.end()):
+                    continue  # part of a party's name or a document title, not the defined term
+                if re.search(
+                    r"(?:^|\s)\d{1,2}(?:\.\d{1,2})*\.?\s*$",
+                    fp[max(0, m.start() - 12) : m.start()],
+                ):
+                    continue  # a clause heading right after its number ('8. TERM'), not a use of the term
                 odd.append((page, m.start(), used, fp))
         if odd:
             found.append((*odd[0], allowed, len(odd)))

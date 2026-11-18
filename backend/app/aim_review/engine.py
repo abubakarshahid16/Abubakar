@@ -720,7 +720,7 @@ def _judge(
 ) -> None:
     """The decided lines of every checklist item, in order (one per item, or per failing place). An item whose book is not on
     the list shown is never sent: "not judged", its book counted as unlisted. Company books not cited: "Does not apply"."""
-    from . import always, contract_code
+    from . import always
     from . import library as L
     from . import steps as S
     from . import verify as V
@@ -735,9 +735,6 @@ def _judge(
     items += always.items(
         text.conn, state.identity, checklist, allowed_books, paper.pages
     )
-    items += contract_code.checklist_items(
-        state.identity
-    )  # the fixed contract checklist (builder C), a contract only
     judged, held_back, not_cited = [], set(), set()
     company = L.company_books_not_cited(text.conn, state.paper_id, books)
     for it in items:
