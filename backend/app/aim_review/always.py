@@ -67,19 +67,10 @@ def items(
         for it in checklist.get("items") or []
         if isinstance(it, dict) and it.get("source") == HELD
     ]
-    # two locks: the book is on the shown list AND it may be used for this paper (public, or a company book the paper cites)
-    listed = [
-        (it, b)
-        for it, b in listed
-        if b
-        and b in allowed_books
-        and (
-            b in cited
-            or L.is_public_name(
-                (books.get(it.get("book") or "") or {}).get("identifier")
-            )
-        )
-    ]
+    # two locks: the book is on the shown list AND it may be used for this paper (public, the client's own, or cited)
+    names = {str(b.get("book")): b.get("identifier") for b in books.values()}
+    ok = L.usable_ids(conn, {b for _it, b in listed}, cited, names)
+    listed = [(it, b) for it, b in listed if b and b in allowed_books and b in ok]
     facts, named = _library_facts(conn, identity, allowed_books, text, cited)
     g3_named = {
         b: str((books.get(it.get("book") or "") or {}).get("identifier") or "")
@@ -176,9 +167,8 @@ def _library_facts(
                 else f"{name} (not among this review's books)"
             )
             for entry, name in L.governing_books(lib, identity.get("equipment_type"))
-            if (
-                L.usable(entry, cited) if entry else L.is_public_name(name)
-            )  # a company standard only when cited
+            if entry is None
+            or L.usable(entry, cited)  # a held book: public, the client's own, or cited
         ]
         named |= {
             str(entry["id"]): L.identifier_of(entry)

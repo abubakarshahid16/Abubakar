@@ -137,14 +137,16 @@ def wanted(
     library, so a held book that is merely not on the list is never called "not held"."""
     lib = L.library(conn, exclude=frozenset({str(paper_id)}))
     kind, etype = ident.get("kind"), ident.get("equipment_type")
-    # a COMPANY book applies only when the paper cites it (ids, `library.cited_company`); a table-named company standard the
-    # paper does not cite, held or not, does not apply
+    # a held book applies when it is public, the client's own (its recorded role) or cited (`library.usable`); a not-held name
+    # from the tables is said whatever its shape (no name shape decides "own")
     cited = L.cited_company(conn, str(paper_id)) if cited is None else frozenset(cited)
     listed: dict[str, str] = {}
     unlisted: list[str] = []
     not_held: list[dict] = []
     for e, name in L.governing_books(lib, etype):
-        if not (L.usable(e, cited) if e else L.is_public_name(name)):
+        if e is not None and not L.usable(
+            e, cited
+        ):  # a held book: public, the client's own, or cited
             continue
         if not e:
             not_held.append(
@@ -161,7 +163,9 @@ def wanted(
         elif e["id"] not in unlisted:
             unlisted.append(e["id"])
     for e, name in L.method_books(lib, kind):
-        if not (L.usable(e, cited) if e else L.is_public_name(name)):
+        if e is not None and not L.usable(
+            e, cited
+        ):  # a held book: public, the client's own, or cited
             continue
         if not e:
             not_held.append(
@@ -291,7 +295,8 @@ def _catalog(
                 }
             )
     cat = [c for c in cat if L.role_applies(by_id[c["book"]], kind)]
-    # a COMPANY standard only when the paper cites it (the build sees no paper: the job passes the cited ids, no text)
+    # a book only when it is public, the client's own (its recorded role) or cited (the build sees no paper: the job passes the
+    # cited ids, no text)
     cat = [c for c in cat if L.usable(by_id[c["book"]], cited)]
     cat = [c for c in cat if c["book"] in required or not gate_ok(c["book"])]
     for i, c in enumerate(cat):

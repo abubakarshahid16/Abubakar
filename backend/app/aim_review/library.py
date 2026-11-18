@@ -173,22 +173,43 @@ def is_public_name(name) -> bool:
 
 
 def is_public(entry: dict | None) -> bool:
-    """A held book is PUBLIC (`is_public_name` of its identifier); else a COMPANY standard, used ONLY when the paper cites it
-    (`cited_company`). Table-naming never brings a company book in (light check 85651ad2: no company is guessed from a name)."""
+    """A held book is PUBLIC by its identifier's publisher family (`is_public_name`)."""
     return bool(entry) and is_public_name(identifier_of(entry))
 
 
+def is_own(entry: dict | None) -> bool:
+    """A held book is one of the CLIENT'S OWN standards when its RECORDED role is a company standard (the owner's choice at upload).
+    The client is a joint operation of its owner companies, so their standards are all its own (owner, 18 Nov 2026). The
+    recorded role decides, never a name shape."""
+    return bool(entry) and (entry.get("document_role") or "") == STANDARD_ROLE
+
+
 def cited_company(conn, paper_id: str) -> frozenset[str]:
-    """The ids of the held COMPANY books the paper cites: its code-read citations (`_paper_citations`) resolved to a held book
-    (`resolve`, the same as WHY_CITED), for any identifier shape. Ids only: what the job may pass into the build."""
+    """The ids of the held books that are neither public nor the client's own (`is_own`) and that the paper cites: its
+    code-read citations (`_paper_citations`) resolved to a held book (`resolve`, the same as WHY_CITED), any identifier shape.
+    Ids only: what the job may pass into the build."""
     lib = library(conn, exclude=frozenset({str(paper_id)}))
     found = (resolve(lib, name) for name in _paper_citations(conn, str(paper_id)))
-    return frozenset(e["id"] for e in found if e and not is_public(e))
+    return frozenset(e["id"] for e in found if e and not is_public(e) and not is_own(e))
 
 
 def usable(entry: dict | None, cited: frozenset[str]) -> bool:
-    """May this held book be used for this paper at all: a public one always; a company one only when the paper cites it."""
-    return is_public(entry) or (bool(entry) and entry["id"] in cited)
+    """May this held book be used for this paper at all: a PUBLIC one, one of the client's OWN standards (its recorded role), or
+    one the paper cites. Measured (head 9dee5805): judging by name shape alone kept 7 of 310 books; the role keeps the library."""
+    return is_public(entry) or is_own(entry) or (bool(entry) and entry["id"] in cited)
+
+
+def usable_ids(
+    conn, ids, cited: frozenset[str], identifiers: dict | None = None
+) -> frozenset[str]:
+    """Of `ids`, the usable held books (`usable`), read from the library. Without a database (a caller with no connection) only
+    the book's identifier is known: public by name, or cited."""
+    ids = {str(i) for i in ids if i}
+    if conn is None:
+        names = identifiers or {}
+        return frozenset(i for i in ids if i in cited or is_public_name(names.get(i)))
+    by_id = {e["id"]: e for e in library(conn)}
+    return frozenset(i for i in ids if usable(by_id.get(i), cited))
 
 
 CITED_MARK = "__cited-"
@@ -573,8 +594,8 @@ def candidates(
     is true for it; light check e1c61001). Otherwise: books governing the stored equipment
     type, method books of the stored kind, books an earlier review of this paper wanted but could not send, books the paper cites
     (resolved by code), then books holding the most rules labelled for the kind (and type). Intersected with `allowed` (rule 5):
-    a book outside it is counted in `unreadable`, never named. A COMPANY standard is offered only when the paper cites it
-    (`is_public`, `cited_company`). At most MAX_CANDIDATES books."""
+    a book outside it is counted in `unreadable`, never named. A book is offered when it is public, one of the client's own
+    standards (its recorded role) or cited by the paper (`usable`). At most MAX_CANDIDATES books."""
     from . import Candidates
 
     paper_id = str(paper_id)
@@ -587,15 +608,9 @@ def candidates(
         if saved is not None
         else _ordered_books(conn, paper_id, kind, type_id, earlier_unlisted)
     )
-    # a COMPANY standard only when the paper cites it (any reason it was listed; table-naming alone never brings it in)
+    # a book is used when it is public, one of the client's own standards (its recorded role), or cited by the paper
     by_id = {e["id"]: e for e in library(conn, exclude=frozenset({paper_id}))}
     order = [(d, w) for d, w in order if usable(by_id.get(d), cited)]
-    # a not-held name is said when it is public, or the paper itself cites it
-    not_held = [
-        n
-        for n in not_held
-        if is_public_name(n["name"]) or str(n.get("why") or "").startswith(WHY_CITED)
-    ]
     readable = [(d, w) for d, w in order if d in allowed]
     unreadable = sum(1 for d, _w in order if d not in allowed)
     books = [{"id": d, "why": w} for d, w in readable[:MAX_CANDIDATES]]
