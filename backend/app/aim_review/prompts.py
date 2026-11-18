@@ -140,6 +140,10 @@ of a quantity (one part, one case, one state) never judges another kind of it.
 Read each item's "applies_when" against THIS place of the paper (this sheet, this item, its stated type and service): when the
 condition does not hold there (the item is for a part, a type or a service this place does not have), the label is "Does not
 apply" with the paper words that show it; a blank field for a part the condition excludes is never a Question.
+A line whose words would only say that the paper meets the rule, is acceptable or adequate, or restate what the paper states,
+is NO COMMENT: give it "Met" with its quote when it rests on a held rule; for any other item give "Question" with "ask":
+"confirm" and an empty comment. Never send a pass as a "concern" or an "AI opinion": a comment must ask the vendor for something
+or name what is wrong, missing or in conflict.
 Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
 NEVER Met or Not met on a value the vendor left open; for EVERY item that rests on a held rule with a numeric limit, give
 "numbers" (the paper's figure and the rule's limit) whenever both are stated, WHATEVER your label, and code will compare them (do not compare
