@@ -154,3 +154,24 @@ def test_the_page_and_the_file_say_how_many_listed_documents_were_used(world):
 def test_an_older_run_with_no_stored_list_says_nothing_about_it(world):
     make_run(books=_books((BOOK, "a")))
     assert _page(PAPER, BOOK)["documents_listed"] is None
+
+
+def test_a_listed_but_not_chosen_book_the_viewer_may_not_read_is_caught_by_its_identifier(
+    world,
+):
+    """The hidden book is only on the list shown before the start (not among the books the run carried), and its file name says
+    nothing: its library identifier (the document number) is still never served from another book's reason."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification (document_id, document_role, document_number, suggested_by)"
+            " VALUES (?, 'COMPANY_STANDARD', 'QX-77-Z', 'test')",
+            (HIDDEN_BOOK,),
+        )
+        review_shown.record_in(conn, "gen_run_1", [PAPER, BOOK, HIDDEN_BOOK], NOW)
+    make_run(books=_books((BOOK, "pairs with qx 77 z for the same service")))
+    page = _page(PAPER, BOOK)
+    assert [b["why"] for b in page["books"]] == [W.WHY_HIDDEN]
+    assert "77" not in json.dumps(page["books"]) and "doc_inv_secret" not in json.dumps(
+        page
+    )
+    assert "QX" not in _summary_text(PAPER, BOOK).upper().replace("WHY_", "")
