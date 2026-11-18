@@ -762,11 +762,14 @@ def test_four_places_of_one_point_are_one_comment_listing_four_pages_and_the_cou
     assert body["counts"]["points"] == 5 and body["counts"]["comments"] == 2
     one = body["comments"][0]
     assert one["lines"] == [1, 2, 3, 4] and one["pages"] == [2, 3, 5, 7]
-    assert "The same point at 4 places (pages 2, 3, 5, 7)" in one["comment"]
-    for v in (25, 26, 27, 28):  # each place's own quote and numbers
+    # the places' own words differ (each its own value), so each place keeps its own words (lossless; owner 18 Nov 16:35)
+    # (the first place's quote and numbers are the comment's own Quote and Compared cells; the others are listed in its words)
+    cells = " ".join((one["comment"], one["quote"], one["compared"]))
+    for v in (25, 26, 27, 28):  # each place's own words, quote and numbers
+        assert f"Design pressure {v} bar is above the 20 bar limit." in one["comment"]
         assert (
-            f"Design pressure {v} bar gauge" in one["comment"]
-            and f"{v} bar <= 20 bar: false" in one["comment"]
+            f"Design pressure {v} bar gauge" in cells
+            and f"{v} bar <= 20 bar: false" in cells
         )
     rep = body["completeness"]
     assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 5
@@ -853,9 +856,10 @@ def test_the_summary_sheet_states_the_measured_score_of_the_papers_kind(world):
     assert rows and rows[0][1] == measured["sentence"]
 
 
-def test_two_different_findings_of_one_item_are_two_comments(world):
-    """Final light check, B1: one always-on item may give several DIFFERENT findings (another field): they never become one
-    comment; a member's unverified quote is carried."""
+def test_different_findings_of_one_item_are_one_lossless_comment(world):
+    """The owner's order (one comment per check point, listing every place; valve sheet at most 40 comments): the findings of
+    one item are ONE comment, and it keeps every member's own words and field (final light check B1 forbade LOSING them, which
+    this never does); a member's unverified quote is carried."""
     a = _line(
         1,
         "Question",
@@ -890,75 +894,111 @@ def test_two_different_findings_of_one_item_are_two_comments(world):
         .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_two")
         .json()
     )
-    assert [cm["lines"] for cm in body["comments"]] == [[1, 3], [2]]
+    assert [cm["lines"] for cm in body["comments"]] == [[1, 2, 3]]
+    one = body["comments"][0]
     assert (
-        body["comments"][1]["comment"] == "The tag differs."
-        and body["comments"][1]["field"] == "Tag number"
+        "Tag number (page 2): The tag differs." in one["comment"]
+        and "Design pressure disagrees." in one["comment"]
     )
-    assert (
-        body["comments"][1]["quote_unverified"] is True
-        and body["completeness"]["ok"] is True
-    )
+    assert one["quote_unverified"] is True and body["completeness"]["ok"] is True
 
 
-def test_an_editor_group_across_fields_is_one_lossless_comment_and_the_counts_hold(
+# ---- one comment per CHECK: repeats of one checklist item merge, different items never (18 Nov 2026, grouping try 2) -------
+
+KNOW = "engineering knowledge (book not held)"
+
+
+def test_one_check_across_tags_and_pages_is_one_comment_with_each_places_own_words_and_value(
     world,
 ):
-    """The owner's pre-live condition: one comment per point, listing every sheet and page; every member's own words, field,
-    page and quote stay in the comment; lines stay one per place, so page = database = All points and the Lines cells hold."""
-    members = [
-        _line(i, "Question", "Question", item_id=f"C{i:02d}", field=f"Invented field {i}", page=i,
-              comment=f"Invented comment of place {i}.", quote=f"invented quote {i}", code_note="same point as line 1")
-        for i in range(1, 5)
+    rows = [
+        _line(i, "Question", "Question", item_id="C07", field=f"Invented tag {i} set value", page=i,
+              comment=f"Invented tag {i}: please confirm the value {i}0.", quote=f"invented quote {i}")
+        for i in range(1, 4)
     ]  # fmt: skip
-    alone = _line(5, "Question", "Question", item_id="C05", page=6)
-    make_run("gen_editor_group", [*members, alone], created="2026-11-18T18:00:00Z")
-    c = client(PAPER, BOOK)
-    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_editor_group").json()
-    assert body["counts"]["points"] == 5 and body["counts"]["comments"] == 2
-    one = body["comments"][0]
-    assert one["lines"] == [1, 2, 3, 4] and one["pages"] == [1, 2, 3, 4]
-    for i in range(1, 5):  # lossless: every member's words, field, page and quote
-        assert (
-            f"Invented comment of place {i}." in one["comment"]
-            and f"invented quote {i}" in one["quote"]
-        )
-    for i in range(2, 5):
-        assert (
-            f"Invented field {i} (page {i}): Invented comment of place {i}."
-            in one["comment"]
-        )
-    rep = body["completeness"]
-    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 5
-    assert rep["comments"] == rep["comment_rows"] == 2
-    wb = _sheet(
-        c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_editor_group")
+    make_run("gen_check", rows, created="2026-11-18T19:00:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_check")
+        .json()
     )
-    rows = aim_review_completeness._table(wb, "Comments")
-    assert [r[aim_review_sheet.COMMENT_HEADERS.index("Lines")] for r in rows] == [
-        "1, 2, 3, 4",
-        "5",
-    ]
+    assert [cm["lines"] for cm in body["comments"]] == [[1, 2, 3]]
+    one = body["comments"][0]
+    assert one["pages"] == [1, 2, 3]
+    cells = " ".join((one["comment"], one["quote"]))
+    for i in range(
+        1, 4
+    ):  # lossless: each tag's field, page, own words (its own value) and quote
+        assert f"Invented tag {i}: please confirm the value {i}0." in one["comment"]
+        assert f"invented quote {i}" in cells
+    for i in (2, 3):
+        assert f"Invented tag {i} set value (page {i})" in one["comment"]
+    rep = body["completeness"]
+    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 3
+    assert rep["comments"] == rep["comment_rows"] == 1
 
 
-def test_a_forged_editor_group_with_mixed_labels_or_compare_kinds_is_not_honoured(world):
-    """SECOND LOCK: the view honours an editor group mark only when every member shows the same label and the same compare
-    kind; a forged or stale mark splits back to item + field grouping (a code-compared Fail never joins a Question)."""
+def test_different_items_are_never_merged_whatever_their_source_or_rule_book(world):
+    """No list of different points (a list buried findings): plain questions from no held standard, and plain questions
+    against one rule book, each stay a comment of their own item."""
+    rows = [
+        *[_line(i, "Question", "Question", page=i, source=KNOW, book_document_id=None, standard="", clause="")
+          for i in range(1, 4)],
+        *[_line(i, "Question", "Question", page=i) for i in range(4, 7)],  # three items, one rule book (STD-X)
+    ]  # fmt: skip
+    make_run("gen_items", rows, created="2026-11-18T19:30:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_items")
+        .json()
+    )
+    assert [cm["lines"] for cm in body["comments"]] == [[1], [2], [3], [4], [5], [6]]
+    assert all(
+        cm["comment"] == f"invented comment {cm['n']}" for cm in body["comments"]
+    )
+    assert body["completeness"]["ok"] is True
+
+
+def test_an_editor_group_mark_never_merges_different_items_and_one_item_splits_by_label_and_compare_kind(
+    world,
+):
+    """The editor's "same point" mark joins nothing in the view now (it spanned different items); one item's lines merge only
+    when they show the same label and the same compare kind (a code-compared Fail never joins a Question)."""
     mark = "same point as line 1"
-    cmp_rule = json.dumps({"read_from": "verified paper quotes", "why": "25 bar <= 20 bar: false"})
+    cmp_rule = json.dumps(
+        {
+            "result": "fail",
+            "read_from": "verified paper quotes",
+            "why": "25 bar <= 20 bar: false",
+        }
+    )
     cmp_other = json.dumps({"read_from": "verified quotes", "why": "invented compare"})
     lines = [
-        _line(1, "Not met", "Fail, compared by code", code_note=mark, code_compare_json=cmp_rule),
-        _line(2, "Question", "Question", code_note=mark),
-        _line(3, "Question", "Question", code_note="same point as line 3", code_compare_json=cmp_rule),
-        _line(4, "Question", "Question", code_note="same point as line 3", code_compare_json=cmp_other),
-        _line(5, "Question", "Question", code_note="same point as line 5"),
-        _line(6, "Question", "Question", code_note="same point as line 5"),
+        _line(1, "Question", "Question", item_id="C01", code_note=mark),
+        _line(2, "Question", "Question", item_id="C02", code_note=mark),  # another item: its own comment
+        _line(3, "Not met", "Fail, compared by code", item_id="C03", code_compare_json=cmp_rule),
+        _line(4, "Question", "Question", item_id="C03"),  # same item, another label
+        _line(5, "Question", "Question", item_id="C04", code_compare_json=cmp_other),
+        _line(6, "Question", "Question", item_id="C04"),  # same item and label, another compare kind
+        _line(7, "Question", "Question", item_id="C05"),
+        _line(8, "Question", "Question", item_id="C05"),  # a true repeat
     ]  # fmt: skip
-    make_run("gen_forged_group", lines, created="2026-11-18T18:30:00Z")
-    body = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_forged_group").json()
-    assert [c["lines"] for c in body["comments"]] == [[1], [2], [3], [4], [5, 6]]  # only the true group (5, 6) is honoured
-    assert "Fail" not in body["comments"][1]["shown_label"] and body["comments"][0]["comment"] == "invented comment 1"
+    make_run("gen_marks", lines, created="2026-11-18T20:00:00Z")
+    body = (
+        client(PAPER, BOOK)
+        .get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_marks")
+        .json()
+    )
+    assert [c["lines"] for c in body["comments"]] == [
+        [1],
+        [2],
+        [3],
+        [4],
+        [5],
+        [6],
+        [7, 8],
+    ]
+    assert body["comments"][2]["shown_label"] == "Fail, compared by code"
     rep = body["completeness"]
-    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 6
-    assert rep["comments"] == rep["comment_rows"] == 5
+    assert rep["ok"] is True and rep["page"] == rep["database"] == rep["file_rows"] == 8
+    assert rep["comments"] == rep["comment_rows"] == 7
