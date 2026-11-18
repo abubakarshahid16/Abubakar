@@ -17,6 +17,7 @@ from . import (
     PROVISIONAL_FAILS,
     PROVISIONAL_UNCHECKED,
 )
+from . import items as I
 from . import library as L
 from . import prompts as P
 from .engine import StepFailed
@@ -602,7 +603,9 @@ def _lines_of(
         return [dict(line, finding_no=1)]
     if not here:
         return [dict(_decide(it, None, paper, books, err), finding_no=1)]
-    return _places([_decide(it, j, paper, books, "") for j in here])
+    return _places(
+        [I.check(_decide(it, j, paper, books, ""), j, paper) for j in here]
+    )  # an item's value, not another's
 
 
 def _places(decided: list[dict]) -> list[dict]:
