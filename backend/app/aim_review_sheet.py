@@ -202,6 +202,17 @@ def _summary(ws: Worksheet, model: dict) -> None:
         _put(ws, row, 1, label or "(no label stored)")
         _put(ws, row, 2, n)
         row += 1
+    row = _books_part(ws, model, row)
+    row += 1
+    usd = model["cost"]["usd"]
+    _put(ws, row, 1, "Cost of this review (USD)").font = Font(bold=True)
+    _put(ws, row, 2, None if usd is None else round(usd, 4))
+    ws.column_dimensions["A"].width = 44
+    ws.column_dimensions["B"].width = 80
+
+
+def _books_part(ws: Worksheet, model: dict, row: int) -> int:
+    """The summary's rule-book part (used, with each reason; not readable, counted; not held; not listed); returns the next row."""
     row += 1
     _put(ws, row, 1, "Rule books used").font = Font(bold=True)
     row += 1
@@ -240,12 +251,7 @@ def _summary(ws: Worksheet, model: dict) -> None:
         row += 1
         _put(ws, row, 1, model["unlisted_books"]["sentence"])
         row += 1
-    row += 1
-    usd = model["cost"]["usd"]
-    _put(ws, row, 1, "Cost of this review (USD)").font = Font(bold=True)
-    _put(ws, row, 2, None if usd is None else round(usd, 4))
-    ws.column_dimensions["A"].width = 44
-    ws.column_dimensions["B"].width = 80
+    return row
 
 
 def _how(ws: Worksheet, model: dict) -> None:
