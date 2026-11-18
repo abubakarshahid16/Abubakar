@@ -614,4 +614,25 @@ def test_every_stated_condition_gets_one_item_that_checks_the_values_chosen_for_
         and "%(conditions)s" in CL.P.KNOWLEDGE_TASK
     )
     assert "a design value is never below the operating" in CL.P.CONDITIONS_ASK
-    assert CL.CHECKLIST_METHOD == "2026-11-18.3"
+    assert CL.CHECKLIST_METHOD >= "2026-11-18.3"
+
+
+def test_a_requirement_a_schedule_of_the_package_carries_is_set_aside_for_the_main_paper():
+    """Contract quick score of 19 Nov: a Form of Agreement was asked for permits, insurance, quality ... that its incorporated
+    schedules hold. Both knowledge asks name the package, and the checklist step's own knowledge items are set aside too."""
+    from app.aim_review import carried
+
+    assert "schedule, annex or attachment of the same package" in CL.P.KNOWLEDGE_TASK
+    assert "carried_by" in CL.P.S3_TASK and "PACKAGE" in CL.P.S3_TASK
+    items = [{"topic": "Insurance", "source": "not from a held standard", "carried_by": "Schedule of insurance"},
+             {"topic": "Price words vs figures", "source": "not from a held standard", "carried_by": "HERE"},
+             {"topic": "Held clause", "source": "held standard", "carried_by": "Schedule X"},
+             {"topic": "No answer", "source": "not from a held standard", "carried_by": ""}]  # fmt: skip
+    kept, aside = carried.set_aside(items)
+    assert [i["topic"] for i in kept] == [
+        "Price words vs figures",
+        "Held clause",
+        "No answer",
+    ]
+    assert aside == [{"topic": "Insurance", "why": "for Schedule of insurance paper"}]
+    assert CL.CHECKLIST_METHOD == "2026-11-19.1"

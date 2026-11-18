@@ -23,7 +23,7 @@ from . import book_names as BN
 from . import library as L
 from . import prompts as P
 from . import scope_books as SB
-from .carried import knowledge_rows, say_none
+from .carried import knowledge_rows, say_none, set_aside
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
     FLOOR_ITEMS,
@@ -62,7 +62,9 @@ SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the require
 #: "2026-11-18.2": one item per table of values that checks EVERY row (order across categories, consistent units and decades,
 #: values within the order of magnitude of public practice).
 #: "2026-11-18.3": one item per stated operating or service condition that checks the values the same paper chooses for it.
-CHECKLIST_METHOD = "2026-11-18.3"
+#: "2026-11-19.1": carried_by names the package: what a schedule, annex or attachment of the same package normally carries
+#: is set aside for a Form of Agreement (and its S3 knowledge items too, not only S3K's).
+CHECKLIST_METHOD = "2026-11-19.1"
 
 
 def _dumps(o) -> str:
@@ -410,6 +412,9 @@ def _clean_item(it: dict) -> dict:
         "kind": kind if kind in ITEM_KINDS else "presence",
         "source": src,
         "stands_in_for": str(it.get("stands_in_for") or "")[:80] if src != HELD else "",
+        "carried_by": " ".join(str(it.get("carried_by") or "").split())
+        if src != HELD
+        else "",
     }
 
 
@@ -464,7 +469,10 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
         for x in _answers(model, ident, sel, whole, i == 0, carries, lead)
     ]
     for out, batch in answered:
-        got = _items_of(out)
+        got, aside = set_aside(
+            _items_of(out)
+        )  # a knowledge item another paper of the package carries: not checked here
+        dropped += aside
         bad = [
             it
             for it in got

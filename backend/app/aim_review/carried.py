@@ -62,3 +62,25 @@ def say_none(model, names: str, cause: str) -> None:
                 code=words,
             )
         )
+
+
+def set_aside(items: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(items kept, set-aside rows {topic, why}) for the checklist step's own knowledge items: one whose "carried_by" names another
+    paper (a schedule of the same package, a study) is not checked here, as for the knowledge step's items. No answer keeps it."""
+    kept, aside = [], []
+    for it in items:
+        carried = str(it.get("carried_by") or "").strip()
+        if (
+            it.get("source") != "held standard"
+            and carried
+            and not carried.lower().startswith(HERE)
+        ):
+            aside.append(
+                {
+                    "topic": it.get("topic") or "",
+                    "why": f"for {carried.removesuffix(' paper')[:80]} paper",
+                }
+            )
+        else:
+            kept.append(it)
+    return kept, aside
