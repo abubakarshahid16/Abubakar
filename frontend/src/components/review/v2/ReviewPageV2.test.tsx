@@ -967,7 +967,7 @@ describe("12 the general review's results page (order 14)", () => {
       { run_id: "old1", version: "earlier version", part: "AI review", status: "completed", started_at: "t", finished_at: "2026-11-01T10:00:00Z", points: 9, files: [] },
     ] }));
     mount(); await screen.findByTestId("general-results");
-    fireEvent.click(screen.getByRole("tab", { name: "How it was reviewed" }));
+    fireEvent.click(screen.getByRole("tab", { name: "How this review was made" }));
     expect(screen.getByTestId("general-how")).toHaveTextContent("invented-book.pdf");
     expect(screen.getByTestId("general-how")).toHaveTextContent("and 1 you may not open");
     expect(screen.getByTestId("general-how")).toHaveTextContent("Invented Public Standard");
