@@ -152,6 +152,11 @@ def _state_words(code_note) -> str:
     return "; ".join(dict.fromkeys(w for w in words if w in _STATE_WORDS))
 
 
+def _note_words(code_note) -> set[str]:
+    """The words a code note's parts start with ("edited: repeats line 3; answered: ..." -> {"edited", "answered"})."""
+    return {x.split(":", 1)[0].strip() for x in str(code_note or "").split(";")}
+
+
 def _provisional_kind(code_note) -> str:
     """The provisional part of a code note ("provisional_unchecked", "provisional_fails", ...), or ""."""
     parts = (x.strip() for x in str(code_note or "").split(";"))
@@ -453,6 +458,12 @@ def build(conn, run: dict, scope=None) -> dict:
         "counts": {
             "points": len(points),
             "comments": len(comments),
+            # points kept off the comments, counted apart (each stays on "All points"): taken off by the editor as a repeat or
+            # contradicted, or answered by the paper on some page (the whole-paper check)
+            "not_sent": {
+                note: sum(1 for p in points if note in _note_words(p["code_note"]))
+                for note in (aim_review.EDITED, aim_review.ANSWERED)
+            },
             "by_label": by_label,
             "by_shown_label": by_shown,
             "boundary": BOUNDARY,

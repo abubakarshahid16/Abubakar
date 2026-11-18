@@ -138,7 +138,8 @@ def test_the_page_json_has_the_contract_shape(world):
         and body["run_id"] == RUN
     )
     assert body["counts"] == {
-        "points": 6, "comments": 3, "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
+        "points": 6, "comments": 3, "not_sent": {"edited": 0, "answered": 0},
+        "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
         "by_shown_label": body["counts"]["by_shown_label"], "boundary": "this paper, this review",
     }  # fmt: skip
     assert [c["n"] for c in body["comments"]] == [1, 3, 5]
@@ -1160,3 +1161,31 @@ def test_a_book_the_viewer_may_not_open_serves_no_numbers_comparison_or_note_wor
     row = aim_review_completeness._table(wb, "All points")[1]
     assert not any("707" in str(cell) for cell in row)
     assert body["completeness"]["ok"] is True
+
+
+def test_answered_and_edited_points_are_counted_apart_and_every_point_stays_a_row(
+    world,
+):
+    """A point the whole-paper check found answered (or the editor took off) is not a comment, is counted apart, and stays on
+    "All points": page = database = file still holds."""
+    rows = [
+        _line(1, "Question", "Question", item_id="C01", code_note='answered: the paper answers it on page 4: "invented words"'),
+        _line(2, "Question", "Question", item_id="C02", code_note="edited: repeats line 3"),
+        _line(3, "Question", "Question", item_id="C03"),
+    ]  # fmt: skip
+    make_run("gen_answered", rows, created="2026-11-19T01:10:00Z")
+    c = client(PAPER, BOOK)
+    body = c.get(f"/api/reviews/papers/{PAPER}/general?run_id=gen_answered").json()
+    assert [cm["lines"] for cm in body["comments"]] == [[3]]
+    assert body["counts"]["not_sent"] == {"edited": 1, "answered": 1}
+    rep = body["completeness"]
+    assert (
+        rep["ok"] is True
+        and rep["page"] == rep["database"] == rep["file_rows"] == 3
+        and rep["comment_rows"] == 1
+    )
+    wb = _sheet(c.get(f"/api/reviews/papers/{PAPER}/general/sheet?run_id=gen_answered"))
+    note = aim_review_sheet.POINT_HEADERS.index("Code note")
+    assert aim_review_completeness._table(wb, "All points")[0][note].startswith(
+        "answered: the paper answers it on page 4"
+    )
