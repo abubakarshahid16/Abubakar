@@ -557,11 +557,14 @@ def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(a
         page, text = pages[0]
         quote = max(text.splitlines(), key=len).strip()
         rows = [json.loads(x) for x in prompt.splitlines() if x.startswith('{"n"')]
-        return (
-            {"answered": [{"n": rows[0]["n"], "page": int(page), "quote": quote}]}
+        first = (
+            [{"n": rows[0]["n"], "answered": True, "page": int(page), "quote": quote}]
             if rows
-            else {"answered": []}
+            else []
         )
+        return {
+            "verdicts": first + [{"n": x["n"], "answered": False} for x in rows[1:]]
+        }
 
     model = E.FakeModel(
         kind="datasheet", subject_key="test_item", answers={"aim_answered": check}

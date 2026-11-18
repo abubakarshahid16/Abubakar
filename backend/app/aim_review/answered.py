@@ -1,6 +1,6 @@
 """S4b, the whole-paper check of the general review (18 Nov 2026, after live): before a comment that rests on NO held rule book
-is sent, the model reads the whole paper once more (cached, as for the judge) and names the comments the paper already answers,
-or states the opposite of, on some page. Code checks every answer: the quote is found by code on that page. Such a line stays in
+is sent, the model reads the whole paper once more (cached, as for the judge) and gives ONE verdict per comment: does the paper
+already answer it, or state the opposite, on some page (v2: a forced verdict per comment; "name only" named almost none). Code checks every answer: the quote is found by code on that page. Such a line stays in
 "All points" with the page and the quote (`ANSWERED`, a not-sent note) and is never a comment. Held-standard lines, code
 comparisons, provisional figures and values left open are never offered. One call per `ANSWER_CHUNK` lines, each applied whole
 or not at all; a failed or cut call applies nothing and the run's calls say so."""
@@ -125,10 +125,16 @@ def answer_reason(a: dict, shown: dict, paper) -> str | None:
 
 def _apply(out: dict, shown: dict, paper) -> int:
     """One call's answer, whole: each accepted answer adds the not-sent note to its line (once)."""
-    answers = out.get("answered")
+    verdicts = out.get("verdicts")
     taken = 0
-    for a in answers if isinstance(answers, list) else []:
-        why = answer_reason(a, shown, paper) if isinstance(a, dict) else None
+    for a in (
+        verdicts if isinstance(verdicts, list) else []
+    ):  # one verdict per comment; only "answered": true is checked
+        why = (
+            answer_reason(a, shown, paper)
+            if isinstance(a, dict) and a.get("answered") is True
+            else None
+        )
         if why:
             d = shown.pop(a["n"])
             d["code"] = "; ".join(x for x in (d.get("code"), why) if x)
