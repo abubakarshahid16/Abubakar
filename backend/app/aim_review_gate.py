@@ -35,6 +35,11 @@ EARLIER_VERSION = "Earlier version"
 RUN_CAP_USD = 15.0
 
 
+def answered_check_on() -> bool:
+    """True: the general review runs the whole-paper check (S4b) after the judge (`AIM_ANSWERED_CHECK_ENABLED`, default off)."""
+    return bool(settings.aim_answered_check_enabled)
+
+
 def old_engine_on() -> bool:
     """True: the old engine runs as before and the general review is not offered."""
     return bool(settings.review_old_engine_enabled)

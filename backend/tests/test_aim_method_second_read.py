@@ -175,3 +175,23 @@ def test_a_run_asks_the_second_reader_after_the_judge_and_before_the_editor(aim_
     assert differ and all(
         ln["label"] == "Question" for ln in differ
     )  # no answer: every offered finding is to be checked
+
+
+def test_a_line_a_reference_paper_checked_never_goes_to_the_second_reader():
+    reader = _Reader([{"n": 1, "label": "Met", "page": 1, "quote": GOOD}])
+    differs = _line(label="AI opinion", code="reference_checked: Invented Schedule X")
+    assert (
+        R.s4c_second_read(reader, DOC, [differs], {"items": []}, MODEL) == 0
+        and reader.asked == []
+    )
+    assert differs["label"] == "AI opinion" and "readers" not in differs["code"]
+
+
+def test_a_long_disagreement_is_cut_with_the_visible_mark():
+    from app.crs_completeness import CUT_MARK
+
+    lines = [_line(comment="x" * 2000)]
+    _read(lines, [{"n": 1, "label": "Met", "page": 1, "quote": GOOD, "reason": "r"}])
+    assert len(lines[0]["comment"]) == R.COMMENT_MAX and lines[0]["comment"].endswith(
+        CUT_MARK
+    )

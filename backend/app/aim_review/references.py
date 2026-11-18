@@ -499,8 +499,18 @@ def _check_ref(conn, mdl, paper, ref: Ref, lines: list[dict], lead: str) -> dict
 
 
 def _failed(ref: Ref, failure: str, questions: int, settled: int) -> dict:
+    """A call that failed: "failed" only when nothing was settled; after settled questions it is "read in part" and says how many
+    (those lines are already decided and stay so)."""
     gate = "gate_closed" in failure or ": stop " in failure
     why = "the send gate did not allow it" if gate else failure[:200]
+    if settled:
+        return _status(
+            ref,
+            READ_IN_PART,
+            f"{settled} of {questions} questions settled before a call stopped ({why})",
+            questions,
+            settled,
+        )
     return _status(ref, NOT_SENT if gate else FAILED, why, questions, settled)
 
 

@@ -12,6 +12,7 @@ import logging
 from . import ANSWERED, PROVISIONAL
 from . import prompts as P
 from .engine import StepFailed
+from .references import NOTE_CHECKED as REFERENCE_CHECKED
 from .steps import HELD, _dumps, paper_block
 from .verify import norm, quote_in
 
@@ -45,6 +46,8 @@ def offered(lines: list[dict]) -> dict[int, dict]:
             and not d.get("code_compare")
             and not d.get("deferred")
             and not any(x.startswith(PROVISIONAL) for x in parts)
+            # a line a reference paper checked rests on that paper, which this step never reads (the Schedule of the package)
+            and not any(x.startswith(REFERENCE_CHECKED) for x in parts)
         ):
             out[n] = d
     return out
@@ -75,7 +78,7 @@ def _ask(model, paper, shown: dict, lead: str) -> dict | None:
             system="",
             cached=paper_block(paper),
             prompt=P.ANSWERED_TASK % {"comments": "\n".join(_dumps(x) for x in rows)},
-            carries={paper.paper_id},
+            carries=_carries(paper, shown),
             max_tokens=ANSWER_MAX_TOKENS,
         )
     except (
@@ -89,6 +92,19 @@ def _ask(model, paper, shown: dict, lead: str) -> dict | None:
         log.info("general review: the whole-paper check was not applied (%s)", code)
         return None
     return out if isinstance(out, dict) else None
+
+
+def _carries(paper, shown: dict) -> set[str]:
+    """The paper and every book whose words the shown lines hold (their rule book, the books an always-on line names)."""
+    out = {paper.paper_id}
+    for d in shown.values():
+        out |= {str(d["book_document_id"])} if d.get("book_document_id") else set()
+        out |= {
+            str(b.get("id"))
+            for b in d.get("named_books") or []
+            if isinstance(b, dict) and b.get("id")
+        }
+    return out
 
 
 def _note(model, words: str) -> None:

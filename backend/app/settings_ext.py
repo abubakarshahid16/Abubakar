@@ -662,6 +662,11 @@ class SettingsExt(BaseModel):
     #: nothing and its screens are hidden. True: everything is exactly as before the general review and it is not offered.
     #: Read only through `aim_review_gate`. Env: REVIEW_OLD_ENGINE_ENABLED.
     review_old_engine_enabled: bool = False
+    #: The general review's whole-paper check (S4b, `aim_review.answered`): a line on no held rule that the paper answers on some
+    #: page is kept on All points with its reason and not sent. Code proves only that the quote stands on its page, not that it
+    #: answers the comment, so it is OFF by default; the lead turns it on in the live switches only if a scored run says better.
+    #: Env: AIM_ANSWERED_CHECK_ENABLED.
+    aim_answered_check_enabled: bool = False
     #: The general review run's own meter, USD: the run stops before a call whose worst case would cross it. Refused above 15
     #: (the per-run cap of CLAUDE.md rule 1). Env: GENERAL_REVIEW_MAX_USD_PER_RUN.
     general_review_max_usd_per_run: float = Field(5.0, gt=0, le=15.0)

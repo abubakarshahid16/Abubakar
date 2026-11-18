@@ -499,7 +499,12 @@ def _after_judge(
         conn, mdl, paper, state.decided, allowed_books, lead
     )
     say(95, "whole-paper check and second reader")
-    s4b_answered(mdl, paper, state.decided, lead)
+    from app import aim_review_gate
+
+    if (
+        aim_review_gate.answered_check_on()
+    ):  # off by default (a way-back switch): code proves the quote, not the answer
+        s4b_answered(mdl, paper, state.decided, lead)
     s4c_second_read(mdl, paper, state.decided, checklist, lead)
     say(96, "judge")
     s5_edit(mdl, paper, state.decided, lead)

@@ -546,10 +546,22 @@ def test_ids_the_job_passes_never_make_another_role_a_rule_book(aim_db):
     assert COMPANY not in r.books
 
 
-def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(aim_db):
+def test_the_whole_paper_check_is_off_by_default_and_asks_nothing(aim_db):
+    """A way-back switch, default OFF (code proves the quote stands on its page, not that it answers the comment)."""
+    _r, model, _s = _run(aim_db)
+    assert "aim_answered" not in [c["step"] for c in model.asked]
+
+
+def test_the_whole_paper_check_takes_an_answered_no_book_line_off_the_comments(
+    aim_db, monkeypatch
+):
     """S4b runs after the judge and before the editor: a line on no held rule that the paper answers (a quote code finds on the
-    named page) stays a point, not sent; every other line is unchanged."""
+    named page) stays a point, not sent; every other line is unchanged. With its switch on."""
     import json
+
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_answered_check_enabled", True)
     import re
 
     def check(step, cached, prompt):

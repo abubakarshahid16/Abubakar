@@ -57,11 +57,20 @@ def _ask(model, paper, shown_lines: dict, lead: str) -> dict | None:
         {"n": n, "field": d.get("field") or "", "page": d.get("page"), "comment": d.get("comment") or "", "quote": d.get("quote") or ""}
         for n, d in shown_lines.items()
     ]  # fmt: skip
-    carries = {paper.paper_id} | {
-        str(d["book_document_id"])
-        for d in shown_lines.values()
-        if d.get("book_document_id")
-    }
+    carries = (
+        {paper.paper_id}
+        | {
+            str(d["book_document_id"])
+            for d in shown_lines.values()
+            if d.get("book_document_id")
+        }
+        | {  # the books an always-on or reference line names: their words are in the request
+            str(b.get("id"))
+            for d in shown_lines.values()
+            for b in d.get("named_books") or []
+            if isinstance(b, dict) and b.get("id")
+        }
+    )
     try:
         out = model.ask(
             step="aim_edit",
