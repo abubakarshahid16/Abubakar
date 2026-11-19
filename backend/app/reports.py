@@ -477,7 +477,15 @@ def render(snapshot: dict) -> bytes:
     def rectfn(rect_num, filled):
         return MEDIABOX, BODY, None
 
-    story = pymupdf.Story(html=to_html(snapshot), user_css=CSS)
+    html = to_html(snapshot)
+    if snapshot.get("recreated_from"):
+        html = (
+            '<p class="approval">RECREATED COPY FROM SAVED EVIDENCE. '
+            f'Original report: {_esc(snapshot["recreated_from"])}. '
+            f'Recreated: {_esc(snapshot["recreated_at"])}. '
+            'The original PDF is unavailable. The evidence dates below are those of the saved report.</p>'
+        ) + html
+    story = pymupdf.Story(html=html, user_css=CSS)
     doc = story.write_with_links(rectfn)
     _draw_furniture(doc)
     doc.set_metadata({
@@ -603,6 +611,8 @@ def _row_to_record(row) -> dict:
         # Whether the PDF is on this machine: a report written on another machine whose file did not come along is listed
         # but cannot be downloaded, and the screen says so instead of offering a Download that answers 404 (V2).
         "file_available": _file_present(row),
+        "recreation_available": not _file_present(row)
+        and _sha(row["snapshot_json"].encode("utf-8")) == row["snapshot_sha256"],
         # stored_path is NEVER here
     }
 
@@ -695,6 +705,17 @@ def stored_path(report_id: str, scope: access.AccessScope) -> Path:
     if not row["stored_path"]:
         raise ReportNotFound(report_id)
     return Path(stored_paths.local(row["stored_path"]))
+
+
+def recreate(report_id: str, scope: access.AccessScope) -> bytes:
+    """Recreate a labelled copy from intact saved evidence without changing history."""
+    row = _require(report_id, scope)
+    if _sha(row["snapshot_json"].encode("utf-8")) != row["snapshot_sha256"]:
+        raise ReportNotFound(report_id)
+    snapshot = json.loads(row["snapshot_json"])
+    snapshot["recreated_from"] = report_id
+    snapshot["recreated_at"] = datetime.now(timezone.utc).isoformat()
+    return render(snapshot)
 
 
 def verify(report_id: str, scope: access.AccessScope) -> dict:

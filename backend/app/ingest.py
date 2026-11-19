@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 from . import acronyms as acronyms_mod
 from . import claude_auto_approve
-from . import doc_router, document_kind, errors, intake, job_queue, page_ledger, sheet_chunks, states
+from . import doc_router, document_kind, errors, intake, job_queue, page_ledger, sheet_chunks, states, startup_repairs
 from . import intake_blocks
 from .chunker import chunk_document
 from . import reading_state, telemetry
@@ -630,6 +630,11 @@ class IngestionWorker(ReviewDrain):
                 if job is not None:
                     result["job_state"] = job_queue.fail(
                         conn, job["id"], code=code, message=safe_message)
+                # A guarded re-chunk can refuse replacement after the old
+                # index is still complete. Restore the document to a usable
+                # searchable state and leave the refusal visible to the user.
+                if startup_repairs.restore_blocked_refresh(conn, doc_id):
+                    result["job_state"] = "cancelled"
             result["error"] = self.last_error
             return result
 

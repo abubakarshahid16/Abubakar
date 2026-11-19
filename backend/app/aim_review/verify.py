@@ -270,6 +270,59 @@ def rule_operator(rule_quote: str) -> str | None:
     return found.pop() if len(found) == 1 else None
 
 
+def paper_relation(check: str, value_quote: str, limit_quote: str) -> str | None:
+    """Orient a checklist relationship using the two quoted field names.
+
+    These remain AI-selected paper pairs. A different clause about another
+    limit must not reverse the relationship this checklist item asks to check.
+    """
+    from app import claims
+
+    reverse = {"<=": ">=", ">=": "<=", "<": ">", ">": "<", "==": "==", "!=": "!="}
+    first, second = norm(value_quote), norm(limit_quote)
+    found = set()
+    comparator_re = (
+        claims._COMPARATOR_RE
+        + r"|(?:no|not)\s+(?:be\s+)?(?:below|lower\s+than|above|higher\s+than)"
+    )
+    for sentence in re.split(r"[.;\n]", norm(check)):
+        for match in re.finditer(comparator_re, sentence, re.IGNORECASE):
+            phrase = match.group()
+            op = (
+                ">="
+                if re.search(r"(?:below|lower)", phrase, re.IGNORECASE)
+                else "<="
+                if re.search(r"(?:above|higher)", phrase, re.IGNORECASE)
+                else claims.parse_comparator(phrase)
+            )
+            if op not in reverse:
+                continue
+            left = re.sub(
+                r"\s+(?:(?:shall|must|should|is|be)\s*)+$",
+                "",
+                sentence[: match.start()],
+            ).strip()
+            right = re.sub(r"^(?:the|a|an)\s+", "", sentence[match.end() :].strip())
+            left = re.sub(r"^(?:the|a|an)\s+", "", left)
+            if len(left) < MIN_QUOTE or len(right) < MIN_QUOTE:
+                continue
+            if (
+                left in first
+                and right in second
+                and left not in second
+                and right not in first
+            ):
+                found.add(op)
+            if (
+                left in second
+                and right in first
+                and left not in first
+                and right not in second
+            ):
+                found.add(reverse[op])
+    return found.pop() if len(found) == 1 else None
+
+
 # ------------------------------------------------------------------ a clause number is shown only if the book prints it
 
 CLAUSE_NOT_FOUND = "clause number not confirmed in the book"

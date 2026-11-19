@@ -1148,11 +1148,13 @@ def download_report(report_id: str,
                     scope: access.AccessScope = Depends(access.current_scope)):
     path = _report_or_404(reports_mod.stored_path, report_id, scope)
     if not path.exists():
-        # The record exists and the caller may read it: say what is wrong, not "no report" (V2).
-        raise HTTPException(
-            status_code=404,
-            detail=errors.safe_error(
-                errors.NOT_FOUND, "the file of this report is not on this machine, so it cannot be downloaded"),
+        data = _report_or_404(reports_mod.recreate, report_id, scope)
+        return Response(
+            content=data, media_type="application/pdf",
+            headers={
+                "Cache-Control": "private, no-store",
+                "Content-Disposition": f'attachment; filename="rag-intelligence-report-{report_id}-recreated.pdf"',
+            },
         )
     # private, no-store - NOT the max-age page images use. A page image is a
     # fragment; this is the assembled evidence with quoted client text in it.

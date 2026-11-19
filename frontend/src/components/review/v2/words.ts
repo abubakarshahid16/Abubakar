@@ -46,6 +46,9 @@ const usd = (n: number) => `USD ${Number.isInteger(n) ? n : n.toFixed(2)}`;
 
 /** "Engine: Claude. Text of this paper and of 4 rule books will leave this computer." The first line of the engine line. */
 export function engineWords(plan: ReviewPlan): string {
+  if (plan.refused && plan.choice === "automatic" && plan.unscored) {
+    return "Choose Claude to request a draft review of this unscored document type. The plan will show any further requirements before starting.";
+  }
   if (plan.refused) return plan.refused.endsWith(".") ? plan.refused : `${plan.refused}.`;
   const onClaude = plan.parts.filter((p) => p.engine === "claude");
   const name = onClaude.length ? "Claude" : "this computer";

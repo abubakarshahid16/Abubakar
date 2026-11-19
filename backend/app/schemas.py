@@ -1961,6 +1961,7 @@ class ReportRecord(BaseModel):
         description="named on page 1 of the PDF as not included")
     file_available: bool = Field(
         True, description="false when the PDF is not on this machine (the record is listed, the file cannot be downloaded)")
+    recreation_available: bool = False
 
 
 class ReportList(BaseModel):

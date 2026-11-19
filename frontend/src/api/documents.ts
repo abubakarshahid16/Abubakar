@@ -36,7 +36,7 @@ export interface SearchResult {
   query: string;
   mode: string;
   total: number;
-  hits: Array<{ filename: string }>;
+  hits: Array<{ filename: string; document_id?: string; page_start?: number }>;
 }
 
 /** The unauthenticated route, and the only one. It answers "is the service up"
