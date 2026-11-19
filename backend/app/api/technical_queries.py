@@ -72,7 +72,7 @@ class EvidenceIn(BaseModel):
 
 class EvidenceClassificationIn(BaseModel):
     evidence_state: Literal["verified", "missing", "conflicting", "ambiguous"]
-    supersession_state: Literal["current", "superseded", "unknown"] = "current"
+    supersession_state: Literal["current", "superseded", "unknown"] = "unknown"
     conflict_group: str | None = Field(default=None, max_length=200)
 
 
@@ -90,6 +90,13 @@ class SendIn(BaseModel):
 
 class AssignmentIn(BaseModel):
     assignee_user_id: str = Field(min_length=1, max_length=200)
+
+
+class TriageIn(BaseModel):
+    contractor_name: str | None = Field(default=None, max_length=300)
+    department: str | None = Field(default=None, max_length=300)
+    priority: Literal["low", "normal", "high", "urgent"] = "normal"
+    due_at: str | None = Field(default=None, max_length=40)
 
 
 class ReconcileSendIn(BaseModel):
@@ -369,6 +376,33 @@ def assign_technical_query(
     return _safe_item(item, scope)
 
 
+@router.post("/api/technical-queries/{query_id}/triage")
+def triage_technical_query(
+    query_id: str,
+    body: TriageIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.triage_query(
+            query_id,
+            body.contractor_name.strip() or None if body.contractor_name else None,
+            body.department.strip() or None if body.department else None,
+            body.priority,
+            body.due_at,
+            scope.user_id,
+            scope.is_admin,
+            scope.unrestricted,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return _safe_item(item, scope)
+
+
 @router.post("/api/technical-queries/import")
 def import_technical_query(
     body: ImportIn, scope: access.AccessScope = Depends(access.current_scope)
@@ -568,15 +602,18 @@ def classify_query_evidence(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     _require_identity_to_write(scope)
-    item = technical_queries.update_evidence(
-        query_id,
-        evidence_id,
-        body.evidence_state,
-        body.supersession_state,
-        body.conflict_group,
-        scope.user_id,
-        *_visible(scope),
-    )
+    try:
+        item = technical_queries.update_evidence(
+            query_id,
+            evidence_id,
+            body.evidence_state,
+            body.supersession_state,
+            body.conflict_group,
+            scope.user_id,
+            *_visible(scope),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="query or evidence not found")
     return _safe_item(item, scope)
@@ -605,6 +642,14 @@ async def upload_query_attachment(
     )
     if attachment is None:
         raise HTTPException(status_code=404, detail="query attachment not found")
+    current = technical_queries.get(query_id, *_visible(scope))
+    if current and current["status"] in {
+        "send_pending",
+        "sent",
+        "awaiting_confirmation",
+        "resolved",
+    }:
+        raise HTTPException(status_code=409, detail="sent query attachments are locked")
     if attachment["document_id"]:
         raise HTTPException(status_code=409, detail="query attachment already uploaded")
     if file.filename != attachment["filename"]:

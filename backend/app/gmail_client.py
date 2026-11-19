@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -45,7 +46,13 @@ class GmailApiClient:
             response = self._transport(method, BASE + path, headers=headers, **kwargs)
         else:
             response = httpx.request(
-                method, BASE + path, headers=headers, timeout=30, **kwargs
+                method,
+                BASE + path,
+                headers=headers,
+                timeout=30,
+                follow_redirects=False,
+                trust_env=False,
+                **kwargs,
             )
         response.raise_for_status()
         return response.json()
@@ -189,6 +196,39 @@ def _body(part: dict[str, Any]) -> str:
     return "".join(_body(child) for child in part.get("parts", []))
 
 
+class _VisibleHTML(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.fragments: list[str] = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style", "head"}:
+            self.hidden += 1
+        elif tag in {"p", "div", "br", "li", "tr"}:
+            self.fragments.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style", "head"} and self.hidden:
+            self.hidden -= 1
+        elif tag in {"p", "div", "li", "tr"}:
+            self.fragments.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self.hidden:
+            self.fragments.append(data)
+
+
+def _html_body(part: dict[str, Any]) -> str:
+    if part.get("mimeType") == "text/html":
+        parser = _VisibleHTML()
+        parser.feed(_decode((part.get("body") or {}).get("data")))
+        return " ".join(" ".join(parser.fragments).split())
+    return " ".join(
+        value for child in part.get("parts", []) if (value := _html_body(child))
+    )
+
+
 def normalize_message(payload: dict[str, Any]) -> GmailMessage:
     headers = _headers(payload.get("payload") or {})
     attachments: list[dict[str, Any]] = []
@@ -231,7 +271,8 @@ def normalize_message(payload: dict[str, Any]) -> GmailMessage:
         to_addresses=[x.strip() for x in headers.get("to", "").split(",") if x.strip()],
         cc_addresses=[x.strip() for x in headers.get("cc", "").split(",") if x.strip()],
         subject=headers.get("subject", "(no subject)"),
-        body=_body(payload.get("payload") or {}),
+        body=_body(payload.get("payload") or {})
+        or _html_body(payload.get("payload") or {}),
         received_at=received_at,
         attachments=attachments,
         label_ids=tuple(payload.get("labelIds") or []),

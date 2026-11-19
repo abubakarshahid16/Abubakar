@@ -20,6 +20,10 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [contractorFilter, setContractorFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [triageContractor, setTriageContractor] = useState("");
+  const [triageDepartment, setTriageDepartment] = useState("");
+  const [triagePriority, setTriagePriority] = useState("normal");
+  const [triageDue, setTriageDue] = useState("");
   const [visibleTotal, setVisibleTotal] = useState<number | null>(null);
   const [mailboxes, setMailboxes] = useState<TechnicalQueryMailbox[]>([]);
   const [mailboxId, setMailboxId] = useState("");
@@ -28,6 +32,13 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [labelId, setLabelId] = useState("");
   const activeMailboxes = mailboxes.filter((mailbox) => mailbox.connection_state === "active");
   const pendingMailbox = mailboxes.find((mailbox) => mailbox.connection_state === "needs_label");
+
+  useEffect(() => {
+    setTriageContractor(selected?.contractor_name || "");
+    setTriageDepartment(selected?.department || "");
+    setTriagePriority(selected?.priority || "normal");
+    setTriageDue(selected?.due_at?.slice(0, 10) || "");
+  }, [selected?.id, selected?.contractor_name, selected?.department, selected?.priority, selected?.due_at]);
 
   const sendApproved = () => {
     if (!selected || !selected.drafts?.length || !mailboxId) return;
@@ -119,6 +130,13 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         {!selected ? <p className="text-sm text-slateish-500">Select a query to inspect its original message and review history.</p> : <>
           <h2 className="text-lg font-semibold text-slateish-100">{selected.subject}</h2>
           <p className="mt-1 text-xs uppercase tracking-wide text-slateish-500">{selected.status} · {selected.priority}</p>
+          <div className="mt-4 grid gap-2 rounded border border-ink-700 p-3 sm:grid-cols-2" aria-label="Query routing">
+            <label className="text-xs text-slateish-300">Contractor<input value={triageContractor} onChange={(event) => setTriageContractor(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
+            <label className="text-xs text-slateish-300">Department<input value={triageDepartment} onChange={(event) => setTriageDepartment(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
+            <label className="text-xs text-slateish-300">Priority<select value={triagePriority} onChange={(event) => setTriagePriority(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
+            <label className="text-xs text-slateish-300">Due date<input type="date" value={triageDue} onChange={(event) => setTriageDue(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
+            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.triage(selected.id, { contractor_name: triageContractor.trim() || null, department: triageDepartment.trim() || null, priority: triagePriority, due_at: triageDue || null }))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save routing</button>
+          </div>
           {selected.source_access_revoked && <p role="alert" className="mt-3 text-sm text-warn-400">Access to a cited source changed. The draft is hidden until an authorised reviewer checks it again.</p>}
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Prepare evidence</button>
@@ -139,7 +157,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <p>Received: {message.received_at}</p>
             {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
             <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
-            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · scan: {attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
+            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/documents/${encodeURIComponent(attachment.document_id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · scan: {attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
           </article>)}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Evidence</h3>
           {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, page {evidence.page_start ?? "unknown"}</a> · {evidence.evidence_state} · {evidence.supersession_state}</footer></blockquote>) : <p className="mt-2 text-sm text-warn-400">No verified evidence attached.</p>}

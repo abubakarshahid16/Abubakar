@@ -76,7 +76,7 @@ def ensure_schema() -> None:
             document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
             page_start INTEGER, page_end INTEGER, locator TEXT, exact_quote TEXT NOT NULL,
             quote_hash TEXT NOT NULL, evidence_state TEXT NOT NULL DEFAULT 'verified',
-            conflict_group TEXT, supersession_state TEXT NOT NULL DEFAULT 'current',
+            conflict_group TEXT, supersession_state TEXT NOT NULL DEFAULT 'unknown',
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_query_evidence_query ON query_evidence(query_id);
@@ -144,6 +144,39 @@ def _event(
         "INSERT INTO query_events(query_id, actor_user_id, event, detail, created_at) VALUES (?,?,?,?,?)",
         (query_id, actor, event, detail, now()),
     )
+
+
+def _source_supersession(conn, document_id: str) -> str:
+    row = conn.execute(
+        "SELECT superseded_by,confirmed_by FROM document_classification WHERE document_id=?",
+        (document_id,),
+    ).fetchone()
+    if row and row["superseded_by"]:
+        return "superseded"
+    return "current" if row and row["confirmed_by"] else "unknown"
+
+
+def validate_send_evidence(
+    item: dict[str, Any], allowed_document_ids: frozenset[str], unrestricted: bool
+) -> None:
+    """Check that approved source quotes remain readable and unreplaced."""
+    with connect() as conn:
+        for evidence in item.get("evidence", []):
+            document_id = evidence["document_id"]
+            if not unrestricted and document_id not in allowed_document_ids:
+                raise PermissionError("source document access changed after approval")
+            if (
+                evidence["supersession_state"] == "superseded"
+                or _source_supersession(conn, document_id) == "superseded"
+            ):
+                raise ValueError("a cited source has been superseded since approval")
+            quote = evidence["exact_quote"]
+            rows = conn.execute(
+                "SELECT text FROM pages WHERE document_id=? AND page_no BETWEEN ? AND ?",
+                (document_id, evidence["page_start"], evidence["page_end"]),
+            ).fetchall()
+            if not any(quote in (row["text"] or "") for row in rows):
+                raise ValueError("a cited quote is no longer on its recorded page")
 
 
 def _insert_attachments(
@@ -442,6 +475,55 @@ def assign_query(
     return get(query_id, actor_user_id, is_admin, unrestricted)
 
 
+def triage_query(
+    query_id: str,
+    contractor_name: str | None,
+    department: str | None,
+    priority: str,
+    due_at: str | None,
+    actor_user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+) -> dict[str, Any] | None:
+    if not (is_admin or unrestricted):
+        raise PermissionError("an administrator is required to triage a query")
+    if priority not in {"low", "normal", "high", "urgent"}:
+        raise ValueError("invalid priority")
+    if due_at:
+        try:
+            datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("due date must be an ISO date or timestamp") from exc
+    with connect() as conn:
+        current = conn.execute(
+            "SELECT status FROM technical_queries WHERE id=?", (query_id,)
+        ).fetchone()
+        if current is None:
+            return None
+        if current["status"] in {"duplicate", "cancelled"}:
+            raise ValueError("this query cannot be triaged in its current state")
+        status = "triage" if current["status"] == "received" else current["status"]
+        conn.execute(
+            "UPDATE technical_queries SET contractor_name=?,department=?,priority=?,due_at=?,status=?,updated_at=? WHERE id=?",
+            (contractor_name, department, priority, due_at, status, now(), query_id),
+        )
+        _event(
+            conn,
+            query_id,
+            "triaged",
+            actor_user_id,
+            json.dumps(
+                {
+                    "contractor_name": contractor_name,
+                    "department": department,
+                    "priority": priority,
+                    "due_at": due_at,
+                }
+            ),
+        )
+    return get(query_id, actor_user_id, is_admin, unrestricted)
+
+
 def get(
     query_id: str, user_id: str | None, is_admin: bool, unrestricted: bool
 ) -> dict[str, Any] | None:
@@ -532,8 +614,16 @@ def add_evidence(
     unrestricted: bool,
     actor_user_id: str | None,
 ) -> dict[str, Any] | None:
-    if get(query_id, user_id, is_admin, unrestricted) is None:
+    current = get(query_id, user_id, is_admin, unrestricted)
+    if current is None:
         return None
+    if current["status"] in {
+        "send_pending",
+        "sent",
+        "awaiting_confirmation",
+        "resolved",
+    }:
+        raise ValueError("sent query evidence is locked; import a follow-up first")
     if not unrestricted and document_id not in allowed_document_ids:
         raise PermissionError("source document is not readable")
     quote = exact_quote.strip()
@@ -552,7 +642,7 @@ def add_evidence(
         import hashlib
 
         conn.execute(
-            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (
                 evidence_id,
                 query_id,
@@ -562,6 +652,7 @@ def add_evidence(
                 locator,
                 quote,
                 hashlib.sha256(quote.encode()).hexdigest(),
+                _source_supersession(conn, document_id),
                 now(),
             ),
         )
@@ -641,8 +732,16 @@ def update_evidence(
         raise ValueError("unknown evidence state")
     if supersession_state not in {"current", "superseded", "unknown"}:
         raise ValueError("unknown supersession state")
-    if get(query_id, user_id, is_admin, unrestricted) is None:
+    current = get(query_id, user_id, is_admin, unrestricted)
+    if current is None:
         return None
+    if current["status"] in {
+        "send_pending",
+        "sent",
+        "awaiting_confirmation",
+        "resolved",
+    }:
+        raise ValueError("sent query evidence is locked; import a follow-up first")
     with connect() as conn:
         row = conn.execute(
             "SELECT id FROM query_evidence WHERE id=? AND query_id=?",
@@ -680,12 +779,53 @@ def prepare_evidence(
     current = get(query_id, user_id, is_admin, unrestricted)
     if current is None:
         return None
+    if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
+        raise ValueError("evidence cannot be prepared in the current query state")
     message = (current.get("messages") or [{}])[0]
-    body = message.get("body") or ""
-    question = current.get("extracted_question") or body
+    body = (message.get("body") or "").strip()
+    saved_question = current.get("extracted_question") or ""
+    question = body if "[Attachment " in saved_question else saved_question or body
     marker = body.upper().find("QUESTION")
     if not current.get("extracted_question") and marker >= 0:
         question = body[marker:].split(":", 1)[-1].strip()
+    attachment_ids = {
+        attachment["document_id"]
+        for message_row in current.get("messages", [])
+        for attachment in message_row.get("attachments", [])
+        if attachment.get("document_id")
+        and (unrestricted or attachment["document_id"] in allowed_document_ids)
+    }
+    attachment_sections: list[str] = []
+    with connect() as conn:
+        for attachment in message.get("attachments", []):
+            document_id = attachment.get("document_id")
+            if (
+                not document_id
+                or document_id not in attachment_ids
+                or attachment.get("document_status") != "ready"
+            ):
+                continue
+            pages = conn.execute(
+                "SELECT page_no,text FROM pages WHERE document_id=? ORDER BY page_no LIMIT 5",
+                (document_id,),
+            ).fetchall()
+            for page in pages:
+                text = (page["text"] or "").strip()
+                if text:
+                    attachment_sections.append(
+                        f"[Attachment {attachment['filename']}, page {page['page_no']}]\n{text}"
+                    )
+    if attachment_sections:
+        question = "\n\n".join([question, *attachment_sections]).strip()
+        if len(question) > 12_000:
+            question = (
+                question[:12_000].rstrip()
+                + "\n[More attachment text exists; open the original PDF.]"
+            )
+    elif not question and message.get("attachments"):
+        raise ValueError(
+            "the attached question is not readable yet; wait for PDF processing or OCR"
+        )
     if not question:
         raise ValueError("the query contains no extractable question")
     from . import search
@@ -713,6 +853,9 @@ def prepare_evidence(
                 and passage.get("document_id") not in allowed_document_ids
             ):
                 continue
+            if passage.get("document_id") in attachment_ids:
+                # The contractor's question is context, not an authority for its answer.
+                continue
             source = conn.execute(
                 "SELECT text FROM pages WHERE document_id=? AND (? IS NULL OR page_no>=?) AND (? IS NULL OR page_no<=?)",
                 (
@@ -729,7 +872,7 @@ def prepare_evidence(
 
             evidence_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT OR IGNORE INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT OR IGNORE INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     evidence_id,
                     query_id,
@@ -739,6 +882,7 @@ def prepare_evidence(
                     passage.get("locator"),
                     quote,
                     hashlib.sha256(quote.encode()).hexdigest(),
+                    _source_supersession(conn, passage["document_id"]),
                     now(),
                 ),
             )
@@ -816,8 +960,16 @@ def link_attachment(
     is_admin: bool,
     unrestricted: bool,
 ) -> dict[str, Any] | None:
-    if get(query_id, user_id, is_admin, unrestricted) is None:
+    current = get(query_id, user_id, is_admin, unrestricted)
+    if current is None:
         return None
+    if current["status"] in {
+        "send_pending",
+        "sent",
+        "awaiting_confirmation",
+        "resolved",
+    }:
+        raise ValueError("sent query attachments are locked; import a follow-up first")
     with connect() as conn:
         row = conn.execute(
             "SELECT id FROM query_attachments WHERE id=? AND message_id IN "

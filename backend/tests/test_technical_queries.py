@@ -13,11 +13,13 @@ from app.access import AccessScope
 from app.api.technical_queries import (
     ImportIn,
     SendIn,
+    TriageIn,
     _safe_item,
     download_original_query_email,
     generate_query_draft,
     import_technical_query,
     prepare_query_send,
+    triage_technical_query,
     upload_query_attachment,
 )
 from app.config import settings
@@ -39,6 +41,7 @@ from app.technical_queries import (
     link_attachment,
     list_queries,
     metrics,
+    prepare_evidence,
     reconcile_send,
     update_evidence,
 )
@@ -99,6 +102,90 @@ def test_import_preserves_message_and_attachment_and_is_idempotent():
     assert duplicate is True
     assert second["id"] == first["id"]
     assert len(second["messages"]) == 1
+
+
+def test_triage_requires_admin_and_updates_filtered_metrics():
+    item, _ = import_message(envelope("triage"), "u1", False, False)
+    body = TriageIn(
+        contractor_name="Synthetic Contractor",
+        department="Mechanical",
+        priority="high",
+        due_at="2026-02-01",
+    )
+    with pytest.raises(HTTPException) as denied:
+        triage_technical_query(item["id"], body, AccessScope("u1", frozenset()))
+    assert denied.value.status_code == 403
+    result = triage_technical_query(
+        item["id"],
+        body,
+        AccessScope("u1", frozenset(), capabilities=frozenset({"admin"})),
+    )
+    assert result["status"] == "triage"
+    assert result["contractor_name"] == "Synthetic Contractor"
+    assert result["due_at"] == "2026-02-01"
+    assert metrics("u1", True, False, contractor="Synthetic Contractor")["triage"] == 1
+    assert any(event["event"] == "triaged" for event in result["events"])
+
+
+def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence(
+    monkeypatch,
+):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                "query-pdf",
+                "query.pdf",
+                "c" * 64,
+                1,
+                "query.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,batch_no) VALUES (?,?,?,?,?)",
+            ("query-pdf", 1, "What is the permitted coating thickness?", 40, 1),
+        )
+    payload = envelope("question-in-attachment")
+    payload["body"] = "Please see attached."
+    payload["question"] = None
+    item, _ = import_message(payload, "u1", False, False)
+    link_attachment(
+        item["id"],
+        item["messages"][0]["attachments"][0]["id"],
+        "query-pdf",
+        "u1",
+        "u1",
+        True,
+        False,
+    )
+    captured = {}
+
+    def fake_search(question, **_kwargs):
+        captured["question"] = question
+        return {
+            "passages": [
+                {
+                    "document_id": "query-pdf",
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": "What is the permitted coating thickness?",
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.search.search", fake_search)
+    result = prepare_evidence(
+        item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
+    )
+    assert "What is the permitted coating thickness?" in captured["question"]
+    assert "What is the permitted coating thickness?" in result["extracted_question"]
+    assert result["evidence"] == []
+    repeated = prepare_evidence(
+        item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
+    )
+    assert repeated["extracted_question"] == result["extracted_question"]
 
 
 def test_missing_mailbox_id_still_deduplicates():
@@ -228,7 +315,7 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
             ("doc-2", 1, "Approved limit is 12 bar. Separate note is 20 bar.", 48, 1),
         )
     item, _ = import_message(envelope("draft-evidence"), "u1", False, False)
-    add_evidence(
+    item = add_evidence(
         item["id"],
         "doc-2",
         "Approved limit is 12 bar.",
@@ -240,6 +327,18 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         False,
         False,
         "u1",
+    )
+    assert item["evidence"][0]["supersession_state"] == "unknown"
+    update_evidence(
+        item["id"],
+        item["evidence"][0]["id"],
+        "verified",
+        "current",
+        None,
+        "u1",
+        "u1",
+        False,
+        False,
     )
     scope = AccessScope("u1", frozenset({"doc-2"}))
     monkeypatch.setattr(
@@ -383,6 +482,10 @@ def test_evidence_requires_exact_quote_and_can_be_classified():
             "INSERT INTO pages(document_id,page_no,text,char_count,batch_no) VALUES (?,?,?,?,?)",
             ("doc-1", 1, "The coating schedule is APCS-11A.", 34, 1),
         )
+        conn.execute(
+            "INSERT INTO document_classification(document_id,suggested_by,superseded_by) VALUES (?,?,?)",
+            ("doc-1", "synthetic-test", "newer-doc"),
+        )
     item, _ = import_message(envelope("evidence-1"), "u1", False, False)
     with pytest.raises(ValueError):
         add_evidence(
@@ -426,6 +529,7 @@ def test_evidence_requires_exact_quote_and_can_be_classified():
         "u1",
     )
     evidence_id = item["evidence"][0]["id"]
+    assert item["evidence"][0]["supersession_state"] == "superseded"
     item = update_evidence(
         item["id"],
         evidence_id,
@@ -896,6 +1000,59 @@ def test_gmail_send_client_preserves_thread_id_in_request():
     assert captured["raw"]
 
 
+def test_gmail_network_calls_use_fixed_hosts_without_redirects_or_ambient_proxy(
+    monkeypatch,
+):
+    import httpx
+
+    seen = []
+
+    def fake_request(method, url, **kwargs):
+        seen.append((method, url, kwargs))
+        return httpx.Response(
+            200,
+            json={"emailAddress": "engineering@example.test"},
+            request=httpx.Request(method, url),
+        )
+
+    def fake_post(url, **kwargs):
+        seen.append(("POST", url, kwargs))
+        return httpx.Response(
+            200,
+            json={"access_token": "synthetic-token"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "request", fake_request)
+    monkeypatch.setattr(httpx, "post", fake_post)
+    GmailApiClient("synthetic-token").profile()
+    gmail_auth._exchange({"grant_type": "refresh_token"})
+    assert [call[1] for call in seen] == [
+        "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+        "https://oauth2.googleapis.com/token",
+    ]
+    assert all(call[2]["follow_redirects"] is False for call in seen)
+    assert all(call[2]["trust_env"] is False for call in seen)
+
+
+def test_html_only_gmail_message_keeps_visible_question():
+    html = "<html><head><title>Hidden</title></head><body><p>Please confirm the test pressure.</p><script>ignore me</script></body></html>"
+    payload = {
+        "id": "html-only",
+        "payload": {
+            "headers": [
+                {"name": "From", "value": "contractor@example.test"},
+                {"name": "To", "value": "engineering@example.test"},
+                {"name": "Subject", "value": "Technical question"},
+            ],
+            "mimeType": "text/html",
+            "body": {"data": base64.urlsafe_b64encode(html.encode()).decode()},
+        },
+    }
+    message = normalize_message(payload)
+    assert message.body == "Please confirm the test pressure."
+
+
 def test_send_worker_uses_approved_content_and_original_recipient_only():
     item, _ = import_message(envelope("send-1"), "u1", False, False)
 
@@ -946,6 +1103,122 @@ def test_send_worker_uses_approved_content_and_original_recipient_only():
     )
     assert client.calls == 1
     assert get(item["id"], "u1", True, False)["status"] == "sent"
+    with pytest.raises(ValueError, match="current query state"):
+        prepare_evidence(item["id"], frozenset(), "u1", True, False, "u1")
+    with pytest.raises(ValueError, match="locked"):
+        link_attachment(
+            item["id"],
+            item["messages"][0]["attachments"][0]["id"],
+            "other-document",
+            "u1",
+            "u1",
+            True,
+            False,
+        )
+
+
+def test_second_send_key_cannot_send_while_first_request_is_in_flight():
+    item, _ = import_message(envelope("send-race"), "u1", False, False)
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
+    draft_id = drafted["drafts"][-1]["id"]
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+
+    class ReentrantClient:
+        calls = 0
+
+        def send(self, _raw, *, thread_id=None):
+            self.calls += 1
+            with pytest.raises(ValueError, match="approved"):
+                send_approved(
+                    self,
+                    item["id"],
+                    draft_id,
+                    scope,
+                    "different-send-key",
+                    "engineering@example.test",
+                )
+            return "provider-one"
+
+    client = ReentrantClient()
+    assert (
+        send_approved(
+            client,
+            item["id"],
+            draft_id,
+            scope,
+            "original-send-key",
+            "engineering@example.test",
+        )
+        == "provider-one"
+    )
+    assert client.calls == 1
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM query_sends").fetchone()[0] == 1
+
+
+def test_send_stops_if_approved_source_is_later_superseded():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                "source-old",
+                "source.pdf",
+                "b" * 64,
+                1,
+                "source.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,batch_no) VALUES (?,?,?,?,?)",
+            ("source-old", 1, "The limit is 12 bar.", 20, 1),
+        )
+    item, _ = import_message(envelope("source-changed"), "u1", False, False)
+    add_evidence(
+        item["id"],
+        "source-old",
+        "The limit is 12 bar.",
+        1,
+        1,
+        None,
+        frozenset({"source-old"}),
+        "u1",
+        True,
+        False,
+        "u1",
+    )
+    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
+    draft_id = drafted["drafts"][-1]["id"]
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification(document_id,suggested_by,superseded_by) VALUES (?,?,?)",
+            ("source-old", "synthetic-test", "source-new"),
+        )
+
+    class FakeClient:
+        calls = 0
+
+        def send(self, _raw, *, thread_id=None):
+            self.calls += 1
+            return "unexpected"
+
+    client = FakeClient()
+    scope = AccessScope(
+        "u1", frozenset({"source-old"}), capabilities=frozenset({"admin"})
+    )
+    with pytest.raises(ValueError, match="superseded"):
+        send_approved(
+            client,
+            item["id"],
+            draft_id,
+            scope,
+            "superseded-send",
+            "engineering@example.test",
+        )
+    assert client.calls == 0
 
 
 def test_explicit_send_endpoint_uses_connected_mailbox_and_fake_provider(monkeypatch):

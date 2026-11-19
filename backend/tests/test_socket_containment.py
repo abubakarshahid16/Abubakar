@@ -37,7 +37,13 @@ import httpx
 import pytest
 
 from app import analysis, answer, metrics, model_transport
-from app.config import ModelHostRefused, Settings, check_model_url, model_host_of, settings
+from app.config import (
+    ModelHostRefused,
+    Settings,
+    check_model_url,
+    model_host_of,
+    settings,
+)
 
 APP = Path(model_transport.__file__).resolve().parent
 
@@ -51,24 +57,29 @@ def no_socket(monkeypatch):
     construction itself the failure, so the assertions below mean "no bytes
     left" and not "an error came back".
     """
+
     def explode(*a, **k):  # pragma: no cover - the point is that it is not hit
         raise AssertionError(
             "an httpx.Client was constructed for a refused model host - the "
             "check ran too late to prevent the request"
         )
+
     monkeypatch.setattr(httpx, "Client", explode)
 
 
 # --------------------------------------------------- 1. the URL check itself
 
 
-@pytest.mark.parametrize("url", [
-    "http://127.0.0.1:11434",
-    "http://localhost:11434",
-    "http://[::1]:11434",
-    "http://127.0.0.1:11434/",     # a bare trailing slash is not a path
-    "https://127.0.0.1:11434",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:11434",
+        "http://localhost:11434",
+        "http://[::1]:11434",
+        "http://127.0.0.1:11434/",  # a bare trailing slash is not a path
+        "https://127.0.0.1:11434",
+    ],
+)
 def test_a_loopback_model_url_is_accepted(url):
     """THE DEFAULT CONFIGURATION MUST BE UNCHANGED. `127.0.0.1` and
     `localhost` are the two values any real deployment uses, and a guard that
@@ -81,7 +92,9 @@ def test_a_loopback_model_url_is_accepted(url):
 def test_the_default_setting_is_loopback_and_needs_no_flags(monkeypatch):
     """Stated as an assertion because it is the compatibility promise: the
     shipped default passes with both new settings at their defaults."""
-    monkeypatch.delenv("OLLAMA_URL", raising=False)  # the test session exports a closed port (V3); this is the code's default
+    monkeypatch.delenv(
+        "OLLAMA_URL", raising=False
+    )  # the test session exports a closed port (V3); this is the code's default
     fresh = Settings()
     assert fresh.answer_model_allow_remote_host is False
     assert fresh.answer_model_allowed_hosts == ()
@@ -99,8 +112,8 @@ def test_a_non_loopback_model_url_is_refused_by_default():
     with pytest.raises(ModelHostRefused, match="not loopback") as caught:
         check_model_url("http://collector.example.net:11434")
     message = str(caught.value)
-    assert "collector.example.net" in message      # names the offending host
-    assert "ADR-0002" in message                   # and why it is refused
+    assert "collector.example.net" in message  # names the offending host
+    assert "ADR-0002" in message  # and why it is refused
 
 
 def test_the_refusal_names_the_host_and_never_the_whole_url():
@@ -115,11 +128,14 @@ def test_the_refusal_names_the_host_and_never_the_whole_url():
     assert "collector.example.net" in message
 
 
-@pytest.mark.parametrize("url", [
-    "http://user:pass@127.0.0.1:11434",
-    "http://user@127.0.0.1:11434",
-    "http://user:pass@collector.example.net:11434",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://user:pass@127.0.0.1:11434",
+        "http://user@127.0.0.1:11434",
+        "http://user:pass@collector.example.net:11434",
+    ],
+)
 def test_embedded_credentials_are_refused_even_on_loopback(url):
     """Refused, not stripped. A value shaped like this is either an accident
     or an undocumented proxy, and a prompt built from client documents is not
@@ -128,23 +144,25 @@ def test_embedded_credentials_are_refused_even_on_loopback(url):
         check_model_url(url)
 
 
-@pytest.mark.parametrize("url", [
-    # THE MARKET BUG'S SHAPE. `market_providers._host_of` splits on "://",
-    # "/", "@" and ":" and reads everything after the LAST "@", so it reports
-    # `127.0.0.1` for this URL while httpx connects to `evil.test` - the "?"
-    # starts the query, which puts the "@" inside it.
-    "http://evil.test?@127.0.0.1:11434/",
-    "https://evil.test?@127.0.0.1:11434/",
-    "http://evil.test#@127.0.0.1:11434/",
-    "http://evil.test:11434?@localhost",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        # THE MARKET BUG'S SHAPE. `market_providers._host_of` splits on "://",
+        # "/", "@" and ":" and reads everything after the LAST "@", so it reports
+        # `127.0.0.1` for this URL while httpx connects to `evil.test` - the "?"
+        # starts the query, which puts the "@" inside it.
+        "http://evil.test?@127.0.0.1:11434/",
+        "https://evil.test?@127.0.0.1:11434/",
+        "http://evil.test#@127.0.0.1:11434/",
+        "http://evil.test:11434?@localhost",
+    ],
+)
 def test_a_url_that_lies_to_a_string_splitting_parser_is_refused(url):
     """The bypass this check must not reproduce. Two independent reasons it
     fails - the parsed host is not loopback, and a base URL may not carry a
     query or fragment - so it stays refused even if one of them is edited."""
     assert model_host_of(url) == "evil.test", (
-        "the parser under test agreed with the hand-rolled splitter, which "
-        "is the bug"
+        "the parser under test agreed with the hand-rolled splitter, which is the bug"
     )
     with pytest.raises(ModelHostRefused):
         check_model_url(url)
@@ -152,18 +170,22 @@ def test_a_url_that_lies_to_a_string_splitting_parser_is_refused(url):
     # reported, it is STILL refused: the allowlist is consulted with the real
     # host, so `?@` cannot borrow a permitted name.
     with pytest.raises(ModelHostRefused):
-        check_model_url(url, allow_remote=True,
-                        allowed_hosts=("127.0.0.1", "localhost"))
+        check_model_url(
+            url, allow_remote=True, allowed_hosts=("127.0.0.1", "localhost")
+        )
 
 
-@pytest.mark.parametrize("url,fragment", [
-    ("", "scheme"),
-    ("http://", "no host"),
-    ("127.0.0.1:11434", "scheme"),            # no scheme: not a URL
-    ("ftp://127.0.0.1:11434", "scheme"),
-    ("file:///etc/passwd", "scheme"),
-    ("http://127.0.0.1:11434/api/generate", "path"),
-])
+@pytest.mark.parametrize(
+    "url,fragment",
+    [
+        ("", "scheme"),
+        ("http://", "no host"),
+        ("127.0.0.1:11434", "scheme"),  # no scheme: not a URL
+        ("ftp://127.0.0.1:11434", "scheme"),
+        ("file:///etc/passwd", "scheme"),
+        ("http://127.0.0.1:11434/api/generate", "path"),
+    ],
+)
 def test_a_value_that_is_not_a_base_url_is_refused(url, fragment):
     with pytest.raises(ModelHostRefused, match=fragment):
         check_model_url(url)
@@ -172,8 +194,12 @@ def test_a_value_that_is_not_a_base_url_is_refused(url, fragment):
 def test_a_name_that_merely_starts_like_loopback_is_not_loopback():
     """`127.0.0.1.evil.test` and `localhost.evil.test` resolve to whatever
     their owner wants. A prefix or suffix test would have passed both."""
-    for host in ("127.0.0.1.evil.test", "localhost.evil.test",
-                 "notlocalhost", "127.0.0.2.nip.io"):
+    for host in (
+        "127.0.0.1.evil.test",
+        "localhost.evil.test",
+        "notlocalhost",
+        "127.0.0.2.nip.io",
+    ):
         with pytest.raises(ModelHostRefused, match="not loopback"):
             check_model_url(f"http://{host}:11434")
 
@@ -187,9 +213,9 @@ def test_remote_inference_needs_both_the_flag_and_the_host():
     with pytest.raises(ModelHostRefused, match="answer_model_allowed_hosts"):
         check_model_url(url, allow_remote=True)
     base, remote = check_model_url(
-        url, allow_remote=True, allowed_hosts=("gpu-box.internal",))
-    assert (base, remote) == ("http://gpu-box.internal:11434",
-                              "gpu-box.internal")
+        url, allow_remote=True, allowed_hosts=("gpu-box.internal",)
+    )
+    assert (base, remote) == ("http://gpu-box.internal:11434", "gpu-box.internal")
 
 
 def test_a_permitted_remote_host_is_audited_and_loopback_is_not(monkeypatch):
@@ -197,20 +223,26 @@ def test_a_permitted_remote_host_is_audited_and_loopback_is_not(monkeypatch):
     afterwards. The row names the host and the API path - never the body,
     which is document text."""
     monkeypatch.setattr(settings, "answer_model_allow_remote_host", True)
-    monkeypatch.setattr(
-        settings, "answer_model_allowed_hosts", ("gpu-box.internal",))
+    monkeypatch.setattr(settings, "answer_model_allowed_hosts", ("gpu-box.internal",))
     monkeypatch.setattr(settings, "ollama_url", "http://gpu-box.internal:11434")
     monkeypatch.setattr(model_transport, "remote_audit", [])
 
     assert model_transport.endpoint("/api/generate") == (
-        "http://gpu-box.internal:11434/api/generate")
+        "http://gpu-box.internal:11434/api/generate"
+    )
     assert len(model_transport.remote_audit) == 1
     row = model_transport.remote_audit[0]
     assert row["action"] == "answer_model.remote_request"
     assert row["resource_id"] == "gpu-box.internal"
     assert row["detail"] == "/api/generate"
-    assert set(row) == {"at", "action", "resource_type", "resource_id",
-                        "detail", "outcome"}
+    assert set(row) == {
+        "at",
+        "action",
+        "resource_type",
+        "resource_id",
+        "detail",
+        "outcome",
+    }
 
     # The normal case writes NOTHING: an audit trail that records every
     # loopback request is one nobody reads.
@@ -240,15 +272,23 @@ def test_startup_accepts_a_loopback_environment_value(monkeypatch):
 # ------------------------------- 2. the callers, AFTER startup has passed
 
 
-@pytest.mark.parametrize("call", [
-    pytest.param(lambda: answer._call_model("what is the coating thickness"),
-                 id="answer._call_model"),
-    pytest.param(lambda: analysis.ollama_generate("system", "passages"),
-                 id="analysis.ollama_generate"),
-    pytest.param(lambda: metrics.models(), id="metrics.models"),
-])
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(
+            lambda: answer._call_model("what is the coating thickness"),
+            id="answer._call_model",
+        ),
+        pytest.param(
+            lambda: analysis.ollama_generate("system", "passages"),
+            id="analysis.ollama_generate",
+        ),
+        pytest.param(lambda: metrics.models(), id="metrics.models"),
+    ],
+)
 def test_no_caller_can_reach_a_non_loopback_host_after_startup(
-        call, monkeypatch, no_socket):
+    call, monkeypatch, no_socket
+):
     """THE ONE THAT PROVES WHERE THE GATE IS.
 
     `settings` is a live object and pydantic does not revalidate on
@@ -280,16 +320,22 @@ def test_the_answer_route_does_not_downgrade_a_refusal(monkeypatch):
     monkeypatch.setattr(settings, "ollama_url", "http://collector.example.net:11434")
 
     def refuse(_prompt, timeout=180.0):
-        raise ModelHostRefused("answer model host 'collector.example.net' is not loopback")
+        raise ModelHostRefused(
+            "answer model host 'collector.example.net' is not loopback"
+        )
 
     monkeypatch.setattr(answer, "_call_model", refuse)
     source = ast.parse(Path(answer.__file__).read_text(encoding="utf-8"))
     handlers = [
         h.type.attr if isinstance(h.type, ast.Attribute) else None
-        for node in ast.walk(source) if isinstance(node, ast.Try)
+        for node in ast.walk(source)
+        if isinstance(node, ast.Try)
         for h in node.handlers
-        if any(isinstance(n, ast.Name) and n.id == "_call_model"
-               for n in ast.walk(node.body[0]) if isinstance(n, ast.Name))
+        if any(
+            isinstance(n, ast.Name) and n.id == "_call_model"
+            for n in ast.walk(node.body[0])
+            if isinstance(n, ast.Name)
+        )
     ]
     assert "ModelHostRefused" in handlers, (
         "the generation step must re-raise ModelHostRefused explicitly; "
@@ -372,6 +418,11 @@ SOCKET_ALLOWLIST = {
     # document text, a filename or a page reference - pinned by
     # tests/test_196_notification_bodies.py.
     "notifications.py",
+    # Owner-authorised technical-query Gmail integration. These two modules
+    # use fixed Google API and token hosts, refuse redirects and ambient proxies.
+    # Mailbox import is separately gated by owner, account state and label.
+    "gmail_auth.py",
+    "gmail_client.py",
 }
 
 #: Modules that may NAME the model URL setting. Exactly one, so a new call
@@ -379,23 +430,44 @@ SOCKET_ALLOWLIST = {
 MODEL_URL_ALLOWLIST = {"config.py", "model_transport.py"}
 
 #: The import roots that can put bytes on a wire.
-NETWORK_ROOTS = frozenset({
-    "httpx", "requests", "urllib", "urllib3", "aiohttp", "socket", "ftplib",
-    "telnetlib", "websockets", "http",
-    # #196: the SMTP lane, and TLS-wrapped sockets in general.
-    "smtplib", "ssl",
-})
+NETWORK_ROOTS = frozenset(
+    {
+        "httpx",
+        "requests",
+        "urllib",
+        "urllib3",
+        "aiohttp",
+        "socket",
+        "ftplib",
+        "telnetlib",
+        "websockets",
+        "http",
+        # #196: the SMTP lane, and TLS-wrapped sockets in general.
+        "smtplib",
+        "ssl",
+    }
+)
 
 #: Attributes of those roots that do NOT open anything: exception classes and
 #: value types. Deliberately tiny and enumerated, so the scanner's default
 #: answer for anything new is "this opens a socket" - it fails closed.
-NON_OPENING = frozenset({
-    "httpx.HTTPError", "httpx.HTTPStatusError", "httpx.ConnectError",
-    "httpx.TimeoutException", "httpx.ReadTimeout", "httpx.RequestError",
-    "httpx.Timeout", "httpx.Request", "httpx.Response", "httpx.Limits",
-    "httpx.URL",
-    "ssl.create_default_context", "ssl.SSLContext",
-})
+NON_OPENING = frozenset(
+    {
+        "httpx.HTTPError",
+        "httpx.HTTPStatusError",
+        "httpx.ConnectError",
+        "httpx.TimeoutException",
+        "httpx.ReadTimeout",
+        "httpx.RequestError",
+        "httpx.Timeout",
+        "httpx.Request",
+        "httpx.Response",
+        "httpx.Limits",
+        "httpx.URL",
+        "ssl.create_default_context",
+        "ssl.SSLContext",
+    }
+)
 
 
 def _dotted(node: ast.AST) -> str | None:
@@ -429,8 +501,15 @@ def socket_calls(source: str) -> set[str]:
         # `from urllib.request import urlopen; urlopen(...)` has no dotted
         # root to inspect, so the bare names are matched too.
         if isinstance(node.func, ast.Name) and node.func.id in (
-                "urlopen", "urlretrieve", "create_connection", "socket",
-                "SMTP", "SMTP_SSL", "LMTP", "wrap_socket"):
+            "urlopen",
+            "urlretrieve",
+            "create_connection",
+            "socket",
+            "SMTP",
+            "SMTP_SSL",
+            "LMTP",
+            "wrap_socket",
+        ):
             found.add(node.func.id)
     return found
 
@@ -487,8 +566,7 @@ def test_the_scanner_would_actually_catch_a_new_socket_call():
         "        return c.post(f'{u}/api/generate', json={}).json()\n"
     ) == {"httpx.Client"}
     assert socket_calls("import requests\nrequests.post('http://h', json={})\n")
-    assert socket_calls(
-        "from urllib.request import urlopen\nurlopen('http://h')\n")
+    assert socket_calls("from urllib.request import urlopen\nurlopen('http://h')\n")
     assert socket_calls("import socket\ns = socket.socket()\n")
     # #196: the SMTP lane, plain, TLS-wrapped and imported by name
     assert socket_calls("import smtplib\nsmtplib.SMTP('h', 25)\n") == {"smtplib.SMTP"}
@@ -498,7 +576,8 @@ def test_the_scanner_would_actually_catch_a_new_socket_call():
     # and the two shapes that must NOT count, or every module catching an
     # httpx error would be reported as opening a socket
     assert not socket_calls(
-        "import httpx\ntry:\n    pass\nexcept httpx.HTTPError:\n    pass\n")
+        "import httpx\ntry:\n    pass\nexcept httpx.HTTPError:\n    pass\n"
+    )
     assert not socket_calls("import httpx\nt = httpx.Timeout(1.0)\n")
 
 
@@ -547,8 +626,19 @@ def test_the_reader_transport_cannot_reach_the_corpus():
     """The lane that carries a client's clause text to a public host, held to
     the same split: `standards` reads the sentence and hands it over; this
     module can send it and cannot fetch one of its own."""
-    forbidden = {"db", "search", "fts_index", "chunker", "passages", "claims",
-                 "analysis", "answer", "synthesis", "reports", "standards"}
+    forbidden = {
+        "db",
+        "search",
+        "fts_index",
+        "chunker",
+        "passages",
+        "claims",
+        "analysis",
+        "answer",
+        "synthesis",
+        "reports",
+        "standards",
+    }
     leaked = forbidden & _imports(APP / "reader_transport.py")
     assert not leaked, (
         f"reader_transport.py imports {sorted(leaked)}, which can reach the "
@@ -562,8 +652,18 @@ def test_the_model_transport_cannot_reach_the_corpus():
     """The other half of the split, held to the same rule as
     `market_transport`: the module that can SEND must not be able to READ. It
     is handed a body its caller built."""
-    forbidden = {"db", "search", "fts_index", "chunker", "passages", "claims",
-                 "analysis", "answer", "synthesis", "reports"}
+    forbidden = {
+        "db",
+        "search",
+        "fts_index",
+        "chunker",
+        "passages",
+        "claims",
+        "analysis",
+        "answer",
+        "synthesis",
+        "reports",
+    }
     leaked = forbidden & _imports(APP / "model_transport.py")
     assert not leaked, (
         f"model_transport.py imports {sorted(leaked)}, which can reach the "
@@ -577,8 +677,9 @@ def test_only_the_notifications_module_imports_smtplib():
     """#196: THE SMTP LANE HAS ONE HOME. The call scan above catches a new
     `smtplib.SMTP(...)`; this catches the import itself, so a module that
     takes `smtplib` in and hands it to something else cannot slip past."""
-    importers = sorted(str(p.relative_to(APP)) for p in app_modules()
-                       if "smtplib" in _imports(p))
+    importers = sorted(
+        str(p.relative_to(APP)) for p in app_modules() if "smtplib" in _imports(p)
+    )
     assert importers == ["notifications.py"], (
         f"smtplib is imported by {importers}. Mail goes out through "
         f"notifications.send_email only: one module, off by default, audited."

@@ -103,7 +103,13 @@ def validate_state(state: str) -> str | None:
 
 
 def _exchange(data: dict[str, str]) -> dict[str, Any]:
-    response = httpx.post(TOKEN_ENDPOINT, data=data, timeout=20)
+    response = httpx.post(
+        TOKEN_ENDPOINT,
+        data=data,
+        timeout=20,
+        follow_redirects=False,
+        trust_env=False,
+    )
     response.raise_for_status()
     return response.json()
 
@@ -157,7 +163,11 @@ def complete(
     except Exception:
         store.delete_refresh_token(mailbox_id)
         raise
-    return {"mailbox_id": mailbox_id, "email": address, "connection_state": "needs_label"}
+    return {
+        "mailbox_id": mailbox_id,
+        "email": address,
+        "connection_state": "needs_label",
+    }
 
 
 def access_token(

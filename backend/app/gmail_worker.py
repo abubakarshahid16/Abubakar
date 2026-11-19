@@ -20,7 +20,13 @@ from .access import AccessScope
 from .config import settings
 from .db import connect
 from .gmail_client import GmailApiClient
-from .technical_queries import get, import_message, link_attachment, now
+from .technical_queries import (
+    get,
+    import_message,
+    link_attachment,
+    now,
+    validate_send_evidence,
+)
 from .technical_query_docx import render
 
 
@@ -286,11 +292,7 @@ def send_approved(
         for address in first["to_addresses"] + first["cc_addresses"]
     }:
         raise ValueError("the connected mailbox was not an original recipient")
-    if not scope.unrestricted and any(
-        evidence["document_id"] not in scope.allowed_document_ids
-        for evidence in item["evidence"]
-    ):
-        raise PermissionError("source document access changed after approval")
+    validate_send_evidence(item, scope.allowed_document_ids, scope.unrestricted)
 
     message = EmailMessage()
     message["From"] = sender
@@ -321,6 +323,15 @@ def send_approved(
 
     send_id = str(uuid.uuid4())
     with connect() as conn:
+        reserved = conn.execute(
+            "UPDATE technical_queries SET status='send_pending',updated_at=? "
+            "WHERE id=? AND status='approved'",
+            (now(), query_id),
+        )
+        if reserved.rowcount != 1:
+            raise RuntimeError(
+                "this query is already being sent or its approval changed"
+            )
         conn.execute(
             "INSERT INTO query_sends(id,query_id,draft_id,idempotency_key,to_addresses,cc_addresses,state,created_at) VALUES (?,?,?,?,?,?,?,?)",
             (
@@ -333,10 +344,6 @@ def send_approved(
                 "sending",
                 now(),
             ),
-        )
-        conn.execute(
-            "UPDATE technical_queries SET status='send_pending',updated_at=? WHERE id=?",
-            (now(), query_id),
         )
         conn.execute(
             "INSERT INTO query_events(query_id,actor_user_id,event,detail,created_at) VALUES (?,?,?,?,?)",
