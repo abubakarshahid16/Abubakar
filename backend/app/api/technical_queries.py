@@ -180,6 +180,28 @@ def add_query_evidence(
     return item
 
 
+@router.post("/api/technical-queries/{query_id}/prepare-evidence")
+def prepare_query_evidence(
+    query_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.prepare_evidence(
+            query_id,
+            scope.allowed_document_ids,
+            scope.user_id,
+            scope.is_admin,
+            scope.unrestricted,
+            scope.user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return item
+
+
 @router.post("/api/technical-queries/{query_id}/attachments/{attachment_id}/file")
 async def upload_query_attachment(
     query_id: str,

@@ -340,6 +340,71 @@ def add_evidence(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
+def prepare_evidence(
+    query_id: str,
+    allowed_document_ids: frozenset[str],
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+    actor_user_id: str | None,
+) -> dict[str, Any] | None:
+    """Extract a conservative question and prepare evidence without generating an answer."""
+    current = get(query_id, user_id, is_admin, unrestricted)
+    if current is None:
+        return None
+    message = (current.get("messages") or [{}])[0]
+    body = message.get("body") or ""
+    question = current.get("extracted_question") or body
+    marker = body.upper().find("QUESTION")
+    if not current.get("extracted_question") and marker >= 0:
+        question = body[marker:].split(":", 1)[-1].strip()
+    if not question:
+        raise ValueError("the query contains no extractable question")
+    from . import search
+
+    field = search.search(
+        question,
+        limit=5,
+        rerank=False,
+        dense=False,
+        allowed_document_ids=allowed_document_ids,
+    )
+    with connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET extracted_question=?,status='drafting',updated_at=? WHERE id=?",
+            (question, now(), query_id),
+        )
+        for passage in field.get("passages", [])[:5]:
+            quote = (passage.get("text") or "").strip()
+            if not quote:
+                continue
+            import hashlib
+
+            evidence_id = str(uuid.uuid4())
+            conn.execute(
+                "INSERT OR IGNORE INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    evidence_id,
+                    query_id,
+                    passage["document_id"],
+                    passage.get("page_start"),
+                    passage.get("page_end"),
+                    passage.get("locator"),
+                    quote,
+                    hashlib.sha256(quote.encode()).hexdigest(),
+                    now(),
+                ),
+            )
+        _event(
+            conn,
+            query_id,
+            "evidence_prepared",
+            actor_user_id,
+            f"passages={len(field.get('passages', []))}",
+        )
+    return get(query_id, user_id, is_admin, unrestricted)
+
+
 def add_draft(
     query_id: str,
     answer: str,
