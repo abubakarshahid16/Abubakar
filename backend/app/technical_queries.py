@@ -55,6 +55,7 @@ def ensure_schema() -> None:
             created_at TEXT NOT NULL, UNIQUE(provider, mailbox_id, provider_message_id)
         );
         CREATE INDEX IF NOT EXISTS idx_query_messages_thread ON query_messages(provider, mailbox_id, provider_thread_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_query_messages_identity ON query_messages(provider, COALESCE(mailbox_id, ''), provider_message_id);
         CREATE TABLE IF NOT EXISTS query_attachments (
             id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES query_messages(id) ON DELETE CASCADE,
             filename TEXT NOT NULL, media_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT,
@@ -109,6 +110,25 @@ def _event(
     )
 
 
+def _insert_attachments(
+    conn, message_id: str, attachments: list[dict[str, Any]]
+) -> None:
+    for attachment in attachments:
+        conn.execute(
+            "INSERT INTO query_attachments(id,message_id,filename,media_type,size_bytes,sha256,storage_ref,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                str(uuid.uuid4()),
+                message_id,
+                attachment["filename"],
+                attachment["media_type"],
+                attachment["size_bytes"],
+                attachment.get("sha256"),
+                attachment.get("storage_ref"),
+                now(),
+            ),
+        )
+
+
 def _visible_where(
     user_id: str | None, is_admin: bool, unrestricted: bool
 ) -> tuple[str, list[Any]]:
@@ -125,12 +145,15 @@ def import_message(
     is_admin: bool = False,
     unrestricted: bool = False,
 ) -> tuple[dict[str, Any], bool]:
+    if data.get("provider") not in {"synthetic", "gmail", "microsoft_graph"}:
+        raise ValueError("unknown message provider")
     received = data.get("received_at") or now()
+    mailbox_id = data.get("mailbox_id") or ""
     qid, mid = str(uuid.uuid4()), str(uuid.uuid4())
     with connect() as conn:
         existing = conn.execute(
             "SELECT query_id FROM query_messages WHERE provider=? AND mailbox_id IS ? AND provider_message_id=?",
-            (data["provider"], data.get("mailbox_id"), data["provider_message_id"]),
+            (data["provider"], mailbox_id, data["provider_message_id"]),
         ).fetchone()
         if existing:
             visible = get(existing["query_id"], actor_user_id, is_admin, unrestricted)
@@ -144,9 +167,15 @@ def import_message(
         threaded = None
         if thread:
             threaded = conn.execute(
-                "SELECT query_id FROM query_messages WHERE provider=? AND mailbox_id IS ? AND provider_thread_id=? ORDER BY received_at LIMIT 1",
-                (data["provider"], data.get("mailbox_id"), thread),
+                "SELECT query_id,from_address FROM query_messages WHERE provider=? AND mailbox_id IS ? AND provider_thread_id=? ORDER BY received_at LIMIT 1",
+                (data["provider"], mailbox_id, thread),
             ).fetchone()
+            if (
+                threaded
+                and threaded["from_address"].strip().casefold()
+                != data["from_address"].strip().casefold()
+            ):
+                threaded = None
         if threaded:
             visible = get(threaded["query_id"], actor_user_id, is_admin, unrestricted)
             if visible is None:
@@ -157,7 +186,7 @@ def import_message(
                     mid,
                     threaded["query_id"],
                     data["provider"],
-                    data.get("mailbox_id"),
+                    mailbox_id,
                     data["provider_message_id"],
                     thread,
                     data.get("internet_message_id"),
@@ -171,6 +200,12 @@ def import_message(
                     data.get("raw_message_hash"),
                     now(),
                 ),
+            )
+            _insert_attachments(conn, mid, data.get("attachments", []))
+            conn.execute(
+                "UPDATE technical_queries SET status='triage',resolved_at=NULL,resolution_reason=NULL,updated_at=? "
+                "WHERE id=? AND status IN ('resolved','sent','awaiting_confirmation','failed')",
+                (now(), threaded["query_id"]),
             )
             _event(
                 conn,
@@ -204,7 +239,7 @@ def import_message(
                 mid,
                 qid,
                 data["provider"],
-                data.get("mailbox_id"),
+                mailbox_id,
                 data["provider_message_id"],
                 data.get("provider_thread_id"),
                 data.get("internet_message_id"),
@@ -219,20 +254,7 @@ def import_message(
                 now(),
             ),
         )
-        for attachment in data.get("attachments", []):
-            conn.execute(
-                "INSERT INTO query_attachments(id,message_id,filename,media_type,size_bytes,sha256,storage_ref,created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    str(uuid.uuid4()),
-                    mid,
-                    attachment["filename"],
-                    attachment["media_type"],
-                    attachment["size_bytes"],
-                    attachment.get("sha256"),
-                    attachment.get("storage_ref"),
-                    now(),
-                ),
-            )
+        _insert_attachments(conn, mid, data.get("attachments", []))
         _event(conn, qid, "received", actor_user_id, "provider message imported")
     return get(qid, actor_user_id, is_admin, unrestricted) or {}, False
 
@@ -351,15 +373,13 @@ def add_evidence(
     quote = exact_quote.strip()
     if not quote:
         raise ValueError("exact_quote is required")
+    if page_start is None or page_end is None or page_end < page_start:
+        raise ValueError("a valid source page range is required")
     with connect() as conn:
         source = conn.execute(
             "SELECT text FROM pages WHERE document_id=? AND (? IS NULL OR page_no>=?) AND (? IS NULL OR page_no<=?)",
             (document_id, page_start, page_start, page_end, page_end),
         ).fetchall()
-        if not source:
-            source = conn.execute(
-                "SELECT text FROM chunks WHERE document_id=?", (document_id,)
-            ).fetchall()
         if not any(quote in (row["text"] or "") for row in source):
             raise ValueError("exact_quote was not found in the selected source")
         evidence_id = str(uuid.uuid4())
@@ -464,6 +484,25 @@ def prepare_evidence(
         for passage in field.get("passages", [])[:5]:
             quote = (passage.get("text") or "").strip()
             if not quote:
+                continue
+            if passage.get("page_start") is None or passage.get("page_end") is None:
+                continue
+            if (
+                not unrestricted
+                and passage.get("document_id") not in allowed_document_ids
+            ):
+                continue
+            source = conn.execute(
+                "SELECT text FROM pages WHERE document_id=? AND (? IS NULL OR page_no>=?) AND (? IS NULL OR page_no<=?)",
+                (
+                    passage["document_id"],
+                    passage.get("page_start"),
+                    passage.get("page_start"),
+                    passage.get("page_end"),
+                    passage.get("page_end"),
+                ),
+            ).fetchall()
+            if not any(quote in (row["text"] or "") for row in source):
                 continue
             import hashlib
 
@@ -573,6 +612,24 @@ def link_attachment(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
+def attachment_for_query(
+    query_id: str,
+    attachment_id: str,
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+) -> dict[str, Any] | None:
+    if get(query_id, user_id, is_admin, unrestricted) is None:
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT a.* FROM query_attachments a JOIN query_messages m ON m.id=a.message_id "
+            "WHERE m.query_id=? AND a.id=?",
+            (query_id, attachment_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def decide(
     query_id: str,
     decision: str,
@@ -585,6 +642,8 @@ def decide(
 ) -> dict[str, Any] | None:
     if decision not in {"request_changes", "approve", "reject", "close"}:
         raise ValueError("unknown technical-query decision")
+    if not (is_admin or unrestricted):
+        raise PermissionError("an authorised reviewer is required")
     if get(query_id, user_id, is_admin, unrestricted) is None:
         return None
     current = get(query_id, user_id, is_admin, unrestricted)
@@ -598,6 +657,10 @@ def decide(
         raise ValueError(
             f"decision {decision} is not allowed in state {current['status']}"
         )
+    if decision in {"approve", "request_changes", "reject"}:
+        latest = current["drafts"][-1] if current and current["drafts"] else None
+        if latest is None or draft_id != latest["id"]:
+            raise ValueError("the decision must name the latest draft")
     target = {
         "request_changes": "changes_requested",
         "approve": "approved",
@@ -628,49 +691,4 @@ def decide(
             ),
         )
         _event(conn, query_id, "decision", actor_user_id, f"decision={decision}")
-    return get(query_id, user_id, is_admin, unrestricted)
-
-
-def prepare_send(
-    query_id: str,
-    draft_id: str | None,
-    to_addresses: list[str],
-    cc_addresses: list[str],
-    idempotency_key: str,
-    actor_user_id: str | None,
-    user_id: str | None,
-    is_admin: bool,
-    unrestricted: bool,
-) -> dict[str, Any] | None:
-    current = get(query_id, user_id, is_admin, unrestricted)
-    if current is None:
-        return None
-    if current["status"] != "approved":
-        raise ValueError("only an approved query can be sent")
-    with connect() as conn:
-        prior = conn.execute(
-            "SELECT * FROM query_sends WHERE idempotency_key=?", (idempotency_key,)
-        ).fetchone()
-        if prior:
-            return get(query_id, user_id, is_admin, unrestricted)
-        conn.execute(
-            "INSERT INTO query_sends(id,query_id,draft_id,idempotency_key,to_addresses,cc_addresses,state,created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (
-                str(uuid.uuid4()),
-                query_id,
-                draft_id,
-                idempotency_key,
-                json.dumps(to_addresses),
-                json.dumps(cc_addresses),
-                "provider_not_configured",
-                now(),
-            ),
-        )
-        conn.execute(
-            "UPDATE technical_queries SET status='send_pending',updated_at=? WHERE id=?",
-            (now(), query_id),
-        )
-        _event(
-            conn, query_id, "send_prepared", actor_user_id, "provider_not_configured"
-        )
     return get(query_id, user_id, is_admin, unrestricted)

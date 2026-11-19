@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -9,7 +10,6 @@ from pydantic import BaseModel, Field
 from .. import (
     access,
     answer,
-    email_provider,
     gmail_auth,
     technical_queries,
     technical_query_docx,
@@ -86,6 +86,29 @@ def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
     return scope.user_id, scope.is_admin, scope.unrestricted
 
 
+def _safe_item(item: dict, scope: access.AccessScope) -> dict:
+    """Hide source material retained after a document grant is revoked."""
+    if scope.unrestricted:
+        return item
+    inaccessible = {
+        evidence["document_id"]
+        for evidence in item.get("evidence", [])
+        if evidence["document_id"] not in scope.allowed_document_ids
+    }
+    if not inaccessible:
+        return item
+    return {
+        **item,
+        "evidence": [
+            evidence
+            for evidence in item["evidence"]
+            if evidence["document_id"] not in inaccessible
+        ],
+        "drafts": [],
+        "source_access_revoked": True,
+    }
+
+
 @router.get("/api/technical-queries")
 def list_technical_queries(
     status: str | None = None, scope: access.AccessScope = Depends(access.current_scope)
@@ -134,22 +157,16 @@ def gmail_oauth_callback(code: str | None = None, state: str | None = None):
 
 
 @router.post("/api/technical-queries/providers/microsoft-graph/webhook")
-def graph_webhook(payload: dict):
-    """Acknowledge and normalize notifications; never fetch or send here."""
-    try:
-        notifications = email_provider.graph_notifications(payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
-        "accepted": len(notifications),
-        "notifications": [n.__dict__ for n in notifications],
-    }
+def graph_webhook(_payload: dict):
+    # No subscription secret or signature validation has been configured.
+    # A public endpoint must not claim to have accepted unverified events.
+    raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
 @router.post("/api/technical-queries/providers/gmail/webhook")
-def gmail_webhook(payload: dict):
-    notification = email_provider.gmail_notification(payload)
-    return {"accepted": notification is not None, "notification": notification}
+def gmail_webhook(_payload: dict):
+    # Pub/Sub push authentication and durable queueing are prerequisites.
+    raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
 @router.get("/api/technical-queries/{query_id}")
@@ -159,7 +176,7 @@ def get_technical_query(
     item = technical_queries.get(query_id, *_visible(scope))
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return item
+    return _safe_item(item, scope)
 
 
 @router.post("/api/technical-queries/import")
@@ -167,10 +184,18 @@ def import_technical_query(
     body: ImportIn, scope: access.AccessScope = Depends(access.current_scope)
 ):
     _require_identity_to_write(scope)
-    item, duplicate = technical_queries.import_message(
-        body.model_dump(), scope.user_id, scope.is_admin, scope.unrestricted
-    )
-    return {"item": item, "duplicate": duplicate}
+    if body.provider != "synthetic":
+        raise HTTPException(
+            status_code=422,
+            detail="provider messages must arrive through a verified mailbox connection",
+        )
+    try:
+        item, duplicate = technical_queries.import_message(
+            body.model_dump(), scope.user_id, scope.is_admin, scope.unrestricted
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"item": _safe_item(item, scope), "duplicate": duplicate}
 
 
 @router.post("/api/technical-queries/{query_id}/drafts")
@@ -193,7 +218,7 @@ def create_query_draft(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return item
+    return _safe_item(item, scope)
 
 
 @router.post("/api/technical-queries/{query_id}/generate-draft")
@@ -206,7 +231,14 @@ def generate_query_draft(
     current = technical_queries.get(query_id, *_visible(scope))
     if current is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    if not current.get("evidence"):
+    usable_evidence = [
+        item
+        for item in current.get("evidence", [])
+        if item["evidence_state"] == "verified"
+        and item["supersession_state"] == "current"
+        and item["document_id"] in scope.allowed_document_ids
+    ]
+    if not usable_evidence:
         raise HTTPException(
             status_code=409, detail="verified evidence is required before drafting"
         )
@@ -217,7 +249,9 @@ def generate_query_draft(
         result = answer.answer(
             question,
             tier="generated",
-            allowed_document_ids=scope.allowed_document_ids,
+            allowed_document_ids=frozenset(
+                item["document_id"] for item in usable_evidence
+            ),
             model="local",
         )
     except (
@@ -230,6 +264,27 @@ def generate_query_draft(
         raise HTTPException(
             status_code=409, detail="the evidence was insufficient for a grounded draft"
         )
+    passages = result.get("passages") or []
+    cited = result.get("cited") or []
+    if not cited or any(
+        not isinstance(index, int)
+        or index < 1
+        or index > len(passages)
+        or not any(
+            evidence["document_id"] == passages[index - 1].get("document_id")
+            and evidence["page_start"] is not None
+            and passages[index - 1].get("page_start") is not None
+            and evidence["page_start"] <= passages[index - 1].get("page_end", 0)
+            and evidence["page_end"] >= passages[index - 1]["page_start"]
+            and evidence["exact_quote"] in (passages[index - 1].get("text") or "")
+            for evidence in usable_evidence
+        )
+        for index in cited
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="the generated answer cited passages outside the query's verified evidence",
+        )
     item = technical_queries.add_draft(
         query_id,
         result["answer"],
@@ -240,7 +295,7 @@ def generate_query_draft(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return item
+    return _safe_item(item, scope)
 
 
 @router.post("/api/technical-queries/{query_id}/evidence")
@@ -268,7 +323,7 @@ def add_query_evidence(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return item
+    return _safe_item(item, scope)
 
 
 @router.post("/api/technical-queries/{query_id}/prepare-evidence")
@@ -290,7 +345,7 @@ def prepare_query_evidence(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return item
+    return _safe_item(item, scope)
 
 
 @router.patch("/api/technical-queries/{query_id}/evidence/{evidence_id}")
@@ -312,7 +367,7 @@ def classify_query_evidence(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="query or evidence not found")
-    return item
+    return _safe_item(item, scope)
 
 
 @router.post("/api/technical-queries/{query_id}/attachments/{attachment_id}/file")
@@ -333,8 +388,33 @@ async def upload_query_attachment(
             status_code=403,
             detail="query attachment upload requires administrator access",
         )
-    if technical_queries.get(query_id, *_visible(scope)) is None:
-        raise HTTPException(status_code=404, detail="technical query not found")
+    attachment = technical_queries.attachment_for_query(
+        query_id, attachment_id, *_visible(scope)
+    )
+    if attachment is None:
+        raise HTTPException(status_code=404, detail="query attachment not found")
+    if attachment["document_id"]:
+        raise HTTPException(status_code=409, detail="query attachment already uploaded")
+    if file.filename != attachment["filename"]:
+        raise HTTPException(
+            status_code=422, detail="attachment filename does not match the message"
+        )
+    digest = hashlib.sha256()
+    size = 0
+    while block := file.file.read(1024 * 1024):
+        size += len(block)
+        if size > 100_000_000:
+            raise HTTPException(status_code=413, detail="attachment is too large")
+        digest.update(block)
+    file.file.seek(0)
+    if attachment["size_bytes"] and size != attachment["size_bytes"]:
+        raise HTTPException(
+            status_code=422, detail="attachment size does not match the message"
+        )
+    if attachment["sha256"] and digest.hexdigest() != attachment["sha256"]:
+        raise HTTPException(
+            status_code=422, detail="attachment digest does not match the message"
+        )
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as exc:
@@ -345,7 +425,7 @@ async def upload_query_attachment(
     if item is None:
         raise HTTPException(status_code=404, detail="query attachment not found")
     return {
-        "item": item,
+        "item": _safe_item(item, scope),
         "document_id": row["id"],
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
@@ -359,6 +439,10 @@ def decide_query(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     _require_identity_to_write(scope)
+    if not scope.is_admin:
+        raise HTTPException(
+            status_code=403, detail="an authorised reviewer is required"
+        )
     try:
         item = technical_queries.decide(
             query_id,
@@ -368,11 +452,11 @@ def decide_query(
             body.draft_id,
             *_visible(scope),
         )
-    except ValueError as exc:
+    except (PermissionError, ValueError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return item
+    return _safe_item(item, scope)
 
 
 @router.get("/api/technical-queries/{query_id}/response.docx")
@@ -382,6 +466,14 @@ def query_response_docx(
     item = technical_queries.get(query_id, *_visible(scope))
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
+    if not scope.unrestricted and any(
+        evidence["document_id"] not in scope.allowed_document_ids
+        for evidence in item.get("evidence", [])
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="source access has changed; response must be reviewed again",
+        )
     try:
         path = technical_query_docx.render(item)
     except ValueError as exc:
@@ -396,30 +488,14 @@ def query_response_docx(
 @router.post("/api/technical-queries/{query_id}/send")
 def prepare_query_send(
     query_id: str,
-    body: SendIn,
+    _body: SendIn,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Record an explicit send request without contacting an email provider.
-
-    Provider activation is a separate operational change requiring credentials
-    and owner approval. This endpoint cannot send accidentally.
-    """
+    """Refuse sending until the mailbox integration is activated."""
     _require_identity_to_write(scope)
-    try:
-        item = technical_queries.prepare_send(
-            query_id,
-            body.draft_id,
-            body.to_addresses,
-            body.cc_addresses,
-            body.idempotency_key,
-            scope.user_id,
-            *_visible(scope),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    if item is None:
+    if technical_queries.get(query_id, *_visible(scope)) is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return {"item": item, "sent": False, "reason": "email provider is not configured"}
+    raise HTTPException(status_code=503, detail="email sending is not configured")
 
 
 @router.post("/api/technical-queries/{query_id}/confirm-resolution")
@@ -428,6 +504,10 @@ def confirm_query_resolution(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     _require_identity_to_write(scope)
+    if not scope.is_admin:
+        raise HTTPException(
+            status_code=403, detail="an authorised reviewer is required"
+        )
     try:
         item = technical_queries.decide(
             query_id,
@@ -441,4 +521,4 @@ def confirm_query_resolution(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return item
+    return _safe_item(item, scope)

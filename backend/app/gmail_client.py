@@ -9,6 +9,8 @@ from __future__ import annotations
 import base64
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -48,17 +50,29 @@ class GmailApiClient:
         return response.json()
 
     def history(self, start_history_id: str) -> list[str]:
-        payload = self._request(
-            "GET",
-            "/history",
-            params={"startHistoryId": start_history_id, "historyTypes": "messageAdded"},
-        )
         ids: list[str] = []
-        for item in payload.get("history", []):
-            for added in item.get("messagesAdded", []):
-                message = added.get("message") or {}
-                if message.get("id"):
-                    ids.append(str(message["id"]))
+        page_token: str | None = None
+        seen_tokens: set[str] = set()
+        while True:
+            params = {
+                "startHistoryId": start_history_id,
+                "historyTypes": "messageAdded",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            payload = self._request("GET", "/history", params=params)
+            for item in payload.get("history", []):
+                for added in item.get("messagesAdded", []):
+                    message = added.get("message") or {}
+                    if message.get("id"):
+                        ids.append(str(message["id"]))
+            next_token = payload.get("nextPageToken")
+            if not next_token:
+                break
+            if next_token in seen_tokens:
+                raise RuntimeError("Gmail history pagination did not advance")
+            page_token = str(next_token)
+            seen_tokens.add(page_token)
         return list(dict.fromkeys(ids))
 
     def message(self, message_id: str) -> GmailMessage:
@@ -125,6 +139,23 @@ def normalize_message(payload: dict[str, Any]) -> GmailMessage:
                 }
             )
         stack.extend(part.get("parts", []))
+    received_at = None
+    if payload.get("internalDate"):
+        received_at = (
+            datetime.fromtimestamp(int(payload["internalDate"]) / 1000, UTC)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    elif headers.get("date"):
+        try:
+            received_at = (
+                parsedate_to_datetime(headers["date"])
+                .astimezone(UTC)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
+        except (TypeError, ValueError, OverflowError):
+            received_at = None
     return GmailMessage(
         provider_message_id=str(payload["id"]),
         thread_id=payload.get("threadId"),
@@ -133,6 +164,6 @@ def normalize_message(payload: dict[str, Any]) -> GmailMessage:
         cc_addresses=[x.strip() for x in headers.get("cc", "").split(",") if x.strip()],
         subject=headers.get("subject", "(no subject)"),
         body=_body(payload.get("payload") or {}),
-        received_at=headers.get("date"),
+        received_at=received_at,
         attachments=attachments,
     )
