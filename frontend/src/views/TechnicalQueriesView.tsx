@@ -8,6 +8,22 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editedAnswer, setEditedAnswer] = useState("");
+  const [contractorFilter, setContractorFilter] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [visibleTotal, setVisibleTotal] = useState<number | null>(null);
+
+  const applyFilters = () => {
+    const common = { contractor: contractorFilter.trim(), department: departmentFilter.trim() };
+    void technicalQueriesApi.list({ ...common, status: statusFilter }).then((result) => {
+      if (!result.ok) { setError(result.error.message); return; }
+      setItems(result.data.items);
+      if (selected && !result.data.items.some((item) => item.id === selected.id)) setSelected(null);
+    });
+    void technicalQueriesApi.metrics(common).then((result) => {
+      if (result.ok) setVisibleTotal(result.data.total);
+    });
+  };
 
   const act = (action: () => Promise<Result<TechnicalQuery>>) => {
     if (!selected) return;
@@ -25,6 +41,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
       if (!alive) return;
       if (!result.ok) { setError(result.error.message); return; }
       setItems(result.data.items);
+      setVisibleTotal(result.data.items.length);
       const first = queryId ? result.data.items.find((item) => item.id === queryId) : result.data.items[0];
       if (first) void technicalQueriesApi.get(first.id).then((detail) => { if (alive && detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } });
     });
@@ -36,13 +53,25 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
       <section>
         <h1 id="technical-queries-title" className="text-xl font-semibold text-slateish-100">Technical Queries</h1>
         <p className="mt-1 text-sm text-slateish-400">Incoming questions, evidence and engineer decisions.</p>
+        <p className="mt-2 text-xs text-slateish-400">{visibleTotal === null ? "Loading queries" : `${items.length} matching · ${visibleTotal} in selected contractor and department`}</p>
+        <div className="mt-4 space-y-2">
+          <label className="block text-xs text-slateish-300" htmlFor="query-status-filter">Status</label>
+          <select id="query-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100">
+            <option value="">All statuses</option><option value="received">Received</option><option value="triage">Triage</option><option value="drafting">Drafting</option><option value="awaiting_review">Awaiting review</option><option value="changes_requested">Changes requested</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="resolved">Resolved</option>
+          </select>
+          <label className="block text-xs text-slateish-300" htmlFor="query-contractor-filter">Contractor</label>
+          <input id="query-contractor-filter" value={contractorFilter} onChange={(event) => setContractorFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+          <label className="block text-xs text-slateish-300" htmlFor="query-department-filter">Department</label>
+          <input id="query-department-filter" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+          <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Apply filters</button>
+        </div>
         {error && <p role="alert" className="mt-4 text-sm text-danger-400">{error}</p>}
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
           {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.subject}</span>
-              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "Unknown contractor"} · {item.status}</span>
+              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "Unknown contractor"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
             </button>
           ))}
         </div>
@@ -68,10 +97,10 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {message.cc_addresses.length > 0 && <p>CC: {message.cc_addresses.join(", ")}</p>}
             <p>Received: {message.received_at}</p>
             <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
-            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.filename} ({attachment.size_bytes} bytes){attachment.document_id ? " · stored" : " · pending upload"}</li>)}</ul>}
+            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · scan: {attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
           </article>)}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Evidence</h3>
-          {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500">{evidence.document_id} · page {evidence.page_start ?? "not recorded"} · {evidence.evidence_state} · {evidence.supersession_state}</footer></blockquote>) : <p className="mt-2 text-sm text-warn-400">No verified evidence attached.</p>}
+          {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, page {evidence.page_start ?? "unknown"}</a> · {evidence.evidence_state} · {evidence.supersession_state}</footer></blockquote>) : <p className="mt-2 text-sm text-warn-400">No verified evidence attached.</p>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed response</h3>
           {selected.drafts?.length ? <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.drafts.at(-1)?.answer}</p> : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-3">

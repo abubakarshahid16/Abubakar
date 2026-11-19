@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+from io import BytesIO
+from zipfile import ZipFile
+
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 
 from app import db, gmail_auth
 from app.access import AccessScope
@@ -12,6 +16,7 @@ from app.api.technical_queries import (
     generate_query_draft,
     import_technical_query,
     prepare_query_send,
+    upload_query_attachment,
 )
 from app.config import settings
 from app.gmail_client import GmailApiClient, normalize_message
@@ -19,12 +24,17 @@ from app.gmail_worker import process_history, send_approved
 from app.technical_queries import (
     add_draft,
     add_evidence,
+    assign_query,
     decide,
     ensure_schema,
     get,
     import_message,
+    link_attachment,
+    list_queries,
+    metrics,
     update_evidence,
 )
+from app.technical_query_docx import render as render_query_docx
 
 
 @pytest.fixture(autouse=True)
@@ -141,6 +151,55 @@ def test_unverified_provider_claim_and_unconfigured_send_are_refused():
         assert conn.execute("SELECT COUNT(*) FROM query_sends").fetchone()[0] == 0
 
 
+def test_invalid_attachment_id_is_rejected_before_document_ingestion(monkeypatch):
+    item, _ = import_message(envelope("bad-attachment"), "u1", False, False)
+    called = False
+
+    def ingest_never_called(*_args):
+        nonlocal called
+        called = True
+        raise AssertionError("ingestion must not run")
+
+    monkeypatch.setattr(
+        "app.api.technical_queries.upload_mod.ingest", ingest_never_called
+    )
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    with pytest.raises(HTTPException) as rejected:
+        asyncio.run(
+            upload_query_attachment(
+                item["id"],
+                "missing-attachment",
+                UploadFile(filename="query.pdf", file=BytesIO(b"PDF")),
+                scope,
+            )
+        )
+    assert rejected.value.status_code == 404
+    assert called is False
+
+
+def test_attachment_status_reflects_document_processing():
+    item, _ = import_message(envelope("attachment-status"), "u1", False, False)
+    attachment_id = item["messages"][0]["attachments"][0]["id"]
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,'ready',?)",
+            (
+                "attached-doc",
+                "query.pdf",
+                "c" * 64,
+                10,
+                "/tmp/query.pdf",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+    linked = link_attachment(
+        item["id"], attachment_id, "attached-doc", "u1", "u1", False, False
+    )
+    attachment = linked["messages"][0]["attachments"][0]
+    assert attachment["scan_status"] == "not_scanned"
+    assert attachment["parse_status"] == "ready"
+
+
 def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
     with db.connect() as conn:
         conn.execute(
@@ -195,6 +254,16 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
     assert get(item["id"], "u1", False, False)["drafts"] == []
 
 
+def test_word_preview_marks_unapproved_response_and_missing_evidence(tmp_path):
+    item, _ = import_message(envelope("word-preview"), "u1", False, False)
+    item = add_draft(item["id"], "Proposed answer", [], [], "u1", "u1", False, False)
+    path = render_query_docx(item, tmp_path / "preview.docx")
+    with ZipFile(path) as package:
+        document = package.read("word/document.xml").decode()
+    assert "DRAFT Technical Query Response" in document
+    assert "No verified source evidence" in document
+
+
 def test_new_message_in_same_provider_thread_is_follow_up():
     first, _ = import_message(envelope("thread-message-1"), "u1", False, False)
     follow = envelope("thread-message-2")
@@ -230,6 +299,39 @@ def test_query_visibility_is_owner_scoped():
     assert get(item["id"], "owner", False, False) is not None
     assert get(item["id"], "other", False, False) is None
     assert get(item["id"], None, False, True) is not None
+
+
+def test_admin_assignment_grants_assignee_visibility():
+    item, _ = import_message(envelope("assignment"), "owner", False, False)
+    assert get(item["id"], "u1", False, False) is None
+    with pytest.raises(PermissionError):
+        assign_query(item["id"], "u1", "owner", False, False)
+    assigned = assign_query(item["id"], "u1", "owner", True, False)
+    assert assigned["assignee_user_id"] == "u1"
+    assert get(item["id"], "u1", False, False) is not None
+    assert any(event["event"] == "assigned" for event in assigned["events"])
+
+
+def test_filtered_dashboard_totals_match_visible_records():
+    first_data = envelope("metrics-one")
+    first_data["contractor_name"] = "Contractor A"
+    first_data["department"] = "Mechanical"
+    first, _ = import_message(first_data, "owner", False, False)
+    second_data = envelope("metrics-two")
+    second_data["provider_thread_id"] = "different-thread"
+    second_data["contractor_name"] = "Contractor B"
+    second_data["department"] = "Civil"
+    import_message(second_data, "owner", False, False)
+    assign_query(first["id"], "u1", "owner", True, False)
+    items = list_queries(
+        "u1", False, False, contractor="Contractor A", department="Mechanical"
+    )
+    totals = metrics(
+        "u1", False, False, contractor="Contractor A", department="Mechanical"
+    )
+    assert [item["id"] for item in items] == [first["id"]]
+    assert totals["total"] == len(items) == 1
+    assert totals["received"] == 1
 
 
 def test_evidence_requires_exact_quote_and_can_be_classified():

@@ -40,6 +40,7 @@ def ensure_schema() -> None:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS technical_queries (
             id TEXT PRIMARY KEY, owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+            assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
             contractor_name TEXT, department TEXT, subject TEXT NOT NULL, extracted_question TEXT,
             status TEXT NOT NULL CHECK(status IN ('received','triage','drafting','awaiting_review','changes_requested','approved','send_pending','sent','awaiting_confirmation','resolved','duplicate','cancelled','failed')),
             priority TEXT NOT NULL DEFAULT 'normal', received_at TEXT NOT NULL, due_at TEXT,
@@ -99,6 +100,16 @@ def ensure_schema() -> None:
             actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, event TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL
         );
         """)
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(technical_queries)")
+        }
+        if "assignee_user_id" not in columns:
+            conn.execute(
+                "ALTER TABLE technical_queries ADD COLUMN assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tq_assignee_status ON technical_queries(assignee_user_id,status,updated_at DESC)"
+        )
 
 
 def _event(
@@ -136,7 +147,41 @@ def _visible_where(
         return "", []
     if user_id is None:
         return " WHERE 1 = 0", []
-    return " WHERE owner_user_id = ?", [user_id]
+    return " WHERE (owner_user_id = ? OR assignee_user_id = ?)", [user_id, user_id]
+
+
+def _filtered_where(
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+    *,
+    status: str | None = None,
+    contractor: str | None = None,
+    department: str | None = None,
+    assignee_user_id: str | None = None,
+    received_from: str | None = None,
+    received_to: str | None = None,
+    evidence_state: str | None = None,
+) -> tuple[str, list[Any]]:
+    where, args = _visible_where(user_id, is_admin, unrestricted)
+    filters = (
+        ("status = ?", status),
+        ("contractor_name = ?", contractor),
+        ("department = ?", department),
+        ("assignee_user_id = ?", assignee_user_id),
+        ("received_at >= ?", received_from),
+        ("received_at <= ?", received_to),
+    )
+    for clause, value in filters:
+        if value is not None:
+            where += " AND " if where else " WHERE "
+            where += clause
+            args.append(value)
+    if evidence_state is not None:
+        where += " AND " if where else " WHERE "
+        where += "EXISTS (SELECT 1 FROM query_evidence e WHERE e.query_id=technical_queries.id AND e.evidence_state=?)"
+        args.append(evidence_state)
+    return where, args
 
 
 def import_message(
@@ -260,13 +305,30 @@ def import_message(
 
 
 def list_queries(
-    user_id: str | None, is_admin: bool, unrestricted: bool, status: str | None = None
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+    status: str | None = None,
+    *,
+    contractor: str | None = None,
+    department: str | None = None,
+    assignee_user_id: str | None = None,
+    received_from: str | None = None,
+    received_to: str | None = None,
+    evidence_state: str | None = None,
 ) -> list[dict[str, Any]]:
-    where, args = _visible_where(user_id, is_admin, unrestricted)
-    if status:
-        where += " AND " if where else " WHERE "
-        where += "status = ?"
-        args.append(status)
+    where, args = _filtered_where(
+        user_id,
+        is_admin,
+        unrestricted,
+        status=status,
+        contractor=contractor,
+        department=department,
+        assignee_user_id=assignee_user_id,
+        received_from=received_from,
+        received_to=received_to,
+        evidence_state=evidence_state,
+    )
     with connect() as conn:
         return [
             dict(row)
@@ -277,8 +339,29 @@ def list_queries(
         ]
 
 
-def metrics(user_id: str | None, is_admin: bool, unrestricted: bool) -> dict[str, int]:
-    where, args = _visible_where(user_id, is_admin, unrestricted)
+def metrics(
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+    *,
+    contractor: str | None = None,
+    department: str | None = None,
+    assignee_user_id: str | None = None,
+    received_from: str | None = None,
+    received_to: str | None = None,
+    evidence_state: str | None = None,
+) -> dict[str, int]:
+    where, args = _filtered_where(
+        user_id,
+        is_admin,
+        unrestricted,
+        contractor=contractor,
+        department=department,
+        assignee_user_id=assignee_user_id,
+        received_from=received_from,
+        received_to=received_to,
+        evidence_state=evidence_state,
+    )
     with connect() as conn:
         rows = conn.execute(
             "SELECT status, COUNT(*) AS count FROM technical_queries"
@@ -290,6 +373,40 @@ def metrics(user_id: str | None, is_admin: bool, unrestricted: bool) -> dict[str
     result.update({row["status"]: row["count"] for row in rows})
     result["total"] = sum(result.values())
     return result
+
+
+def assign_query(
+    query_id: str,
+    assignee_user_id: str,
+    actor_user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+) -> dict[str, Any] | None:
+    if not (is_admin or unrestricted):
+        raise PermissionError("an administrator is required to assign a query")
+    with connect() as conn:
+        if (
+            conn.execute(
+                "SELECT 1 FROM technical_queries WHERE id=?", (query_id,)
+            ).fetchone()
+            is None
+        ):
+            return None
+        if (
+            conn.execute(
+                "SELECT 1 FROM users WHERE id=?", (assignee_user_id,)
+            ).fetchone()
+            is None
+        ):
+            raise ValueError("assignee does not exist")
+        conn.execute(
+            "UPDATE technical_queries SET assignee_user_id=?,updated_at=? WHERE id=?",
+            (assignee_user_id, now(), query_id),
+        )
+        _event(
+            conn, query_id, "assigned", actor_user_id, f"assignee={assignee_user_id}"
+        )
+    return get(query_id, actor_user_id, is_admin, unrestricted)
 
 
 def get(
@@ -319,10 +436,16 @@ def get(
             message["attachments"] = [
                 dict(r)
                 for r in conn.execute(
-                    "SELECT * FROM query_attachments WHERE message_id=?",
+                    "SELECT a.*,d.status AS document_status FROM query_attachments a "
+                    "LEFT JOIN documents d ON d.id=a.document_id WHERE a.message_id=?",
                     (message["id"],),
                 )
             ]
+            for attachment in message["attachments"]:
+                if attachment["document_status"] == "ready":
+                    attachment["parse_status"] = "ready"
+                elif attachment["document_status"] in {"failed", "stored_not_indexed"}:
+                    attachment["parse_status"] = attachment["document_status"]
         result["drafts"] = [
             dict(r)
             for r in conn.execute(
@@ -599,7 +722,7 @@ def link_attachment(
         if row is None:
             return None
         conn.execute(
-            "UPDATE query_attachments SET document_id=?, scan_status='accepted', parse_status='pending' WHERE id=?",
+            "UPDATE query_attachments SET document_id=?, scan_status='not_scanned', parse_status='pending' WHERE id=?",
             (document_id, attachment_id),
         )
         _event(

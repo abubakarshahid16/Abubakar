@@ -82,6 +82,10 @@ class SendIn(BaseModel):
     idempotency_key: str = Field(min_length=8, max_length=200)
 
 
+class AssignmentIn(BaseModel):
+    assignee_user_id: str = Field(min_length=1, max_length=200)
+
+
 def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
     return scope.user_id, scope.is_admin, scope.unrestricted
 
@@ -111,14 +115,48 @@ def _safe_item(item: dict, scope: access.AccessScope) -> dict:
 
 @router.get("/api/technical-queries")
 def list_technical_queries(
-    status: str | None = None, scope: access.AccessScope = Depends(access.current_scope)
+    status: str | None = None,
+    contractor: str | None = None,
+    department: str | None = None,
+    assignee_user_id: str | None = None,
+    received_from: str | None = None,
+    received_to: str | None = None,
+    evidence_state: str | None = None,
+    scope: access.AccessScope = Depends(access.current_scope),
 ):
-    return {"items": technical_queries.list_queries(*_visible(scope), status)}
+    return {
+        "items": technical_queries.list_queries(
+            *_visible(scope),
+            status,
+            contractor=contractor,
+            department=department,
+            assignee_user_id=assignee_user_id,
+            received_from=received_from,
+            received_to=received_to,
+            evidence_state=evidence_state,
+        )
+    }
 
 
 @router.get("/api/technical-queries/metrics")
-def technical_query_metrics(scope: access.AccessScope = Depends(access.current_scope)):
-    return technical_queries.metrics(*_visible(scope))
+def technical_query_metrics(
+    contractor: str | None = None,
+    department: str | None = None,
+    assignee_user_id: str | None = None,
+    received_from: str | None = None,
+    received_to: str | None = None,
+    evidence_state: str | None = None,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    return technical_queries.metrics(
+        *_visible(scope),
+        contractor=contractor,
+        department=department,
+        assignee_user_id=assignee_user_id,
+        received_from=received_from,
+        received_to=received_to,
+        evidence_state=evidence_state,
+    )
 
 
 @router.get("/api/technical-queries/providers/microsoft-graph/webhook")
@@ -179,6 +217,30 @@ def get_technical_query(
     return _safe_item(item, scope)
 
 
+@router.post("/api/technical-queries/{query_id}/assignment")
+def assign_technical_query(
+    query_id: str,
+    body: AssignmentIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.assign_query(
+            query_id,
+            body.assignee_user_id,
+            scope.user_id,
+            scope.is_admin,
+            scope.unrestricted,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return _safe_item(item, scope)
+
+
 @router.post("/api/technical-queries/import")
 def import_technical_query(
     body: ImportIn, scope: access.AccessScope = Depends(access.current_scope)
@@ -188,6 +250,11 @@ def import_technical_query(
         raise HTTPException(
             status_code=422,
             detail="provider messages must arrive through a verified mailbox connection",
+        )
+    if not scope.unrestricted:
+        raise HTTPException(
+            status_code=403,
+            detail="synthetic import is limited to isolated development mode",
         )
     try:
         item, duplicate = technical_queries.import_message(

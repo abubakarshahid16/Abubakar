@@ -43,7 +43,13 @@ def render(query: dict, output: Path | None = None) -> Path:
     )
     target.parent.mkdir(parents=True, exist_ok=True)
     paragraphs = [
-        _p("Technical Query Response", True),
+        _p(
+            "Technical Query Response"
+            if query["status"]
+            in {"approved", "sent", "awaiting_confirmation", "resolved"}
+            else "DRAFT Technical Query Response — engineer review required",
+            True,
+        ),
         _p(f"Subject: {query['subject']}"),
         _p(f"Status: {query['status']}"),
         _p("Original question", True),
@@ -59,10 +65,22 @@ def render(query: dict, output: Path | None = None) -> Path:
         paragraphs += [_p("Unresolved points", True)] + [
             _p(f"- {x}") for x in __import__("json").loads(draft["unresolved_json"])
         ]
-    paragraphs += [_p("Evidence", True)] + [
-        _p(f"{e['document_id']} p{e.get('page_start') or '?'}: {e['exact_quote']}")
-        for e in query.get("evidence", [])
-    ]
+    paragraphs += [_p("Evidence", True)]
+    if not query.get("evidence"):
+        paragraphs.append(
+            _p(
+                "No verified source evidence is recorded. The engineer must resolve this before issue."
+            )
+        )
+    else:
+        paragraphs += [
+            _p(
+                f"{e['document_id']} p{e.get('page_start') or '?'} "
+                f"[{e.get('evidence_state', 'unknown')}; {e.get('supersession_state', 'unknown')}]: "
+                f"{e['exact_quote']}"
+            )
+            for e in query["evidence"]
+        ]
     body = "".join(paragraphs)
     document = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr/></w:body></w:document>"""
