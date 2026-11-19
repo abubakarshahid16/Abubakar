@@ -76,7 +76,11 @@ export function usePlan(documentId: string | null, engine: EngineChoice, ticked:
     const mine = ++latest.current;
     // A plan that has not answered in a minute is said so (it never stays "checking"); a late answer still replaces this.
     const slow = setTimeout(() => {
-      if (mine === latest.current) { setForEngine(engine); setPlan((p) => (p.state === "loading" ? { state: "error", message: "Checking what this would do is taking too long. Try again in a moment." } : p)); }
+      if (mine === latest.current) {
+        setForEngine(engine);
+        setForDocument(documentId);
+        setPlan((p) => (p.state === "loading" ? { state: "error", message: "Checking what this would do is taking too long. Try again in a moment." } : p));
+      }
     }, slowMs);
     const r = await reviewPoints.plan(documentId, engine, ...(ticked.length ? [ticked] : []));
     clearTimeout(slow);
