@@ -10,7 +10,7 @@ export interface TechnicalQuery {
   status: string;
   priority: string;
   received_at: string;
-  messages?: Array<{ from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; attachments: Array<{ filename: string; size_bytes: number; document_id: string | null; scan_status: string; parse_status: string }> }>;
+  messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ filename: string; size_bytes: number; document_id: string | null; scan_status: string; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   drafts?: Array<{ id: string; version: number; answer: string; assumptions_json: string; unresolved_json: string }>;
   decisions?: Array<{ decision: string; comment: string | null; created_at: string }>;

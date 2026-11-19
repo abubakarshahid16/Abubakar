@@ -52,7 +52,7 @@ def ensure_schema() -> None:
             provider TEXT NOT NULL, mailbox_id TEXT, provider_message_id TEXT NOT NULL,
             provider_thread_id TEXT, internet_message_id TEXT, from_address TEXT NOT NULL,
             to_addresses TEXT NOT NULL, cc_addresses TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL,
-            sent_at TEXT, received_at TEXT NOT NULL, raw_message_hash TEXT, is_inbound INTEGER NOT NULL DEFAULT 1,
+            sent_at TEXT, received_at TEXT NOT NULL, raw_message_hash TEXT, raw_storage_ref TEXT, is_inbound INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL, UNIQUE(provider, mailbox_id, provider_message_id)
         );
         CREATE INDEX IF NOT EXISTS idx_query_messages_thread ON query_messages(provider, mailbox_id, provider_thread_id);
@@ -107,6 +107,11 @@ def ensure_schema() -> None:
             conn.execute(
                 "ALTER TABLE technical_queries ADD COLUMN assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL"
             )
+        message_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(query_messages)")
+        }
+        if "raw_storage_ref" not in message_columns:
+            conn.execute("ALTER TABLE query_messages ADD COLUMN raw_storage_ref TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tq_assignee_status ON technical_queries(assignee_user_id,status,updated_at DESC)"
         )
@@ -246,10 +251,14 @@ def import_message(
                     now(),
                 ),
             )
+            conn.execute(
+                "UPDATE query_messages SET raw_storage_ref=? WHERE id=?",
+                (data.get("raw_storage_ref"), mid),
+            )
             _insert_attachments(conn, mid, data.get("attachments", []))
             conn.execute(
                 "UPDATE technical_queries SET status='triage',resolved_at=NULL,resolution_reason=NULL,updated_at=? "
-                "WHERE id=? AND status IN ('resolved','sent','awaiting_confirmation','failed')",
+                "WHERE id=? AND status NOT IN ('received','triage','cancelled')",
                 (now(), threaded["query_id"]),
             )
             _event(
@@ -298,6 +307,10 @@ def import_message(
                 data.get("raw_message_hash"),
                 now(),
             ),
+        )
+        conn.execute(
+            "UPDATE query_messages SET raw_storage_ref=? WHERE id=?",
+            (data.get("raw_storage_ref"), mid),
         )
         _insert_attachments(conn, mid, data.get("attachments", []))
         _event(conn, qid, "received", actor_user_id, "provider message imported")
@@ -467,6 +480,16 @@ def get(
                 (query_id,),
             )
         ]
+        result["sends"] = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM query_sends WHERE query_id=? ORDER BY created_at",
+                (query_id,),
+            )
+        ]
+        for send in result["sends"]:
+            send["to_addresses"] = json.loads(send["to_addresses"] or "[]")
+            send["cc_addresses"] = json.loads(send["cc_addresses"] or "[]")
         result["events"] = [
             dict(r)
             for r in conn.execute(
@@ -522,6 +545,10 @@ def add_evidence(
                 now(),
             ),
         )
+        conn.execute(
+            "UPDATE technical_queries SET status='changes_requested',updated_at=? WHERE id=? AND status='approved'",
+            (now(), query_id),
+        )
         _event(
             conn,
             query_id,
@@ -530,6 +557,53 @@ def add_evidence(
             f"evidence={evidence_id};document={document_id}",
         )
     return get(query_id, user_id, is_admin, unrestricted)
+
+
+def reconcile_send(
+    query_id: str,
+    send_id: str,
+    outcome: str,
+    provider_message_id: str | None,
+    comment: str,
+    actor_user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+) -> dict[str, Any] | None:
+    if not (is_admin or unrestricted):
+        raise PermissionError("an administrator is required to reconcile a send")
+    if outcome not in {"sent", "not_sent"} or not comment.strip():
+        raise ValueError("a confirmed outcome and explanation are required")
+    if outcome == "sent" and not provider_message_id:
+        raise ValueError("the provider message id is required for a confirmed send")
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT state FROM query_sends WHERE id=? AND query_id=?",
+            (send_id, query_id),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["state"] != "uncertain":
+            raise ValueError("only an uncertain send can be reconciled")
+        conn.execute(
+            "UPDATE query_sends SET state=?,provider_message_id=?,error=NULL WHERE id=?",
+            (
+                "sent" if outcome == "sent" else "confirmed_not_sent",
+                provider_message_id,
+                send_id,
+            ),
+        )
+        conn.execute(
+            "UPDATE technical_queries SET status=?,updated_at=? WHERE id=?",
+            ("sent" if outcome == "sent" else "approved", now(), query_id),
+        )
+        _event(
+            conn,
+            query_id,
+            "send_reconciled",
+            actor_user_id,
+            f"outcome={outcome};send={send_id};comment={comment.strip()[:500]}",
+        )
+    return get(query_id, actor_user_id, is_admin, unrestricted)
 
 
 def update_evidence(
@@ -559,6 +633,10 @@ def update_evidence(
         conn.execute(
             "UPDATE query_evidence SET evidence_state=?,supersession_state=?,conflict_group=? WHERE id=?",
             (evidence_state, supersession_state, conflict_group, evidence_id),
+        )
+        conn.execute(
+            "UPDATE technical_queries SET status='changes_requested',updated_at=? WHERE id=? AND status='approved'",
+            (now(), query_id),
         )
         _event(
             conn,
@@ -724,6 +802,10 @@ def link_attachment(
         conn.execute(
             "UPDATE query_attachments SET document_id=?, scan_status='not_scanned', parse_status='pending' WHERE id=?",
             (document_id, attachment_id),
+        )
+        conn.execute(
+            "UPDATE technical_queries SET status='changes_requested',updated_at=? WHERE id=? AND status='approved'",
+            (now(), query_id),
         )
         _event(
             conn,

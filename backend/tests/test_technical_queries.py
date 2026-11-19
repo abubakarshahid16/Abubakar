@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -13,6 +14,7 @@ from app.api.technical_queries import (
     ImportIn,
     SendIn,
     _safe_item,
+    download_original_query_email,
     generate_query_draft,
     import_technical_query,
     prepare_query_send,
@@ -32,6 +34,7 @@ from app.technical_queries import (
     link_attachment,
     list_queries,
     metrics,
+    reconcile_send,
     update_evidence,
 )
 from app.technical_query_docx import render as render_query_docx
@@ -455,6 +458,14 @@ def test_gmail_message_normalization_and_worker_are_retry_safe():
             payload = {
                 "history": [{"messagesAdded": [{"message": {"id": "gmail-message-1"}}]}]
             }
+        elif _kwargs.get("params", {}).get("format") == "raw":
+            payload = {
+                "raw": base64.urlsafe_b64encode(
+                    b"From: contractor@example.test\n\nTechnical question"
+                )
+                .decode()
+                .rstrip("=")
+            }
         else:
             payload = message
         return __import__("httpx").Response(
@@ -466,6 +477,27 @@ def test_gmail_message_normalization_and_worker_are_retry_safe():
     second = process_history(client, "history-1", "u1", mailbox_id="test-mailbox")
     assert first[0]["duplicate"] is False
     assert second[0]["duplicate"] is True
+    stored = get(first[0]["query_id"], "u1", False, False)
+    original = stored["messages"][0]["raw_storage_ref"]
+    assert original and __import__("pathlib").Path(original).is_file()
+    assert __import__("pathlib").Path(original).stat().st_mode & 0o077 == 0
+    assert (
+        "raw_storage_ref"
+        not in _safe_item(stored, AccessScope("u1", frozenset()))["messages"][0]
+    )
+    response = download_original_query_email(
+        first[0]["query_id"],
+        stored["messages"][0]["id"],
+        AccessScope("u1", frozenset()),
+    )
+    assert str(response.path) == original
+    with pytest.raises(HTTPException) as blocked:
+        download_original_query_email(
+            first[0]["query_id"],
+            stored["messages"][0]["id"],
+            AccessScope("owner", frozenset()),
+        )
+    assert blocked.value.status_code == 404
 
 
 def test_gmail_history_reads_all_pages_and_normalizes_received_time():
@@ -502,29 +534,192 @@ def test_gmail_history_reads_all_pages_and_normalizes_received_time():
     assert message.received_at == "2023-11-14T22:13:20Z"
 
 
-def test_direct_send_is_refused_until_approved_content_binding_exists():
-    item, _ = import_message(envelope("send-1"), None, False, True)
+def test_gmail_worker_imports_pdf_attachment_through_document_pipeline():
+    import fitz
+
+    pdf = fitz.open()
+    pdf.new_page().insert_text((72, 72), "Synthetic technical question")
+    content = pdf.tobytes()
+    pdf.close()
+    message = {
+        "id": "gmail-with-pdf",
+        "threadId": "gmail-thread-pdf",
+        "internalDate": "1700000000000",
+        "payload": {
+            "headers": [
+                {"name": "From", "value": "contractor@example.test"},
+                {"name": "To", "value": "engineering@example.test"},
+                {"name": "Subject", "value": "Synthetic technical question"},
+            ],
+            "parts": [
+                {"mimeType": "text/plain", "body": {"data": "UXVlc3Rpb24="}},
+                {
+                    "filename": "query.pdf",
+                    "mimeType": "application/pdf",
+                    "body": {"size": len(content), "attachmentId": "attachment-1"},
+                },
+            ],
+        },
+    }
+
+    def transport(method, url, **_kwargs):
+        if url.endswith("/history"):
+            payload = {
+                "history": [{"messagesAdded": [{"message": {"id": "gmail-with-pdf"}}]}]
+            }
+        elif url.endswith("/attachments/attachment-1"):
+            payload = {
+                "size": len(content),
+                "data": base64.urlsafe_b64encode(content).decode().rstrip("="),
+            }
+        elif _kwargs.get("params", {}).get("format") == "raw":
+            payload = {
+                "raw": base64.urlsafe_b64encode(
+                    b"From: contractor@example.test\n\nSynthetic question"
+                )
+                .decode()
+                .rstrip("=")
+            }
+        else:
+            payload = message
+        httpx = __import__("httpx")
+        return httpx.Response(200, json=payload, request=httpx.Request(method, url))
+
+    client = GmailApiClient("synthetic-token", transport=transport)
+    first = process_history(client, "history-1", "u1", mailbox_id="synthetic-mailbox")
+    second = process_history(client, "history-1", "u1", mailbox_id="synthetic-mailbox")
+    assert first[0]["duplicate"] is False
+    assert second[0]["duplicate"] is True
+    item = get(first[0]["query_id"], "u1", False, False)
+    attachment = item["messages"][0]["attachments"][0]
+    assert attachment["document_id"]
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) FROM documents WHERE id=?",
+                (attachment["document_id"],),
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_gmail_send_client_preserves_thread_id_in_request():
+    captured = {}
+
+    def transport(method, url, **kwargs):
+        captured.update(kwargs["json"])
+        httpx = __import__("httpx")
+        return httpx.Response(
+            200, json={"id": "sent-1"}, request=httpx.Request(method, url)
+        )
+
+    client = GmailApiClient("synthetic-token", transport=transport)
+    assert (
+        client.send("From: example@example.test\n\nBody", thread_id="thread-1")
+        == "sent-1"
+    )
+    assert captured["threadId"] == "thread-1"
+    assert captured["raw"]
+
+
+def test_send_worker_uses_approved_content_and_original_recipient_only():
+    item, _ = import_message(envelope("send-1"), "u1", False, False)
 
     class FakeClient:
         calls = 0
+        raw = ""
 
-        def send(self, _raw):
+        def send(self, raw, *, thread_id=None):
             self.calls += 1
+            self.raw = raw
+            assert thread_id == "thread-1"
             return "provider-send-1"
 
     client = FakeClient()
-    drafted = add_draft(item["id"], "Draft", [], [], None, None, False, True)
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    drafted = add_draft(
+        item["id"], "Approved technical answer", [], [], "u1", "u1", True, False
+    )
     draft_id = drafted["drafts"][0]["id"]
-    decide(item["id"], "approve", None, None, draft_id, None, False, True)
-    with pytest.raises(RuntimeError, match="disabled"):
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    with pytest.raises(ValueError, match="not been approved"):
+        send_approved(
+            client,
+            item["id"],
+            "wrong-draft",
+            scope,
+            "send-key-wrong",
+            "engineering@example.test",
+        )
+    assert client.calls == 0
+    sent_id = send_approved(
+        client, item["id"], draft_id, scope, "send-key-1", "engineering@example.test"
+    )
+    assert sent_id == "provider-send-1"
+    assert client.calls == 1
+    assert "To: contractor@example.test" in client.raw
+    assert "Approved technical answer" in client.raw
+    assert (
         send_approved(
             client,
             item["id"],
             draft_id,
-            ["contractor@example.test"],
-            [],
-            "Subject",
-            "Body",
-            "send-key",
+            scope,
+            "send-key-1",
+            "engineering@example.test",
         )
-    assert client.calls == 0
+        == sent_id
+    )
+    assert client.calls == 1
+    assert get(item["id"], "u1", True, False)["status"] == "sent"
+
+
+def test_uncertain_provider_send_is_not_retried_automatically():
+    item, _ = import_message(envelope("send-uncertain"), "u1", False, False)
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
+    draft_id = drafted["drafts"][-1]["id"]
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+
+    class UncertainClient:
+        calls = 0
+
+        def send(self, _raw, *, thread_id=None):
+            self.calls += 1
+            raise TimeoutError("provider reply lost")
+
+    client = UncertainClient()
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="reconcile"):
+            send_approved(
+                client,
+                item["id"],
+                draft_id,
+                scope,
+                "send-key-uncertain",
+                "engineering@example.test",
+            )
+    assert client.calls == 1
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT state FROM query_sends WHERE query_id=?", (item["id"],)
+        ).fetchone()
+    assert row["state"] == "uncertain"
+    current = get(item["id"], "u1", True, False)
+    send_id = current["sends"][0]["id"]
+    with pytest.raises(PermissionError):
+        reconcile_send(
+            item["id"], send_id, "not_sent", None, "Checked mailbox", "u1", False, False
+        )
+    reconciled = reconcile_send(
+        item["id"],
+        send_id,
+        "not_sent",
+        None,
+        "Checked mailbox and provider logs",
+        "u1",
+        True,
+        False,
+    )
+    assert reconciled["status"] == "approved"
+    assert reconciled["sends"][0]["state"] == "confirmed_not_sent"

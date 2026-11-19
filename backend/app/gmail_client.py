@@ -81,6 +81,23 @@ class GmailApiClient:
         )
         return normalize_message(payload)
 
+    def raw_message(self, message_id: str) -> bytes:
+        payload = self._request(
+            "GET", f"/messages/{message_id}", params={"format": "raw"}
+        )
+        encoded = payload.get("raw") or ""
+        if not encoded:
+            raise ValueError("Gmail did not return the original message")
+        return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+
+    def attachment(self, message_id: str, attachment_id: str) -> bytes:
+        payload = self._request(
+            "GET", f"/messages/{message_id}/attachments/{attachment_id}"
+        )
+        return base64.urlsafe_b64decode(
+            (payload.get("data") or "") + "=" * (-len(payload.get("data") or "") % 4)
+        )
+
     def watch(self, topic_name: str) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -92,9 +109,12 @@ class GmailApiClient:
             },
         )
 
-    def send(self, raw_rfc822: str) -> str:
+    def send(self, raw_rfc822: str, *, thread_id: str | None = None) -> str:
         encoded = base64.urlsafe_b64encode(raw_rfc822.encode()).decode().rstrip("=")
-        payload = self._request("POST", "/messages/send", json={"raw": encoded})
+        outgoing = {"raw": encoded}
+        if thread_id:
+            outgoing["threadId"] = thread_id
+        payload = self._request("POST", "/messages/send", json=outgoing)
         if not payload.get("id"):
             raise RuntimeError("Gmail did not return an outbound message id")
         return str(payload["id"])
@@ -136,6 +156,7 @@ def normalize_message(payload: dict[str, Any]) -> GmailMessage:
                     "media_type": part.get("mimeType", "application/octet-stream"),
                     "size_bytes": int(body.get("size", 0)),
                     "attachment_id": body.get("attachmentId"),
+                    "inline_data": body.get("data"),
                 }
             )
         stack.extend(part.get("parts", []))

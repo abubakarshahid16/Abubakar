@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -16,6 +17,7 @@ from .. import (
 )
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
+from ..config import settings
 
 router = APIRouter()
 
@@ -86,12 +88,25 @@ class AssignmentIn(BaseModel):
     assignee_user_id: str = Field(min_length=1, max_length=200)
 
 
+class ReconcileSendIn(BaseModel):
+    outcome: Literal["sent", "not_sent"]
+    provider_message_id: str | None = Field(default=None, max_length=500)
+    comment: str = Field(min_length=1, max_length=1000)
+
+
 def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
     return scope.user_id, scope.is_admin, scope.unrestricted
 
 
 def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     """Hide source material retained after a document grant is revoked."""
+    item = {
+        **item,
+        "messages": [
+            {key: value for key, value in message.items() if key != "raw_storage_ref"}
+            for message in item.get("messages", [])
+        ],
+    }
     if scope.unrestricted:
         return item
     inaccessible = {
@@ -215,6 +230,31 @@ def get_technical_query(
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return _safe_item(item, scope)
+
+
+@router.get("/api/technical-queries/{query_id}/messages/{message_id}/original.eml")
+def download_original_query_email(
+    query_id: str,
+    message_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    item = technical_queries.get(query_id, *_visible(scope))
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    message = next((row for row in item["messages"] if row["id"] == message_id), None)
+    if message is None or not message.get("raw_storage_ref"):
+        raise HTTPException(status_code=404, detail="original email not stored")
+    folder = (settings.data_dir / "technical_query_mail").resolve()
+    path = Path(message["raw_storage_ref"]).resolve()
+    if not path.is_relative_to(folder) or not path.is_file():
+        raise HTTPException(status_code=404, detail="original email not stored")
+    if hashlib.sha256(path.read_bytes()).hexdigest() != message["raw_message_hash"]:
+        raise HTTPException(
+            status_code=409, detail="stored original email failed integrity check"
+        )
+    return FileResponse(
+        path, media_type="message/rfc822", filename=f"query-message-{message_id}.eml"
+    )
 
 
 @router.post("/api/technical-queries/{query_id}/assignment")
@@ -482,10 +522,26 @@ async def upload_query_attachment(
         raise HTTPException(
             status_code=422, detail="attachment digest does not match the message"
         )
+    admin_role = None
+    if not scope.unrestricted and scope.user_id:
+        try:
+            admin_role, _ = access.upload_admin_role(scope.user_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
+    if (
+        duplicate_of is not None
+        and not scope.may_read(row["id"])
+        and not scope.unrestricted
+    ):
+        raise HTTPException(
+            status_code=403, detail="the existing document is not readable"
+        )
+    if duplicate_of is None and admin_role is not None and scope.user_id:
+        access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
     item = technical_queries.link_attachment(
         query_id, attachment_id, row["id"], scope.user_id, *_visible(scope)
     )
@@ -563,6 +619,34 @@ def prepare_query_send(
     if technical_queries.get(query_id, *_visible(scope)) is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     raise HTTPException(status_code=503, detail="email sending is not configured")
+
+
+@router.post("/api/technical-queries/{query_id}/sends/{send_id}/reconcile")
+def reconcile_query_send(
+    query_id: str,
+    send_id: str,
+    body: ReconcileSendIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.reconcile_send(
+            query_id,
+            send_id,
+            body.outcome,
+            body.provider_message_id,
+            body.comment,
+            scope.user_id,
+            scope.is_admin,
+            scope.unrestricted,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query send not found")
+    return _safe_item(item, scope)
 
 
 @router.post("/api/technical-queries/{query_id}/confirm-resolution")

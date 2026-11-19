@@ -96,6 +96,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <p>From: {message.from_address}</p><p>To: {message.to_addresses.join(", ")}</p>
             {message.cc_addresses.length > 0 && <p>CC: {message.cc_addresses.join(", ")}</p>}
             <p>Received: {message.received_at}</p>
+            {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
             <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
             {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · scan: {attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
           </article>)}
