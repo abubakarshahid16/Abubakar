@@ -144,8 +144,24 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
             ),
         )
         conn.execute(
-            "INSERT INTO pages(document_id,page_no,text,char_count,batch_no) VALUES (?,?,?,?,?)",
-            ("query-pdf", 1, "What is the permitted coating thickness?", 40, 1),
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("query-pdf", 1, "", 0, 1, 1),
+        )
+        conn.execute(
+            "INSERT INTO page_ocr(document_id,page_no,text,char_count,engine,model,dpi,box_count,seconds,recognised_at,batch_no) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "query-pdf",
+                1,
+                "What is the permitted coating thickness?",
+                40,
+                "synthetic",
+                "synthetic",
+                150,
+                1,
+                0.1,
+                "2026-01-01T00:00:00Z",
+                1,
+            ),
         )
     payload = envelope("question-in-attachment")
     payload["body"] = "Please see attached."
@@ -186,6 +202,57 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
         item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
     )
     assert repeated["extracted_question"] == result["extracted_question"]
+
+
+def test_exact_quote_can_be_verified_on_a_recognised_source_page():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                "scanned-source",
+                "standard.pdf",
+                "d" * 64,
+                1,
+                "standard.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("scanned-source", 2, "", 0, 1, 1),
+        )
+        conn.execute(
+            "INSERT INTO page_ocr(document_id,page_no,text,char_count,engine,model,dpi,box_count,seconds,recognised_at,batch_no) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "scanned-source",
+                2,
+                "The limit is 12 bar.",
+                20,
+                "synthetic",
+                "synthetic",
+                150,
+                1,
+                0.1,
+                "2026-01-01T00:00:00Z",
+                1,
+            ),
+        )
+    item, _ = import_message(envelope("scanned-evidence"), "u1", False, False)
+    result = add_evidence(
+        item["id"],
+        "scanned-source",
+        "The limit is 12 bar.",
+        2,
+        2,
+        None,
+        frozenset({"scanned-source"}),
+        "u1",
+        True,
+        False,
+        "u1",
+    )
+    assert result["evidence"][0]["page_start"] == 2
 
 
 def test_missing_mailbox_id_still_deduplicates():

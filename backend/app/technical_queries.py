@@ -156,6 +156,25 @@ def _source_supersession(conn, document_id: str) -> str:
     return "current" if row and row["confirmed_by"] else "unknown"
 
 
+def _source_pages(conn, document_id: str, start: int, end: int):
+    return conn.execute(
+        "SELECT p.page_no,p.text AS native,p.needs_ocr,o.text AS ocr_text "
+        "FROM pages p LEFT JOIN page_ocr o ON o.document_id=p.document_id AND o.page_no=p.page_no "
+        "WHERE p.document_id=? AND p.page_no BETWEEN ? AND ? ORDER BY p.page_no",
+        (document_id, start, end),
+    ).fetchall()
+
+
+def _page_text(row) -> str:
+    return (row["ocr_text"] or "") if row["needs_ocr"] else (row["native"] or "")
+
+
+def _quote_on_pages(conn, document_id: str, start: int, end: int, quote: str) -> bool:
+    return any(
+        quote in _page_text(row) for row in _source_pages(conn, document_id, start, end)
+    )
+
+
 def validate_send_evidence(
     item: dict[str, Any], allowed_document_ids: frozenset[str], unrestricted: bool
 ) -> None:
@@ -171,11 +190,9 @@ def validate_send_evidence(
             ):
                 raise ValueError("a cited source has been superseded since approval")
             quote = evidence["exact_quote"]
-            rows = conn.execute(
-                "SELECT text FROM pages WHERE document_id=? AND page_no BETWEEN ? AND ?",
-                (document_id, evidence["page_start"], evidence["page_end"]),
-            ).fetchall()
-            if not any(quote in (row["text"] or "") for row in rows):
+            if not _quote_on_pages(
+                conn, document_id, evidence["page_start"], evidence["page_end"], quote
+            ):
                 raise ValueError("a cited quote is no longer on its recorded page")
 
 
@@ -632,11 +649,7 @@ def add_evidence(
     if page_start is None or page_end is None or page_end < page_start:
         raise ValueError("a valid source page range is required")
     with connect() as conn:
-        source = conn.execute(
-            "SELECT text FROM pages WHERE document_id=? AND (? IS NULL OR page_no>=?) AND (? IS NULL OR page_no<=?)",
-            (document_id, page_start, page_start, page_end, page_end),
-        ).fetchall()
-        if not any(quote in (row["text"] or "") for row in source):
+        if not _quote_on_pages(conn, document_id, page_start, page_end, quote):
             raise ValueError("exact_quote was not found in the selected source")
         evidence_id = str(uuid.uuid4())
         import hashlib
@@ -805,12 +818,9 @@ def prepare_evidence(
                 or attachment.get("document_status") != "ready"
             ):
                 continue
-            pages = conn.execute(
-                "SELECT page_no,text FROM pages WHERE document_id=? ORDER BY page_no LIMIT 5",
-                (document_id,),
-            ).fetchall()
+            pages = _source_pages(conn, document_id, 1, 5)
             for page in pages:
-                text = (page["text"] or "").strip()
+                text = _page_text(page).strip()
                 if text:
                     attachment_sections.append(
                         f"[Attachment {attachment['filename']}, page {page['page_no']}]\n{text}"
@@ -856,17 +866,13 @@ def prepare_evidence(
             if passage.get("document_id") in attachment_ids:
                 # The contractor's question is context, not an authority for its answer.
                 continue
-            source = conn.execute(
-                "SELECT text FROM pages WHERE document_id=? AND (? IS NULL OR page_no>=?) AND (? IS NULL OR page_no<=?)",
-                (
-                    passage["document_id"],
-                    passage.get("page_start"),
-                    passage.get("page_start"),
-                    passage.get("page_end"),
-                    passage.get("page_end"),
-                ),
-            ).fetchall()
-            if not any(quote in (row["text"] or "") for row in source):
+            if not _quote_on_pages(
+                conn,
+                passage["document_id"],
+                passage["page_start"],
+                passage["page_end"],
+                quote,
+            ):
                 continue
             import hashlib
 
