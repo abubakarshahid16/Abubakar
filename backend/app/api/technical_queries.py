@@ -139,14 +139,17 @@ def create_query_draft(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     _require_identity_to_write(scope)
-    item = technical_queries.add_draft(
-        query_id,
-        body.answer,
-        body.assumptions,
-        body.unresolved,
-        scope.user_id,
-        *_visible(scope),
-    )
+    try:
+        item = technical_queries.add_draft(
+            query_id,
+            body.answer,
+            body.assumptions,
+            body.unresolved,
+            scope.user_id,
+            *_visible(scope),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return item
@@ -246,14 +249,17 @@ def decide_query(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     _require_identity_to_write(scope)
-    item = technical_queries.decide(
-        query_id,
-        body.decision,
-        scope.user_id,
-        body.comment,
-        body.draft_id,
-        *_visible(scope),
-    )
+    try:
+        item = technical_queries.decide(
+            query_id,
+            body.decision,
+            scope.user_id,
+            body.comment,
+            body.draft_id,
+            *_visible(scope),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return item

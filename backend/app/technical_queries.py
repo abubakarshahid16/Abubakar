@@ -460,8 +460,11 @@ def add_draft(
     is_admin: bool,
     unrestricted: bool,
 ) -> dict[str, Any] | None:
-    if get(query_id, user_id, is_admin, unrestricted) is None:
+    current = get(query_id, user_id, is_admin, unrestricted)
+    if current is None:
         return None
+    if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
+        raise ValueError("a draft cannot be added in the current query state")
     with connect() as conn:
         version = conn.execute(
             "SELECT COALESCE(MAX(version),0)+1 AS v FROM query_drafts WHERE query_id=?",
@@ -542,6 +545,17 @@ def decide(
         raise ValueError("unknown technical-query decision")
     if get(query_id, user_id, is_admin, unrestricted) is None:
         return None
+    current = get(query_id, user_id, is_admin, unrestricted)
+    allowed = {
+        "request_changes": {"awaiting_review", "changes_requested"},
+        "approve": {"awaiting_review"},
+        "reject": {"awaiting_review", "changes_requested"},
+        "close": {"sent", "awaiting_confirmation"},
+    }
+    if current is not None and current["status"] not in allowed[decision]:
+        raise ValueError(
+            f"decision {decision} is not allowed in state {current['status']}"
+        )
     target = {
         "request_changes": "changes_requested",
         "approve": "approved",
