@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import uuid
 
 from . import job_queue, orphan_guard, states
 
@@ -70,8 +69,10 @@ def repair(conn) -> dict:
         ).rowcount
         if any(counts.values()):
             conn.execute(
-                "INSERT INTO audit_events (id, at, actor_user_id, actor_username, action, resource_type, resource_id, detail, outcome) VALUES (?, ?, NULL, 'System', 'system.history_repaired', 'database', NULL, ?, 'ok')",
-                (f"audit_{uuid.uuid4().hex}", job_queue.now_iso(), json.dumps(counts)),
+                "INSERT INTO audit_events (id, at, actor_user_id, actor_username, action, resource_type, resource_id, detail, outcome) "
+                "VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM audit_events), ?, NULL, 'System', "
+                "'system.history_repaired', 'database', NULL, ?, 'ok')",
+                (job_queue.now_iso(), json.dumps(counts)),
             )
     return counts
 
