@@ -89,6 +89,10 @@ def ensure_schema() -> None:
             to_addresses TEXT NOT NULL, cc_addresses TEXT NOT NULL, state TEXT NOT NULL,
             provider_message_id TEXT, error TEXT, created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS gmail_oauth_states (
+            state TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL, used_at TEXT
+        );
         CREATE TABLE IF NOT EXISTS query_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
             actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, event TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL
