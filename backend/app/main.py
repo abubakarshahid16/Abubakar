@@ -161,6 +161,7 @@ async def lifespan(app: FastAPI):
             _fts["documents"], _fts["chunks"], _fts["seconds"])
     for _module in (review_mod, deliverables_mod, risks_mod, submittal_review_mod):
         _module.ensure_schema()
+    technical_queries_mod.ensure_schema()
     aim_review_store_mod.ensure_schema()  # order 14: the general review's tables (additive only)
     crs_issue_mod.ensure_indexes()  # order 109: an index for the review runs list
     # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
@@ -290,6 +291,8 @@ from .api import review_templates as api_review_templates  # noqa: E402
 from .api import run_standards as api_run_standards  # noqa: E402
 from .api import run_summary as api_run_summary  # noqa: E402
 from .api import standards as api_standards  # noqa: E402
+from .api import technical_queries as api_technical_queries  # noqa: E402
+from . import technical_queries as technical_queries_mod
 
 # Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
 for _r in (api_documents, api_document_classification, api_document_files, api_admin):
@@ -303,6 +306,7 @@ app.include_router(api_standards.router)
 app.include_router(api_crs_archive.router)
 app.include_router(api_run_standards.router)
 app.include_router(api_deliverables.router)
+app.include_router(api_technical_queries.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
