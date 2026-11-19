@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from .. import access, email_provider, technical_queries, technical_query_docx
+from .. import access, answer, email_provider, technical_queries, technical_query_docx
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
 
@@ -150,6 +150,53 @@ def create_query_draft(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return item
+
+
+@router.post("/api/technical-queries/{query_id}/generate-draft")
+def generate_query_draft(
+    query_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Generate a grounded draft through the existing citation-checked answer lane."""
+    _require_identity_to_write(scope)
+    current = technical_queries.get(query_id, *_visible(scope))
+    if current is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    if not current.get("evidence"):
+        raise HTTPException(
+            status_code=409, detail="verified evidence is required before drafting"
+        )
+    question = current.get("extracted_question") or " ".join(
+        message.get("body", "") for message in current.get("messages", [])
+    )
+    try:
+        result = answer.answer(
+            question,
+            tier="generated",
+            allowed_document_ids=scope.allowed_document_ids,
+            model="local",
+        )
+    except (
+        Exception
+    ) as exc:  # model availability is an operational failure, not a 500 leak
+        raise HTTPException(
+            status_code=503, detail="the configured local drafting model is unavailable"
+        ) from exc
+    if result.get("answer_type") != "generated" or not result.get("answer"):
+        raise HTTPException(
+            status_code=409, detail="the evidence was insufficient for a grounded draft"
+        )
+    item = technical_queries.add_draft(
+        query_id,
+        result["answer"],
+        [],
+        [result.get("reason")] if result.get("reason") else [],
+        scope.user_id,
+        *_visible(scope),
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return item
