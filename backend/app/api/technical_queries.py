@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from .. import access, technical_queries
+from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
 
 router = APIRouter()
@@ -102,6 +103,43 @@ def create_query_draft(
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return item
+
+
+@router.post("/api/technical-queries/{query_id}/attachments/{attachment_id}/file")
+async def upload_query_attachment(
+    query_id: str,
+    attachment_id: str,
+    file: UploadFile = File(...),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Ingest an attachment through the existing guarded document pipeline.
+
+    This first slice permits the isolated development mode and administrators;
+    department-specific grants are added with the query workspace in phase 2.
+    """
+    _require_identity_to_write(scope)
+    if not (scope.unrestricted or scope.is_admin):
+        raise HTTPException(
+            status_code=403,
+            detail="query attachment upload requires administrator access",
+        )
+    if technical_queries.get(query_id, *_visible(scope)) is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    try:
+        row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
+    except upload_mod.UploadError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
+    item = technical_queries.link_attachment(
+        query_id, attachment_id, row["id"], scope.user_id, *_visible(scope)
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="query attachment not found")
+    return {
+        "item": item,
+        "document_id": row["id"],
+        "job_id": job_id or "",
+        "duplicate_of": duplicate_of,
+    }
 
 
 @router.post("/api/technical-queries/{query_id}/decisions")

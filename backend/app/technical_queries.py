@@ -290,6 +290,39 @@ def add_draft(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
+def link_attachment(
+    query_id: str,
+    attachment_id: str,
+    document_id: str,
+    actor_user_id: str | None,
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+) -> dict[str, Any] | None:
+    if get(query_id, user_id, is_admin, unrestricted) is None:
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM query_attachments WHERE id=? AND message_id IN "
+            "(SELECT id FROM query_messages WHERE query_id=?)",
+            (attachment_id, query_id),
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE query_attachments SET document_id=?, scan_status='accepted', parse_status='pending' WHERE id=?",
+            (document_id, attachment_id),
+        )
+        _event(
+            conn,
+            query_id,
+            "attachment_linked",
+            actor_user_id,
+            f"attachment={attachment_id};document={document_id}",
+        )
+    return get(query_id, user_id, is_admin, unrestricted)
+
+
 def decide(
     query_id: str,
     decision: str,
