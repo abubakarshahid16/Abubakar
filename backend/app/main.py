@@ -38,7 +38,6 @@ from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import ingest as ingest_mod, dashboard_pool
-from . import startup_repairs
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod, run_record as run_record_mod
 from . import orphan_guard
@@ -136,13 +135,6 @@ def _init_db() -> None:
     (order 121 C), before anything reads them."""
     init_db()
     stored_paths_mod.migrate()
-    try:
-        startup_repairs.at_startup()
-    except Exception as exc:  # noqa: BLE001 - repairs must never hide a boot failure
-        import logging
-        logging.getLogger("uvicorn.error").warning(
-            "history repair deferred; readable content was not changed: %s", exc
-        )
 
 
 @asynccontextmanager
