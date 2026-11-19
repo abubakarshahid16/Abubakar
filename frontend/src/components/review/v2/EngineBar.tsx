@@ -5,7 +5,7 @@
  *  `documents.leaving` is shown with the engine line (the same `LeavingList` as the older panel), and "Review" opens a pre-start step first
  *  (the list, the cost, the contract line, the draft sentence); "Start" calls the ONE start with exactly the ids shown. If the plan or the
  *  list cannot be loaded no Claude start is offered; Local only stays possible and starts at once. */
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { ENGINE_CHOICES, type EngineChoice, reviewPoints } from "../../../api/reviewPoints";
 import { LeavingList } from "../panels/LeavingList";
@@ -22,12 +22,18 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
   const [step, setStep] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const ready = plan.state === "ok" ? plan.data : null;
+  const previous = useRef<{ documentId: string | null; engine: EngineChoice; data: NonNullable<typeof ready> } | null>(null);
+  if (ready) previous.current = { documentId, engine, data: ready };
+  const displayed = ready ?? (previous.current?.documentId === documentId && previous.current.engine === engine
+    ? previous.current.data : null);
   const leaving = ready?.documents.leaving;
   // A list the server did not give (older server) or could not work out is no list: no Claude start.
   const listKnown = Array.isArray(leaving) && ready?.documents.unreadable !== true;
   const local = engine === "local";
   const failedClosed = !local && plan.state === "error";
-  const canReview = local ? !ready?.refused : ready != null && !ready.refused && listKnown;
+  const selectionsReady = (ready?.documents.offered ?? []).every(o => o.ticked === ticked.includes(o.id))
+    && ticked.every(id => (leaving ?? []).some(document => document.id === id));
+  const canReview = local ? !ready?.refused : ready != null && !ready.refused && listKnown && selectionsReady;
   const contractLine = engine === "claude" && ready?.text_leaves === true && (leaving ?? []).some((d) => d.contract);
 
   async function start(shown: string[], chosen: string[] = []) {
@@ -45,10 +51,11 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
   }
   function choose(c: EngineChoice) { setEngine(c); setTicked([]); setStep(false); setProblem(null); }
 
-  const list = ready && listKnown ? (
-    <LeavingList leaving={leaving ?? []} notSent={ready.documents.not_sent ?? []} notReadable={ready.documents.not_readable ?? 0}
-      textLeaves={ready.text_leaves} webSearch={ready.documents.web_search}
-      offered={ready.documents.offered} onTick={(id, on) => setTicked((t) => (on ? [...new Set([...t, id])] : t.filter((x) => x !== id)))} />
+  const list = displayed && Array.isArray(displayed.documents.leaving) ? (
+    <LeavingList leaving={displayed.documents.leaving} notSent={displayed.documents.not_sent ?? []} notReadable={displayed.documents.not_readable ?? 0}
+      textLeaves={displayed.text_leaves} webSearch={displayed.documents.web_search}
+      offered={displayed.documents.offered?.map(o => ({ ...o, ticked: ticked.includes(o.id) }))}
+      onTick={(id, on) => { setStep(false); setTicked((t) => (on ? [...new Set([...t, id])] : t.filter((x) => x !== id))); }} />
   ) : null;
 
   return (

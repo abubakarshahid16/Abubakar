@@ -545,6 +545,7 @@ export function IngestionView({
       if (connection.state === "online") void load();
     }, [connection.state, load]),
     busy,
+    connection.state === "online",
   );
 
   const worker = connection.state === "online" ? connection.health.ingestion : null;

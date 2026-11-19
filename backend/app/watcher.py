@@ -516,7 +516,9 @@ class FolderWatcher:
             self.last_error = None
             return self._result(STATE_DISABLED, None)
 
-        folder = Path(configured)
+        from . import stored_paths
+
+        folder = Path(stored_paths.local(configured, directory=True))
         try:
             if not folder.is_dir():
                 self._note_state(

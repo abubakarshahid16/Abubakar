@@ -42,7 +42,7 @@ def to_stored(path: str | Path) -> str:
         return str(absolute)
 
 
-def local(value: str | None) -> str | None:
+def local(value: str | None, *, directory: bool = False) -> str | None:
     """This machine's path for a stored value; the value itself when nothing
     on this machine matches, so a missing file stays a missing file."""
     if not value:
@@ -55,7 +55,8 @@ def local(value: str | None) -> str | None:
     # Written on another machine: the longest tail of it that exists here.
     for start in range(len(parts)):
         candidate = settings.data_dir.joinpath(*parts[start:])
-        if candidate.is_file():
+        matches = candidate.is_dir() if directory else candidate.is_file()
+        if matches:
             return str(candidate)
     return value
 

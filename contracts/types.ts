@@ -1898,6 +1898,7 @@ export interface ReportDocumentRow {
 
 /** A report as a client may see it. `stored_path` is never serialised. */
 export interface ReportRecord {
+  recreation_available?: boolean;
   id: string;
   question: string | null;
   resolved_question: string | null;
