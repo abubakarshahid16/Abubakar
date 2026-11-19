@@ -206,6 +206,21 @@ def list_queries(
         ]
 
 
+def metrics(user_id: str | None, is_admin: bool, unrestricted: bool) -> dict[str, int]:
+    where, args = _visible_where(user_id, is_admin, unrestricted)
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS count FROM technical_queries"
+            + where
+            + " GROUP BY status",
+            args,
+        ).fetchall()
+    result = dict.fromkeys(STATUSES, 0)
+    result.update({row["status"]: row["count"] for row in rows})
+    result["total"] = sum(result.values())
+    return result
+
+
 def get(
     query_id: str, user_id: str | None, is_admin: bool, unrestricted: bool
 ) -> dict[str, Any] | None:

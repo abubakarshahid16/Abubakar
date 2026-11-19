@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from .. import access, technical_queries, technical_query_docx
+from .. import access, email_provider, technical_queries, technical_query_docx
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
 
@@ -78,6 +78,37 @@ def list_technical_queries(
     status: str | None = None, scope: access.AccessScope = Depends(access.current_scope)
 ):
     return {"items": technical_queries.list_queries(*_visible(scope), status)}
+
+
+@router.get("/api/technical-queries/metrics")
+def technical_query_metrics(scope: access.AccessScope = Depends(access.current_scope)):
+    return technical_queries.metrics(*_visible(scope))
+
+
+@router.get("/api/technical-queries/providers/microsoft-graph/webhook")
+def graph_validation(validationToken: str | None = Query(default=None)):
+    if validationToken is None:
+        raise HTTPException(status_code=400, detail="validation token is required")
+    return PlainTextResponse(validationToken)
+
+
+@router.post("/api/technical-queries/providers/microsoft-graph/webhook")
+def graph_webhook(payload: dict):
+    """Acknowledge and normalize notifications; never fetch or send here."""
+    try:
+        notifications = email_provider.graph_notifications(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "accepted": len(notifications),
+        "notifications": [n.__dict__ for n in notifications],
+    }
+
+
+@router.post("/api/technical-queries/providers/gmail/webhook")
+def gmail_webhook(payload: dict):
+    notification = email_provider.gmail_notification(payload)
+    return {"accepted": notification is not None, "notification": notification}
 
 
 @router.get("/api/technical-queries/{query_id}")
