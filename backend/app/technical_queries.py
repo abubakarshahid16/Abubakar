@@ -68,11 +68,26 @@ def ensure_schema() -> None:
             created_by TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL,
             UNIQUE(query_id, version)
         );
+        CREATE TABLE IF NOT EXISTS query_evidence (
+            id TEXT PRIMARY KEY, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+            page_start INTEGER, page_end INTEGER, locator TEXT, exact_quote TEXT NOT NULL,
+            quote_hash TEXT NOT NULL, evidence_state TEXT NOT NULL DEFAULT 'verified',
+            conflict_group TEXT, supersession_state TEXT NOT NULL DEFAULT 'current',
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_query_evidence_query ON query_evidence(query_id);
         CREATE TABLE IF NOT EXISTS query_decisions (
             id TEXT PRIMARY KEY, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
             draft_id TEXT REFERENCES query_drafts(id) ON DELETE SET NULL, actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
             decision TEXT NOT NULL CHECK(decision IN ('request_changes','approve','reject','close')),
             comment TEXT, created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS query_sends (
+            id TEXT PRIMARY KEY, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
+            draft_id TEXT REFERENCES query_drafts(id) ON DELETE SET NULL, idempotency_key TEXT NOT NULL UNIQUE,
+            to_addresses TEXT NOT NULL, cc_addresses TEXT NOT NULL, state TEXT NOT NULL,
+            provider_message_id TEXT, error TEXT, created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS query_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
@@ -229,6 +244,13 @@ def get(
                 (query_id,),
             )
         ]
+        result["evidence"] = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM query_evidence WHERE query_id=? ORDER BY created_at",
+                (query_id,),
+            )
+        ]
         result["decisions"] = [
             dict(r)
             for r in conn.execute(
@@ -243,6 +265,64 @@ def get(
             )
         ]
         return result
+
+
+def add_evidence(
+    query_id: str,
+    document_id: str,
+    exact_quote: str,
+    page_start: int | None,
+    page_end: int | None,
+    locator: str | None,
+    allowed_document_ids: frozenset[str],
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+    actor_user_id: str | None,
+) -> dict[str, Any] | None:
+    if get(query_id, user_id, is_admin, unrestricted) is None:
+        return None
+    if not unrestricted and document_id not in allowed_document_ids:
+        raise PermissionError("source document is not readable")
+    quote = exact_quote.strip()
+    if not quote:
+        raise ValueError("exact_quote is required")
+    with connect() as conn:
+        source = conn.execute(
+            "SELECT text FROM pages WHERE document_id=? AND (? IS NULL OR page_no>=?) AND (? IS NULL OR page_no<=?)",
+            (document_id, page_start, page_start, page_end, page_end),
+        ).fetchall()
+        if not source:
+            source = conn.execute(
+                "SELECT text FROM chunks WHERE document_id=?", (document_id,)
+            ).fetchall()
+        if not any(quote in (row["text"] or "") for row in source):
+            raise ValueError("exact_quote was not found in the selected source")
+        evidence_id = str(uuid.uuid4())
+        import hashlib
+
+        conn.execute(
+            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                evidence_id,
+                query_id,
+                document_id,
+                page_start,
+                page_end,
+                locator,
+                quote,
+                hashlib.sha256(quote.encode()).hexdigest(),
+                now(),
+            ),
+        )
+        _event(
+            conn,
+            query_id,
+            "evidence_added",
+            actor_user_id,
+            f"evidence={evidence_id};document={document_id}",
+        )
+    return get(query_id, user_id, is_admin, unrestricted)
 
 
 def add_draft(
@@ -367,4 +447,49 @@ def decide(
             ),
         )
         _event(conn, query_id, "decision", actor_user_id, f"decision={decision}")
+    return get(query_id, user_id, is_admin, unrestricted)
+
+
+def prepare_send(
+    query_id: str,
+    draft_id: str | None,
+    to_addresses: list[str],
+    cc_addresses: list[str],
+    idempotency_key: str,
+    actor_user_id: str | None,
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+) -> dict[str, Any] | None:
+    current = get(query_id, user_id, is_admin, unrestricted)
+    if current is None:
+        return None
+    if current["status"] != "approved":
+        raise ValueError("only an approved query can be sent")
+    with connect() as conn:
+        prior = conn.execute(
+            "SELECT * FROM query_sends WHERE idempotency_key=?", (idempotency_key,)
+        ).fetchone()
+        if prior:
+            return get(query_id, user_id, is_admin, unrestricted)
+        conn.execute(
+            "INSERT INTO query_sends(id,query_id,draft_id,idempotency_key,to_addresses,cc_addresses,state,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                str(uuid.uuid4()),
+                query_id,
+                draft_id,
+                idempotency_key,
+                json.dumps(to_addresses),
+                json.dumps(cc_addresses),
+                "provider_not_configured",
+                now(),
+            ),
+        )
+        conn.execute(
+            "UPDATE technical_queries SET status='send_pending',updated_at=? WHERE id=?",
+            (now(), query_id),
+        )
+        _event(
+            conn, query_id, "send_prepared", actor_user_id, "provider_not_configured"
+        )
     return get(query_id, user_id, is_admin, unrestricted)

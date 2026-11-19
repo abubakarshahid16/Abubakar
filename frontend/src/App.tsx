@@ -15,6 +15,7 @@ import { ChatView } from "./views/ChatView";
 import { DashboardView } from "./views/DashboardView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
+import { TechnicalQueriesView } from "./views/TechnicalQueriesView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { useSessionExpiry } from "./hooks/useSessionExpiry";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
@@ -494,6 +495,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           )}
           {view === "ingestion" && (
             <IngestionView connection={connection} onRetryConnection={recheck} />
+          )}
+          {view === "technicalQueries" && (
+            <TechnicalQueriesView queryId={route.kind === "view" ? route.recordId : undefined} />
           )}
           {view === "dashboard" && (
             <DashboardView

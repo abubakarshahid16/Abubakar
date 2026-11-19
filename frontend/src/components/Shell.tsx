@@ -19,7 +19,8 @@ export type ViewId =
   | "deliverables"
   | "admin"
   | "standards"
-  | "review";
+  | "review"
+  | "technicalQueries";
 
 export type ThemeMode = "dark" | "light";
 export type DensityMode = "comfortable" | "compact";
@@ -41,6 +42,7 @@ export const NAV: NavItem[] = [
   { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
+  { id: "technicalQueries", label: "Technical Queries", hint: "Email questions and approvals", built: true },
 ];
 
 /** The one role name that means "may administer". `admin` is a CAPABILITY and

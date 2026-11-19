@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .. import access, technical_queries
+from .. import access, technical_queries, technical_query_docx
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
 
@@ -47,10 +48,25 @@ class DraftIn(BaseModel):
     unresolved: list[str] = Field(default_factory=list, max_length=100)
 
 
+class EvidenceIn(BaseModel):
+    document_id: str
+    exact_quote: str = Field(min_length=1, max_length=20_000)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    locator: str | None = Field(default=None, max_length=500)
+
+
 class DecisionIn(BaseModel):
     decision: Literal["request_changes", "approve", "reject", "close"]
     comment: str | None = Field(default=None, max_length=10_000)
     draft_id: str | None = None
+
+
+class SendIn(BaseModel):
+    draft_id: str | None = None
+    to_addresses: list[str] = Field(min_length=1, max_length=50)
+    cc_addresses: list[str] = Field(default_factory=list, max_length=50)
+    idempotency_key: str = Field(min_length=8, max_length=200)
 
 
 def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
@@ -100,6 +116,34 @@ def create_query_draft(
         scope.user_id,
         *_visible(scope),
     )
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return item
+
+
+@router.post("/api/technical-queries/{query_id}/evidence")
+def add_query_evidence(
+    query_id: str,
+    body: EvidenceIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.add_evidence(
+            query_id,
+            body.document_id,
+            body.exact_quote,
+            body.page_start,
+            body.page_end,
+            body.locator,
+            scope.allowed_document_ids,
+            scope.user_id,
+            scope.is_admin,
+            scope.unrestricted,
+            scope.user_id,
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return item
@@ -160,3 +204,50 @@ def decide_query(
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return item
+
+
+@router.get("/api/technical-queries/{query_id}/response.docx")
+def query_response_docx(
+    query_id: str, scope: access.AccessScope = Depends(access.current_scope)
+):
+    item = technical_queries.get(query_id, *_visible(scope))
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    try:
+        path = technical_query_docx.render(item)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"technical-query-{query_id}.docx",
+    )
+
+
+@router.post("/api/technical-queries/{query_id}/send")
+def prepare_query_send(
+    query_id: str,
+    body: SendIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Record an explicit send request without contacting an email provider.
+
+    Provider activation is a separate operational change requiring credentials
+    and owner approval. This endpoint cannot send accidentally.
+    """
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.prepare_send(
+            query_id,
+            body.draft_id,
+            body.to_addresses,
+            body.cc_addresses,
+            body.idempotency_key,
+            scope.user_id,
+            *_visible(scope),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return {"item": item, "sent": False, "reason": "email provider is not configured"}
