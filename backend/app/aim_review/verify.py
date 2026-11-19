@@ -281,19 +281,44 @@ def paper_relation(check: str, value_quote: str, limit_quote: str) -> str | None
     reverse = {"<=": ">=", ">=": "<=", "<": ">", ">": "<", "==": "==", "!=": "!="}
     first, second = norm(value_quote), norm(limit_quote)
     found = set()
+    comparator_re = (
+        claims._COMPARATOR_RE
+        + r"|(?:no|not)\s+(?:be\s+)?(?:below|lower\s+than|above|higher\s+than)"
+    )
     for sentence in re.split(r"[.;\n]", norm(check)):
-        for match in re.finditer(claims._COMPARATOR_RE, sentence, re.IGNORECASE):
-            op = claims.parse_comparator(match.group())
+        for match in re.finditer(comparator_re, sentence, re.IGNORECASE):
+            phrase = match.group()
+            op = (
+                ">="
+                if re.search(r"(?:below|lower)", phrase, re.IGNORECASE)
+                else "<="
+                if re.search(r"(?:above|higher)", phrase, re.IGNORECASE)
+                else claims.parse_comparator(phrase)
+            )
             if op not in reverse:
                 continue
-            left = re.sub(r"\s+(?:(?:shall|must|should|is|be)\s*)+$", "", sentence[:match.start()]).strip()
-            right = re.sub(r"^(?:the|a|an)\s+", "", sentence[match.end():].strip())
+            left = re.sub(
+                r"\s+(?:(?:shall|must|should|is|be)\s*)+$",
+                "",
+                sentence[: match.start()],
+            ).strip()
+            right = re.sub(r"^(?:the|a|an)\s+", "", sentence[match.end() :].strip())
             left = re.sub(r"^(?:the|a|an)\s+", "", left)
             if len(left) < MIN_QUOTE or len(right) < MIN_QUOTE:
                 continue
-            if left in first and right in second and left not in second and right not in first:
+            if (
+                left in first
+                and right in second
+                and left not in second
+                and right not in first
+            ):
                 found.add(op)
-            if left in second and right in first and left not in first and right not in second:
+            if (
+                left in second
+                and right in first
+                and left not in first
+                and right not in second
+            ):
                 found.add(reverse[op])
     return found.pop() if len(found) == 1 else None
 

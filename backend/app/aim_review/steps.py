@@ -27,7 +27,14 @@ from .fail_words import (  # noqa: F401 - one home: fail_words
     _num,
     proven_fail,
 )
-from .verify import compare, find_page, norm, paper_relation, quoted_value, rule_operator
+from .verify import (
+    compare,
+    find_page,
+    norm,
+    paper_relation,
+    quoted_value,
+    rule_operator,
+)
 
 log = logging.getLogger(__name__)
 
@@ -184,10 +191,14 @@ def _compare(
     held = it["source"] == HELD
     rule_quote = str(it.get("rule_quote") or "")
     if nums and quote and label in ("Met", "Not met") and (held or it.get("always_on")):
-        return _numbers(nums, quote, rule_quote, notes, paper, it.get("what_to_check") or "")
+        return _numbers(
+            nums, quote, rule_quote, notes, paper, it.get("what_to_check") or ""
+        )
     if nums and held and quote and not deferred and label in ("Question", "AI opinion"):
         tried: list[str] = []
-        new, cmp_ = _numbers(nums, quote, rule_quote, tried, paper, it.get("what_to_check") or "")
+        new, cmp_ = _numbers(
+            nums, quote, rule_quote, tried, paper, it.get("what_to_check") or ""
+        )
         if (
             isinstance(cmp_, dict)
             and cmp_.get("read_from") == "verified quotes"
@@ -236,7 +247,12 @@ def _paper_limit(
 
 
 def _paper_numbers(
-    nums: dict, paper: dict, quote: str, rule_quote: str, notes: list[str], paper_doc,
+    nums: dict,
+    paper: dict,
+    quote: str,
+    rule_quote: str,
+    notes: list[str],
+    paper_doc,
     check: str = "",
 ) -> tuple[str, dict | None]:
     """PAPER vs PAPER (the lead, 18 Nov 2026): the rule's words hold no value, the paper states both the value and its limit. Code
@@ -254,7 +270,10 @@ def _paper_numbers(
     op, op_from = rule_operator(rule_quote), "the rule's verified words"
     oriented = paper_relation(check, quote, str(nums.get("limit_quote") or ""))
     if oriented:
-        op, op_from = oriented, "the checklist relationship between the quoted paper fields"
+        op, op_from = (
+            oriented,
+            "the checklist relationship between the quoted paper fields",
+        )
     if op is None:
         op, op_from = str(nums.get("operator") or ""), "the AI's answer"
     code_cmp = compare(paper["value"], paper["unit"], op, limit["value"], limit["unit"])
@@ -717,7 +736,12 @@ def _code_note(notes: list[str], code_cmp: dict | None, said: str | None = None)
 
 
 def _numbers(
-    nums: dict, quote: str, rule_quote: str, notes: list[str], paper_doc=None, check: str = ""
+    nums: dict,
+    quote: str,
+    rule_quote: str,
+    notes: list[str],
+    paper_doc=None,
+    check: str = "",
 ) -> tuple[str, dict | None]:
     """A held item's numbers. A code stamp rests ONLY on the verified quotes (review R1, B1): the paper value and its unit are read
     by code from the verified paper quote, the rule value, its unit and the operator from the item's verified rule quote

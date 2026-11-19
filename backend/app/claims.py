@@ -529,8 +529,6 @@ _COMPARATOR_WORDS: tuple[tuple[str, str], ...] = (
     (r"(?:shall|must|may|should|will)\s+not\s+(?:\w+\s+){0,4}?"
      r"in\s+excess\s+of", "<="),
     (r"not\s+exceed(?:ing)?", "<="),
-    (r"(?:no|not)\s+(?:be\s+)?(?:below|lower\s+than)", ">="),
-    (r"(?:no|not)\s+(?:be\s+)?(?:above|higher\s+than)", "<="),
     (r"at\s+least", ">="),
     (r"at\s+most", "<="),
     (r"greater\s+than\s+or\s+equal\s+to", ">="),

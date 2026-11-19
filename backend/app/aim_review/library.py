@@ -576,7 +576,7 @@ def citation_evidence(conn, paper_id: str) -> list[dict]:
         for name, start, end in standard_ids.find_citations(text):
             line_start = text.rfind("\n", 0, start) + 1
             line_end = text.find("\n", end)
-            quote = text[line_start:line_end if line_end >= 0 else len(text)]
+            quote = text[line_start : line_end if line_end >= 0 else len(text)]
             found.append({"name": name, "page": page, "quote": quote, "verified": True})
     return found
 

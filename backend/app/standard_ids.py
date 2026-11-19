@@ -447,9 +447,11 @@ def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str
                     typed_question and build is _api and _short_api_is_a_quantity(text, m)):
                 found.append((m.start(), m.end()))
     general, classes = _citation_patterns()
-    for pattern in [general, *classes, _COMPANY_STD]:
+    for pattern in [general, *classes]:
         for m in pattern.finditer(folded):
             found.append((m.start(), m.end()))
+    for m in _COMPANY_STD.finditer(folded):
+        found.append((m.start(), m.end()))
     out: list[tuple[str, int, int]] = []
     taken_until = -1
     # Reading order; at one start the longer reading wins ("BS EN 13445-3", not "BS").
