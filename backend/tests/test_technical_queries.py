@@ -5,9 +5,11 @@ import pytest
 from app import db, gmail_auth
 from app.config import settings
 from app.gmail_client import GmailApiClient, normalize_message
-from app.gmail_worker import process_history
+from app.gmail_worker import process_history, send_approved
 from app.technical_queries import (
+    add_draft,
     add_evidence,
+    decide,
     ensure_schema,
     get,
     import_message,
@@ -204,3 +206,46 @@ def test_gmail_message_normalization_and_worker_are_retry_safe():
     second = process_history(client, "history-1", None, mailbox_id="test-mailbox")
     assert first[0]["duplicate"] is False
     assert second[0]["duplicate"] is True
+
+
+def test_approved_send_is_idempotent_and_does_not_retry_unknown_outcome():
+    item, _ = import_message(envelope("send-1"), None, False, True)
+
+    class FakeClient:
+        calls = 0
+
+        def send(self, _raw):
+            self.calls += 1
+            return "provider-send-1"
+
+    client = FakeClient()
+    drafted = add_draft(item["id"], "Draft", [], [], None, None, False, True)
+    draft_id = drafted["drafts"][0]["id"]
+    decide(item["id"], "approve", None, None, draft_id, None, False, True)
+    assert (
+        send_approved(
+            client,
+            item["id"],
+            draft_id,
+            ["contractor@example.test"],
+            [],
+            "Subject",
+            "Body",
+            "send-key",
+        )
+        == "provider-send-1"
+    )
+    assert (
+        send_approved(
+            client,
+            item["id"],
+            draft_id,
+            ["contractor@example.test"],
+            [],
+            "Subject",
+            "Body",
+            "send-key",
+        )
+        == "provider-send-1"
+    )
+    assert client.calls == 1

@@ -78,6 +78,13 @@ class GmailApiClient:
             },
         )
 
+    def send(self, raw_rfc822: str) -> str:
+        encoded = base64.urlsafe_b64encode(raw_rfc822.encode()).decode().rstrip("=")
+        payload = self._request("POST", "/messages/send", json={"raw": encoded})
+        if not payload.get("id"):
+            raise RuntimeError("Gmail did not return an outbound message id")
+        return str(payload["id"])
+
 
 def _headers(payload: dict[str, Any]) -> dict[str, str]:
     return {
