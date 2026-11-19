@@ -385,6 +385,44 @@ def add_evidence(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
+def update_evidence(
+    query_id: str,
+    evidence_id: str,
+    evidence_state: str,
+    supersession_state: str,
+    conflict_group: str | None,
+    actor_user_id: str | None,
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+) -> dict[str, Any] | None:
+    if evidence_state not in {"verified", "missing", "conflicting", "ambiguous"}:
+        raise ValueError("unknown evidence state")
+    if supersession_state not in {"current", "superseded", "unknown"}:
+        raise ValueError("unknown supersession state")
+    if get(query_id, user_id, is_admin, unrestricted) is None:
+        return None
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM query_evidence WHERE id=? AND query_id=?",
+            (evidence_id, query_id),
+        ).fetchone()
+        if row is None:
+            return None
+        conn.execute(
+            "UPDATE query_evidence SET evidence_state=?,supersession_state=?,conflict_group=? WHERE id=?",
+            (evidence_state, supersession_state, conflict_group, evidence_id),
+        )
+        _event(
+            conn,
+            query_id,
+            "evidence_classified",
+            actor_user_id,
+            f"evidence={evidence_id};state={evidence_state};supersession={supersession_state}",
+        )
+    return get(query_id, user_id, is_admin, unrestricted)
+
+
 def prepare_evidence(
     query_id: str,
     allowed_document_ids: frozenset[str],

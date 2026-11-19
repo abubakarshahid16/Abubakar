@@ -56,6 +56,12 @@ class EvidenceIn(BaseModel):
     locator: str | None = Field(default=None, max_length=500)
 
 
+class EvidenceClassificationIn(BaseModel):
+    evidence_state: Literal["verified", "missing", "conflicting", "ambiguous"]
+    supersession_state: Literal["current", "superseded", "unknown"] = "current"
+    conflict_group: str | None = Field(default=None, max_length=200)
+
+
 class DecisionIn(BaseModel):
     decision: Literal["request_changes", "approve", "reject", "close"]
     comment: str | None = Field(default=None, max_length=10_000)
@@ -252,6 +258,28 @@ def prepare_query_evidence(
     return item
 
 
+@router.patch("/api/technical-queries/{query_id}/evidence/{evidence_id}")
+def classify_query_evidence(
+    query_id: str,
+    evidence_id: str,
+    body: EvidenceClassificationIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    item = technical_queries.update_evidence(
+        query_id,
+        evidence_id,
+        body.evidence_state,
+        body.supersession_state,
+        body.conflict_group,
+        scope.user_id,
+        *_visible(scope),
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="query or evidence not found")
+    return item
+
+
 @router.post("/api/technical-queries/{query_id}/attachments/{attachment_id}/file")
 async def upload_query_attachment(
     query_id: str,
@@ -357,3 +385,25 @@ def prepare_query_send(
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return {"item": item, "sent": False, "reason": "email provider is not configured"}
+
+
+@router.post("/api/technical-queries/{query_id}/confirm-resolution")
+def confirm_query_resolution(
+    query_id: str,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.decide(
+            query_id,
+            "close",
+            scope.user_id,
+            "contractor or authorised internal confirmation",
+            None,
+            *_visible(scope),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return item
