@@ -38,6 +38,7 @@ from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import ingest as ingest_mod, dashboard_pool
+from . import gmail_sync as gmail_sync_mod
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod, run_record as run_record_mod
 from . import orphan_guard
@@ -243,7 +244,9 @@ async def lifespan(app: FastAPI):
     # ever warmed and nothing said so. `warmup` runs in a daemon thread, never
     # blocks this start, never writes the database, and logs any failure.
     warmup_mod.start()
+    gmail_sync_mod.start()
     yield
+    gmail_sync_mod.stop()
     risks_mod.stop_background_detection()
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()

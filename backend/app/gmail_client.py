@@ -29,6 +29,7 @@ class GmailMessage:
     body: str
     received_at: str | None
     attachments: list[dict[str, Any]]
+    label_ids: tuple[str, ...] = ()
 
 
 class GmailApiClient:
@@ -49,10 +50,12 @@ class GmailApiClient:
         response.raise_for_status()
         return response.json()
 
-    def history(self, start_history_id: str) -> list[str]:
-        return self.history_delta(start_history_id)[0]
+    def history(self, start_history_id: str, label_id: str | None = None) -> list[str]:
+        return self.history_delta(start_history_id, label_id)[0]
 
-    def history_delta(self, start_history_id: str) -> tuple[list[str], str]:
+    def history_delta(
+        self, start_history_id: str, label_id: str | None = None
+    ) -> tuple[list[str], str]:
         ids: list[str] = []
         page_token: str | None = None
         seen_tokens: set[str] = set()
@@ -60,18 +63,21 @@ class GmailApiClient:
         while True:
             params = {
                 "startHistoryId": start_history_id,
-                "historyTypes": "messageAdded",
+                "historyTypes": ["messageAdded", "labelAdded"],
             }
+            if label_id:
+                params["labelId"] = label_id
             if page_token:
                 params["pageToken"] = page_token
             payload = self._request("GET", "/history", params=params)
             if payload.get("historyId"):
                 current_history_id = str(payload["historyId"])
             for item in payload.get("history", []):
-                for added in item.get("messagesAdded", []):
-                    message = added.get("message") or {}
-                    if message.get("id"):
-                        ids.append(str(message["id"]))
+                for category in ("messagesAdded", "labelsAdded"):
+                    for added in item.get(category, []):
+                        message = added.get("message") or {}
+                        if message.get("id"):
+                            ids.append(str(message["id"]))
             next_token = payload.get("nextPageToken")
             if not next_token:
                 break
@@ -86,6 +92,41 @@ class GmailApiClient:
             "GET", f"/messages/{message_id}", params={"format": "full"}
         )
         return normalize_message(payload)
+
+    def profile(self) -> dict[str, Any]:
+        return self._request("GET", "/profile")
+
+    def labels(self) -> list[dict[str, Any]]:
+        payload = self._request("GET", "/labels")
+        return [
+            label for label in payload.get("labels", []) if label.get("type") == "user"
+        ]
+
+    def list_message_ids(self, label_id: str, *, limit: int = 5000) -> list[str]:
+        ids: list[str] = []
+        page_token: str | None = None
+        seen_tokens: set[str] = set()
+        while True:
+            params: dict[str, Any] = {"labelIds": [label_id], "maxResults": 500}
+            if page_token:
+                params["pageToken"] = page_token
+            payload = self._request("GET", "/messages", params=params)
+            ids.extend(
+                str(item["id"])
+                for item in payload.get("messages", [])
+                if item.get("id")
+            )
+            if len(ids) > limit:
+                raise RuntimeError(
+                    "too many labelled messages for initial import; narrow the Gmail label"
+                )
+            next_token = payload.get("nextPageToken")
+            if not next_token:
+                return list(dict.fromkeys(ids))
+            if next_token in seen_tokens:
+                raise RuntimeError("Gmail message pagination did not advance")
+            page_token = str(next_token)
+            seen_tokens.add(page_token)
 
     def raw_message(self, message_id: str) -> bytes:
         payload = self._request(
@@ -104,13 +145,13 @@ class GmailApiClient:
             (payload.get("data") or "") + "=" * (-len(payload.get("data") or "") % 4)
         )
 
-    def watch(self, topic_name: str) -> dict[str, Any]:
+    def watch(self, topic_name: str, label_id: str) -> dict[str, Any]:
         return self._request(
             "POST",
             "/watch",
             json={
                 "topicName": topic_name,
-                "labelIds": ["INBOX"],
+                "labelIds": [label_id],
                 "labelFilterBehavior": "INCLUDE",
             },
         )
@@ -193,4 +234,5 @@ def normalize_message(payload: dict[str, Any]) -> GmailMessage:
         body=_body(payload.get("payload") or {}),
         received_at=received_at,
         attachments=attachments,
+        label_ids=tuple(payload.get("labelIds") or []),
     )

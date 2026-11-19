@@ -12,6 +12,8 @@ from email.utils import parseaddr
 from io import BytesIO
 from typing import Any
 
+import httpx
+
 from . import access
 from . import upload as upload_mod
 from .access import AccessScope
@@ -46,6 +48,8 @@ def process_history(
     *,
     mailbox_id: str,
     message_ids: list[str] | None = None,
+    label_id: str | None = None,
+    mailbox_address: str | None = None,
 ) -> list[dict[str, Any]]:
     if not actor_user_id or not mailbox_id:
         raise ValueError("a mailbox owner and mailbox identity are required")
@@ -56,9 +60,17 @@ def process_history(
             raise PermissionError("the mailbox owner must hold the administrator role")
     results = []
     for message_id in (
-        message_ids if message_ids is not None else client.history(history_id)
+        message_ids if message_ids is not None else client.history(history_id, label_id)
     ):
         message = client.message(message_id)
+        if label_id and label_id not in message.label_ids:
+            continue
+        if (
+            mailbox_address
+            and parseaddr(message.from_address)[1].casefold()
+            == mailbox_address.casefold()
+        ):
+            continue
         raw_hash, raw_ref = _store_raw_email(client.raw_message(message_id))
         item, duplicate = import_message(
             {
@@ -135,23 +147,36 @@ def poll_mailbox(
     """Advance the cursor only after every changed message is persisted."""
     with connect() as conn:
         mailbox = conn.execute(
-            "SELECT owner_user_id,last_history_id,connection_state FROM gmail_mailboxes WHERE id=?",
+            "SELECT owner_user_id,email,last_history_id,label_id,connection_state FROM gmail_mailboxes WHERE id=?",
             (mailbox_id,),
         ).fetchone()
     if (
         mailbox is None
         or mailbox["owner_user_id"] != actor_user_id
         or mailbox["connection_state"] != "active"
+        or not mailbox["label_id"]
     ):
         raise PermissionError("mailbox is not active for this user")
     old_cursor = mailbox["last_history_id"]
-    message_ids, next_cursor = client.history_delta(old_cursor)
+    try:
+        message_ids, next_cursor = client.history_delta(old_cursor, mailbox["label_id"])
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 404:
+            raise
+        # Gmail expires history cursors. Capture a new cursor before listing
+        # current labelled mail so arrivals during the full scan are replayed.
+        next_cursor = str(client.profile().get("historyId") or "")
+        if not next_cursor:
+            raise RuntimeError("Gmail did not return a recovery cursor") from exc
+        message_ids = client.list_message_ids(mailbox["label_id"])
     results = process_history(
         client,
         old_cursor,
         actor_user_id,
         mailbox_id=mailbox_id,
         message_ids=message_ids,
+        label_id=mailbox["label_id"],
+        mailbox_address=mailbox["email"],
     )
     with connect() as conn:
         updated = conn.execute(
@@ -160,6 +185,44 @@ def poll_mailbox(
         )
         if updated.rowcount != 1:
             raise RuntimeError("mailbox cursor changed during processing; retry safely")
+    return results
+
+
+def activate_label(
+    client: GmailApiClient, mailbox_id: str, actor_user_id: str, label_id: str
+) -> list[dict[str, Any]]:
+    """Import the selected label once, then enable incremental polling."""
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT owner_user_id,email,last_history_id,connection_state FROM gmail_mailboxes WHERE id=?",
+            (mailbox_id,),
+        ).fetchone()
+    if (
+        mailbox is None
+        or mailbox["owner_user_id"] != actor_user_id
+        or mailbox["connection_state"] != "needs_label"
+    ):
+        raise PermissionError("mailbox is not awaiting label selection")
+    if label_id not in {label.get("id") for label in client.labels()}:
+        raise ValueError("select a user-created Gmail label")
+    ids = client.list_message_ids(label_id)
+    results = process_history(
+        client,
+        mailbox["last_history_id"],
+        actor_user_id,
+        mailbox_id=mailbox_id,
+        message_ids=ids,
+        label_id=label_id,
+        mailbox_address=mailbox["email"],
+    )
+    with connect() as conn:
+        changed = conn.execute(
+            "UPDATE gmail_mailboxes SET label_id=?,connection_state='active',updated_at=? "
+            "WHERE id=? AND connection_state='needs_label'",
+            (label_id, now(), mailbox_id),
+        )
+        if changed.rowcount != 1:
+            raise RuntimeError("mailbox activation changed; retry safely")
     return results
 
 
@@ -173,8 +236,8 @@ def send_approved(
 ) -> str:
     """Send one approved response; an uncertain provider result needs manual reconciliation.
 
-    This worker is not exposed by an API route until a verified mailbox is
-    connected. Tests pass an in-memory fake client and never contact Gmail.
+    The API invokes this only after an explicit authorised send action.
+    Tests pass an in-memory fake client and never contact Gmail.
     """
     if not scope.is_admin or not scope.user_id:
         raise PermissionError("an authorised sender is required")

@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
@@ -12,12 +13,16 @@ from .. import (
     access,
     answer,
     gmail_auth,
+    gmail_sync,
+    gmail_worker,
     technical_queries,
     technical_query_docx,
 )
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
 from ..config import settings
+from ..db import connect
+from ..gmail_client import GmailApiClient
 
 router = APIRouter()
 
@@ -78,9 +83,8 @@ class DecisionIn(BaseModel):
 
 
 class SendIn(BaseModel):
-    draft_id: str | None = None
-    to_addresses: list[str] = Field(min_length=1, max_length=50)
-    cc_addresses: list[str] = Field(default_factory=list, max_length=50)
+    draft_id: str = Field(min_length=1, max_length=200)
+    mailbox_id: str = Field(min_length=1, max_length=200)
     idempotency_key: str = Field(min_length=8, max_length=200)
 
 
@@ -92,6 +96,10 @@ class ReconcileSendIn(BaseModel):
     outcome: Literal["sent", "not_sent"]
     provider_message_id: str | None = Field(default=None, max_length=500)
     comment: str = Field(min_length=1, max_length=1000)
+
+
+class GmailLabelIn(BaseModel):
+    label_id: str = Field(min_length=1, max_length=200)
 
 
 def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
@@ -188,7 +196,87 @@ def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope))
         raise HTTPException(
             status_code=403, detail="only an administrator can connect a mailbox"
         )
-    raise HTTPException(status_code=503, detail="Gmail connection is not activated")
+    try:
+        gmail_auth.connection_ready()
+        return {"authorization_url": gmail_auth.start(scope.user_id)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/technical-queries/providers/gmail/mailboxes")
+def gmail_mailboxes(scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(
+            status_code=403, detail="only an administrator can view connected mailboxes"
+        )
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id,email,label_id,connection_state FROM gmail_mailboxes WHERE owner_user_id=? ORDER BY email",
+            (scope.user_id,),
+        ).fetchall()
+    return {"items": [dict(row) for row in rows]}
+
+
+@router.get("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/labels")
+def gmail_mailbox_labels(
+    mailbox_id: str, scope: access.AccessScope = Depends(access.current_scope)
+):
+    _require_identity_to_write(scope)
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(status_code=403, detail="an administrator is required")
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT 1 FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='needs_label'",
+            (mailbox_id, scope.user_id),
+        ).fetchone()
+    if mailbox is None:
+        raise HTTPException(
+            status_code=404, detail="mailbox is not awaiting label selection"
+        )
+    try:
+        return {"items": GmailApiClient(gmail_auth.access_token(mailbox_id)).labels()}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Gmail labels are unavailable"
+        ) from exc
+
+
+@router.post("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/activate")
+def activate_gmail_mailbox(
+    mailbox_id: str,
+    body: GmailLabelIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(status_code=403, detail="an administrator is required")
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT 1 FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='needs_label'",
+            (mailbox_id, scope.user_id),
+        ).fetchone()
+    if mailbox is None:
+        raise HTTPException(
+            status_code=404, detail="mailbox is not awaiting label selection"
+        )
+    try:
+        imported = gmail_worker.activate_label(
+            GmailApiClient(gmail_auth.access_token(mailbox_id)),
+            mailbox_id,
+            scope.user_id,
+            body.label_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Gmail label import did not finish; retry safely"
+        ) from exc
+    gmail_sync.start()
+    return {"imported": len(imported), "connection_state": "active"}
 
 
 @router.get("/api/technical-queries/providers/gmail/oauth/callback")
@@ -197,17 +285,16 @@ def gmail_oauth_callback(code: str | None = None, state: str | None = None):
         raise HTTPException(
             status_code=400, detail="Gmail OAuth callback requires code and state"
         )
-    user_id = gmail_auth.validate_state(state)
-    if user_id is None:
+    try:
+        mailbox = gmail_auth.complete(code, state)
+        gmail_sync.start()
+        return mailbox
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
         raise HTTPException(
-            status_code=400, detail="Gmail OAuth state is invalid or already used"
-        )
-    # Token exchange is intentionally a separate activation step. This route
-    # proves state handling without storing a credential or contacting Google.
-    raise HTTPException(
-        status_code=501,
-        detail="Gmail OAuth callback is prepared; provider token exchange is not activated",
-    )
+            status_code=503, detail="Gmail connection could not be completed; try again"
+        ) from exc
 
 
 @router.post("/api/technical-queries/providers/microsoft-graph/webhook")
@@ -374,21 +461,36 @@ def generate_query_draft(
         )
     passages = result.get("passages") or []
     cited = result.get("cited") or []
-    if not cited or any(
-        not isinstance(index, int)
-        or index < 1
-        or index > len(passages)
-        or not any(
-            evidence["document_id"] == passages[index - 1].get("document_id")
-            and evidence["page_start"] is not None
-            and passages[index - 1].get("page_start") is not None
-            and evidence["page_start"] <= passages[index - 1].get("page_end", 0)
-            and evidence["page_end"] >= passages[index - 1]["page_start"]
-            and evidence["exact_quote"] in (passages[index - 1].get("text") or "")
-            for evidence in usable_evidence
+    citations = []
+    for index in cited:
+        if not isinstance(index, int) or index < 1 or index > len(passages):
+            break
+        passage = passages[index - 1]
+        match = next(
+            (
+                evidence
+                for evidence in usable_evidence
+                if evidence["document_id"] == passage.get("document_id")
+                and evidence["page_start"] is not None
+                and passage.get("page_start") is not None
+                and evidence["page_start"] <= passage.get("page_end", 0)
+                and evidence["page_end"] >= passage["page_start"]
+                and evidence["exact_quote"] in (passage.get("text") or "")
+            ),
+            None,
         )
-        for index in cited
-    ):
+        if match is None:
+            break
+        citations.append(
+            {
+                "label": f"S{index}",
+                "evidence_id": match["id"],
+                "document_id": match["document_id"],
+                "page": match["page_start"],
+                "exact_quote": match["exact_quote"],
+            }
+        )
+    if not cited or len(citations) != len(cited):
         raise HTTPException(
             status_code=409,
             detail="the generated answer cited passages outside the query's verified evidence",
@@ -400,6 +502,8 @@ def generate_query_draft(
         [result.get("reason")] if result.get("reason") else [],
         scope.user_id,
         *_visible(scope),
+        citations=citations,
+        model=result.get("model"),
     )
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
@@ -612,14 +716,48 @@ def query_response_docx(
 @router.post("/api/technical-queries/{query_id}/send")
 def prepare_query_send(
     query_id: str,
-    _body: SendIn,
+    body: SendIn,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Refuse sending until the mailbox integration is activated."""
+    """Send only after an authorised user explicitly requests this approved draft."""
     _require_identity_to_write(scope)
-    if technical_queries.get(query_id, *_visible(scope)) is None:
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(status_code=403, detail="an authorised sender is required")
+    item = technical_queries.get(query_id, *_visible(scope))
+    if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    raise HTTPException(status_code=503, detail="email sending is not configured")
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT email FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='active' AND label_id IS NOT NULL",
+            (body.mailbox_id, scope.user_id),
+        ).fetchone()
+    if mailbox is None:
+        raise HTTPException(
+            status_code=409,
+            detail="a connected mailbox owned by the sender is required",
+        )
+    try:
+        provider_id = gmail_worker.send_approved(
+            GmailApiClient(gmail_auth.access_token(body.mailbox_id)),
+            query_id,
+            body.draft_id,
+            scope,
+            body.idempotency_key,
+            mailbox["email"],
+        )
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (RuntimeError, httpx.HTTPError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="email provider is unavailable or send outcome needs reconciliation",
+        ) from exc
+    refreshed = technical_queries.get(query_id, *_visible(scope))
+    return {
+        "item": _safe_item(refreshed, scope),
+        "sent": True,
+        "provider_message_id": provider_id,
+    }
 
 
 @router.post("/api/technical-queries/{query_id}/sends/{send_id}/reconcile")

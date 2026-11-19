@@ -40,6 +40,7 @@ huggingface_hub==1.30.0
 
 # Ollama client (plain HTTP, no SDK needed)
 httpx==0.28.1
+keyring==25.7.0
 
 # CRS export (phase 7). Pure Python, no network at runtime: it writes an
 # .xlsx and nothing else. UNDECLARED when `crs_export.py` arrived on

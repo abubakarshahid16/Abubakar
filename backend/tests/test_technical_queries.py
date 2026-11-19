@@ -22,7 +22,12 @@ from app.api.technical_queries import (
 )
 from app.config import settings
 from app.gmail_client import GmailApiClient, GmailMessage, normalize_message
-from app.gmail_worker import poll_mailbox, process_history, send_approved
+from app.gmail_worker import (
+    activate_label,
+    poll_mailbox,
+    process_history,
+    send_approved,
+)
 from app.technical_queries import (
     add_draft,
     add_evidence,
@@ -129,7 +134,7 @@ def test_approval_requires_latest_draft_id():
     assert approved["status"] == "approved"
 
 
-def test_unverified_provider_claim_and_unconfigured_send_are_refused():
+def test_unverified_provider_claim_and_unconnected_send_are_refused():
     scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
     claimed_gmail = envelope("claimed-gmail")
     claimed_gmail["provider"] = "gmail"
@@ -144,11 +149,13 @@ def test_unverified_provider_claim_and_unconfigured_send_are_refused():
         prepare_query_send(
             item["id"],
             SendIn(
-                to_addresses=["contractor@example.test"], idempotency_key="send-key-1"
+                draft_id="synthetic-draft",
+                mailbox_id="missing-mailbox",
+                idempotency_key="send-key-1",
             ),
             scope,
         )
-    assert blocked_send.value.status_code == 503
+    assert blocked_send.value.status_code == 409
     assert get(item["id"], "u1", False, False)["status"] == "received"
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM query_sends").fetchone()[0] == 0
@@ -274,6 +281,9 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
     drafted = generate_query_draft(item["id"], scope)
     assert drafted["status"] == "awaiting_review"
     assert drafted["drafts"][-1]["answer"] == "The approved limit is 12 bar [S1]."
+    citations = __import__("json").loads(drafted["drafts"][-1]["citations_json"])
+    assert citations[0]["document_id"] == "doc-2"
+    assert citations[0]["page"] == 1
 
 
 def test_word_preview_marks_unapproved_response_and_missing_evidence(tmp_path):
@@ -445,6 +455,46 @@ def test_gmail_oauth_state_is_one_time_and_never_stores_a_secret(monkeypatch):
     assert gmail_auth.consume_state(state) is None
 
 
+def test_gmail_oauth_completion_stores_refresh_token_outside_database(monkeypatch):
+    monkeypatch.setenv("GMAIL_CLIENT_ID", "synthetic-client")
+    monkeypatch.setenv("GMAIL_CLIENT_SECRET", "synthetic-secret")
+    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:8792/oauth/callback")
+    url = gmail_auth.start("u1")
+    state = url.split("state=", 1)[1].split("&", 1)[0]
+
+    class FakeStore:
+        def __init__(self):
+            self.saved = {}
+
+        def save_refresh_token(self, mailbox_id, token):
+            self.saved[mailbox_id] = token
+
+        def delete_refresh_token(self, mailbox_id):
+            self.saved.pop(mailbox_id, None)
+
+    store = FakeStore()
+    result = gmail_auth.complete(
+        "synthetic-code",
+        state,
+        exchange=lambda _data: {
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+        },
+        profile=lambda _token: {
+            "emailAddress": "engineering@example.test",
+            "historyId": "h100",
+        },
+        store=store,
+    )
+    assert result["email"] == "engineering@example.test"
+    assert store.saved[result["mailbox_id"]] == "synthetic-refresh"
+    assert b"synthetic-refresh" not in settings.db_path.read_bytes()
+    with pytest.raises(ValueError):
+        gmail_auth.complete(
+            "synthetic-code", state, exchange=lambda _data: {}, store=store
+        )
+
+
 def test_gmail_message_normalization_and_worker_are_retry_safe():
     message = {
         "id": "gmail-message-1",
@@ -554,6 +604,22 @@ def test_gmail_history_reads_all_pages_and_normalizes_received_time():
     assert message.received_at == "2023-11-14T22:13:20Z"
 
 
+def test_gmail_history_includes_messages_given_the_query_label_later():
+    def transport(method, url, **_kwargs):
+        httpx = __import__("httpx")
+        return httpx.Response(
+            200,
+            json={
+                "historyId": "h2",
+                "history": [{"labelsAdded": [{"message": {"id": "newly-labelled"}}]}],
+            },
+            request=httpx.Request(method, url),
+        )
+
+    client = GmailApiClient("synthetic-token", transport=transport)
+    assert client.history_delta("h1", "Label_TQ") == (["newly-labelled"], "h2")
+
+
 def test_gmail_worker_imports_pdf_attachment_through_document_pipeline():
     import fitz
 
@@ -626,12 +692,13 @@ def test_gmail_worker_imports_pdf_attachment_through_document_pipeline():
 def test_mailbox_cursor_advances_only_after_message_is_saved():
     with db.connect() as conn:
         conn.execute(
-            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
             (
                 "mailbox-1",
                 "u1",
                 "engineering@example.test",
                 "h1",
+                "Label_TQ",
                 "active",
                 "2026-01-01T00:00:00Z",
                 "2026-01-01T00:00:00Z",
@@ -641,8 +708,9 @@ def test_mailbox_cursor_advances_only_after_message_is_saved():
     class FakeClient:
         fail = True
 
-        def history_delta(self, cursor):
+        def history_delta(self, cursor, label_id):
             assert cursor == "h1"
+            assert label_id == "Label_TQ"
             return ["m1"], "h2"
 
         def message(self, _message_id):
@@ -656,6 +724,7 @@ def test_mailbox_cursor_advances_only_after_message_is_saved():
                 "Please advise",
                 None,
                 [],
+                ("Label_TQ",),
             )
 
         def raw_message(self, _message_id):
@@ -683,6 +752,129 @@ def test_mailbox_cursor_advances_only_after_message_is_saved():
             ).fetchone()[0]
             == "h2"
         )
+
+
+def test_expired_gmail_cursor_recovers_with_labelled_full_sync():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "mailbox-expired",
+                "u1",
+                "engineering@example.test",
+                "old",
+                "Label_TQ",
+                "active",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+
+    class FakeClient:
+        def history_delta(self, _cursor, _label):
+            httpx = __import__("httpx")
+            response = httpx.Response(
+                404, request=httpx.Request("GET", "https://example.test/history")
+            )
+            raise httpx.HTTPStatusError(
+                "expired", request=response.request, response=response
+            )
+
+        def profile(self):
+            return {"historyId": "fresh"}
+
+        def list_message_ids(self, label_id):
+            assert label_id == "Label_TQ"
+            return ["m1"]
+
+        def message(self, _id):
+            return GmailMessage(
+                "m1",
+                "thread-1",
+                "contractor@example.test",
+                ["engineering@example.test"],
+                [],
+                "Question",
+                "Please advise",
+                None,
+                [],
+                ("Label_TQ",),
+            )
+
+        def raw_message(self, _id):
+            return b"From: contractor@example.test\n\nPlease advise"
+
+    result = poll_mailbox(FakeClient(), "mailbox-expired", "u1")
+    assert len(result) == 1
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT last_history_id FROM gmail_mailboxes WHERE id='mailbox-expired'"
+            ).fetchone()[0]
+            == "fresh"
+        )
+
+
+def test_mailbox_imports_only_selected_user_label_before_activation():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                "mailbox-label",
+                "u1",
+                "engineering@example.test",
+                "h1",
+                "needs_label",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+
+    class FakeClient:
+        def labels(self):
+            return [{"id": "Label_TQ", "name": "Technical Queries", "type": "user"}]
+
+        def list_message_ids(self, label_id):
+            assert label_id == "Label_TQ"
+            return ["labelled", "not-labelled", "from-self"]
+
+        def message(self, message_id):
+            labels = ("INBOX",) if message_id == "not-labelled" else ("Label_TQ",)
+            sender = (
+                "engineering@example.test"
+                if message_id == "from-self"
+                else "contractor@example.test"
+            )
+            return GmailMessage(
+                message_id,
+                "thread-" + message_id,
+                sender,
+                ["engineering@example.test"],
+                [],
+                "Question",
+                "Please advise",
+                None,
+                [],
+                labels,
+            )
+
+        def raw_message(self, _message_id):
+            return b"From: contractor@example.test\n\nPlease advise"
+
+    client = FakeClient()
+    with pytest.raises(ValueError, match="user-created"):
+        activate_label(client, "mailbox-label", "u1", "INBOX")
+    imported = activate_label(client, "mailbox-label", "u1", "Label_TQ")
+    assert len(imported) == 1
+    with db.connect() as conn:
+        mailbox = conn.execute(
+            "SELECT connection_state,label_id FROM gmail_mailboxes WHERE id='mailbox-label'"
+        ).fetchone()
+        assert (mailbox["connection_state"], mailbox["label_id"]) == (
+            "active",
+            "Label_TQ",
+        )
+        assert conn.execute("SELECT COUNT(*) FROM query_messages").fetchone()[0] == 1
 
 
 def test_gmail_send_client_preserves_thread_id_in_request():
@@ -754,6 +946,56 @@ def test_send_worker_uses_approved_content_and_original_recipient_only():
     )
     assert client.calls == 1
     assert get(item["id"], "u1", True, False)["status"] == "sent"
+
+
+def test_explicit_send_endpoint_uses_connected_mailbox_and_fake_provider(monkeypatch):
+    item, _ = import_message(envelope("endpoint-send"), "u1", False, False)
+    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
+    draft_id = drafted["drafts"][-1]["id"]
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "mailbox-send",
+                "u1",
+                "engineering@example.test",
+                "h1",
+                "Label_TQ",
+                "active",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+
+    class FakeClient:
+        calls = 0
+
+        def send(self, _raw, *, thread_id=None):
+            self.calls += 1
+            return "fake-provider-id"
+
+    client = FakeClient()
+    monkeypatch.setattr(
+        "app.api.technical_queries.gmail_auth.access_token",
+        lambda _id: "synthetic-token",
+    )
+    monkeypatch.setattr(
+        "app.api.technical_queries.GmailApiClient", lambda _token: client
+    )
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    result = prepare_query_send(
+        item["id"],
+        SendIn(
+            draft_id=draft_id,
+            mailbox_id="mailbox-send",
+            idempotency_key="endpoint-key-1",
+        ),
+        scope,
+    )
+    assert result["sent"] is True
+    assert result["item"]["status"] == "sent"
+    assert client.calls == 1
 
 
 def test_uncertain_provider_send_is_not_retried_automatically():

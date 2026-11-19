@@ -66,7 +66,8 @@ def ensure_schema() -> None:
         CREATE TABLE IF NOT EXISTS query_drafts (
             id TEXT PRIMARY KEY, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
             version INTEGER NOT NULL, answer TEXT NOT NULL, assumptions_json TEXT NOT NULL DEFAULT '[]',
-            unresolved_json TEXT NOT NULL DEFAULT '[]', model TEXT, prompt_version TEXT,
+            unresolved_json TEXT NOT NULL DEFAULT '[]', citations_json TEXT NOT NULL DEFAULT '[]',
+            model TEXT, prompt_version TEXT,
             created_by TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL,
             UNIQUE(query_id, version)
         );
@@ -97,10 +98,11 @@ def ensure_schema() -> None:
         );
         CREATE TABLE IF NOT EXISTS gmail_mailboxes (
             id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            email TEXT NOT NULL, last_history_id TEXT NOT NULL,
-            connection_state TEXT NOT NULL CHECK(connection_state IN ('active','revoked','error')),
+            email TEXT NOT NULL, last_history_id TEXT NOT NULL, label_id TEXT,
+            connection_state TEXT NOT NULL CHECK(connection_state IN ('needs_label','active','revoked','error')),
             connected_at TEXT NOT NULL, updated_at TEXT NOT NULL
         );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_gmail_mailboxes_email ON gmail_mailboxes(lower(email));
         CREATE TABLE IF NOT EXISTS query_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
             actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, event TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL
@@ -118,6 +120,18 @@ def ensure_schema() -> None:
         }
         if "raw_storage_ref" not in message_columns:
             conn.execute("ALTER TABLE query_messages ADD COLUMN raw_storage_ref TEXT")
+        draft_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(query_drafts)")
+        }
+        if "citations_json" not in draft_columns:
+            conn.execute(
+                "ALTER TABLE query_drafts ADD COLUMN citations_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        mailbox_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(gmail_mailboxes)")
+        }
+        if "label_id" not in mailbox_columns:
+            conn.execute("ALTER TABLE gmail_mailboxes ADD COLUMN label_id TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tq_assignee_status ON technical_queries(assignee_user_id,status,updated_at DESC)"
         )
@@ -747,6 +761,10 @@ def add_draft(
     user_id: str | None,
     is_admin: bool,
     unrestricted: bool,
+    *,
+    citations: list[dict[str, Any]] | None = None,
+    model: str | None = None,
+    prompt_version: str | None = None,
 ) -> dict[str, Any] | None:
     current = get(query_id, user_id, is_admin, unrestricted)
     if current is None:
@@ -760,7 +778,7 @@ def add_draft(
         ).fetchone()["v"]
         did = str(uuid.uuid4())
         conn.execute(
-            "INSERT INTO query_drafts(id,query_id,version,answer,assumptions_json,unresolved_json,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_drafts(id,query_id,version,answer,assumptions_json,unresolved_json,citations_json,model,prompt_version,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 did,
                 query_id,
@@ -768,6 +786,9 @@ def add_draft(
                 answer,
                 json.dumps(assumptions),
                 json.dumps(unresolved),
+                json.dumps(citations or []),
+                model,
+                prompt_version,
                 actor_user_id,
                 now(),
             ),

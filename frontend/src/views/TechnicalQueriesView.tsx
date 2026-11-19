@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 
-import { technicalQueriesApi, type Result, type TechnicalQuery } from "../api/client";
+import { technicalQueriesApi, type GmailLabel, type Result, type TechnicalQuery, type TechnicalQueryMailbox } from "../api/client";
+
+function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
+  try {
+    const value: unknown = JSON.parse(raw || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
 
 export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
@@ -12,6 +21,26 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [visibleTotal, setVisibleTotal] = useState<number | null>(null);
+  const [mailboxes, setMailboxes] = useState<TechnicalQueryMailbox[]>([]);
+  const [mailboxId, setMailboxId] = useState("");
+  const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
+  const [labels, setLabels] = useState<GmailLabel[]>([]);
+  const [labelId, setLabelId] = useState("");
+  const activeMailboxes = mailboxes.filter((mailbox) => mailbox.connection_state === "active");
+  const pendingMailbox = mailboxes.find((mailbox) => mailbox.connection_state === "needs_label");
+
+  const sendApproved = () => {
+    if (!selected || !selected.drafts?.length || !mailboxId) return;
+    if (!window.confirm("Send the approved response and Word file to the original email sender?")) return;
+    setBusy(true);
+    void technicalQueriesApi.send(selected.id, selected.drafts.at(-1)!.id, mailboxId, sendKey).then((result) => {
+      setBusy(false);
+      if (!result.ok) { setError(result.error.message); return; }
+      setSelected(result.data.item);
+      setItems((current) => current.map((item) => item.id === result.data.item.id ? result.data.item : item));
+      setSendKey(crypto.randomUUID());
+    });
+  };
 
   const applyFilters = () => {
     const common = { contractor: contractorFilter.trim(), department: departmentFilter.trim() };
@@ -45,6 +74,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
       const first = queryId ? result.data.items.find((item) => item.id === queryId) : result.data.items[0];
       if (first) void technicalQueriesApi.get(first.id).then((detail) => { if (alive && detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } });
     });
+    void technicalQueriesApi.mailboxes().then((result) => {
+      if (!alive || !result.ok) return;
+      setMailboxes(result.data.items);
+      setMailboxId(result.data.items.find((mailbox) => mailbox.connection_state === "active")?.id || "");
+    });
     return () => { alive = false; };
   }, [queryId]);
 
@@ -65,6 +99,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           <input id="query-department-filter" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
           <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Apply filters</button>
         </div>
+        {pendingMailbox && <div className="mt-4 rounded border border-warn-600 p-3 text-xs text-slateish-200">
+          <p>Gmail account {pendingMailbox.email} is connected but waiting for a dedicated technical-query label. Only messages under that label will be imported.</p>
+          <button type="button" onClick={() => void technicalQueriesApi.gmailLabels(pendingMailbox.id).then((result) => { if (result.ok) { setLabels(result.data.items); setLabelId(result.data.items[0]?.id || ""); } else setError(result.error.message); })} className="mt-2 rounded bg-ink-700 px-2 py-1">Choose label</button>
+          {labels.length > 0 && <div className="mt-2"><label htmlFor="gmail-query-label">Gmail label</label><select id="gmail-query-label" value={labelId} onChange={(event) => setLabelId(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2">{labels.map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}</select><button type="button" disabled={busy || !labelId} onClick={() => { if (!window.confirm("Import existing messages under this label and begin automatic sync?")) return; setBusy(true); void technicalQueriesApi.activateGmailLabel(pendingMailbox.id, labelId).then((result) => { setBusy(false); if (!result.ok) { setError(result.error.message); return; } setMailboxes((current) => current.map((mailbox) => mailbox.id === pendingMailbox.id ? { ...mailbox, connection_state: "active", label_id: labelId } : mailbox)); setMailboxId(pendingMailbox.id); setLabels([]); void technicalQueriesApi.list().then((listed) => { if (listed.ok) setItems(listed.data.items); }); }); }} className="mt-2 rounded bg-signal-700 px-2 py-1 text-white disabled:opacity-50">Activate selected label</button></div>}
+        </div>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-400">{error}</p>}
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
           {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}
@@ -86,6 +125,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id))} className="rounded bg-signal-700 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
             {selected.status === "awaiting_review" && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
+            {selected.status === "approved" && activeMailboxes.length > 0 && <div className="flex items-center gap-2"><label htmlFor="query-send-mailbox" className="text-xs text-slateish-300">Send from</label><select id="query-send-mailbox" value={mailboxId} onChange={(event) => setMailboxId(event.target.value)} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100">{activeMailboxes.map((mailbox) => <option key={mailbox.id} value={mailbox.id}>{mailbox.email}</option>)}</select><button type="button" disabled={busy} onClick={sendApproved} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Send approved response</button></div>}
+            {selected.status === "approved" && mailboxes.length === 0 && <button type="button" disabled={busy} onClick={() => void technicalQueriesApi.startGmail().then((result) => { if (result.ok) window.location.assign(result.data.authorization_url); else setError(result.error.message); })} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Connect Gmail to send</button>}
             {selected.status === "sent" || selected.status === "awaiting_confirmation" ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
             {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
           </div>
@@ -104,6 +145,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, page {evidence.page_start ?? "unknown"}</a> · {evidence.evidence_state} · {evidence.supersession_state}</footer></blockquote>) : <p className="mt-2 text-sm text-warn-400">No verified evidence attached.</p>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed response</h3>
           {selected.drafts?.length ? <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.drafts.at(-1)?.answer}</p> : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
+          {draftCitations(selected.drafts?.at(-1)?.citations_json).map((citation) => <p key={citation.label} className="mt-2 text-xs text-slateish-400">[{citation.label}] <a className="underline" href={`/api/documents/${encodeURIComponent(citation.document_id)}/original#page=${citation.page}`} target="_blank" rel="noreferrer">Source page {citation.page}</a>: {citation.exact_quote}</p>)}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-3">
             <label htmlFor="technical-query-answer" className="block text-sm text-slateish-300">Write or revise the answer for engineer review</label>
             <textarea id="technical-query-answer" value={editedAnswer} onChange={(event) => setEditedAnswer(event.target.value)} rows={8} className="mt-2 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />

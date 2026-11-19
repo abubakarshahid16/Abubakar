@@ -65,6 +65,14 @@ def render(query: dict, output: Path | None = None) -> Path:
         paragraphs += [_p("Unresolved points", True)] + [
             _p(f"- {x}") for x in __import__("json").loads(draft["unresolved_json"])
         ]
+    citations = __import__("json").loads(draft.get("citations_json") or "[]")
+    if citations:
+        paragraphs += [_p("Cited passages", True)] + [
+            _p(
+                f"[{c['label']}] {c['document_id']} page {c['page']}: {c['exact_quote']}"
+            )
+            for c in citations
+        ]
     paragraphs += [_p("Evidence", True)]
     if not query.get("evidence"):
         paragraphs.append(
