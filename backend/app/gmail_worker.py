@@ -45,6 +45,7 @@ def process_history(
     actor_user_id: str,
     *,
     mailbox_id: str,
+    message_ids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     if not actor_user_id or not mailbox_id:
         raise ValueError("a mailbox owner and mailbox identity are required")
@@ -54,7 +55,9 @@ def process_history(
         if not held:
             raise PermissionError("the mailbox owner must hold the administrator role")
     results = []
-    for message_id in client.history(history_id):
+    for message_id in (
+        message_ids if message_ids is not None else client.history(history_id)
+    ):
         message = client.message(message_id)
         raw_hash, raw_ref = _store_raw_email(client.raw_message(message_id))
         item, duplicate = import_message(
@@ -123,6 +126,40 @@ def process_history(
                 or item
             )
         results.append({"query_id": item.get("id"), "duplicate": duplicate})
+    return results
+
+
+def poll_mailbox(
+    client: GmailApiClient, mailbox_id: str, actor_user_id: str
+) -> list[dict[str, Any]]:
+    """Advance the cursor only after every changed message is persisted."""
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT owner_user_id,last_history_id,connection_state FROM gmail_mailboxes WHERE id=?",
+            (mailbox_id,),
+        ).fetchone()
+    if (
+        mailbox is None
+        or mailbox["owner_user_id"] != actor_user_id
+        or mailbox["connection_state"] != "active"
+    ):
+        raise PermissionError("mailbox is not active for this user")
+    old_cursor = mailbox["last_history_id"]
+    message_ids, next_cursor = client.history_delta(old_cursor)
+    results = process_history(
+        client,
+        old_cursor,
+        actor_user_id,
+        mailbox_id=mailbox_id,
+        message_ids=message_ids,
+    )
+    with connect() as conn:
+        updated = conn.execute(
+            "UPDATE gmail_mailboxes SET last_history_id=?,updated_at=? WHERE id=? AND last_history_id=? AND connection_state='active'",
+            (next_cursor, now(), mailbox_id, old_cursor),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("mailbox cursor changed during processing; retry safely")
     return results
 
 

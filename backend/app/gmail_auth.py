@@ -4,21 +4,31 @@ from __future__ import annotations
 
 import os
 import secrets
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from .db import connect
 from .technical_queries import now
 
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
-SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
+SCOPES = (
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+)
 
 
 def _config() -> tuple[str, str]:
     client_id = os.environ.get("GMAIL_CLIENT_ID", "").strip()
     redirect_uri = os.environ.get("GMAIL_REDIRECT_URI", "").strip()
-    if not client_id or not redirect_uri or not redirect_uri.startswith("https://"):
+    parsed = urlparse(redirect_uri)
+    loopback = parsed.scheme == "http" and parsed.hostname in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+    secure = parsed.scheme == "https" and bool(parsed.hostname)
+    if not client_id or not redirect_uri or not (secure or loopback):
         raise RuntimeError(
-            "Gmail OAuth is not configured with a public HTTPS redirect URI"
+            "Gmail OAuth requires HTTPS or a local loopback redirect URI"
         )
     return client_id, redirect_uri
 

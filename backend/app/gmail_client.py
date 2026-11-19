@@ -50,9 +50,13 @@ class GmailApiClient:
         return response.json()
 
     def history(self, start_history_id: str) -> list[str]:
+        return self.history_delta(start_history_id)[0]
+
+    def history_delta(self, start_history_id: str) -> tuple[list[str], str]:
         ids: list[str] = []
         page_token: str | None = None
         seen_tokens: set[str] = set()
+        current_history_id = start_history_id
         while True:
             params = {
                 "startHistoryId": start_history_id,
@@ -61,6 +65,8 @@ class GmailApiClient:
             if page_token:
                 params["pageToken"] = page_token
             payload = self._request("GET", "/history", params=params)
+            if payload.get("historyId"):
+                current_history_id = str(payload["historyId"])
             for item in payload.get("history", []):
                 for added in item.get("messagesAdded", []):
                     message = added.get("message") or {}
@@ -73,7 +79,7 @@ class GmailApiClient:
                 raise RuntimeError("Gmail history pagination did not advance")
             page_token = str(next_token)
             seen_tokens.add(page_token)
-        return list(dict.fromkeys(ids))
+        return list(dict.fromkeys(ids)), current_history_id
 
     def message(self, message_id: str) -> GmailMessage:
         payload = self._request(

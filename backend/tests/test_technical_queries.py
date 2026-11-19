@@ -21,8 +21,8 @@ from app.api.technical_queries import (
     upload_query_attachment,
 )
 from app.config import settings
-from app.gmail_client import GmailApiClient, normalize_message
-from app.gmail_worker import process_history, send_approved
+from app.gmail_client import GmailApiClient, GmailMessage, normalize_message
+from app.gmail_worker import poll_mailbox, process_history, send_approved
 from app.technical_queries import (
     add_draft,
     add_evidence,
@@ -255,6 +255,25 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         generate_query_draft(item["id"], scope)
     assert blocked.value.status_code == 409
     assert get(item["id"], "u1", False, False)["drafts"] == []
+    monkeypatch.setattr(
+        "app.api.technical_queries.answer.answer",
+        lambda *_args, **_kwargs: {
+            "answer_type": "generated",
+            "answer": "The approved limit is 12 bar [S1].",
+            "cited": [1],
+            "passages": [
+                {
+                    "document_id": "doc-2",
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": "Approved limit is 12 bar.",
+                }
+            ],
+        },
+    )
+    drafted = generate_query_draft(item["id"], scope)
+    assert drafted["status"] == "awaiting_review"
+    assert drafted["drafts"][-1]["answer"] == "The approved limit is 12 bar [S1]."
 
 
 def test_word_preview_marks_unapproved_response_and_missing_evidence(tmp_path):
@@ -416,9 +435,10 @@ def test_evidence_requires_exact_quote_and_can_be_classified():
 
 def test_gmail_oauth_state_is_one_time_and_never_stores_a_secret(monkeypatch):
     monkeypatch.setenv("GMAIL_CLIENT_ID", "synthetic-client")
-    monkeypatch.setenv("GMAIL_REDIRECT_URI", "https://example.test/oauth/callback")
+    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:8792/oauth/callback")
     url = gmail_auth.start("u1")
     assert "gmail.readonly" in url
+    assert "gmail.send" in url
     state = url.split("state=", 1)[1].split("&", 1)[0]
     assert gmail_auth.validate_state(state) == "u1"
     assert gmail_auth.consume_state(state) == "u1"
@@ -600,6 +620,68 @@ def test_gmail_worker_imports_pdf_attachment_through_document_pipeline():
                 (attachment["document_id"],),
             ).fetchone()[0]
             == 1
+        )
+
+
+def test_mailbox_cursor_advances_only_after_message_is_saved():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                "mailbox-1",
+                "u1",
+                "engineering@example.test",
+                "h1",
+                "active",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+
+    class FakeClient:
+        fail = True
+
+        def history_delta(self, cursor):
+            assert cursor == "h1"
+            return ["m1"], "h2"
+
+        def message(self, _message_id):
+            return GmailMessage(
+                "m1",
+                "t1",
+                "contractor@example.test",
+                ["engineering@example.test"],
+                [],
+                "Question",
+                "Please advise",
+                None,
+                [],
+            )
+
+        def raw_message(self, _message_id):
+            if self.fail:
+                raise TimeoutError("synthetic provider failure")
+            return b"From: contractor@example.test\n\nPlease advise"
+
+    client = FakeClient()
+    with pytest.raises(TimeoutError):
+        poll_mailbox(client, "mailbox-1", "u1")
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT last_history_id FROM gmail_mailboxes WHERE id='mailbox-1'"
+            ).fetchone()[0]
+            == "h1"
+        )
+    client.fail = False
+    result = poll_mailbox(client, "mailbox-1", "u1")
+    assert len(result) == 1
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT last_history_id FROM gmail_mailboxes WHERE id='mailbox-1'"
+            ).fetchone()[0]
+            == "h2"
         )
 
 

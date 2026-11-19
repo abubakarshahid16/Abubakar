@@ -95,6 +95,12 @@ def ensure_schema() -> None:
             state TEXT PRIMARY KEY, user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
             created_at TEXT NOT NULL, used_at TEXT
         );
+        CREATE TABLE IF NOT EXISTS gmail_mailboxes (
+            id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            email TEXT NOT NULL, last_history_id TEXT NOT NULL,
+            connection_state TEXT NOT NULL CHECK(connection_state IN ('active','revoked','error')),
+            connected_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS query_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
             actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, event TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL

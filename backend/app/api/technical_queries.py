@@ -184,10 +184,11 @@ def graph_validation(validationToken: str | None = Query(default=None)):
 @router.get("/api/technical-queries/providers/gmail/oauth/start")
 def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope)):
     _require_identity_to_write(scope)
-    try:
-        return {"authorization_url": gmail_auth.start(scope.user_id)}
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(
+            status_code=403, detail="only an administrator can connect a mailbox"
+        )
+    raise HTTPException(status_code=503, detail="Gmail connection is not activated")
 
 
 @router.get("/api/technical-queries/providers/gmail/oauth/callback")
