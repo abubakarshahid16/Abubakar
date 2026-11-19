@@ -6,7 +6,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from .. import access, answer, email_provider, technical_queries, technical_query_docx
+from .. import (
+    access,
+    answer,
+    email_provider,
+    gmail_auth,
+    technical_queries,
+    technical_query_docx,
+)
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
 
@@ -96,6 +103,34 @@ def graph_validation(validationToken: str | None = Query(default=None)):
     if validationToken is None:
         raise HTTPException(status_code=400, detail="validation token is required")
     return PlainTextResponse(validationToken)
+
+
+@router.get("/api/technical-queries/providers/gmail/oauth/start")
+def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope)):
+    _require_identity_to_write(scope)
+    try:
+        return {"authorization_url": gmail_auth.start(scope.user_id)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/technical-queries/providers/gmail/oauth/callback")
+def gmail_oauth_callback(code: str | None = None, state: str | None = None):
+    if not code or not state:
+        raise HTTPException(
+            status_code=400, detail="Gmail OAuth callback requires code and state"
+        )
+    user_id = gmail_auth.validate_state(state)
+    if user_id is None:
+        raise HTTPException(
+            status_code=400, detail="Gmail OAuth state is invalid or already used"
+        )
+    # Token exchange is intentionally a separate activation step. This route
+    # proves state handling without storing a credential or contacting Google.
+    raise HTTPException(
+        status_code=501,
+        detail="Gmail OAuth callback is prepared; provider token exchange is not activated",
+    )
 
 
 @router.post("/api/technical-queries/providers/microsoft-graph/webhook")

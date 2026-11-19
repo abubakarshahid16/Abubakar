@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import db
+from app import db, gmail_auth
 from app.config import settings
 from app.technical_queries import (
     add_evidence,
@@ -145,3 +145,14 @@ def test_evidence_requires_exact_quote_and_can_be_classified():
         False,
     )
     assert item["evidence"][0]["evidence_state"] == "conflicting"
+
+
+def test_gmail_oauth_state_is_one_time_and_never_stores_a_secret(monkeypatch):
+    monkeypatch.setenv("GMAIL_CLIENT_ID", "synthetic-client")
+    monkeypatch.setenv("GMAIL_REDIRECT_URI", "https://example.test/oauth/callback")
+    url = gmail_auth.start("u1")
+    assert "gmail.readonly" in url
+    state = url.split("state=", 1)[1].split("&", 1)[0]
+    assert gmail_auth.validate_state(state) == "u1"
+    assert gmail_auth.consume_state(state) == "u1"
+    assert gmail_auth.consume_state(state) is None
