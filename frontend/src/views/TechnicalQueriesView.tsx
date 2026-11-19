@@ -1,11 +1,22 @@
 import { useEffect, useState } from "react";
 
-import { technicalQueriesApi, type TechnicalQuery } from "../api/client";
+import { technicalQueriesApi, type Result, type TechnicalQuery } from "../api/client";
 
 export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
   const [selected, setSelected] = useState<TechnicalQuery | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const act = (action: () => Promise<Result<TechnicalQuery>>) => {
+    if (!selected) return;
+    setBusy(true);
+    void action().then((result) => {
+      setBusy(false);
+      if (!result.ok) { setError(result.error?.message || "The action could not be completed."); return; }
+      if (result.data) { setSelected(result.data); setItems((current) => current.map((item) => item.id === result.data?.id ? result.data : item)); }
+    });
+  };
 
   useEffect(() => {
     let alive = true;
@@ -39,6 +50,13 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         {!selected ? <p className="text-sm text-slateish-500">Select a query to inspect its original message and review history.</p> : <>
           <h2 className="text-lg font-semibold text-slateish-100">{selected.subject}</h2>
           <p className="mt-1 text-xs uppercase tracking-wide text-slateish-500">{selected.status} · {selected.priority}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Prepare evidence</button>
+            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id))} className="rounded bg-signal-700 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
+            {selected.status === "awaiting_review" && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve</button>}
+            {selected.status === "sent" || selected.status === "awaiting_confirmation" ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
+            {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
+          </div>
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question</h3>
           <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.extracted_question || "Not extracted yet."}</p>
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Evidence</h3>
