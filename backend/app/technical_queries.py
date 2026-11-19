@@ -133,6 +133,51 @@ def import_message(
             if visible is None:
                 raise PermissionError("technical query is not visible to this user")
             return visible, True
+        # A new provider message on the same thread is a follow-up, not a new
+        # query. The provider message id remains unique, so retries still
+        # collapse to the duplicate branch above.
+        thread = data.get("provider_thread_id")
+        threaded = None
+        if thread:
+            threaded = conn.execute(
+                "SELECT query_id FROM query_messages WHERE provider=? AND mailbox_id IS ? AND provider_thread_id=? ORDER BY received_at LIMIT 1",
+                (data["provider"], data.get("mailbox_id"), thread),
+            ).fetchone()
+        if threaded:
+            visible = get(threaded["query_id"], actor_user_id, is_admin, unrestricted)
+            if visible is None:
+                raise PermissionError("technical query is not visible to this user")
+            conn.execute(
+                "INSERT INTO query_messages(id,query_id,provider,mailbox_id,provider_message_id,provider_thread_id,internet_message_id,from_address,to_addresses,cc_addresses,subject,body,sent_at,received_at,raw_message_hash,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    mid,
+                    threaded["query_id"],
+                    data["provider"],
+                    data.get("mailbox_id"),
+                    data["provider_message_id"],
+                    thread,
+                    data.get("internet_message_id"),
+                    data["from_address"],
+                    json.dumps(data.get("to_addresses", [])),
+                    json.dumps(data.get("cc_addresses", [])),
+                    data["subject"],
+                    data["body"],
+                    data.get("sent_at"),
+                    received,
+                    data.get("raw_message_hash"),
+                    now(),
+                ),
+            )
+            _event(
+                conn,
+                threaded["query_id"],
+                "follow_up_received",
+                actor_user_id,
+                "provider thread matched",
+            )
+            return get(
+                threaded["query_id"], actor_user_id, is_admin, unrestricted
+            ) or {}, False
         conn.execute(
             "INSERT INTO technical_queries(id,owner_user_id,contractor_name,department,subject,extracted_question,status,priority,received_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (

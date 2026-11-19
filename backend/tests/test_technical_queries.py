@@ -63,6 +63,17 @@ def test_import_preserves_message_and_attachment_and_is_idempotent():
     assert len(second["messages"]) == 1
 
 
+def test_new_message_in_same_provider_thread_is_follow_up():
+    first, _ = import_message(envelope("thread-message-1"), "u1", False, False)
+    follow = envelope("thread-message-2")
+    follow["body"] = "Additional information for the same question."
+    second, duplicate = import_message(follow, "u1", False, False)
+    assert duplicate is False
+    assert second["id"] == first["id"]
+    assert len(second["messages"]) == 2
+    assert any(event["event"] == "follow_up_received" for event in second["events"])
+
+
 def test_query_visibility_is_owner_scoped():
     item, _ = import_message(envelope("message-2"), "owner", False, False)
     assert get(item["id"], "owner", False, False) is not None
