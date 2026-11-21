@@ -1,9 +1,9 @@
 # Pinned for reproducibility. Python 3.12.
-fastapi==0.143.0
+fastapi==0.163.2
 uvicorn[standard]==0.54.0
-pydantic==2.14.1
-pydantic-settings==2.15.0
-python-multipart==0.0.32
+pydantic==2.14.3
+pydantic-settings==2.16.3
+python-multipart==0.0.34
 
 # Password hashing. A cffi package: it needs a matching wheel for the platform,
 # so it MUST be installed while the machine still has a network. Installing it
@@ -15,9 +15,9 @@ argon2-cffi==25.1.0
 PyMuPDF==1.28.2
 
 # Embeddings - local ONNX int8, no torch
-onnxruntime==1.31.0
+onnxruntime==1.32.0
 tokenizers==0.23.3
-numpy==2.5.4
+numpy==2.5.5
 
 # Vector store
 pyarrow>=26.0.0
@@ -57,8 +57,8 @@ et-xmlfile==2.0.0
 defusedxml==0.7.1
 
 # Tests
-pytest==9.1.1
-pytest-asyncio==1.4.0
+pytest==9.2.0
+pytest-asyncio==1.5.0
 pytest-xdist==3.8.0
 
 # OCR for scanned pages - RapidOCR on the SAME onnxruntime pinned above.
@@ -70,7 +70,7 @@ pytest-xdist==3.8.0
 rapidocr==3.10.0
 # rapidocr's transitive set, pinned here rather than left to the resolver -
 # an unpinned opencv is a 60 MB wheel that can change under a passing suite.
-opencv-python==5.0.0.93
+opencv-python==5.1.0.95
 shapely==2.2.0
 pyclipper==1.4.0
 pillow==13.0.0
