@@ -1219,3 +1219,20 @@ def test_brute_force_automatic_never_sends_an_unknown_kind_an_unscored_kind_or_a
             if plan.text_leaves or any(p.engine == E.ON_CLAUDE for p in plan.parts):
                 sent += 1
     assert seen == len(KINDS) * 4 * 2**10 and sent == 0
+
+
+def test_automatic_holding_a_paper_back_never_says_claude_cannot_be_used(monkeypatch):
+    """Planner 19 Nov, items 6 and the HAZOP plan: "Claude cannot be used ... choose Claude" in one sentence contradicts itself; and a kind that
+    has a measured score is never called "not scored" beside that score. Pure plan decision: no model, no call."""
+    from app import aim_review_measured
+    from app import review_engine_general as G
+
+    f = open_facts(kind="contract", kind_scored=False, is_contract=True)
+    plan = G.decide_general(G.AUTOMATIC, G.narrowed(G.AUTOMATIC, f))
+    assert plan.refused and "cannot be used" not in plan.refused and "choose claude" in plan.refused.lower()
+    explicit = G.decide_general(G.CLAUDE, G.narrowed(G.CLAUDE, f))
+    assert explicit.refused is None
+    monkeypatch.setattr(aim_review_measured, "for_run", lambda ident: {"found": 5.0})
+    assert "not been scored" not in G._unscored_note(f)
+    monkeypatch.setattr(aim_review_measured, "for_run", lambda ident: None)
+    assert "not been scored" in G._unscored_note(f)

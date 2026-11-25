@@ -145,11 +145,27 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <em className="mr-1 not-italic text-slateish-400">Applies to</em>
           {shownPlaces.map((a, i) => {
-            const text = [a.tag || a.field, a.page != null ? `p${a.page}` : "", a.value ? clip(a.value) : ""].filter(Boolean).join(" · ");
-            return a.page != null
-              ? <button key={i} type="button" aria-label={`page ${a.page}`} title={`Open page ${a.page}${a.field ? `: ${a.field}` : ""}${a.value ? `: ${a.value}` : ""}`} onClick={() => onViewPage(a.page!)}
-                  className="rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200 hover:bg-ink-700">{text}</button>
-              : <span key={i} className="rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200">{text}</span>;
+            const name = a.tag || a.field;
+            const value = a.value ? clip(a.value) : "";
+            const label = [name, value].filter(Boolean).join(" · ");
+            const pages = a.pages && a.pages.length > 0 ? a.pages : a.page != null ? [a.page] : [];
+            const title = (p: number) => `Open page ${p}${a.field ? `: ${a.field}` : ""}${a.value ? `: ${a.value}` : ""}`;
+            const cls = "rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200";
+            if (pages.length === 1) {
+              return <button key={i} type="button" aria-label={`page ${pages[0]}`} title={title(pages[0])} onClick={() => onViewPage(pages[0])}
+                className={`${cls} hover:bg-ink-700`}>{[name, `p${pages[0]}`, value].filter(Boolean).join(" · ")}</button>;
+            }
+            if (pages.length === 0) return <span key={i} className={cls}>{label}</span>;
+            // one chip per field: its name once, then a button per page
+            return (
+              <span key={i} className={`${cls} inline-flex flex-wrap items-center gap-1`} data-testid="chip-field">
+                <span>{label}</span>
+                {pages.map((p) => (
+                  <button key={p} type="button" aria-label={`page ${p}`} title={title(p)} onClick={() => onViewPage(p)}
+                    className="rounded-[var(--radius-sm)] border border-ink-500 px-1 hover:bg-ink-700">p{p}</button>
+                ))}
+              </span>
+            );
           })}
           {places.length > CHIPS_SHOWN && (
             <button type="button" onClick={() => setAllChips((v) => !v)} className="text-signal-300 underline-offset-2 hover:underline">

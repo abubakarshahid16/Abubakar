@@ -121,7 +121,14 @@ def decide_general(choice: str, f: Facts) -> Plan:
         and "choose Claude" not in words
     ):
         words += CHOOSE_CLAUDE
-    plan.refused = f"Claude cannot be used for this paper: {words}"
+    # Automatic holding a paper back is NOT "Claude cannot be used": the explicit choice of Claude lifts it (the words say so), so the two
+    # never sit in one sentence (planner 19 Nov, items 6 and the HAZOP plan of the first-time user)
+    lifted = choice == AUTOMATIC and code in LIFTED_BY_CLAUDE
+    plan.refused = (
+        f"Automatic will not send this paper to Claude on its own: {words}"
+        if lifted
+        else f"Claude cannot be used for this paper: {words}"
+    )
     plan.refused_code = code
     plan.parts = [off, Part(AI_REVIEW, NOT_RUN, words)]
     return plan
@@ -159,6 +166,20 @@ def _last_general_cost(conn, document_id: str) -> tuple[float | None, str | None
     return float(usd), LAST_COST_READ
 
 
+def _unscored_note(facts) -> str:
+    """The sentence under the engine line for a kind not on the automatic list. A kind that HAS a measured score on test copies is never
+    called "not scored" beside that score (planner 19 Nov, item 6): it says it is measured but not yet on the automatic list."""
+    from . import agent_review_gate, aim_review_measured
+
+    got = aim_review_measured.for_run({"kind": getattr(facts, "kind", None)})
+    if got and got.get("found") is not None:
+        return (
+            "This kind of paper is measured on test copies (the score is shown with the review) but is not on Automatic's list yet: "
+            "treat every line as a draft"
+        )
+    return agent_review_gate.UNSCORED_WORDS
+
+
 def general_plan(
     conn, document_id, allowed, plan, facts, reading, out: dict, project_ids=()
 ) -> dict:
@@ -168,9 +189,7 @@ def general_plan(
     from .config import settings
 
     if plan.unscored:
-        from . import agent_review_gate
-
-        out["unscored_note"] = agent_review_gate.UNSCORED_WORDS
+        out["unscored_note"] = _unscored_note(facts)
     ctx = (conn, document_id, allowed, facts, reading)
     out["documents"] = review_leaving.documents_block(ctx, plan, tuple(project_ids))
     out["boundary"] = "documents you may read"
