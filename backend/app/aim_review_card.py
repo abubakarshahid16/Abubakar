@@ -36,6 +36,23 @@ TITLE_WORDS = 12
 KNOWLEDGE = "Engineering knowledge (no held rule book)"
 
 
+def decided_by_code(points: list[dict], boundary: str) -> dict | None:
+    """The planner's measure (19 Nov 2026): how many of the review's points code decided, out of all its points. A point is
+    decided by code when its shown label is code's own verdict (Pass or Fail, compared by code: `BY_CODE`);
+    every other point is an AI reading, an AI opinion or a question. The count always comes with its denominator; None for a
+    review with no points (no measure, never "0 of 0")."""
+    total = len(points)
+    if not total:
+        return None
+    n = sum(1 for p in points if p.get("shown_label") in BY_CODE)
+    return {
+        "count": n,
+        "of": total,
+        "sentence": f"{n} of {total} points decided by code (code compared the paper's value with the rule's limit); the other "
+        f"{total - n} are AI readings, AI opinions or questions ({boundary}).",
+    }
+
+
 def _parts(code_note) -> list[str]:
     return [x.strip() for x in str(code_note or "").split(";") if x.strip()]
 
