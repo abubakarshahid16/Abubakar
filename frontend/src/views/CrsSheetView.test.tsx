@@ -369,7 +369,7 @@ describe("CrsSheetView", () => {
       expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
     });
 
-    it("leaving with unsaved decisions warns first", async () => {
+    it("leaving with unsaved decisions warns first, on the page (never the browser's box)", async () => {
       const onBack = vi.fn();
       render(<CrsSheetView runId="run-1" onBack={onBack} onOpenCards={vi.fn()} />);
       await screen.findByTestId("crs-headline");
@@ -377,11 +377,28 @@ describe("CrsSheetView", () => {
       const unload = new Event("beforeunload", { cancelable: true });
       window.dispatchEvent(unload);
       expect(unload.defaultPrevented).toBe(true);
-      const ask = vi.spyOn(window, "confirm").mockReturnValue(false);
+      const browserBox = vi.spyOn(window, "confirm");
       await userEvent.click(screen.getByRole("button", { name: "← Reviews" }));
-      expect(ask).toHaveBeenCalled();
+      const ask = screen.getByRole("alertdialog", { name: "Leave this sheet?" });
+      expect(ask).toHaveTextContent("Some decisions on this sheet are not saved yet. Leave without saving them?");
       expect(onBack).not.toHaveBeenCalled();
-      ask.mockRestore();
+      await userEvent.click(within(ask).getByRole("button", { name: "Stay on the sheet" }));
+      expect(screen.queryByRole("alertdialog", { name: "Leave this sheet?" })).toBeNull();
+      expect(onBack).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByRole("button", { name: "← Reviews" }));
+      await userEvent.click(within(screen.getByRole("alertdialog", { name: "Leave this sheet?" })).getByRole("button", { name: "Leave without saving" }));
+      expect(onBack).toHaveBeenCalledTimes(1);
+      expect(browserBox).not.toHaveBeenCalled();
+      browserBox.mockRestore();
+    });
+
+    it("leaving with nothing unsaved goes straight back, with no question", async () => {
+      const onBack = vi.fn();
+      render(<CrsSheetView runId="run-1" onBack={onBack} onOpenCards={vi.fn()} />);
+      await screen.findByTestId("crs-headline");
+      await userEvent.click(screen.getByRole("button", { name: "← Reviews" }));
+      expect(onBack).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("alertdialog", { name: "Leave this sheet?" })).toBeNull();
     });
   });
 

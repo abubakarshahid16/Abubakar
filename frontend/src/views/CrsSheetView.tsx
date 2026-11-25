@@ -198,6 +198,8 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
   const [drawerKey, setDrawerKey] = useState<string | null>(null);
   const [mode, setMode] = useState<{ key: string; kind: RowMode } | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // IN-PAGE leave question (house rule: never the browser's own confirm box).
+  const [askLeave, setAskLeave] = useState(false);
   const [kept, setKept] = useState<number | null>(null);
   const { sign, issue, workingCopy } = useExport(runId, refresh);
   // Order 121: what the server still wants before the contractor's copy,
@@ -281,7 +283,7 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
     if (outcome.wrote) void refresh();  // a half-saved row too: its next save sends only the rest
   };
   const left = signLeft(issueGate, run, rows);
-  const leave = () => { if (unsavedCount === 0 || window.confirm(LEAVE_WARNING)) onBack(); };
+  const leave = () => { if (unsavedCount === 0) onBack(); else setAskLeave(true); };
   return (
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="crs-title">
       <CrsHeader
@@ -299,6 +301,20 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         signLeft={left}
         onBack={leave}
       />
+      {askLeave && unsavedCount > 0 && (
+        <div role="alertdialog" aria-label="Leave this sheet?" data-testid="crs-leave-ask"
+          className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
+          {LEAVE_WARNING}
+          <button type="button" onClick={() => { setAskLeave(false); onBack(); }}
+            className="ml-2 rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-100">
+            Leave without saving
+          </button>
+          <button type="button" onClick={() => setAskLeave(false)}
+            className="ml-2 rounded-[var(--radius-sm)] bg-signal-500 px-2 py-0.5 text-xs text-white">
+            Stay on the sheet
+          </button>
+        </div>
+      )}
       <BeforeYouSign run={run} rows={rows} state={issueGate} onRunChanged={() => void refresh()}
         onJump={(row) => { setSelectedKey(row.key); openEvidence(row); }} />
       <CrsTable

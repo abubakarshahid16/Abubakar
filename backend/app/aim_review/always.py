@@ -174,10 +174,10 @@ def _library_facts(
             for entry, _name in L.governing_books(lib, identity.get("equipment_type"))
             if entry
         }
-    except Exception as exc:  # noqa: BLE001 - the facts are a help to the judge; without them G1 is judged on the paper alone
-        log.info(
-            "general review: library facts for G1 not read (%s)", type(exc).__name__
-        )
+    except Exception as exc:  # noqa: BLE001 - a help to the judge: without them G1 is judged on the paper alone, and the run says so
+        from . import faults
+
+        faults.record("aim_g1_facts", "the library facts for G1", exc)
         return "", {}
     out = ["THE LIBRARY FACTS (from the app's own tables):"]
     out += rows or ["- the paper cites no standard the app can read"]

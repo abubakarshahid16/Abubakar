@@ -296,9 +296,36 @@ def record_after_run(run_id: str) -> dict | None:
                 report["database"],
             )
         return report
-    except Exception as exc:  # noqa: BLE001 - logged by type; a failed check never fails the review
+    except Exception as exc:  # noqa: BLE001 - logged by type; a failed check never fails the review, and the run says it failed
         log.warning(
             "general review completeness: the check could not run (%s)",
             type(exc).__name__,
         )
+        _record_failed(run_id, type(exc).__name__)
         return None
+
+
+#: What the run keeps when the after-review count could not run (the page and every download count again, and refuse on a fault).
+CHECK_FAILED = (
+    "The count after the review could not run ({why}). The page and every download count again; a download is refused "
+    "until the counts agree."
+)
+
+
+def _record_failed(run_id: str, why: str) -> None:
+    """Keep with the run that the after-review count failed (class name only), so its record never reads as never checked."""
+    try:
+        aim_review_store.set_completeness(
+            connect(),
+            run_id,
+            {
+                "ok": False,
+                "check_failed": why,
+                "sentence": CHECK_FAILED.format(why=why),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - the record itself could not be written: logged by type
+        log.warning(
+            "general review completeness: the failure was not recorded (%s)",
+            type(exc).__name__,
+        )

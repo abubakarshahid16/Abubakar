@@ -268,10 +268,10 @@ def fallback_reasons(
 
     try:
         want = CL.wanted(conn, paper_id, CL.type_identity(ident), allowed_books, cited)
-    except Exception as exc:  # noqa: BLE001 - a reason is never worth a failed review
-        log.info(
-            "general review: the table reasons were not read (%s)", type(exc).__name__
-        )
+    except Exception as exc:  # noqa: BLE001 - a reason is never worth a failed review; the run says it was not read
+        from . import faults
+
+        faults.record("aim_book_reasons", "the table's reasons for the rule books", exc)
         return {}
     return {str(d): str(w) for d, w in (want.get("listed") or {}).items() if w}
 

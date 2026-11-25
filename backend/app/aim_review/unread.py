@@ -39,6 +39,8 @@ WHY_WORDS = {
 }
 
 STEP = "aim_unread_pages"
+#: The run's calls row when the check itself failed (`faults`); its own step, so `record_state` still reads "not checked".
+CHECK_STEP, PICTURES_STEP = "aim_unread_check", "aim_picture_readings"
 #: The record's code when every page had text or a picture reading, and when the check did not run (an older review, a failed check, a missing file).
 NONE, NOT_CHECKED = "none", "not_checked"
 LISTED, ALL_READ, NOT_RECORDED = "listed", "all_read", "not_recorded"
@@ -62,8 +64,10 @@ def with_unread(
         # 7a: a page waiting for the upload's own picture reading is only NAMED (WAITING); the review never runs recognition itself
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
         paper.unread_checked = True
-    except Exception as exc:  # noqa: BLE001 - never a failed review: the pages simply are not claimed
-        log.info("general review: unread pages not worked out (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - never a failed review: the pages are not claimed, and the run says the check failed
+        from . import faults
+
+        faults.record(CHECK_STEP, "the unread-pages check", exc)
     return paper
 
 
@@ -154,10 +158,18 @@ def _word_unread(conn, path) -> list[dict]:
                     (sha,),
                 )
             }
-        except Exception as exc:  # noqa: BLE001 - no table: no reading
-            log.debug(
-                "general review: no stored picture readings (%s)", type(exc).__name__
-            )
+        except Exception as exc:  # noqa: BLE001 - no reading: every picture is named as not read
+            if "no such table" in str(
+                exc
+            ):  # an older database: no picture was ever read
+                log.debug(
+                    "general review: no stored picture readings (%s)",
+                    type(exc).__name__,
+                )
+            else:  # a store that holds readings but cannot be read: the run says so
+                from . import faults
+
+                faults.record(PICTURES_STEP, "reading the stored picture readings", exc)
             status = {}
     out = []
     for p in pictures:
