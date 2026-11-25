@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
@@ -49,6 +49,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [chosenAssignee, setChosenAssignee] = useState("");
   const [labels, setLabels] = useState<GmailLabel[]>([]);
   const [labelId, setLabelId] = useState("");
+  const returnedOnce = useRef(false); // StrictMode runs an effect twice in development: the one-time code is posted once
   const [gmailReturn, setGmailReturn] = useState<"working" | "connected" | "admin_must_allow" | null>(null);
   const [engine, setEngine] = useState<"local" | "claude">("local");
   const [claudeDocs, setClaudeDocs] = useState<string[]>([]);
@@ -148,7 +149,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   useEffect(() => {
     // Google sends the person to /technicalQueries/gmail-return: read what it sent, clear it from the address bar at once, then post it on
     // from this same site (so the sign-in cookie goes with it).
-    if (queryId !== "gmail-return") return;
+    if (queryId !== "gmail-return" || returnedOnce.current) return;
+    returnedOnce.current = true;
     const params = new URLSearchParams(window.location.search);
     const sent = { code: params.get("code"), state: params.get("state"), error: params.get("error") };
     window.history.replaceState(null, "", "/technicalQueries");

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
@@ -100,6 +101,18 @@ describe("Technical Queries screen", () => {
     expect(window.location.search).toBe("");
     expect(window.location.pathname).toBe("/technicalQueries");
     expect((await screen.findByRole("alert")).textContent).toBe("Your company's Google admin must allow this app.");
+  });
+
+  it("posts the Gmail return once even when the effect runs twice (React StrictMode, as on the dev build)", async () => {
+    api.completeGmail.mockClear();
+    api.completeGmail.mockResolvedValue({ ok: true, data: { result: "connected", mailbox_id: "mb" } });
+    window.history.replaceState(null, "", "/technicalQueries/gmail-return?code=one-time&state=abc");
+    render(<StrictMode><TechnicalQueriesView queryId="gmail-return" /></StrictMode>);
+    await waitFor(() => expect(api.completeGmail).toHaveBeenCalled());
+    expect(api.completeGmail).toHaveBeenCalledTimes(1);
+    expect(api.completeGmail).toHaveBeenCalledWith({ code: "one-time", state: "abc", error: null });
+    await screen.findByText("Gmail is connected. Choose the label to import below.");
+    expect(screen.queryByText(/requires code and state/)).toBeNull();
   });
 
   it("creates a query by hand with its papers, with no mailbox", async () => {
