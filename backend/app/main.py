@@ -2,91 +2,107 @@ import json
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
 
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
+from . import absence as absence_mod
+from . import (
+    access,
+    crs_copy_words,
+    dashboard_pool,
+    errors,
+    finding_query,
+    orphan_guard,
+    scan_quality,
+    schemas,
+)
+from . import admin as admin_mod
 from . import agent_review_open_points as agent_open_points_mod
+from . import ai_check_drafts as ai_check_drafts_mod
+from . import ai_engineering_check as ai_engineering_check_mod
+from . import ai_numbers as ai_numbers_mod
 from . import aim_review_dashboard as aim_review_dashboard_mod
 from . import aim_review_store as aim_review_store_mod
+from . import analysis as analysis_mod
+from . import answer as answer_mod
+from . import applicability as applicability_mod
+from . import auth as auth_mod
+from . import auth_session as auth_session_mod
 from . import chat as chat_mod
+from . import cited_edition as cited_edition_mod
 from . import classification as classification_mod
-from . import absence as absence_mod
-from . import ai_engineering_check as ai_engineering_check_mod
-from . import ai_check_drafts as ai_check_drafts_mod
-from . import ai_numbers as ai_numbers_mod
-from . import evidence_boxes as evidence_boxes_mod
-from . import scan_quality
-from . import applicability as applicability_mod, cited_edition as cited_edition_mod
-from . import comparison as comparison_mod
 from . import clause_coverage as clause_coverage_mod
-from . import kind_words as kind_words_mod
-from . import crs_export as crs_export_mod
+from . import comparison as comparison_mod
 from . import crs_ai_cell as crs_ai_cell_mod
-from . import review_point_decisions as review_point_decisions_mod
-from . import review_code_proposal as review_code_proposal_mod
-from . import crs_issue as crs_issue_mod
 from . import crs_carry as crs_carry_mod
+from . import crs_export as crs_export_mod
+from . import crs_issue as crs_issue_mod
 from . import crs_mapping as crs_mapping_mod
 from . import crs_numbers as crs_numbers_mod
 from . import crs_wording as crs_wording_mod
-from . import export_status as export_status_mod
-from . import review_trace as review_trace_mod
-from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
+from . import deliverables as deliverables_mod
 from . import disciplines as disciplines_mod
-from . import ingest as ingest_mod, dashboard_pool
-from . import gmail_sync as gmail_sync_mod
-from . import job_queue as job_queue_mod
-from . import review_jobs as review_jobs_mod, run_record as run_record_mod
-from . import orphan_guard
-from . import page_ledger as page_ledger_mod
-from . import fts_index as keyword_mod
-from . import metrics as metrics_mod
-from . import answer as answer_mod
-from . import search as search_mod
-from . import pageimage as pageimage_mod
-from . import watcher as watcher_mod
+from . import engineer_feedback as engineer_feedback_mod
+from . import evidence_boxes as evidence_boxes_mod
+from . import export_status as export_status_mod
 from . import fact_api as fact_api_mod
-from . import watch_api as watch_api_mod
-from . import sheet_page as sheet_page_mod
-from . import warmup as warmup_mod
-from .api_utils import (
-    _actor_from_scope,
-    _require_identity_to_write,
-    _deliverable_visible,
-    _require_named_reviewer,
-    DEFAULT_LIMIT,
-    MAX_LIMIT,
-    reject_unknown_params,
-    require_document,
-)
-from . import access
-from . import admin as admin_mod
-from . import playbooks as playbooks_mod, procedure_playbook_rows as ppr_mod
-from . import requirement_split as requirement_split_mod
-from . import auth as auth_mod, auth_session as auth_session_mod
-from . import errors
-from . import analysis as analysis_mod
+from . import fts_index as keyword_mod
+from . import gmail_sync as gmail_sync_mod
+from . import ingest as ingest_mod
+from . import job_queue as job_queue_mod
+from . import kind_words as kind_words_mod
 from . import market as market_mod
 from . import market_phrase as market_phrase_mod
 from . import market_providers as market_providers_mod
 from . import market_transport as market_transport_mod
+from . import metrics as metrics_mod
+from . import page_ledger as page_ledger_mod
+from . import pageimage as pageimage_mod
+from . import paging as paging_mod
+from . import playbooks as playbooks_mod
+from . import procedure_playbook_rows as ppr_mod
 from . import progress as progress_mod
 from . import reports as reports_mod
+from . import requirement_split as requirement_split_mod
 from . import review as review_mod
-from . import finding_query, paging as paging_mod
-from . import deliverables as deliverables_mod
-from . import structured_search as structured_search_mod
+from . import review_code_proposal as review_code_proposal_mod
+from . import review_jobs as review_jobs_mod
+from . import review_point_decisions as review_point_decisions_mod
+from . import review_trace as review_trace_mod
 from . import risks as risks_mod
+from . import run_record as run_record_mod
+from . import search as search_mod
+from . import sheet_page as sheet_page_mod
 from . import standards as standards_mod
-from . import crs_copy_words
 from . import stored_paths as stored_paths_mod
+from . import structured_search as structured_search_mod
 from . import submittal_review as submittal_review_mod
 from . import vector_store as vector_store_mod
-from . import schemas
+from . import warmup as warmup_mod
+from . import watch_api as watch_api_mod
+from . import watcher as watcher_mod
+from .api_utils import (
+    DEFAULT_LIMIT,
+    MAX_LIMIT,
+    _actor_from_scope,
+    _deliverable_visible,
+    _require_identity_to_write,
+    _require_named_reviewer,
+    reject_unknown_params,
+    require_document,
+)
 from .config import config_version, settings
 from .db import connect, init_db
 
@@ -245,9 +261,18 @@ async def lifespan(app: FastAPI):
     # ever warmed and nothing said so. `warmup` runs in a daemon thread, never
     # blocks this start, never writes the database, and logs any failure.
     gmail_sync_mod.start()
+    if technical_queries_mod.enabled():  # the evidence job of a technical query: interrupted ones are marked, then the one thread starts
+        from . import technical_query_jobs
+
+        technical_query_jobs.recover_interrupted()
+        technical_query_jobs.start()
     warmup_mod.start()
     yield
     gmail_sync_mod.stop()
+    if technical_queries_mod.enabled():
+        from . import technical_query_jobs
+
+        technical_query_jobs.stop()
     risks_mod.stop_background_detection()
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()
@@ -283,6 +308,7 @@ app.add_middleware(
 
 # Routes in their own modules (watched folder; #473 fact confirmation) so this
 # file stays the only place routing is declared without growing a feature.
+from . import technical_queries as technical_queries_mod
 from .api import admin as api_admin  # noqa: E402
 from .api import crs_archive as api_crs_archive  # noqa: E402
 from .api import deliverables as api_deliverables  # noqa: E402
@@ -296,7 +322,6 @@ from .api import run_standards as api_run_standards  # noqa: E402
 from .api import run_summary as api_run_summary  # noqa: E402
 from .api import standards as api_standards  # noqa: E402
 from .api import technical_queries as api_technical_queries  # noqa: E402
-from . import technical_queries as technical_queries_mod
 
 # Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
 for _r in (api_documents, api_document_classification, api_document_files, api_admin):
@@ -314,7 +339,10 @@ app.include_router(api_technical_queries.router)
 app.include_router(watch_api_mod.router)
 app.include_router(fact_api_mod.router)
 app.include_router(sheet_page_mod.router)  # #967: the Sheet's page with every card's value marked
-from .api import upload_role_suggestion as upload_role_suggestion_mod  # noqa: E402  order 14 lane E
+from .api import (
+    upload_role_suggestion as upload_role_suggestion_mod,  # noqa: E402  order 14 lane E
+)
+
 app.include_router(upload_role_suggestion_mod.router)  # one upload: the suggested role's switch and the review roles
 
 # THE CLAUDE LANE (#222, revived by owner decision 2026-09-25). Every route is

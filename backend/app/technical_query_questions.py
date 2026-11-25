@@ -55,12 +55,14 @@ def _ask(page_text: str) -> list[str]:
     return [str(q).strip() for q in (data.get("questions") or []) if str(q).strip()]
 
 
-def from_pages(context: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str]:
+def from_pages(context: list[dict[str, Any]], progress=None) -> tuple[list[dict[str, Any]], str]:
     """`(proposals, note)`. A proposal is `{"question", "filename", "page"}`; the note is "" or `MODEL_UNAVAILABLE` (the pages are then
     shown to the engineer as they are, with no questions proposed)."""
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for part in context:
+    for n, part in enumerate(context, 1):
+        if progress:
+            progress(n - 1, len(context), f"reading attachment page {n} of {len(context)}")
         page_text = str(part.get("text") or "")
         if not page_text.strip():
             continue

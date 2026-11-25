@@ -16,6 +16,10 @@ export interface TechnicalQuery {
   proposed_questions?: Array<{ question: string; filename: string | null; page: number | null }>;
   /** "model_unavailable" when the local model could not propose any. */
   proposal_note?: string | null;
+  /** Which attachment pages were read for questions, and which were not (a visible mark: nothing is cut without saying so). */
+  attachment_reading?: Array<{ filename: string; pages_read: number; page_count: number | null; line: string }>;
+  /** The newest "prepare evidence" job: it runs in the background, one at a time, and waits for a running review. */
+  evidence_job?: { id: string; state: "queued" | "running" | "done" | "failed"; progress_done: number; progress_total: number; label: string | null; error: string | null } | null;
   /** How many contracts the evidence search covered: "Searched N of N contracts, hits in M." */
   evidence_coverage?: { searched: number; of: number; hits_in: number; failed: number; line: string } | null;
   confirmed_question?: string | null;
@@ -72,6 +76,9 @@ export const technicalQueriesApi = {
     request("/technical-queries/providers/gmail/mailboxes", undefined, hasArrayField("items")),
   startGmail: (): Promise<Result<{ authorization_url: string }>> =>
     request("/technical-queries/providers/gmail/oauth/start"),
+  /** The end of the Google connection: the app's own return page posts what Google sent, as a same-site request (so the sign-in cookie goes). */
+  completeGmail: (body: { code?: string | null; state?: string | null; error?: string | null }): Promise<Result<{ result: "connected" | "admin_must_allow"; mailbox_id: string | null }>> =>
+    request("/technical-queries/providers/gmail/oauth/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   gmailLabels: (mailboxId: string): Promise<Result<{ items: GmailLabel[] }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/labels`, undefined, hasArrayField("items")),
   activateGmailLabel: (mailboxId: string, labelId: string): Promise<Result<{ imported: number; connection_state: string }>> =>

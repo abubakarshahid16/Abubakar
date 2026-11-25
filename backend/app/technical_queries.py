@@ -199,6 +199,9 @@ def _ensure_schema() -> None:
             actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, event TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL
         );
         """)
+        from . import technical_query_jobs
+
+        technical_query_jobs.create_table(conn)
         columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(technical_queries)")
         }
@@ -213,6 +216,7 @@ def _ensure_schema() -> None:
             "proposed_questions",
             "proposal_note",
             "evidence_coverage",
+            "attachment_reading",
             "confirmed_question",
             "confirmed_question_by",
             "confirmed_question_at",
@@ -741,11 +745,14 @@ def get(
             )
         except ValueError:
             result["attachment_context"] = []
-        for name, empty in (("proposed_questions", []), ("evidence_coverage", None)):
+        for name, empty in (("proposed_questions", []), ("evidence_coverage", None), ("attachment_reading", [])):
             try:
                 result[name] = json.loads(result.get(name) or "null") or empty
             except ValueError:
                 result[name] = empty
+        from . import technical_query_jobs
+
+        result["evidence_job"] = technical_query_jobs.latest(conn, query_id)
         result["messages"] = [
             dict(r)
             for r in conn.execute(
@@ -979,6 +986,9 @@ def update_evidence(
 
 _ATTACHMENT_MARK = "\n\n[Attachment "
 MAX_PROPOSED_QUESTION = 12_000
+#: Only this many pages of each attachment are read for questions; the screen says which pages were not read (completeness rule).
+ATTACHMENT_PAGES_READ = 5
+CUT_MARK = " [cut here: the wording was longer than the limit; the rest is on the attachment pages]"
 MAX_CONFIRMED_QUESTION = 5_000
 
 
@@ -1018,7 +1028,7 @@ def propose_question(email_question: str, proposals: list[dict[str, Any]] | None
     lines += [f"{n}. {q}" for n, q in enumerate(extra, 1)]
     text = "\n".join(lines)
     if len(text) > MAX_PROPOSED_QUESTION:
-        text = text[:MAX_PROPOSED_QUESTION].rstrip()
+        text = text[:MAX_PROPOSED_QUESTION].rstrip() + CUT_MARK
     return text
 
 
@@ -1062,8 +1072,11 @@ def prepare_evidence(
     is_admin: bool,
     unrestricted: bool,
     actor_user_id: str | None,
+    *,
+    progress=None,
 ) -> dict[str, Any] | None:
-    """Extract a conservative question and prepare evidence without generating an answer."""
+    """Extract a conservative question and prepare evidence without generating an answer. `progress(done, total, label)` is told how far
+    each of the two long steps has got (the technical-query job shows it)."""
     current = get(query_id, user_id, is_admin, unrestricted)
     if current is None:
         return None
@@ -1086,6 +1099,7 @@ def prepare_evidence(
         and (unrestricted or attachment["document_id"] in allowed_document_ids)
     }
     context: list[dict[str, Any]] = []
+    reading: list[dict[str, Any]] = []
     with connect() as conn:
         for attachment in message.get("attachments", []):
             document_id = attachment.get("document_id")
@@ -1096,7 +1110,21 @@ def prepare_evidence(
                 or attachment.get("scan_status") == "static_check_flagged"
             ):
                 continue
-            for page in _source_pages(conn, document_id, 1, 5):
+            total = conn.execute("SELECT page_count FROM documents WHERE id=?", (document_id,)).fetchone()
+            total_pages = int((total["page_count"] if total else 0) or 0)
+            read_to = min(ATTACHMENT_PAGES_READ, total_pages or ATTACHMENT_PAGES_READ)
+            reading.append(
+                {
+                    "filename": attachment["filename"],
+                    "pages_read": read_to,
+                    "page_count": total_pages or None,
+                    "line": f"{attachment['filename']}: pages 1 to {read_to}"
+                    + (f" of {total_pages} read" if total_pages else " read")
+                    + (f"; pages {read_to + 1} to {total_pages} were not read" if total_pages > read_to else "")
+                    + ".",
+                }
+            )
+            for page in _source_pages(conn, document_id, 1, ATTACHMENT_PAGES_READ):
                 text = _page_text(page).strip()
                 if text:
                     context.append(
@@ -1108,7 +1136,7 @@ def prepare_evidence(
                     )
     from . import technical_query_questions
 
-    proposals, proposal_note = technical_query_questions.from_pages(context)
+    proposals, proposal_note = technical_query_questions.from_pages(context, progress)
     proposal = propose_question(email_question, proposals)
     # An engineer's confirmed wording, when there is one, is what evidence is found for.
     question = current.get("confirmed_question") or proposal
@@ -1129,14 +1157,14 @@ def prepare_evidence(
     with connect() as conn:
         attachment_documents = query_attachment_document_ids(conn)
     field = technical_query_contracts.search_all(
-        question[:MAX_PROPOSED_QUESTION], frozenset(allowed_document_ids) - attachment_documents
+        question[:MAX_PROPOSED_QUESTION], frozenset(allowed_document_ids) - attachment_documents, progress
     )
     coverage = field["coverage"]
     hits = field.get("hits") or []
     with connect() as conn:
         conn.execute(
             "UPDATE technical_queries SET extracted_question=?,attachment_context=?,"
-            "proposed_question=?,proposed_questions=?,proposal_note=?,evidence_coverage=?,status='drafting',updated_at=? WHERE id=?",
+            "proposed_question=?,proposed_questions=?,proposal_note=?,evidence_coverage=?,attachment_reading=?,status='drafting',updated_at=? WHERE id=?",
             (
                 email_question or None,
                 json.dumps(context),
@@ -1144,6 +1172,7 @@ def prepare_evidence(
                 json.dumps(proposals),
                 proposal_note or None,
                 json.dumps(coverage),
+                json.dumps(reading),
                 now(),
                 query_id,
             ),

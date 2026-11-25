@@ -146,6 +146,13 @@ def _process_message(
 MAX_TRIES = 3
 
 
+def is_transient(exc: BaseException) -> bool:
+    """A failure that says nothing about the message: the network, a Google 429 or a Google 5xx. Retried later (with a longer wait), never counted."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    return isinstance(exc, httpx.HTTPStatusError) and (exc.response.status_code == 429 or exc.response.status_code >= 500)
+
+
 def _note_failure(mailbox_id: str, message_id: str, exc: Exception) -> int:
     """Count one failed import of this message and say why in plain words (the exception type only, never its text). Returns the tries."""
     with connect() as conn:
@@ -206,6 +213,8 @@ def process_history(
             )
         except Exception as exc:  # noqa: BLE001 - one bad message is counted, marked and, after MAX_TRIES, stepped over; never logged by text
             log.warning("gmail import: a message failed (%s)", type(exc).__name__)
+            if is_transient(exc):
+                raise  # an outage, a refusal to answer now (429) or a Google fault (5xx): the message is fine, so it is not counted as bad
             if _note_failure(mailbox_id, message_id, exc) < MAX_TRIES:
                 raise  # the cursor stays: it is tried again at the next poll
             continue

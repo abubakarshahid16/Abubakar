@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import (
@@ -21,7 +21,9 @@ from .. import (
     gmail_worker,
     technical_queries,
     technical_query_claude,
+    technical_query_contracts,
     technical_query_docx,
+    technical_query_jobs,
 )
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write
@@ -226,6 +228,12 @@ def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
     return scope.user_id, scope.is_admin, scope.unrestricted
 
 
+LIST_COLUMNS = (
+    "id", "subject", "status", "priority", "contractor_name", "department", "assignee_user_id",
+    "received_at", "due_at", "routing_source", "confirmed_question_at",
+)  # fmt: skip
+
+
 def _attachment_documents(item: dict) -> set[str]:
     return {
         a["document_id"]
@@ -292,18 +300,18 @@ def list_technical_queries(
     evidence_state: str | None = None,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    return {
-        "items": technical_queries.list_queries(
-            *_visible(scope),
-            status,
-            contractor=contractor,
-            department=department,
-            assignee_user_id=assignee_user_id,
-            received_from=received_from,
-            received_to=received_to,
-            evidence_state=evidence_state,
-        )
-    }
+    rows = technical_queries.list_queries(
+        *_visible(scope),
+        status,
+        contractor=contractor,
+        department=department,
+        assignee_user_id=assignee_user_id,
+        received_from=received_from,
+        received_to=received_to,
+        evidence_state=evidence_state,
+    )
+    # The queue shows a fixed set of columns: stored attachment text and the questions found in it are in the detail, behind the grant check.
+    return {"items": [{key: row.get(key) for key in LIST_COLUMNS if key in row} for row in rows]}
 
 
 @router.get("/api/technical-queries/metrics", response_model=MetricsOut)
@@ -424,33 +432,40 @@ def activate_gmail_mailbox(
     return {"imported": len(imported), "connection_state": "active"}
 
 
-@router.get("/api/technical-queries/providers/gmail/oauth/callback", response_class=RedirectResponse)
-def gmail_oauth_callback(
-    code: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
-    scope: access.AccessScope = Depends(access.current_scope),
-):
-    """The return from Google. The signed-in person must be the administrator who started the connection (the state names them), so a
-    link started by one person cannot bind a mailbox from another person's browser; then the person is sent on to the screen with a
-    303, so the one-time code does not stay in the address bar."""
+class OauthCompleteIn(BaseModel):
+    code: str | None = Field(default=None, max_length=2000)
+    state: str | None = Field(default=None, max_length=500)
+    error: str | None = Field(default=None, max_length=200)
+
+
+class OauthCompleteOut(BaseModel):
+    result: Literal["connected", "admin_must_allow"]
+    mailbox_id: str | None = None
+
+
+@router.post("/api/technical-queries/providers/gmail/oauth/complete", response_model=OauthCompleteOut)
+def gmail_oauth_complete(body: OauthCompleteIn, scope: access.AccessScope = Depends(access.current_scope)):
+    """The end of the Google connection. Google sends the person to a page of THIS APP (the registered return address is the app's own
+    screen, not this server), and that page posts the code and state here as an ordinary same-site request: so the sign-in cookie
+    (SameSite=Strict) is sent, the person must be the administrator who started the connection (the state names them), and the one-time
+    code never sits in a server log or in the address bar after the page has cleared it."""
     _require_identity_to_write(scope)
-    if error in gmail_auth.ADMIN_BLOCKS:  # the company's Google admin has not allowed the app: the screen says so in one line
-        return RedirectResponse("/technicalQueries?gmail=admin_must_allow", status_code=303)
-    if not code or not state:
+    if body.error in gmail_auth.ADMIN_BLOCKS:  # the company's Google admin has not allowed the app: the screen says so in one line
+        return {"result": "admin_must_allow"}
+    if not body.code or not body.state:
         raise HTTPException(status_code=400, detail="Gmail OAuth callback requires code and state")
-    if not scope.is_admin or not scope.user_id or gmail_auth.validate_state(state) != scope.user_id:
+    if not scope.is_admin or not scope.user_id or gmail_auth.validate_state(body.state) != scope.user_id:
         raise _refuse(403, "this connection was started by another person; start it again from your own sign-in")
     try:
-        gmail_auth.complete(code, state)
+        mailbox = gmail_auth.complete(body.code, body.state)
         gmail_sync.start()
     except gmail_auth.CompanyAdminMustAllow:
-        return RedirectResponse("/technicalQueries?gmail=admin_must_allow", status_code=303)
+        return {"result": "admin_must_allow"}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Gmail connection could not be completed; try again") from exc
-    return RedirectResponse("/technicalQueries", status_code=303)
+    return {"result": "connected", "mailbox_id": str((mailbox or {}).get("id") or "") or None}
 
 
 @router.post("/api/technical-queries/providers/microsoft-graph/webhook", response_model=WebhookAckOut)
@@ -818,6 +833,9 @@ def generate_query_draft(
             raise _refuse(409, "choose the contract documents Claude may read for this query before asking for a Claude draft")
         if not chosen <= scope_ids:
             raise _refuse(409, "a chosen document is not verified, current evidence of this query that you may read")
+        not_contracts = chosen - frozenset(technical_query_contracts.contract_ids(chosen))
+        if not_contracts:  # the owner approved CONTRACT documents only for this lane
+            raise _refuse(409, f"not a contract: not sent ({', '.join(sorted(not_contracts))})")
         with connect() as conn:  # the choice is recorded BEFORE anything can be sent: ids only
             technical_query_claude.record(conn, query_id, chosen, scope.user_id)
     try:
@@ -930,21 +948,16 @@ def prepare_query_evidence(
     query_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
+    """Queue the preparation as a job and answer at once: it takes minutes (the local model reads the attachment pages and every contract
+    is searched). The query carries `evidence_job` with its progress; the screen polls it."""
     _require_identity_to_write(scope)
-    try:
-        item = technical_queries.prepare_evidence(
-            query_id,
-            scope.allowed_document_ids,
-            scope.user_id,
-            scope.is_admin,
-            scope.unrestricted,
-            scope.user_id,
-        )
-    except ValueError as exc:
-        raise _refuse(422, str(exc)) from exc
-    if item is None:
+    current = technical_queries.get(query_id, *_visible(scope))
+    if current is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    return _safe_item(item, scope)
+    if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
+        raise _refuse(422, "evidence cannot be prepared in the current query state")
+    technical_query_jobs.enqueue(query_id, scope.allowed_document_ids, scope.user_id, scope.is_admin, scope.unrestricted)
+    return _safe_item(technical_queries.get(query_id, *_visible(scope)) or current, scope)
 
 
 @router.patch("/api/technical-queries/{query_id}/evidence/{evidence_id}", response_model=QueryOut)

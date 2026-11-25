@@ -16,7 +16,7 @@ from .technical_queries import now
 TABLE = "query_claude_consent"
 
 
-def ensure_schema(conn) -> None:
+def create_table(conn) -> None:
     conn.execute(
         f"CREATE TABLE IF NOT EXISTS {TABLE} (id TEXT PRIMARY KEY, query_id TEXT NOT NULL, document_ids_json TEXT NOT NULL, "
         "user_id TEXT, created_at TEXT NOT NULL)"
@@ -25,7 +25,7 @@ def ensure_schema(conn) -> None:
 
 def record(conn, query_id: str, document_ids, user_id: str | None) -> str:
     """Store the engineer's choice (ids sorted, no duplicates) and return its id. Called before the Claude call is made."""
-    ensure_schema(conn)
+    create_table(conn)
     consent_id = str(uuid.uuid4())
     ids = sorted({str(d) for d in document_ids if d})
     conn.execute(
@@ -36,7 +36,7 @@ def record(conn, query_id: str, document_ids, user_id: str | None) -> str:
 
 
 def entries(conn, query_id: str) -> list[dict]:
-    ensure_schema(conn)
+    create_table(conn)
     return [
         {
             "id": r["id"],

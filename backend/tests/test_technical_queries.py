@@ -2186,7 +2186,13 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
             ]
         },
     )
-    prepared = prepare_query_evidence(item["id"], reviewer)
+    queued = prepare_query_evidence(item["id"], reviewer)
+    assert queued["evidence_job"]["state"] == "queued"  # the request only queues the job and answers at once
+    from app import technical_query_jobs
+
+    technical_query_jobs.run_job(queued["evidence_job"]["id"], wait_for_review=False)
+    prepared = get(item["id"], "owner", True, False)
+    assert prepared["evidence_job"]["state"] == "done"
     # a passage the search found is only PROPOSED: no person has judged that it answers the question
     assert [
         (e["document_id"], e["evidence_state"], e["supersession_state"])

@@ -86,3 +86,9 @@ Owner approvals: #1584 comment 7170031292 ("Yes, approve both"): Gmail read-only
   redirects (303). Attachment text, the original email and the Word file need the grant on the attachment. Every draft and Word file says "AI, to be checked"
   until a reviewer approves.
 - Needs `keyring` installed on the live machine (it is in `requirements.txt`).
+
+- Preparing evidence is a background job (`query_evidence_jobs`): the request queues it and answers; one job runs at a time; it waits while a review runs;
+  the screen shows "N of M". Attachment pages 1 to 5 are read; the screen says which pages were not read, and a cut wording carries a visible mark.
+- Google returns to a page of the app (`/technicalQueries/gmail-return`), which posts the code to the backend as a same-site request.
+  Set `GMAIL_REDIRECT_URI` to that page's address (the app, not the backend) in Google Cloud and in `backend/.env`.
+- The Claude draft accepts only CONTRACT documents ("not a contract: not sent"). The queue list carries a fixed set of columns.

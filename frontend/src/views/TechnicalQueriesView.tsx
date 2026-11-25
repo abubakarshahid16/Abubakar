@@ -49,6 +49,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [chosenAssignee, setChosenAssignee] = useState("");
   const [labels, setLabels] = useState<GmailLabel[]>([]);
   const [labelId, setLabelId] = useState("");
+  const [gmailReturn, setGmailReturn] = useState<"working" | "connected" | "admin_must_allow" | null>(null);
   const [engine, setEngine] = useState<"local" | "claude">("local");
   const [claudeDocs, setClaudeDocs] = useState<string[]>([]);
   const [ticked, setTicked] = useState<number[]>([]);
@@ -131,6 +132,34 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     });
   };
 
+  const jobState = selected?.evidence_job?.state;
+  useEffect(() => {
+    // The evidence is prepared by a background job: ask again every few seconds while it is queued or running, then show what it found.
+    if (!selected || (jobState !== "queued" && jobState !== "running")) return;
+    const id = selected.id;
+    const timer = window.setInterval(() => {
+      void technicalQueriesApi.get(id).then((detail) => {
+        if (detail.ok) { setSelected((current) => (current?.id === id ? detail.data : current)); setItems((current) => current.map((item) => item.id === id ? { ...item, status: detail.data.status } : item)); }
+      });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [selected?.id, jobState]);
+
+  useEffect(() => {
+    // Google sends the person to /technicalQueries/gmail-return: read what it sent, clear it from the address bar at once, then post it on
+    // from this same site (so the sign-in cookie goes with it).
+    if (queryId !== "gmail-return") return;
+    const params = new URLSearchParams(window.location.search);
+    const sent = { code: params.get("code"), state: params.get("state"), error: params.get("error") };
+    window.history.replaceState(null, "", "/technicalQueries");
+    setGmailReturn("working");
+    void technicalQueriesApi.completeGmail(sent).then((result) => {
+      if (!result.ok) { setGmailReturn(null); setError(result.error.message); return; }
+      setGmailReturn(result.data.result);
+      void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) { setCanManageGmail(true); setMailboxes(listed.data.items); } });
+    });
+  }, [queryId]);
+
   useEffect(() => {
     let alive = true;
     void technicalQueriesApi.list().then((result) => {
@@ -138,7 +167,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
       if (!result.ok) { setError(result.error.message); return; }
       setItems(result.data.items);
       setVisibleTotal(result.data.items.length);
-      const first = queryId ? result.data.items.find((item) => item.id === queryId) : result.data.items[0];
+      const first = queryId && queryId !== "gmail-return" ? result.data.items.find((item) => item.id === queryId) : result.data.items[0];
       if (first) void technicalQueriesApi.get(first.id).then((detail) => { if (alive && detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } });
     });
     void technicalQueriesApi.mailboxes().then((result) => {
@@ -210,7 +239,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <button type="button" disabled={busy || !handSubject.trim() || !handBody.trim()} onClick={createByHand} className="rounded bg-signal-500 px-2 py-1 text-white disabled:opacity-50">Create query</button>
           </div>}
         </div>
-        {new URLSearchParams(window.location.search).get("gmail") === "admin_must_allow" && <p role="alert" className="mt-4 text-sm text-warn-500">Your company's Google admin must allow this app.</p>}
+        {gmailReturn === "admin_must_allow" && <p role="alert" className="mt-4 text-sm text-warn-500">Your company's Google admin must allow this app.</p>}
+        {gmailReturn === "working" && <p role="status" className="mt-4 text-sm text-slateish-300">Finishing the Gmail connection.</p>}
+        {gmailReturn === "connected" && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-500">{error}</p>}
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
           {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}
@@ -252,8 +283,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {(selected.status === "approved" || selected.status === "sent" || selected.status === "awaiting_confirmation") && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
             {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
           </div>
+          {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
+          {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question in the email</h3>
           <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.extracted_question || "Not stated in the email text."}</p>
+          {selected.attachment_reading?.map((part) => <p key={part.filename} className="mt-6 text-xs text-slateish-400" data-testid="attachment-reading">{part.line}</p>)}
           {selected.attachment_text_hidden && <p className="mt-6 text-xs text-warn-500">The attachment text is hidden: you may not read that attachment.</p>}
           {selected.attachment_context?.length ? <>
             <h3 className="mt-6 text-sm font-semibold text-slateish-200">Attachment text</h3>

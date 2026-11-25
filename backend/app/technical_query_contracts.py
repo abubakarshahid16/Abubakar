@@ -44,7 +44,7 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     return line
 
 
-def search_all(question: str, allowed: frozenset[str]) -> dict[str, Any]:
+def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[str, Any]:
     """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, the best
     MAX_PASSAGES overall by score. A search that fails is counted, logged by type, and never stops the others."""
     from . import search
@@ -52,7 +52,9 @@ def search_all(question: str, allowed: frozenset[str]) -> dict[str, Any]:
     contracts = contract_ids(allowed)
     hits: list[dict] = []
     searched = failed = hits_in = 0
-    for document_id in contracts:
+    for n, document_id in enumerate(contracts, 1):
+        if progress:
+            progress(n - 1, len(contracts), f"searching contract {n} of {len(contracts)}")
         try:
             result = search.search(
                 question,

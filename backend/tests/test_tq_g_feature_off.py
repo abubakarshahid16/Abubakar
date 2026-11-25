@@ -32,6 +32,7 @@ def storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "q.sqlite")
     monkeypatch.setattr(tq, "_READY_FOR", None)
+    monkeypatch.setattr("app.technical_query_jobs.AUTO_START", False)
     db.reset_connection()
     db.init_db()
     with db.connect() as conn:
@@ -702,21 +703,35 @@ def test_the_access_log_stays_on_except_for_the_one_gmail_return_line():
             logger.removeFilter(f)
 
 
-def test_the_gmail_return_needs_the_person_who_started_the_connection_and_then_redirects(monkeypatch):
+def test_the_gmail_return_is_a_same_site_post_from_the_app_page_by_the_person_who_started_it(monkeypatch):
+    """Reviewer's M5 and R4: Google sends the person to a page of the APP; that page posts the code as a same-site request (so the Strict
+    sign-in cookie is sent), by the person the state names."""
     on(monkeypatch)
     monkeypatch.setenv("GMAIL_CLIENT_ID", "invented-client")
-    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:8000/cb")
+    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:5173/technicalQueries/gmail-return")
     state = gmail_auth.start("u1").split("state=")[1].split("&")[0]
     completed = []
-    monkeypatch.setattr("app.api.technical_queries.gmail_auth.complete", lambda code, st: completed.append((code, st)) or {})
+    monkeypatch.setattr("app.api.technical_queries.gmail_auth.complete", lambda code, st: completed.append((code, st)) or {"id": "mb-1"})
     monkeypatch.setattr("app.api.technical_queries.gmail_sync.start", lambda: None)
+    body = api.OauthCompleteIn(code="code", state=state)
     other = AccessScope("someone-else", frozenset(), capabilities=frozenset({"admin"}))
     with pytest.raises(HTTPException) as refused:
-        api.gmail_oauth_callback("code", state, scope=other)
+        api.gmail_oauth_complete(body, other)
     assert refused.value.status_code == 403 and completed == []
     owner = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
-    response = api.gmail_oauth_callback("code", state, scope=owner)
-    assert response.status_code == 303 and response.headers["location"] == "/technicalQueries" and completed == [("code", state)]
+    assert api.gmail_oauth_complete(body, owner) == {"result": "connected", "mailbox_id": "mb-1"} and completed == [("code", state)]
+
+
+def test_the_gmail_return_cannot_be_completed_without_a_sign_in_and_there_is_no_get_callback_any_more(monkeypatch):
+    from app import access
+
+    on(monkeypatch)
+    monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
+    client = TestClient(app)
+    answer = client.post("/api/technical-queries/providers/gmail/oauth/complete", json={"code": "c", "state": "s"})
+    assert answer.status_code == 401  # a request without the session cookie (a cross-site navigation) completes nothing
+    gone = client.get("/api/technical-queries/providers/gmail/oauth/callback?code=c&state=s")
+    assert gone.status_code in (404, 405)  # the one-time code never lands on a server route
 
 
 def test_attachment_text_original_email_and_word_file_need_the_grant_on_the_attachment(monkeypatch):
@@ -758,11 +773,10 @@ def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(monk
     on(monkeypatch)
     monkeypatch.setenv("GMAIL_CLIENT_ID", "invented-client")
     monkeypatch.setenv("GMAIL_CLIENT_SECRET", "invented-secret")
-    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:8000/cb")
+    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:5173/technicalQueries/gmail-return")
     owner = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
-    # 1. Google sends the person back with the refusal in the address
-    refused = api.gmail_oauth_callback(None, None, "admin_policy_enforced", owner)
-    assert refused.status_code == 303 and refused.headers["location"].endswith("gmail=admin_must_allow")
+    # 1. Google sends the person back with the refusal in the address; the page posts it on
+    assert api.gmail_oauth_complete(api.OauthCompleteIn(error="admin_policy_enforced"), owner) == {"result": "admin_must_allow"}
     # 2. Google refuses at the token step (a stubbed 400 answer)
     state = gmail_auth.start("u1").split("state=")[1].split("&")[0]
 
@@ -780,8 +794,7 @@ def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(monk
         gmail_auth.complete("code", state)
     assert str(said.value) == "Your company's Google admin must allow this app." and "raw text" not in str(said.value)
     state2 = gmail_auth.start("u1").split("state=")[1].split("&")[0]
-    redirected = api.gmail_oauth_callback("code", state2, None, owner)
-    assert redirected.status_code == 303 and redirected.headers["location"].endswith("gmail=admin_must_allow")
+    assert api.gmail_oauth_complete(api.OauthCompleteIn(code="code", state=state2), owner) == {"result": "admin_must_allow"}
 
 
 def test_the_drafts_local_model_is_the_one_every_local_answer_uses(monkeypatch):
@@ -792,3 +805,133 @@ def test_the_drafts_local_model_is_the_one_every_local_answer_uses(monkeypatch):
     assert chat_model.provider("local").requested_model == "invented-local-model"
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
     assert chat_model.provider(chat_model.TQ_DRAFT).requested_model == "invented-local-model"
+
+
+def test_a_chosen_document_that_is_not_a_contract_is_not_sent_and_no_consent_is_recorded(monkeypatch):
+    """Reviewer's R1: the owner approved CONTRACT documents only for the Claude draft."""
+    item, scope = draft_ready(monkeypatch)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('datasheet-1','d.pdf',?,1,'d.pdf','ready','x')", ("d" * 64,)
+        )
+        conn.execute("INSERT OR REPLACE INTO document_classification(document_id,document_role,suggested_by) VALUES ('datasheet-1','CONTRACTOR_SUBMITTAL','r')")
+        conn.execute(
+            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,supersession_state,evidence_state,created_at) VALUES ('e9',?,'datasheet-1',1,1,'q','h9','current','verified','x')",
+            (item["id"],),
+        )
+    scope = AccessScope("u1", frozenset({"d1", "d2", "datasheet-1"}), capabilities=REVIEWER)
+    monkeypatch.setattr(settings, "technical_query_draft_engine", "claude")
+    monkeypatch.setattr("app.api.technical_queries.answer.answer", lambda *a, **k: pytest.fail("nothing may be sent"))
+    with pytest.raises(HTTPException) as refused:
+        api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="claude", document_ids=["d1", "datasheet-1"]))
+    assert "not a contract: not sent (datasheet-1)" in str(refused.value.detail)
+    from app import technical_query_claude as C
+
+    with db.connect() as conn:
+        assert C.entries(conn, item["id"]) == []
+
+
+def test_the_queue_list_carries_no_attachment_text_for_anyone(monkeypatch):
+    """Reviewer's R2: the list shows a fixed set of columns; the text is in the detail, behind the grant check."""
+    item = attachment_query(monkeypatch, "Q1 What is the minimum coating thickness for the tank?")
+    monkeypatch.setattr("app.technical_query_questions._ask", lambda text: ["Q1 What is the minimum coating thickness for the tank?"])
+    tq.prepare_evidence(item["id"], frozenset({"att"}), "u1", True, False, "u1")
+    for scope in (AccessScope("u1", frozenset({"att"}), capabilities=REVIEWER), AccessScope("u1", frozenset(), capabilities=REVIEWER)):
+        listed = api.list_technical_queries(scope=scope)["items"]
+        assert listed and set(listed[0]) <= set(api.LIST_COLUMNS)
+        assert "attachment_context" not in listed[0] and "proposed_question" not in listed[0] and "extracted_question" not in listed[0]
+
+
+def test_an_outage_or_a_google_5xx_or_429_never_counts_as_a_bad_message_and_the_wait_doubles(monkeypatch):
+    """Reviewer's R3: only a failure of the message itself is counted; the network and Google's own faults are retried later."""
+    on(monkeypatch)
+    from app import gmail_worker
+
+    request = httpx.Request("GET", "https://gmail.googleapis.com/x")
+    for error in (
+        httpx.ConnectError("down", request=request),
+        httpx.HTTPStatusError("busy", request=request, response=httpx.Response(429, request=request)),
+        httpx.HTTPStatusError("fault", request=request, response=httpx.Response(503, request=request)),
+    ):
+        assert gmail_worker.is_transient(error)
+    assert not gmail_worker.is_transient(ValueError("size mismatch"))
+    assert not gmail_worker.is_transient(httpx.HTTPStatusError("gone", request=request, response=httpx.Response(404, request=request)))
+
+    def offline(client, message_id, **kw):
+        raise httpx.ConnectError("down", request=request)
+
+    monkeypatch.setattr(gmail_worker, "_process_message", offline)
+    for _ in range(5):  # far more than the three tries
+        with pytest.raises(httpx.ConnectError):
+            gmail_worker.process_history(object(), "h", "u1", mailbox_id="mb", message_ids=["m1"])
+    with db.connect() as conn:
+        counted = conn.execute("SELECT name FROM sqlite_master WHERE name='gmail_failed_messages'").fetchone()
+        assert counted is None or conn.execute("SELECT COUNT(*) FROM gmail_failed_messages").fetchone()[0] == 0
+    assert [gmail_sync.wait_seconds(n) for n in (0, 1, 2, 3, 6)] == [60, 120, 240, 480, 900]
+
+
+# ---------------------------------------------------------------- reviewer's R6, R5: the evidence runs as a job with progress; a cut says so
+
+
+def test_preparing_evidence_is_a_job_with_progress_that_waits_for_a_running_review(monkeypatch):
+    item = query_with_question(monkeypatch)
+    from app import technical_query_jobs as J
+
+    hold_contract("con-a")
+    hold_contract("con-b")
+    monkeypatch.setattr("app.search.search", lambda q, **k: {"hits": []})
+    scope = AccessScope("u1", frozenset({"con-a", "con-b"}), capabilities=REVIEWER)
+    queued = api.prepare_query_evidence(item["id"], scope)
+    job = queued["evidence_job"]
+    assert job["state"] == "queued"
+    assert api.prepare_query_evidence(item["id"], scope)["evidence_job"]["id"] == job["id"]  # one active job per query, not a second
+    seen = []
+    real_set = J._set
+    monkeypatch.setattr(J, "_set", lambda job_id, **f: (seen.append(f), real_set(job_id, **f))[1])
+    # a review is running: the job says it waits, and does not start
+    flags = iter([True, False])
+    monkeypatch.setattr(J, "_review_running", lambda: next(flags))
+    monkeypatch.setattr(J._stop, "wait", lambda s: None)
+    J.run_job(job["id"])
+    assert any(f.get("label") == J.WAITING_WORDS for f in seen)
+    done = tq.get(item["id"], "u1", True, False)["evidence_job"]
+    assert done["state"] == "done" and done["progress_total"] == 2 and done["progress_done"] == 1  # N of M while it ran
+    assert any(str(f.get("label", "")).startswith("searching contract 2 of 2") for f in seen)
+
+
+def test_a_job_that_fails_says_why_and_one_left_running_by_a_stopped_server_is_marked(monkeypatch):
+    item = query_with_question(monkeypatch)
+    from app import technical_query_jobs as J
+
+    scope = AccessScope("u1", frozenset(), capabilities=REVIEWER)
+    job = api.prepare_query_evidence(item["id"], scope)["evidence_job"]
+    monkeypatch.setattr(tq, "prepare_evidence", lambda *a, **k: (_ for _ in ()).throw(ValueError("no question could be proposed")))
+    J.run_job(job["id"], wait_for_review=False)
+    failed = tq.get(item["id"], "u1", True, False)["evidence_job"]
+    assert failed["state"] == "failed" and failed["error"] == "no question could be proposed"
+    other = api.prepare_query_evidence(item["id"], scope)["evidence_job"]
+    with db.connect() as conn:
+        conn.execute(f"UPDATE {J.TABLE} SET state='running' WHERE id=?", (other["id"],))
+    assert J.recover_interrupted() == 1
+    assert tq.get(item["id"], "u1", True, False)["evidence_job"]["error"] == J.INTERRUPTED_WORDS
+
+
+def test_a_read_of_a_query_never_creates_the_job_table(monkeypatch):
+    on(monkeypatch)
+    with db.connect() as conn:
+        conn.execute("DROP TABLE query_evidence_jobs")
+    item, _ = tq.import_message(envelope("ro"), "u1", False, False)
+    assert tq.get(item["id"], "u1", True, False)["evidence_job"] is None
+    with db.connect() as conn:
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='query_evidence_jobs'").fetchone() is None
+
+
+def test_the_pages_not_read_and_a_cut_wording_are_said_on_the_query(monkeypatch):
+    item = attachment_query(monkeypatch, "Q1 What is the minimum coating thickness for the tank?")
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET page_count=12 WHERE id='att'")
+    monkeypatch.setattr("app.technical_query_questions._ask", lambda text: [])
+    got = tq.prepare_evidence(item["id"], frozenset({"att"}), "u1", True, False, "u1")
+    assert got["attachment_reading"][0]["line"] == "query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read."
+    long_text = tq.propose_question("x" * (tq.MAX_PROPOSED_QUESTION + 50))
+    assert long_text.endswith(tq.CUT_MARK) and "cut here" in long_text

@@ -31,6 +31,7 @@ const api = vi.hoisted(() => ({
   routingRules: vi.fn(),
   generateDraft: vi.fn(),
   createByHand: vi.fn(),
+  completeGmail: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
@@ -61,6 +62,13 @@ describe("Technical Queries screen", () => {
     expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
   });
 
+  it("shows the evidence job's progress, and which attachment pages were not read", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, attachment_reading: [{ filename: "query.pdf", pages_read: 5, page_count: 12, line: "query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read." }], evidence_job: { id: "j1", state: "running", progress_done: 3, progress_total: 20, label: "searching contract 4 of 20", error: null } } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("evidence-progress")).textContent).toContain("searching contract 4 of 20 (3 of 20)");
+    expect(screen.getByTestId("attachment-reading").textContent).toBe("query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read.");
+  });
+
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, status: "approved", confirmed_question: "What applies?", evidence: [{ id: "e1", document_id: "contract-1", page_start: 1, exact_quote: "x", evidence_state: "verified", supersession_state: "current" }] } });
     api.generateDraft.mockResolvedValue({ ok: true, data: query });
@@ -82,6 +90,16 @@ describe("Technical Queries screen", () => {
     fireEvent.click(screen.getByText("Generate draft"));
     await waitFor(() => expect(api.generateDraft).toHaveBeenCalledWith("q1", "claude", []));
     expect((await screen.findByRole("alert")).textContent).toContain("not enabled on this server");
+  });
+
+  it("finishes the Gmail connection from the app's own return page, clears the address bar and says the admin line", async () => {
+    api.completeGmail.mockResolvedValue({ ok: true, data: { result: "admin_must_allow", mailbox_id: null } });
+    window.history.replaceState(null, "", "/technicalQueries/gmail-return?code=one-time&state=abc");
+    render(<TechnicalQueriesView queryId="gmail-return" />);
+    await waitFor(() => expect(api.completeGmail).toHaveBeenCalledWith({ code: "one-time", state: "abc", error: null }));
+    expect(window.location.search).toBe("");
+    expect(window.location.pathname).toBe("/technicalQueries");
+    expect((await screen.findByRole("alert")).textContent).toBe("Your company's Google admin must allow this app.");
   });
 
   it("creates a query by hand with its papers, with no mailbox", async () => {
