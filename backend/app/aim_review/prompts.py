@@ -157,7 +157,10 @@ finding per place: repeat the item's id for each such place (at most 6), each wi
 that holds everywhere gets one judgment.
 A figure the contractor FILLED IN beside a note of who supplies it, such as "380 psig (By Contractor)", is a STATED value: judge
 it as any value (Met, Not met or Question, and give "numbers" for a limit). A comment on a value left open (no figure) is a
-QUESTION to the vendor, never a statement that it fails. A "Question" ASKS: its comment never says that a value passes, fails,
+QUESTION to the vendor, never a statement that it fails. On a data sheet issued for enquiry or purchase, a field left for the
+vendor to fill (vendor to advise, by vendor, a blank vendor entry) is no fault of the sheet: at most a Question asking the vendor
+to state it with the offer, never a request to complete the sheet; the sheet's own revision and approval block is no comment.
+A "Question" ASKS: its comment never says that a value passes, fails,
 exceeds or meets a limit (code compares the numbers you give). Compare a value only with a limit for the SAME quantity: a field
 with two names and two values split by "/" pairs them in order (the first value is the first name's), and a limit for one kind
 of a quantity (one part, one case, one state) never judges another kind of it.
@@ -194,8 +197,12 @@ answered true when the paper states what the comment says is missing or asks for
 for ANY ONE of its claims (a comment with one false claim is wrong as written, even when another part of it is right): give that
 claim in at most 12 words, the page, and the exact paper words that show it (5 to 30 words from that one page, character for
 character, no "..."); answered false when the paper covers none of its claims. Code checks every quote on its page.
-Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
-{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "..."}, {"n": n, "answered": false}]}
+For an answered comment also give "main": true when the answered claim IS the comment's main point (what its field is about, or
+its main request), false when it is a side remark beside another point the paper does not answer; and "comment_words": the
+comment's OWN words that make the answered claim (a whole sentence or clause, character for character), so code can cut them.
+Reply COMPACT, with ONE JSON object only and no other words; repeat a comment's words only in "comment_words":
+{"verdicts": [{"n": n, "answered": true, "claim": "...", "main": true, "comment_words": "...", "page": p, "quote": "..."},
+ {"n": n, "answered": false}]}
 THE COMMENTS:
 %(comments)s"""
 
