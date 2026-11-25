@@ -193,7 +193,8 @@ def team_note(p: dict) -> str | None:
 def cut_words(cut: dict) -> str:
     """The mark of a side-claim cut (owner's completeness rule: no text cut without a visible mark and the full text beside it):
     the page the paper answers the part on and the comment's full text before the cut. Team file only."""
-    return f'A part the paper answers (page {cut.get("page")}) was taken out of this comment. Full text before: "{cut.get("before")}"'
+    pages = ", ".join(str(x) for x in cut.get("pages") or [cut.get("page")])
+    return f'A part the paper answers (page {pages}) was taken out of this comment. Full text before: "{cut.get("before")}"'
 
 
 def readers_words(readers) -> str | None:

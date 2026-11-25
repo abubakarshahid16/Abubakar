@@ -6,11 +6,12 @@ beside a right one was never answered, so nothing was taken off). Code checks ev
 page and is not the line's own evidence. Such a line stays in "All points" with the claim, the page and the quote (`ANSWERED`, a
 not-sent note: an engineer checks it) and is never a comment. Code comparisons, provisional figures, values left open and lines
 a reference paper checked are never offered. A PROTECTED line (the judge's "concern" or one both readers agreed on, `protected`)
-is taken off only when the answered claim is the comment's MAIN point; when it is a side claim, code cuts the comment's own words
-for it out of the text (found by code in the comment) and the line is sent with the rest; the full text before the cut stays in
-the line's team note (`SIDE_CLAIM`). One call per `ANSWER_CHUNK` lines, each applied whole or not at all; a failed or cut call
-applies nothing and the run's calls say so (update 6: the guard of 02a19683 kept every protected line whole; judged 3 WRONG of
-14 restored, two of them where the answer was the main point)."""
+gets EVERY claim of its comment checked (`claims`): it is taken off only when every claim is answered; otherwise code cuts the
+answered claims' own words out of the text (found by code in the comment, each with its quote on its page) and the line is sent
+with the claims that stay open; the full text before the cut stays in the line's team note (`SIDE_CLAIM`). One call per
+`ANSWER_CHUNK` lines, each applied whole or not at all; a failed or cut call applies nothing and the run's calls say so
+(update 6: the guard of 02a19683 kept every protected line whole, 3 WRONG of 14 restored; v2 cut one side claim and sent the
+rest, which the paper also answered: the same-judge gate's vessel WRONG)."""
 
 from __future__ import annotations
 
@@ -53,18 +54,23 @@ SIDE_WORDS_MIN = 3
 #: Code's own words of a cut (`_outcome`), read back for the card and the team file (never the comment, never the contractor copy).
 _CUT = re.compile(
     re.escape(SIDE_CLAIM)
-    + r': the paper covers ".*?" on page (\d+): ".*?" - cut from the comment, which read before the cut: "(.*?)"(?=; |$)',
+    + r": the paper covers (.*?) - cut from the comment, which read before the cut: \"(.*?)\"(?=; |$)",
     re.S,
 )
+_CUT_PAGE = re.compile(r'" on page (\d+): "')
 
 
 def cuts_of(code_note) -> list[dict]:
-    """Each side-claim cut a line's note records: {"page": the page the paper answers it on, "before": the comment's full text
-    before the cut}. The owner's rule: no text is cut without a visible mark and the full text beside it."""
-    return [
-        {"page": int(m.group(1)), "before": m.group(2)}
-        for m in _CUT.finditer(str(code_note or ""))
-    ]
+    """Each side-claim cut a line's note records: {"page": the first page the paper answers a cut part on, "pages": every such
+    page, "before": the comment's full text before the cut}. The owner's rule: no text is cut without a visible mark and the
+    full text beside it."""
+    out = []
+    for m in _CUT.finditer(str(code_note or "")):
+        pages = [int(x) for x in _CUT_PAGE.findall(m.group(1))]
+        out.append(
+            {"page": pages[0] if pages else None, "pages": pages, "before": m.group(2)}
+        )
+    return out
 
 
 def protected(line: dict) -> bool:
@@ -78,7 +84,7 @@ def protected(line: dict) -> bool:
 def offered(lines: list[dict]) -> dict[int, dict]:
     """{line number: line} of the SENT lines the check may take off: a Question, an AI opinion or a Not met (any source), not
     compared by code, no provisional figure, no value left open, not checked against a reference paper (a `protected` line is
-    offered too: it is only taken off on its main point)."""
+    offered too: it is only taken off when every claim of it is answered)."""
     from . import sendable
     from .engine import to_line
 
@@ -218,7 +224,7 @@ def _apply(out: dict, shown: dict, paper, record: list | None = None) -> int:
             if isinstance(a, dict) and a.get("answered") is True
             else None
         )
-        outcome = _outcome(a, shown[a["n"]]) if why else ""
+        outcome = _outcome(a, shown[a["n"]], paper) if why else ""
         if record is not None and isinstance(a, dict):
             record.append(_recorded(a, outcome))
         if outcome == "taken off":
@@ -230,49 +236,94 @@ def _apply(out: dict, shown: dict, paper, record: list | None = None) -> int:
     return taken
 
 
-def _outcome(a: dict, d: dict) -> str:
-    """What code does with ONE accepted answer: "taken off" (any line that is not `protected`, or a protected line whose
-    answered claim is its main point ("main": true), or whose cut would leave no words), "cut" (a protected line: its own words for the
-    side claim are cut out of the comment) or "kept whole" (a protected line whose words for the claim code cannot find in
-    the comment: nothing is cut and it is sent as it was). The line's team note says which, with the page and quote."""
-    if not protected(d) or a.get("main") is True:
+def _outcome(a: dict, d: dict, paper) -> str:
+    """What code does with ONE accepted answer. A line that is not `protected`: "taken off". A protected line (update 6, after
+    the same-judge gate: one side claim was cut and the rest, which the paper also answered, was sent): the answer lists EVERY
+    claim of the comment (`claims`, the comment's own words for each, answered with a page and a quote or not). Code checks
+    each answered claim (its words in the comment, its quote on its page): "taken off" when every claim is answered; "cut" when
+    some stay open (the answered ones are cut out, the open ones are sent); "kept whole" when the answer gives no claims list
+    (an older answer) or no answered claim code can check. The line's team note says which, with every page and quote."""
+    if not protected(d):
         return "taken off"
-    # a protected line with main false, or with no "main" given (an older answer): never taken off on an unclear answer
     full = " ".join(str(d.get("comment") or "").split())
-    words = " ".join(str(a.get("comment_words") or "").split())
-    page, quote = a.get("page"), " ".join(str(a.get("quote") or "").split())
-    found = len(words.split()) >= SIDE_WORDS_MIN and words in full
-    rest = _tidy(full.replace(words, " ", 1)) if found else full
-    if found and not rest.strip(" .,;:"):
-        return "taken off"  # the claim was the whole comment: its main point
-    said = f'the paper covers "{words or a.get("claim") or "a side claim"}" on page {page}: "{quote}"'
-    if found:
+    claims = (
+        [c for c in a.get("claims") or [] if isinstance(c, dict)]
+        if isinstance(a.get("claims"), list)
+        else []
+    )
+    done, still = [], []
+    for c in claims:
+        words = " ".join(str(c.get("words") or "").split())
+        ok = (c.get("answered") is True and len(words.split()) >= SIDE_WORDS_MIN and words in full
+              and _quote_ok(c.get("page"), c.get("quote"), paper))  # fmt: skip
+        (done if ok else still).append({**c, "words": words})
+    if claims and not still:
+        return "taken off"  # every claim of the comment is answered, each by a quote code found on its page
+    rest = full
+    for c in done:
+        rest = rest.replace(c["words"], " ", 1)
+    rest = _tidy(rest, full)
+    if done and not rest.strip(" .,;:"):
+        return "taken off"
+    if done:
+        parts = " and ".join(
+            f'"{c["words"]}" on page {c["page"]}: "{" ".join(str(c["quote"]).split())}"'
+            for c in done
+        )
         d["comment"] = rest
-        note = f'{SIDE_CLAIM}: {said} - cut from the comment, which read before the cut: "{full}"'
+        note = f'{SIDE_CLAIM}: the paper covers {parts} - cut from the comment, which read before the cut: "{full}"'
     else:
-        why = "were not found in it" if words else "were not given"
-        note = f"{SIDE_CLAIM}: {said} - the comment's words for it {why}, so nothing was cut"
+        why = (
+            "the answer lists no claims"
+            if not claims
+            else "no answered claim was found in it with its quote"
+        )
+        note = (f'{SIDE_CLAIM}: the paper covers "{a.get("claim") or "a claim"}" on page {a.get("page")}: '
+                f'"{" ".join(str(a.get("quote") or "").split())}" - {why}, so nothing was cut')  # fmt: skip
     d["code"] = "; ".join(x for x in (d.get("code"), note) if x)
-    return "cut" if found else "kept whole"
+    return "cut" if done else "kept whole"
 
 
-def _tidy(text: str) -> str:
-    """The comment after a cut: single spaces, no space before a stop or comma, no stop or comma left at the start."""
+def _quote_ok(page, quote, paper) -> bool:
+    """A claim's quote as code accepts it (the same test as `answer_reason`): a page of the paper, `QUOTE_WORDS` words, no
+    "..." part, found by code on that page."""
+    quote = str(quote or "").strip()
+    return (
+        isinstance(page, int)
+        and not isinstance(page, bool)
+        and page in paper.pages
+        and "..." not in quote
+        and "\u2026" not in quote
+        and QUOTE_WORDS[0] <= len(quote.split()) <= QUOTE_WORDS[1]
+        and quote_in(quote, paper.pages.get(page, ""))
+    )
+
+
+def _tidy(text: str, full: str = "") -> str:
+    """The comment after a cut: single spaces, no space before a stop or comma, no stop or comma left at the start or the end,
+    and the closing stop the comment had."""
     out = " ".join(text.split())
     out = re.sub(r"\s+([.,;:])", r"\1", out)
     out = re.sub(r"([.,;:])(?:\s*[.,;:])+", r"\1", out)
-    return out.lstrip(" .,;:")
+    out = out.lstrip(" .,;:").rstrip(" ,;:")
+    if (
+        out
+        and full.rstrip().endswith((".", "?", "!"))
+        and not out.endswith((".", "?", "!"))
+    ):
+        out += "."
+    return out
 
 
 def _recorded(a: dict, outcome: str) -> dict:
-    """One verdict as the local run record keeps it: the line, the answer, the claim, whether it is the main point, page and
+    """One verdict as the local run record keeps it: the line, the answer, the claim, the claims list it gave, page and
     quote it gave (whole: a record for the team, never a sheet), whether code took the line off and what it did ("taken off",
     "cut", "kept whole", or "kept" when code refused the answer)."""
     return {
         "n": a.get("n") if isinstance(a.get("n"), int) else None,
         "answered": a.get("answered") if isinstance(a.get("answered"), bool) else None,
         "claim": " ".join(str(a.get("claim") or "").split()),
-        "main": a.get("main") if isinstance(a.get("main"), bool) else None,
+        "claims": a.get("claims") if isinstance(a.get("claims"), list) else None,
         "page": a.get("page") if isinstance(a.get("page"), int) else None,
         "quote": str(a.get("quote") or ""),
         "taken_off": outcome == "taken off",
