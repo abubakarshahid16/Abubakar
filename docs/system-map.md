@@ -215,6 +215,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `chat_presentation` | What an answer says about itself, in the words the Chat screen shows |
 | `chat_stream` | A streamed chat turn: its events, its Stop, and the sentence gate |
 | `chat_tools` | Claude-first chat (2026-09-27): the tools Claude may call |
+| `chat_coverage` | Chat with several selected papers: each paper named to Claude with its status, a tool budget of one read each, the "read 8 of 10; 2 still processing" line and the offer of the real Review, all by code (25 Nov 2026) |
 | `chat_web` | The chat's web lane: ask first, send one phrase, cite what came back |
 | `chunker` | Step 3 - structure-aware chunking |
 | `pdf_headings` | Step 3 - a PDF's section headings read from font size and weight (#1522, off by default) |
