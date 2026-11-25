@@ -182,7 +182,7 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
     def fake_search(question, **_kwargs):
         captured["question"] = question
         return {
-            "passages": [
+            "hits": [
                 {
                     "document_id": "query-pdf",
                     "page_start": 1,
@@ -203,6 +203,101 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
         item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
     )
     assert repeated["extracted_question"] == result["extracted_question"]
+
+
+def test_real_search_returns_results_under_hits_not_passages():
+    """prepare_evidence reads this shape. A fake that returned "passages" hid a
+    live bug: every real search looked empty and no evidence was ever attached."""
+    from app import fts_index, search
+
+    fts_index.ensure_schema()
+    result = search.search(
+        "coating thickness",
+        limit=5,
+        rerank=False,
+        dense=False,
+        allowed_document_ids=frozenset(),
+    )
+    assert "hits" in result
+    assert "passages" not in result
+
+
+def test_preparing_evidence_twice_does_not_duplicate_a_passage(monkeypatch):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            ("lib-doc", "standard.pdf", "a1" * 32, 1, "standard.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("lib-doc", 1, "The limit is 12 bar.", 20, 0, 1),
+        )
+    item, _ = import_message(envelope("twice"), "u1", False, False)
+    monkeypatch.setattr(
+        "app.search.search",
+        lambda question, **_k: {
+            "hits": [{"document_id": "lib-doc", "page_start": 1, "page_end": 1, "text": "The limit is 12 bar."}]
+        },
+    )
+    for _ in range(3):
+        result = prepare_evidence(item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1")
+    assert len(result["evidence"]) == 1
+    assert result["evidence"][0]["supersession_state"] == "unknown"
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO document_classification(document_id,suggested_by,confirmed_by) VALUES (?,?,?)",
+            ("lib-doc", "rules", "u1"),
+        )
+    result = prepare_evidence(item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1")
+    assert len(result["evidence"]) == 1
+    assert result["evidence"][0]["supersession_state"] == "current"
+    with db.connect() as conn:
+        conn.execute("UPDATE document_classification SET superseded_by='newer' WHERE document_id='lib-doc'")
+    result = prepare_evidence(item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1")
+    assert result["evidence"][0]["supersession_state"] == "superseded"
+
+
+def test_prepare_evidence_does_not_search_the_querys_own_attachment(monkeypatch):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            ("own-attachment", "query.pdf", "e" * 64, 1, "query.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+    item, _ = import_message(envelope("scope-check"), "u1", False, False)
+    link_attachment(
+        item["id"], item["messages"][0]["attachments"][0]["id"],
+        "own-attachment", "u1", "u1", True, False,
+    )
+    seen = {}
+
+    def fake_search(question, **kwargs):
+        seen["scope"] = kwargs["allowed_document_ids"]
+        return {"hits": []}
+
+    monkeypatch.setattr("app.search.search", fake_search)
+    prepare_evidence(
+        item["id"], frozenset({"own-attachment", "library-doc"}), "u1", True, False, "u1"
+    )
+    assert seen["scope"] == frozenset({"library-doc"})
+
+
+def test_quote_matches_a_clause_the_pdf_wrapped_across_lines_but_not_a_changed_number():
+    from app.technical_queries import _quote_on_pages
+
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            ("wrapped-source", "standard.pdf", "f" * 64, 1, "standard.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("wrapped-source", 1, "4.2 Carbon steel shall receive a total dry film\nthickness of not less than 280 micrometres.\n", 90, 0, 1),
+        )
+        same = "4.2 Carbon steel shall receive a total dry film thickness of not less than 280 micrometres."
+        changed = same.replace("280", "250")
+        assert _quote_on_pages(conn, "wrapped-source", 1, 1, same) is True
+        assert _quote_on_pages(conn, "wrapped-source", 1, 1, changed) is False
+        assert _quote_on_pages(conn, "wrapped-source", 1, 1, "   ") is False
 
 
 def test_exact_quote_can_be_verified_on_a_recognised_source_page():
@@ -461,6 +556,31 @@ def test_word_preview_marks_unapproved_response_and_missing_evidence(tmp_path):
         document = package.read("word/document.xml").decode()
     assert "DRAFT Technical Query Response" in document
     assert "No verified source evidence" in document
+
+
+def test_word_response_keeps_line_breaks_and_names_documents_not_ids(tmp_path):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            ("doc-internal-id", "SYN-STD-001.pdf", "b2" * 32, 1, "x.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("doc-internal-id", 1, "The limit is 12 bar.", 20, 0, 1),
+        )
+    item, _ = import_message(envelope("word-names"), "u1", False, False)
+    add_evidence(
+        item["id"], "doc-internal-id", "The limit is 12 bar.", 1, 1, None,
+        frozenset({"doc-internal-id"}), "u1", True, False, "u1",
+    )
+    item = add_draft(item["id"], "First line.\nSecond line.", [], [], "u1", "u1", True, False)
+    path = render_query_docx(item, tmp_path / "names.docx")
+    with ZipFile(path) as package:
+        document = package.read("word/document.xml").decode()
+    assert "SYN-STD-001.pdf" in document
+    assert "doc-internal-id" not in document
+    assert "Status:" not in document
+    assert "First line.</w:t></w:r><w:r><w:br/></w:r><w:r><w:t" in document
 
 
 def test_new_message_in_same_provider_thread_is_follow_up():

@@ -23,13 +23,29 @@ _DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 
 def _p(text: str, bold: bool = False) -> str:
-    value = escape(text)
-    run = (
-        f'<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">{value}</w:t></w:r>'
-        if bold
-        else f'<w:r><w:t xml:space="preserve">{value}</w:t></w:r>'
+    # Word shows a newline inside one text run as a space, so each line is its own
+    # run with an explicit break between them.
+    props = "<w:rPr><w:b/></w:rPr>" if bold else ""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    runs = "<w:r><w:br/></w:r>".join(
+        f'<w:r>{props}<w:t xml:space="preserve">{escape(line)}</w:t></w:r>'
+        for line in lines
     )
-    return f"<w:p>{run}</w:p>"
+    return f"<w:p>{runs}</w:p>"
+
+
+def _document_names(ids: set[str]) -> dict[str, str]:
+    """File names for the cited documents: a contractor cannot read an internal id."""
+    if not ids:
+        return {}
+    from .db import connect
+
+    marks = ",".join("?" for _ in ids)
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT id,filename FROM documents WHERE id IN ({marks})", tuple(ids)
+        ).fetchall()
+    return {row["id"]: row["filename"] for row in rows}
 
 
 def render(query: dict, output: Path | None = None) -> Path:
@@ -42,6 +58,11 @@ def render(query: dict, output: Path | None = None) -> Path:
         / f"{query['id']}-v{draft['version']}.docx"
     )
     target.parent.mkdir(parents=True, exist_ok=True)
+    citations = __import__("json").loads(draft.get("citations_json") or "[]")
+    names = _document_names(
+        {e["document_id"] for e in query.get("evidence", [])}
+        | {c["document_id"] for c in citations}
+    )
     paragraphs = [
         _p(
             "Technical Query Response"
@@ -51,7 +72,6 @@ def render(query: dict, output: Path | None = None) -> Path:
             True,
         ),
         _p(f"Subject: {query['subject']}"),
-        _p(f"Status: {query['status']}"),
         _p("Original question", True),
         _p(query.get("extracted_question") or "Not extracted"),
         _p("Proposed answer", True),
@@ -65,11 +85,10 @@ def render(query: dict, output: Path | None = None) -> Path:
         paragraphs += [_p("Unresolved points", True)] + [
             _p(f"- {x}") for x in __import__("json").loads(draft["unresolved_json"])
         ]
-    citations = __import__("json").loads(draft.get("citations_json") or "[]")
     if citations:
         paragraphs += [_p("Cited passages", True)] + [
             _p(
-                f"[{c['label']}] {c['document_id']} page {c['page']}: {c['exact_quote']}"
+                f"[{c['label']}] {names.get(c['document_id'], c['document_id'])} page {c['page']}: {c['exact_quote']}"
             )
             for c in citations
         ]
@@ -83,7 +102,7 @@ def render(query: dict, output: Path | None = None) -> Path:
     else:
         paragraphs += [
             _p(
-                f"{e['document_id']} p{e.get('page_start') or '?'} "
+                f"{names.get(e['document_id'], e['document_id'])} p{e.get('page_start') or '?'} "
                 f"[{e.get('evidence_state', 'unknown')}; {e.get('supersession_state', 'unknown')}]: "
                 f"{e['exact_quote']}"
             )

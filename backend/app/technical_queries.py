@@ -169,9 +169,20 @@ def _page_text(row) -> str:
     return (row["ocr_text"] or "") if row["needs_ocr"] else (row["native"] or "")
 
 
+def _squash(text: str | None) -> str:
+    """Collapse every run of whitespace to one space. A PDF wraps a clause across
+    lines ("film\nthickness") while a stored passage reads on one line; the words and
+    numbers are the same. Only layout whitespace is ignored, never a character."""
+    return " ".join((text or "").split())
+
+
 def _quote_on_pages(conn, document_id: str, start: int, end: int, quote: str) -> bool:
+    wanted = _squash(quote)
+    if not wanted:
+        return False
     return any(
-        quote in _page_text(row) for row in _source_pages(conn, document_id, start, end)
+        wanted in _squash(_page_text(row))
+        for row in _source_pages(conn, document_id, start, end)
     )
 
 
@@ -840,19 +851,23 @@ def prepare_evidence(
         raise ValueError("the query contains no extractable question")
     from . import search
 
+    # The query's own attachments are context, never an authority, so they must not
+    # take a place among the few results: search everything else the caller may read.
     field = search.search(
         question,
         limit=5,
         rerank=False,
         dense=False,
-        allowed_document_ids=allowed_document_ids,
+        allowed_document_ids=frozenset(allowed_document_ids) - attachment_ids,
     )
+    # `search.search` returns its results under "hits" (answer.answer uses "passages").
+    hits = field.get("hits") or []
     with connect() as conn:
         conn.execute(
             "UPDATE technical_queries SET extracted_question=?,status='drafting',updated_at=? WHERE id=?",
             (question, now(), query_id),
         )
-        for passage in field.get("passages", [])[:5]:
+        for passage in hits[:5]:
             quote = (passage.get("text") or "").strip()
             if not quote:
                 continue
@@ -876,9 +891,35 @@ def prepare_evidence(
                 continue
             import hashlib
 
+            quote_hash = hashlib.sha256(quote.encode()).hexdigest()
+            known = conn.execute(
+                "SELECT id,supersession_state FROM query_evidence WHERE query_id=? "
+                "AND document_id=? AND quote_hash=? AND page_start IS ? AND page_end IS ?",
+                (
+                    query_id,
+                    passage["document_id"],
+                    quote_hash,
+                    passage.get("page_start"),
+                    passage.get("page_end"),
+                ),
+            ).fetchone()
+            if known:
+                # Preparing again must not stack up copies of the same passage, but the
+                # source's standing may have changed since the row was made: a newly
+                # superseded source is always recorded; "unknown" becomes "current" once
+                # an engineer has confirmed the document. Nothing else is overwritten.
+                standing = _source_supersession(conn, passage["document_id"])
+                if standing == "superseded" or (
+                    known["supersession_state"] == "unknown" and standing == "current"
+                ):
+                    conn.execute(
+                        "UPDATE query_evidence SET supersession_state=? WHERE id=?",
+                        (standing, known["id"]),
+                    )
+                continue
             evidence_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT OR IGNORE INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     evidence_id,
                     query_id,
@@ -887,7 +928,7 @@ def prepare_evidence(
                     passage.get("page_end"),
                     passage.get("locator"),
                     quote,
-                    hashlib.sha256(quote.encode()).hexdigest(),
+                    quote_hash,
                     _source_supersession(conn, passage["document_id"]),
                     now(),
                 ),
@@ -897,7 +938,7 @@ def prepare_evidence(
             query_id,
             "evidence_prepared",
             actor_user_id,
-            f"passages={len(field.get('passages', []))}",
+            f"passages={len(hits)}",
         )
     return get(query_id, user_id, is_admin, unrestricted)
 
