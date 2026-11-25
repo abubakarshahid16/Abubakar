@@ -197,6 +197,10 @@ def _page_list(value) -> list[int] | None:
     return None
 
 
+#: Several picked papers: passages per paper, and in all (one turn's prompt stays bounded).
+PER_PAPER, MAX_PASSAGES = 3, 40
+
+
 def run_search_documents(input: dict, *, allowed_document_ids: frozenset[str]) -> ToolRun:
     query = str(input.get("query") or "").strip()
     raw_picked = input.get("document_ids")
@@ -208,8 +212,14 @@ def run_search_documents(input: dict, *, allowed_document_ids: frozenset[str]) -
     if not query:
         return ToolRun("search_documents", input, "Searched your documents", False,
                        note="no query given")
-    result = search_mod.search(query, limit=6, allowed_document_ids=scope)
-    hits = result.get("hits") or []
+    if picked and len(scope) > 1:
+        # several picked papers: each is searched on its own, so one paper never crowds the others out of six passages
+        # (planner 25 Nov 2026 23:35, note A: ten attached papers, six passages for all of them)
+        hits = [h for doc in sorted(scope)
+                for h in (search_mod.search(query, limit=PER_PAPER, allowed_document_ids=frozenset({doc}))
+                          .get("hits") or [])[:PER_PAPER]][:MAX_PASSAGES]
+    else:
+        hits = search_mod.search(query, limit=6, allowed_document_ids=scope).get("hits") or []
     sources = [{
         "chunk_id": h["chunk_id"], "document_id": h["document_id"], "filename": h["filename"],
         "page_start": h["page_start"], "page_end": h["page_end"], "section": h.get("section"),

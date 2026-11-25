@@ -209,8 +209,14 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
     if not isinstance(engine, rp.ClaudeProvider):
         return None  # narrowed to local by the caller's own preference
 
+    from . import chat_coverage
+
     tools = _available_tools(web_enabled=web_enabled)
-    messages: list[dict] = [{"role": "user", "content": _first_message(question, history)}]
+    # several selected papers: the first message names each, the tool budget covers one read each (`chat_coverage`)
+    block = chat_coverage.selected_block(allowed_document_ids)
+    first = _first_message(question, history)
+    messages: list[dict] = [{"role": "user", "content": f"{block}\n\n{first}" if block else first}]
+    tool_cap = chat_coverage.tool_cap(settings.chat_tool_max_calls, allowed_document_ids)
     sources: list[dict] = []
     steps: list[dict] = []
     pages_used: list = []
@@ -264,7 +270,7 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
             # once a turn uses it, stays enabled on every round of that turn
             # (a thinking block in the history with thinking off is refused).
             tool_choice = ({"type": "none"}
-                           if tool_calls_made >= settings.chat_tool_max_calls else None)
+                           if tool_calls_made >= tool_cap else None)
             offer_tools = tools
             thinking_budget = settings.chat_thinking_budget_tokens if used_thinking else None
             max_tokens = output_limits.max_tokens_for(output_limits.ROUTE_CHAT) + (thinking_budget or 0)
@@ -311,8 +317,9 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
             if response.finish_reason != "tool_use" or not tool_uses:
                 if turn is not None:
                     turn.flush()
-                return _finish(response, sources, steps, started, thinking_seconds,
+                done = _finish(response, sources, steps, started, thinking_seconds,
                                turn_cost, text="\n\n".join(round_texts), question=question)
+                return chat_coverage.attach(done, question, allowed_document_ids, sources)
 
             tool_results = []
             for block in tool_uses:

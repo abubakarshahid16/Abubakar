@@ -634,6 +634,8 @@ _PAYLOAD_KEYS = (
     # answer with the partial-coverage warning silently gone - worse than
     # never having shipped the field.
     "coverage", "summary_coverage", "evidence_removed",
+    # several selected papers (note A, 25 Nov 2026): reopened without them, "read 8 of 10" and the Review offer would vanish
+    "paper_coverage", "review_offer",
     # The same reason, three more times. Reopened without `corpus`, a two-part reply
     # would lose its database half; without `counts_bounded`, a re-bounded
     # count would lose the note that says it was; without `truncated`, a cut-off
@@ -1146,6 +1148,12 @@ def ask(
         # THE CHAT NEVER RECORDS A VERDICT: a compliance question is answered
         # from the evidence and ends with the engineer notice.
         result["notices"] = [*(result.get("notices") or []), intent_mod.ENGINEER_NOTICE]
+    if document_ids and "paper_coverage" not in result:
+        # several selected papers, on either engine: the line "read 8 of 10; 2 still processing" by code (note A, 25 Nov)
+        from . import chat_coverage
+
+        result = chat_coverage.attach(result, original, allowed_document_ids & frozenset(document_ids),
+                                      result.get("passages") or [])
     result.update(chat_presentation.present(result))
     thought_seconds = result.pop("thought_seconds", None)
     if thought_seconds is not None:
