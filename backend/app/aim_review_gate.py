@@ -25,7 +25,9 @@ LOCAL_NOT_AVAILABLE = "The AI review is switched off on this install, so with Lo
 #: LOCAL ONLY RUNS THE GENERAL REVIEW ON THE LOCAL MODEL (planner 25 Nov 2026 22:35, the owner: "if we do not have the Claude API,
 #: use the local model until then"): the same steps, code checks and labels, on the installed local model; nothing leaves this
 #: computer, USD 0. Its quality is not measured yet, so the page and the file say so until a score of local runs exists.
-LOCAL_RUN_WHY = "it runs on this computer on the local model: nothing leaves this computer, USD 0"
+LOCAL_RUN_WHY = (
+    "it runs on this computer on the local model: nothing leaves this computer, USD 0"
+)
 LOCAL_PLAN_WORDS = (
     "The general review runs on the local model on this computer. Nothing leaves this computer and nothing is paid. "
     "It is slower than Claude (a large paper can take hours) and its quality is not measured yet: local model, not yet scored."

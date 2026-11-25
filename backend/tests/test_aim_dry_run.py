@@ -286,4 +286,6 @@ def test_local_only_in_the_dry_run_queues_one_local_run(dry):
     assert r.status_code == 200, r.text
     assert db.connect().execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == before + 1
     run_id = r.json()["review_run_id"]
-    assert review_engine.ai_review_engine(db.connect(), run_id) == review_engine.ON_LOCAL
+    assert (
+        review_engine.ai_review_engine(db.connect(), run_id) == review_engine.ON_LOCAL
+    )

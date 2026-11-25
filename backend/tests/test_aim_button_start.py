@@ -157,7 +157,9 @@ def test_a_blocked_book_on_the_list_is_not_sent_even_on_an_explicit_claude(
 # ---------------------------------------------------------------- the start
 
 
-def test_local_only_queues_one_local_run_barred_from_claude_and_writes_no_ledger_line(general):
+def test_local_only_queues_one_local_run_barred_from_claude_and_writes_no_ledger_line(
+    general,
+):
     """Planner 25 Nov 2026 22:35: Local only queues the general review on the local model; its stored plan bars Claude."""
     plan = _plan(general, "local")
     assert plan["refused"] is None and not plan["text_leaves"]

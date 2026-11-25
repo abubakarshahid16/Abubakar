@@ -36,7 +36,9 @@ def test_with_the_old_engine_on_every_answer_is_the_recorded_old_answer():
     assert (n, h.hexdigest()) == OLD_ANSWERS
 
 
-def test_local_only_runs_the_general_review_on_the_local_model_and_sends_nothing(general):
+def test_local_only_runs_the_general_review_on_the_local_model_and_sends_nothing(
+    general,
+):
     """Planner 25 Nov 2026 22:35: Local only runs the general review on the local model instead of refusing."""
     plan = E.decide("local", open_facts())
     assert plan.refused is None and plan.runs == [E.AI_REVIEW]
@@ -44,7 +46,9 @@ def test_local_only_runs_the_general_review_on_the_local_model_and_sends_nothing
     assert plan.part(E.AI_REVIEW).why == aim_review_gate.LOCAL_RUN_WHY
 
 
-def test_local_only_with_the_ai_review_switched_off_is_refused_and_runs_nothing(general):
+def test_local_only_with_the_ai_review_switched_off_is_refused_and_runs_nothing(
+    general,
+):
     plan = E.decide("local", open_facts(agent_enabled=False))
     assert plan.refused_code == E.GENERAL_NOT_ON_LOCAL
     assert plan.refused == aim_review_gate.LOCAL_NOT_AVAILABLE

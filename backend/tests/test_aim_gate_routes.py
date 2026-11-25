@@ -75,7 +75,9 @@ def test_the_method_route_says_earlier_when_the_way_back_is_on(world, monkeypatc
     monkeypatch.setattr(settings, "review_old_engine_enabled", True)
     body = _get_method(world)
     assert body["method"] == "earlier" and body["old_engine"] is True
-    assert body["local_available"] is True  # a constant since the local route; the screen reads it for the general method only
+    assert (
+        body["local_available"] is True
+    )  # a constant since the local route; the screen reads it for the general method only
 
 
 def test_the_method_route_needs_a_signed_in_caller():
