@@ -1,4 +1,4 @@
-"""Same paper, same comments? (order 14, #1911): a consistency check of TWO runs of the same paper. Pure code: no model, no answer key, no network.
+"""Same paper, same comments? (order 14, #1911; used by `scripts/consistency_check.py`): a consistency check of TWO runs of the same paper. Pure code: no model, no answer key, no network.
 
 The points of run A and run B (the "All points" sheet of the team file, or the page JSON's `points`) are MATCHED by RULE ID + FIELD + PAGE,
 with the wording only as the last tie-break:

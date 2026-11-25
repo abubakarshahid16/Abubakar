@@ -13,9 +13,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "backend"))
+sys.path.insert(0, str(REPO / "scripts"))
 
-from app import aim_review_consistency as C  # noqa: E402
+import aim_consistency as C  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import openpyxl
 
-from app import aim_review_consistency as C
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+
+import aim_consistency as C  # noqa: E402
 
 
 def pt(
@@ -185,7 +190,8 @@ def test_verdict_flips_are_counted_by_type_and_other_label_changes_apart():
 
 
 def test_points_in_only_one_run_are_reported_with_their_side():
-    b = run_a()[:3] + [
+    b = [
+        *run_a()[:3],
         pt(
             9,
             "STD-Z",
@@ -194,7 +200,7 @@ def test_points_in_only_one_run_are_reported_with_their_side():
             7,
             "Question",
             "A point only the second run made.",
-        )
+        ),
     ]
     res = C.compare(run_a(), b)
     assert [p.field for p in res.only_a] == ["Team members"] and [
