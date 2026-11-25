@@ -180,6 +180,9 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
         {line.paired && (
           <span data-testid="card-paired" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">Values paired by the AI; compared by code</span>
         )}
+        {line.cut?.map((c, i) => (
+          <span key={i} data-testid="card-cut" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">Part answered on page {c.page} taken out. Before: {c.before}</span>
+        ))}
         {line.readers && (
           <span data-testid="card-readers" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5"
             title={[line.readers.first && `First reader: ${line.readers.first}`, line.readers.second && `Second reader: ${line.readers.second}`, line.readers.reason].filter(Boolean).join(". ")}>
