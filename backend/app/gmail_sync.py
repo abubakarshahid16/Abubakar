@@ -11,6 +11,7 @@ from . import gmail_auth
 from .db import connect
 from .gmail_client import GmailApiClient
 from .gmail_worker import poll_mailbox
+from .technical_queries import now
 
 _stop = threading.Event()
 _thread: threading.Thread | None = None
@@ -33,11 +34,11 @@ def run_once() -> int:
                 )
             )
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in {400, 401, 403}:
+            if exc.response.status_code == 401:
                 with connect() as conn:
                     conn.execute(
-                        "UPDATE gmail_mailboxes SET connection_state='revoked' WHERE id=?",
-                        (mailbox["id"],),
+                        "UPDATE gmail_mailboxes SET connection_state='revoked',updated_at=? WHERE id=?",
+                        (now(), mailbox["id"]),
                     )
             _log.warning(
                 "technical-query mailbox sync failed: HTTP %s", exc.response.status_code

@@ -36,6 +36,7 @@ export interface TechnicalQueryMailbox {
 }
 
 export interface GmailLabel { id: string; name: string; type: string }
+export interface TechnicalQueryAssignee { id: string; display_name: string }
 
 function queryPath(filters: TechnicalQueryFilters): string {
   const values = Object.entries(filters).filter(([, value]) => Boolean(value));
@@ -57,6 +58,10 @@ export const technicalQueriesApi = {
   activateGmailLabel: (mailboxId: string, labelId: string): Promise<Result<{ imported: number; connection_state: string }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/activate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label_id: labelId }) }),
   get: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}`),
+  assignees: (): Promise<Result<{ items: TechnicalQueryAssignee[] }>> =>
+    request("/technical-queries/assignees", undefined, hasArrayField("items")),
+  assign: (id: string, assigneeUserId: string): Promise<Result<TechnicalQuery>> =>
+    request(`/technical-queries/${encodeURIComponent(id)}/assignment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignee_user_id: assigneeUserId }) }),
   triage: (id: string, fields: { contractor_name: string | null; department: string | null; priority: string; due_at: string | null }): Promise<Result<TechnicalQuery>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/triage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) }),
   prepareEvidence: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/prepare-evidence`, { method: "POST" }),

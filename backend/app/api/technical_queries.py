@@ -317,6 +317,20 @@ def gmail_webhook(_payload: dict):
     raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
+@router.get("/api/technical-queries/assignees")
+def technical_query_assignees(
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    _require_identity_to_write(scope)
+    if not scope.is_admin:
+        raise HTTPException(status_code=403, detail="an administrator is required")
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id,display_name FROM users WHERE is_active=1 ORDER BY display_name"
+        ).fetchall()
+    return {"items": [dict(row) for row in rows]}
+
+
 @router.get("/api/technical-queries/{query_id}")
 def get_technical_query(
     query_id: str, scope: access.AccessScope = Depends(access.current_scope)

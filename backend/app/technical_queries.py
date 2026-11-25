@@ -477,11 +477,11 @@ def assign_query(
             return None
         if (
             conn.execute(
-                "SELECT 1 FROM users WHERE id=?", (assignee_user_id,)
+                "SELECT 1 FROM users WHERE id=? AND is_active=1", (assignee_user_id,)
             ).fetchone()
             is None
         ):
-            raise ValueError("assignee does not exist")
+            raise ValueError("assignee does not exist or is inactive")
         conn.execute(
             "UPDATE technical_queries SET assignee_user_id=?,updated_at=? WHERE id=?",
             (assignee_user_id, now(), query_id),

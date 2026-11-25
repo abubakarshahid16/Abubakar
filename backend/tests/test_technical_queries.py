@@ -8,7 +8,7 @@ from zipfile import ZipFile
 import pytest
 from fastapi import HTTPException, UploadFile
 
-from app import db, gmail_auth
+from app import db, gmail_auth, gmail_sync
 from app.access import AccessScope
 from app.api.technical_queries import (
     ImportIn,
@@ -19,6 +19,7 @@ from app.api.technical_queries import (
     generate_query_draft,
     import_technical_query,
     prepare_query_send,
+    technical_query_assignees,
     triage_technical_query,
     upload_query_attachment,
 )
@@ -508,6 +509,19 @@ def test_admin_assignment_grants_assignee_visibility():
     assert assigned["assignee_user_id"] == "u1"
     assert get(item["id"], "u1", False, False) is not None
     assert any(event["event"] == "assigned" for event in assigned["events"])
+    with pytest.raises(HTTPException) as denied:
+        technical_query_assignees(AccessScope("u1", frozenset()))
+    assert denied.value.status_code == 403
+    assert {
+        person["id"]
+        for person in technical_query_assignees(
+            AccessScope("owner", frozenset(), capabilities=frozenset({"admin"}))
+        )["items"]
+    } == {"u1", "owner"}
+    with db.connect() as conn:
+        conn.execute("UPDATE users SET is_active=0 WHERE id='u1'")
+    with pytest.raises(ValueError, match="inactive"):
+        assign_query(item["id"], "u1", "owner", True, False)
 
 
 def test_filtered_dashboard_totals_match_visible_records():
@@ -922,6 +936,52 @@ def test_mailbox_cursor_advances_only_after_message_is_saved():
                 "SELECT last_history_id FROM gmail_mailboxes WHERE id='mailbox-1'"
             ).fetchone()[0]
             == "h2"
+        )
+
+
+@pytest.mark.parametrize("status,expected", [(403, "active"), (401, "revoked")])
+def test_mailbox_sync_does_not_call_transient_forbidden_a_revocation(
+    monkeypatch, status, expected
+):
+    import httpx
+
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                "mailbox-status",
+                "u1",
+                "engineering@example.test",
+                "h1",
+                "Label_TQ",
+                "active",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+    monkeypatch.setattr(
+        gmail_sync.gmail_auth, "access_token", lambda _id: "synthetic-token"
+    )
+
+    def fail_poll(_client, _mailbox_id, _owner_id):
+        response = httpx.Response(
+            status,
+            request=httpx.Request(
+                "GET", "https://gmail.googleapis.com/gmail/v1/users/me/history"
+            ),
+        )
+        raise httpx.HTTPStatusError(
+            "synthetic", request=response.request, response=response
+        )
+
+    monkeypatch.setattr(gmail_sync, "poll_mailbox", fail_poll)
+    assert gmail_sync.run_once() == 0
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT connection_state FROM gmail_mailboxes WHERE id='mailbox-status'"
+            ).fetchone()[0]
+            == expected
         )
 
 

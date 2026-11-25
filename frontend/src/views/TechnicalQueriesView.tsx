@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { technicalQueriesApi, type GmailLabel, type Result, type TechnicalQuery, type TechnicalQueryMailbox } from "../api/client";
+import { technicalQueriesApi, type GmailLabel, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
   try {
@@ -26,6 +26,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [triageDue, setTriageDue] = useState("");
   const [visibleTotal, setVisibleTotal] = useState<number | null>(null);
   const [mailboxes, setMailboxes] = useState<TechnicalQueryMailbox[]>([]);
+  const [assignees, setAssignees] = useState<TechnicalQueryAssignee[]>([]);
+  const [chosenAssignee, setChosenAssignee] = useState("");
   const [mailboxId, setMailboxId] = useState("");
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [labels, setLabels] = useState<GmailLabel[]>([]);
@@ -38,7 +40,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     setTriageDepartment(selected?.department || "");
     setTriagePriority(selected?.priority || "normal");
     setTriageDue(selected?.due_at?.slice(0, 10) || "");
-  }, [selected?.id, selected?.contractor_name, selected?.department, selected?.priority, selected?.due_at]);
+    setChosenAssignee(selected?.assignee_user_id || "");
+  }, [selected?.id, selected?.contractor_name, selected?.department, selected?.priority, selected?.due_at, selected?.assignee_user_id]);
 
   const sendApproved = () => {
     if (!selected || !selected.drafts?.length || !mailboxId) return;
@@ -90,6 +93,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
       setMailboxes(result.data.items);
       setMailboxId(result.data.items.find((mailbox) => mailbox.connection_state === "active")?.id || "");
     });
+    void technicalQueriesApi.assignees().then((result) => {
+      if (alive && result.ok) setAssignees(result.data.items);
+    });
     return () => { alive = false; };
   }, [queryId]);
 
@@ -108,7 +114,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           <input id="query-contractor-filter" value={contractorFilter} onChange={(event) => setContractorFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
           <label className="block text-xs text-slateish-300" htmlFor="query-department-filter">Department</label>
           <input id="query-department-filter" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Apply filters</button>
+          <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Refresh and apply filters</button>
         </div>
         {pendingMailbox && <div className="mt-4 rounded border border-warn-600 p-3 text-xs text-slateish-200">
           <p>Gmail account {pendingMailbox.email} is connected but waiting for a dedicated technical-query label. Only messages under that label will be imported.</p>
@@ -136,6 +142,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <label className="text-xs text-slateish-300">Priority<select value={triagePriority} onChange={(event) => setTriagePriority(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
             <label className="text-xs text-slateish-300">Due date<input type="date" value={triageDue} onChange={(event) => setTriageDue(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.triage(selected.id, { contractor_name: triageContractor.trim() || null, department: triageDepartment.trim() || null, priority: triagePriority, due_at: triageDue || null }))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save routing</button>
+            {assignees.length > 0 && <label className="text-xs text-slateish-300">Responsible person<select value={chosenAssignee} onChange={(event) => setChosenAssignee(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="">Select a person</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>}
+            {assignees.length > 0 && <button type="button" disabled={busy || !chosenAssignee} onClick={() => act(() => technicalQueriesApi.assign(selected.id, chosenAssignee))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Assign person</button>}
           </div>
           {selected.source_access_revoked && <p role="alert" className="mt-3 text-sm text-warn-400">Access to a cited source changed. The draft is hidden until an authorised reviewer checks it again.</p>}
           <div className="mt-4 flex flex-wrap gap-2">
