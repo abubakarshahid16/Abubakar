@@ -216,6 +216,7 @@ EGRESS_SAFE: dict[str, object] = {
     "aim_u6b_enabled": False,
     "aim_u7b_enabled": False,
     "aim_u8_enabled": False,
+    "aim_formula_checks_enabled": True,  # the formula checks, ON by default (update 9); "all off = main" pins it off itself
     "ai_review_calculator_enabled": False,  # 12 Nov: the calculator step of the AI review, off
     "agent_review_two_reader_absence_enabled": False,  # its absence word, off
     "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off
