@@ -8,8 +8,8 @@ _P = APP / "claude_approved.py"
 
 MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1807-01", phase=1807, description="the consent record of the run is not read: a listed contract is refused again",
-             path=_P, anchor="        return review_shown.consented_ids(connect(), run, ids)\n",
-             replacement="        return frozenset()\n",
+             path=_P, anchor="        return chosen | review_shown.consented_ids(connect(), run, ids)\n",
+             replacement="        return chosen\n",
              target="tests/test_d1_claude_by_choice.py", keyword="listed_contract_with_the_explicit_choice",
              tags=("egress", "critical")),
     Mutation(id="M1807-02", phase=1807, description="the block list is not asked before the consent: a listed register would go",

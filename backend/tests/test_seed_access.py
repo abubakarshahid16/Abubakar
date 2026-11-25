@@ -92,7 +92,7 @@ def test_admin_is_a_capability_not_a_fifth_discipline(seed):
     assert "admin" not in seed.DISCIPLINES
 
 
-def test_seed_roles_creates_five_rows_with_the_right_kinds(seed):
+def test_seed_roles_creates_six_rows_with_the_right_kinds(seed):
     conn = connect()
     assert seed.seed_roles(conn) == 0
     rows = {r["name"]: r["kind"] for r in conn.execute("SELECT name, kind FROM roles")}
@@ -102,6 +102,8 @@ def test_seed_roles_creates_five_rows_with_the_right_kinds(seed):
         "Chemical-Process": "discipline",
         "IT": "discipline",
         "admin": "capability",
+        # Added with the technical-query workflow; deliberately separate from admin.
+        "technical_query_reviewer": "capability",
     }
 
 

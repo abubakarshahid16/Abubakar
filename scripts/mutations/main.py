@@ -24,16 +24,15 @@ MUTATIONS: tuple[Mutation, ...] = (
         # than guessing which route was meant. Re-anchored 2026-11-01 (#525
         # slice 2): the line after is now the image-original comment.
         anchor='    doc = require_document(document_id, scope)\n'
-               '    stored = Path(stored_paths.local(doc["stored_path"]))\n'
-               '    # An image upload (#525 slice 2): the bytes uploaded, not the pages read from them.',
+               '    return original_response(doc, document_id, download)',
         # A REAL unscoped read, not a call to a function that does not exist.
         # A NameError would fail the test for the wrong reason and still report
         # DETECTED - a mutation has to reproduce the DEFECT (serving a document
         # the caller holds no grant for), not merely break the route.
+        # Re-anchored 26 Nov 2026: the serving half moved into `original_response` (the technical-query route shares it).
         replacement='    doc = connect().execute(\n'
                     '        "SELECT * FROM documents WHERE id = ?", (document_id,)).fetchone()\n'
-                    '    stored = Path(stored_paths.local(doc["stored_path"]))\n'
-                    '    # An image upload (#525 slice 2): the bytes uploaded, not the pages read from them.',
+                    '    return original_response(doc, document_id, download)',
         target="tests/test_document_original_file.py",
         keyword="cannot_download",
         tags=("permission",),

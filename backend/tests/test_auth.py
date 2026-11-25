@@ -618,7 +618,8 @@ def test_auth_me_says_no_sign_in_is_needed_when_auth_is_disabled(monkeypatch):
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
     r = TestClient(app).get("/api/auth/me")
     assert r.status_code == 200
-    assert r.json() == {"required": False, "user": None}
+    # `technical_queries` says only whether that feature's way-back switch is on (default off); it names no person and no document
+    assert r.json() == {"required": False, "user": None, "technical_queries": False}
 
 
 def test_auth_me_refuses_an_anonymous_caller_when_auth_is_required():

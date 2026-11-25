@@ -38,6 +38,7 @@ from . import engineer_feedback as engineer_feedback_mod
 from . import datasheets as datasheets_mod
 from . import disciplines as disciplines_mod
 from . import ingest as ingest_mod, dashboard_pool
+from . import gmail_sync as gmail_sync_mod
 from . import job_queue as job_queue_mod
 from . import review_jobs as review_jobs_mod, run_record as run_record_mod
 from . import orphan_guard
@@ -161,6 +162,8 @@ async def lifespan(app: FastAPI):
             _fts["documents"], _fts["chunks"], _fts["seconds"])
     for _module in (review_mod, deliverables_mod, risks_mod, submittal_review_mod):
         _module.ensure_schema()
+    if technical_queries_mod.enabled():  # the way-back switch (default off): no tables, no poller, no routes
+        technical_queries_mod.ensure_schema()
     aim_review_store_mod.ensure_schema()  # order 14: the general review's tables (additive only)
     crs_issue_mod.ensure_indexes()  # order 109: an index for the review runs list
     # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
@@ -241,8 +244,19 @@ async def lifespan(app: FastAPI):
     # argument is required) inside `except Exception: pass`, so nothing was
     # ever warmed and nothing said so. `warmup` runs in a daemon thread, never
     # blocks this start, never writes the database, and logs any failure.
+    gmail_sync_mod.start()
+    if technical_queries_mod.enabled():  # the evidence job of a technical query: interrupted ones are marked, then the one thread starts
+        from . import technical_query_jobs
+
+        technical_query_jobs.recover_interrupted()
+        technical_query_jobs.start()
     warmup_mod.start()
     yield
+    gmail_sync_mod.stop()
+    if technical_queries_mod.enabled():
+        from . import technical_query_jobs
+
+        technical_query_jobs.stop()
     risks_mod.stop_background_detection()
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()
@@ -290,6 +304,8 @@ from .api import review_templates as api_review_templates  # noqa: E402
 from .api import run_standards as api_run_standards  # noqa: E402
 from .api import run_summary as api_run_summary  # noqa: E402
 from .api import standards as api_standards  # noqa: E402
+from .api import technical_queries as api_technical_queries  # noqa: E402
+from . import technical_queries as technical_queries_mod
 
 # Order 73: the documents area's routes live in app/api/ (order 95: the run summary too).
 for _r in (api_documents, api_document_classification, api_document_files, api_admin):
@@ -300,6 +316,7 @@ app.include_router(api_review_start.router)
 app.include_router(api_review_points.router)
 app.include_router(api_review_templates.router)
 app.include_router(api_standards.router)
+app.include_router(api_technical_queries.router)
 app.include_router(api_crs_archive.router)
 app.include_router(api_run_standards.router)
 app.include_router(api_deliverables.router)
@@ -712,8 +729,9 @@ def me(request: Request,
     same caller can already read every document; showing them a login form
     they cannot use would be the actual defect.
     """
+    features = {"technical_queries": technical_queries_mod.enabled()}
     if settings.auth_mode == access.AUTH_DISABLED:
-        return {"required": False, "user": None}
+        return {"required": False, "user": None, **features}
 
     user_id = scope.user_id or auth_mod.resolve_user_id(request)
     described = auth_mod.describe(user_id) if user_id else None
@@ -723,7 +741,7 @@ def me(request: Request,
             detail=errors.safe_error(errors.UNAUTHENTICATED,
                                      "sign in to continue"),
         )
-    return {"required": True, "user": described}
+    return {"required": True, "user": described, **features}
 
 
 @app.post("/api/auth/revoke/{user_id}", response_model=schemas.TokenRevocationResult,

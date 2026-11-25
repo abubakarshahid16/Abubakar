@@ -321,6 +321,19 @@ class Settings(SettingsExt, BaseSettings):
     auth_max_attempts: int = 8
     auth_lockout_seconds: int = 300
 
+    # Gmail OAuth configuration is read from backend/.env into Settings,
+    # without exporting the client secret to child processes.
+    gmail_client_id: str = ""
+    gmail_client_secret: str = Field(default="", repr=False)
+    gmail_redirect_uri: str = ""
+    #: THE WAY-BACK SWITCH FOR THE WHOLE TECHNICAL-QUERY FEATURE (order 14; owner, 25 Nov 2026). OFF (default): no technical-query route
+    #: does any work (404), no mailbox poller starts, no tables are made, no menu entry is shown, and no Gmail call opens a socket.
+    technical_queries_enabled: bool = False
+    #: The engine of a technical query's draft answer ("local" or "claude"; owner approved the Claude lane on #1584 comment 7170031292).
+    #: Local by default. "claude" is honoured only when REASONING_PROVIDER lets this step use Claude (`claude`, or `per_task` with this
+    #: setting), for the contract documents the engineer chooses for that one query (its own consent record), under the claude_spend caps.
+    technical_query_draft_engine: str = "local"
+
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
     #: The recogniser is the open decision. PP-OCRv6 ships no English model, so

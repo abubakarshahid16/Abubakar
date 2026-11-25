@@ -1538,6 +1538,10 @@ class AuthStatus(BaseModel):
         "disabled and every request already sees everything"
     )
     user: Me | None = None
+    technical_queries: bool = Field(
+        default=False,
+        description="whether the technical-query feature is switched on here (default off); the menu entry is shown only when true",
+    )
 
 
 class LoginResult(BaseModel):
