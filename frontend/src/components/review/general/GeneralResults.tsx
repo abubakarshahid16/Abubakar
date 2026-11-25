@@ -132,6 +132,10 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         </div>
       )}
 
+      {(review.pages_not_read ?? []).length === 0 && review.pages_not_read_record === "not_recorded" && (
+        <p data-testid="general-pages-not-recorded" className="text-sm text-slateish-300">Which pages were read is not recorded for this review.</p>
+      )}
+
       <p data-testid="general-counts" className="text-sm text-slateish-200">
         {review.counts.points} points reviewed, {review.counts.comments} comments sent
         {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).

@@ -41,6 +41,7 @@ class Paper:
     unread: list = field(
         default_factory=list
     )  # [{"where": "page 7", "why": code}]: pages with no text and no picture reading (`unread`)
+    unread_checked: bool = False  # True only when the unread pages were really worked out (a check that failed or a missing file is not "none")
 
     def source_note(self) -> str:
         """Counts only, never text: "pages: 4 pdf_visual_order, 1 recognised_text" (+ why the file was not read)."""

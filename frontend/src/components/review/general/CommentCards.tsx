@@ -126,7 +126,8 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
   const places = line.applies_to ?? [];
   const [allChips, setAllChips] = useState(false);
   const shownPlaces = allChips ? places : places.slice(0, CHIPS_SHOWN);
-  const quotes = places.filter((a) => a.quote);
+  // every member's quote with ITS OWN page (older runs carry one quote on the place: it goes with the place's page)
+  const quotes = places.flatMap((a) => (a.quotes && a.quotes.length > 0 ? a.quotes : a.quote ? [{ page: a.page ?? null, quote: a.quote }] : []));
   return (
     <li data-testid="general-row" data-severity={sev} className={`space-y-3 rounded-[var(--radius-md)] border border-ink-600 border-l-4 bg-ink-800 p-4 ${tone.edge}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -180,7 +181,7 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
           <div className="mt-2 space-y-2">
             {line.comment && <p className="text-slateish-200">{line.comment}</p>}
             {quotes.map((a, i) => (
-              <blockquote key={i} className="border-l-2 border-ink-500 pl-3 text-xs text-slateish-300">
+              <blockquote key={i} className="border-l-2 border-ink-500 pl-3 text-xs text-slateish-300" data-testid="card-quote">
                 {a.page != null ? <span className="mr-2 text-slateish-400">page {a.page}</span> : null}{a.quote}
               </blockquote>
             ))}

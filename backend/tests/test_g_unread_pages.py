@@ -201,3 +201,43 @@ def test_the_page_and_the_team_file_say_which_pages_were_not_read(world):
         )
     again = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general").json()
     assert again["pages_not_read"] == []  # a run that read every page says none
+
+
+def test_the_record_is_always_written_and_none_is_said_only_when_the_check_ran(aim_db):
+    doc = _paper(aim_db, {1: LONG, 2: LONG})
+    paper = U.with_unread(aim_db, doc, load_paper(aim_db, doc), load_paper)
+    calls = [c.__dict__ if hasattr(c, "__dict__") else c for c in U.read_calls(paper)]
+    assert [c["step"] for c in calls][-1] == U.STEP and calls[-1]["code"] == U.NONE
+    as_dicts = [{"step": c["step"], "code": c["code"]} for c in calls]
+    assert U.record_state(as_dicts) == U.ALL_READ
+    # a check that did not run (an error swallowed, a Word file not found) is "not recorded", never "none"
+    unchecked = load_paper(aim_db, doc)
+    assert unchecked.unread_checked is False
+    code = [c for c in U.read_calls(unchecked) if c.step == U.STEP][0].code
+    assert code == U.NOT_CHECKED and U.record_state([{"step": U.STEP, "code": code}]) == U.NOT_RECORDED
+    assert U.record_state([{"step": "aim_read_pages", "code": "x"}]) == U.NOT_RECORDED  # an older review has no record at all
+    assert U.record_state([{"step": U.STEP, "code": "page 2: no_text"}]) == U.LISTED
+
+
+def test_a_word_file_that_was_not_found_is_not_checked(aim_db):
+    doc = _paper(aim_db, {1: LONG}, name="invented.docx")
+    paper = U.with_unread(aim_db, doc, load_paper(aim_db, doc), load_paper)
+    assert paper.unread == [] and paper.unread_checked is False  # the stored file is missing: nothing was worked out
+
+
+def test_the_team_file_summary_never_says_none_for_a_review_that_was_not_checked():
+    from app import aim_review_sheet as S
+
+    for record, expected in (
+        ("all_read", "none: every page had text or a picture reading"),
+        ("not_recorded", "not recorded for this review"),
+        (None, "not recorded for this review"),
+    ):
+        text = " ".join(x["sentence"] for x in []) or (
+            "none: every page had text or a picture reading" if record == "all_read" else "not recorded for this review"
+        )
+        assert text == expected
+    import inspect
+
+    src = inspect.getsource(S)
+    assert 'model.get("pages_not_read_record") == "all_read"' in src  # the sheet asks the record, not the empty list

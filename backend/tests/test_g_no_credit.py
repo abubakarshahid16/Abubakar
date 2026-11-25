@@ -131,12 +131,29 @@ def test_the_next_plan_says_the_last_review_was_refused_and_says_nothing_otherwi
 
     assert _recent_account_refusal(db.connect()) is None
     _stopped()
-    assert (
-        _recent_account_refusal(db.connect())
-        == f"The last review's Claude call was refused. {NO_CREDIT}"
-    )
+    said = _recent_account_refusal(db.connect())
+    assert said.startswith("A review's Claude call was refused") and said.endswith(NO_CREDIT)  # past tense, with the time
     with db.connect() as conn:  # a refusal older than a day is not repeated
         conn.execute(
             f"UPDATE {aim_review_store.RUNS} SET created_at = '2026-01-01T00:00:00+00:00'"
         )
+    assert _recent_account_refusal(db.connect()) is None
+
+
+def test_the_note_clears_as_soon_as_a_later_review_spent_on_claude_and_finished(world):
+    """Reviewer's M4: credit may have been added; the note is not kept for 24 hours."""
+    from app import review_engine  # noqa: F401 - the engine module first
+    from app.review_engine_general import _recent_account_refusal
+
+    _stopped()
+    assert _recent_account_refusal(db.connect()) is not None
+    with db.connect() as conn:
+        conn.execute(
+            f"INSERT INTO {aim_review_store.RUNS} (run_id, paper_document_id, status, usd, created_at, finished_at) "
+            "VALUES ('later', ?, 'done', 0.0, '2999-01-01T00:00:00+00:00', '2999-01-01T00:05:00+00:00')",
+            (PAPER,),
+        )
+    assert _recent_account_refusal(db.connect()) is not None  # a later review that spent nothing (local) proves nothing about the account
+    with db.connect() as conn:
+        conn.execute(f"UPDATE {aim_review_store.RUNS} SET usd = 0.42 WHERE run_id = 'later'")
     assert _recent_account_refusal(db.connect()) is None
