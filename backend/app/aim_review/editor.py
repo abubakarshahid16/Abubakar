@@ -10,6 +10,7 @@ import re
 
 from . import EDITED, PROVISIONAL, PROVISIONAL_FAILS
 from . import prompts as P
+from .budget import cap
 from .engine import StepFailed
 from .steps import NOT_ON_ANY_PAGE, _dumps, paper_block
 from .verify import norm, quote_in
@@ -42,7 +43,11 @@ def s5_edit(model, paper, lines: list[dict], lead: str) -> int:
     offered = {n: d for n, d in sent.items() if not _code_failed(d)}
     keys = list(offered)
     half = -(-len(keys) // 2)
-    parts = [keys] if len(keys) <= EDIT_CHUNK else [keys[:half], keys[half:]]
+    chunk = cap(EDIT_CHUNK, "line_chunk")
+    if chunk < EDIT_CHUNK:  # the local model (`budget`): calls of `chunk` lines
+        parts = [keys[i : i + chunk] for i in range(0, len(keys), chunk)]
+    else:
+        parts = [keys] if len(keys) <= EDIT_CHUNK else [keys[:half], keys[half:]]
     moved = 0
     for part in (p for p in parts if p):
         out = _ask(model, paper, {n: offered[n] for n in part}, lead)

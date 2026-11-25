@@ -36,8 +36,20 @@ def test_with_the_old_engine_on_every_answer_is_the_recorded_old_answer():
     assert (n, h.hexdigest()) == OLD_ANSWERS
 
 
-def test_local_only_is_refused_with_the_one_sentence_and_runs_nothing(general):
+def test_local_only_runs_the_general_review_on_the_local_model_and_sends_nothing(
+    general,
+):
+    """Planner 25 Nov 2026 22:35: Local only runs the general review on the local model instead of refusing."""
     plan = E.decide("local", open_facts())
+    assert plan.refused is None and plan.runs == [E.AI_REVIEW]
+    assert plan.part(E.AI_REVIEW).engine == E.ON_LOCAL and not plan.text_leaves
+    assert plan.part(E.AI_REVIEW).why == aim_review_gate.LOCAL_RUN_WHY
+
+
+def test_local_only_with_the_ai_review_switched_off_is_refused_and_runs_nothing(
+    general,
+):
+    plan = E.decide("local", open_facts(agent_enabled=False))
     assert plan.refused_code == E.GENERAL_NOT_ON_LOCAL
     assert plan.refused == aim_review_gate.LOCAL_NOT_AVAILABLE
     assert plan.runs == [] and not plan.text_leaves
@@ -117,8 +129,7 @@ def test_a_refused_general_plan_never_has_a_part_on_any_engine(general):
         plan = E.decide(choice, E.Facts(**kw))
         if plan.refused:
             assert plan.runs == [] and plan.refused_code
-        else:
-            assert (
-                plan.runs == [E.AI_REVIEW]
-                and plan.part(E.AI_REVIEW).engine == E.ON_CLAUDE
+        else:  # Local only runs on the local model (planner 25 Nov 2026 22:35); any other choice on Claude
+            assert plan.runs == [E.AI_REVIEW] and plan.part(E.AI_REVIEW).engine == (
+                E.ON_LOCAL if choice == E.LOCAL else E.ON_CLAUDE
             )

@@ -12,6 +12,13 @@ Cancel is honoured between steps and between judge batches. A failed run is NEVE
 its run row says "failed" in plain words. No document text is logged or stored here: ids, counts and fixed words only.
 
 With the old engine on (`aim_review_gate.old_engine_on()`): nothing is queued, claimed or recovered here.
+
+LOCAL ONLY (planner 25 Nov 2026 22:35): a run whose stored plan puts the AI review on the local model runs the same method on
+`aim_review.local_model.LocalModel`, barred from Claude for its whole length (`review_engine.barring`; the start's stored bar raises
+it too). Before anything is loaded, `local_model.readiness` must say yes (no other large local model loaded, no heavy job holding
+the machine, enough free memory): else the run stops with that sentence and nothing is run. Nothing is sent, so there is no shown
+list to cap it: it takes the rule books the plan would list (`aim_review.candidates`) inside the starter's scope, and no book joins
+the approved list for it (route 3 is for books the AI reviewer sends to Claude).
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ import dataclasses
 import json
 import logging
 import uuid
+from contextlib import contextmanager
 
 from . import (
     aim_review,
@@ -31,7 +39,7 @@ from . import (
     review_jobs,
     review_shown,
 )
-from .config import config_version
+from .config import config_version, settings
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -293,6 +301,8 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
         "points": len(result.get("lines") or []),
         # a run that stopped early (run cap, lane closed, a fault) keeps its lines and says so; it is never a finished review
         "partial": result.get("status") == "stopped",
+        # the RESOLVED local default (ANSWER_MODEL after backend/.env), a model name only: live can be checked without that file
+        "answer_model": str(settings.answer_model),
     }
     with conn:
         conn.execute(
@@ -318,6 +328,139 @@ def _not_read(text) -> dict:
         "usd": 0.0,
         "seconds": 0.0,
     }
+
+
+#: The stop reason of a local run that did not start (`local_model.readiness` said why); nothing was loaded or run.
+LOCAL_NOT_READY = "local_not_ready"
+
+
+def on_local(conn, run_id: str) -> bool:
+    """True when the run's stored plan puts the AI review on the local model (Local only). A database error propagates."""
+    from . import review_engine
+
+    return review_engine.ai_review_engine(conn, run_id) == review_engine.ON_LOCAL
+
+
+def local_books(conn, paper_id: str, scope: frozenset[str]) -> frozenset[str]:
+    """The rule books a LOCAL run may read: the ones the plan would list for this paper (`aim_review.candidates`, which reads
+    only inside `scope`), minus the paper, and again inside `scope` (rule 5: only narrows). Nothing leaves this computer."""
+    found = aim_review.candidates(
+        conn,
+        paper_id,
+        frozenset(scope),
+        aim_review_store.DbChecklistStore(conn),
+        aim_review_store.unlisted_of_last(conn, paper_id),
+    )
+    return frozenset(
+        str(b["id"]) for b in found.books if b["id"] != paper_id and b["id"] in scope
+    )
+
+
+def local_ready(model) -> str | None:
+    """None when a local run may load its models now, else the plain sentence why not (`local_model.readiness`: one model in
+    memory at a time, never the 35B, free memory at least the model's need with its window plus 6 GB)."""
+    from . import aim_review_gate
+    from .aim_review import local_model
+
+    # the way back was turned on after this run was queued: no model is loaded
+    if not aim_review_gate.local_on():
+        return aim_review_gate.LOCAL_SWITCHED_OFF
+    return local_model.readiness(model.names(), model.budget.num_ctx)
+
+
+def paper_tokens(conn, paper_id: str) -> int:
+    """The paper's stored text in tokens (an upper bound, `context_budget.estimate_tokens`): a local run's window is sized to
+    hold all of it (owner, 25 Nov 2026: no blind chunking)."""
+    from . import context_budget
+
+    rows = conn.execute(
+        "SELECT text FROM pages WHERE document_id = ?", (paper_id,)
+    ).fetchall()
+    return sum(context_budget.estimate_tokens(str(r["text"] or "")) + 20 for r in rows)
+
+
+def _local_not_ready(words: str) -> dict:
+    return {
+        "status": "stopped",
+        "stop_reason": f"{LOCAL_NOT_READY}: {words}",
+        "lines": [],
+        "books": [],
+        "usd": 0.0,
+        "seconds": 0.0,
+    }
+
+
+def _prepare(conn, run_id: str, paper_id: str, scope, model):
+    """(local, the rule books the method may read, the model, why a local run may not start or None). A Claude run: the books on
+    the list the screen showed (#1584 route 3: they join the approved list just before the reviewer asks, only when the paper
+    qualifies and only inside the starter's scope; the send gate still decides). A local run: one large local model at a time,
+    and only with the memory to load it (`local_ready`; a test passes its own model and loads nothing), the model from the
+    socket with its window sized to the paper, the books the plan would list, and no book joins the approved list."""
+    from .aim_review import model_socket
+
+    if not on_local(conn, run_id):
+        books = allowed_books(conn, run_id, paper_id, scope)
+        claude_auto_approve.on_agent_standards(paper_id, sorted(books), run_id)
+        return False, books, model, None
+    if model is None:
+        tokens = paper_tokens(conn, paper_id)
+        model = model_socket.model_for_run(model_socket.LOCAL, paper_tokens=tokens)
+        words = local_ready(model)
+        if words:
+            return True, frozenset(), None, words
+    return True, local_books(conn, paper_id, scope), model, None
+
+
+class _ReadOnlyChecklists:
+    """The checklist store of a LOCAL run: a saved checklist of the paper's type is reused as on Claude, but a checklist the local
+    model writes is used for this run only and never saved (a later Claude review of the same type would reuse it)."""
+
+    def __init__(self, store) -> None:
+        self._store = store
+
+    def get(self, key: str):
+        return self._store.get(key)
+
+    def keys(self):
+        return self._store.keys()
+
+    def put(self, key: str, checklist: dict, *, run_id: str, usd: float) -> str:
+        del key, checklist, usd  # nothing is written
+        log.info("general review %s: a local-model checklist is not saved", run_id)
+        return ""
+
+
+def _method(conn, job_id, run_id, paper_id, books, progress, model, local: bool):
+    """The method on the run's model. A local run is barred from Claude here too, whatever the stored bar says: no step of it
+    can open the Claude lane."""
+    from contextlib import nullcontext
+
+    from . import review_engine
+
+    store = aim_review_store.DbChecklistStore(conn)
+    with review_engine.barring() if local else nullcontext(), _unloading(model):
+        return aim_review.run(
+            conn,
+            run_id=run_id,
+            paper_id=paper_id,
+            allowed_books=books,
+            store=_ReadOnlyChecklists(store) if local else store,
+            max_usd=aim_review_gate.max_usd(),
+            progress=progress,
+            cancelled=lambda: _cancel_requested(conn, job_id),
+            model=model,
+        )
+
+
+@contextmanager
+def _unloading(model):
+    """After a local run (done, stopped or failed) its model leaves memory, so the next heavy job finds the memory free."""
+    try:
+        yield
+    finally:
+        unload = getattr(model, "unload", None)
+        if callable(unload):
+            unload()
 
 
 def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
@@ -366,10 +509,9 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
         text = agent_review_text.read(conn, paper_id)
         if text.stops_run(True):
             return _done(conn, job_id, run_id, _not_read(text))
-        books = allowed_books(conn, run_id, paper_id, scope)
-        # #1584 route 3: the rule books the reviewer will ask rules from join the approved list just before it asks, only when the
-        # paper qualifies and only inside the starter's scope (`on_agent_standards`; off: nothing). The send gate still decides.
-        claude_auto_approve.on_agent_standards(paper_id, sorted(books), run_id)
+        local, books, model, words = _prepare(conn, run_id, paper_id, scope, model)
+        if words:  # a local run that may not load the local model now: nothing is loaded, the run says why
+            return _done(conn, job_id, run_id, _local_not_ready(words))
 
         def progress(_pct: int, words: str) -> None:
             if heartbeat is not None:
@@ -381,17 +523,7 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
                         (STEPS.index(words), words, _now(), _now(), job_id),
                     )
 
-        result = aim_review.run(
-            conn,
-            run_id=run_id,
-            paper_id=paper_id,
-            allowed_books=books,
-            store=aim_review_store.DbChecklistStore(conn),
-            max_usd=aim_review_gate.max_usd(),
-            progress=progress,
-            cancelled=lambda: _cancel_requested(conn, job_id),
-            model=model,
-        )
+        result = _method(conn, job_id, run_id, paper_id, books, progress, model, local)
         holder["result"] = _result_dict(result)
         if _cancel_requested(conn, job_id):
             raise _Cancelled()

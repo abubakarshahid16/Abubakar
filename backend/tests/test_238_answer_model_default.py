@@ -104,3 +104,34 @@ def test_the_dashboard_payload_carries_it_and_only_the_operator_sees_the_model_n
     assert len(admin) == 1 and len(engineer) == 1
     assert settings.answer_model in admin[0]["message"]
     assert settings.answer_model not in engineer[0]["message"]
+
+
+@pytest.mark.parametrize(
+    "free_gb, warned", [(25.5, False), (12.0, False), (10.0, True)]
+)
+def test_the_low_memory_warning_clears_with_the_14b(
+    corpus_and_identities,  # noqa: F811
+    monkeypatch,
+    free_gb,
+    warned,
+):
+    """Owner, 25 Nov 2026 23:25: with the 14B as the default, the dashboard's low-memory warning clears whenever the machine
+    has the 14B's measured 11.1 GB free (it asked 24 GB for the 35B, so it showed almost always)."""
+    import psutil
+
+    class Free:
+        available = int(free_gb * 1e9)
+        total = 36_000_000_000
+        percent = 50.0
+
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: Free)
+    monkeypatch.setattr(settings, "answer_model", THE_14B)
+    monkeypatch.setattr(
+        settings,
+        "answer_model_ram_bytes",
+        Settings.model_fields["answer_model_ram_bytes"].default,
+    )
+    monkeypatch.setattr(metrics, "models", lambda: _models())
+    client, _, _ = corpus_and_identities
+    codes = [w["code"] for w in _metrics(client, "engineer")["warnings"]]
+    assert ("low_memory_for_answer_model" in codes) is warned

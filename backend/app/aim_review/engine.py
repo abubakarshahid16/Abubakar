@@ -7,6 +7,7 @@ flags, https, the allowed host, the key from the app's settings, never kept). Th
 `claude_spend.for_run(run_id)` and `claude_approved.reviewing(run_id)`. The run's own meter (`max_usd`) stops before a call whose
 worst case would cross it. Nothing here reads backend/.env or logs a key or any document text: errors are codes.
 
+LocalModel (`local_model`): the same ask() on the local model (`model_transport` only, USD 0, the sizes of `budget.LOCAL`).
 FakeModel: no network. It answers each step with fixed JSON built from the prompt's own material (so quotes verify) and asks the
 gate the same question (`claude_approved.refusal()` inside the same declaration). Tests use it; it costs nothing.
 """
@@ -19,6 +20,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from . import budget
 from .prompts import (
     ANSWER_KEYS,
     _text_of,
@@ -57,6 +59,9 @@ class CallRecord:
     seconds: float = 0.0
     ok: bool = True
     code: str = ""
+    #: "local" and what the call read, on the local model (`local_model`); "" for Claude (a Claude run's calls are unchanged)
+    engine: str = ""
+    note: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -68,7 +73,7 @@ class CallRecord:
             "seconds": self.seconds,
             "ok": self.ok,
             "code": self.code,
-        }
+        } | {k: v for k, v in (("engine", self.engine), ("note", self.note)) if v}
 
 
 @dataclass
@@ -202,6 +207,9 @@ def gate_checker():
     """`gate_ok(doc_id) -> None | refusal code`: what the send gate would say about a prompt that carries that one book."""
     from app import claude_approved
 
+    if budget.is_local():  # nothing is sent on the local model
+        return lambda _doc_id: None
+
     def gate_ok(doc_id: str) -> str | None:
         with claude_approved.carrying([doc_id]):
             r = claude_approved.refusal()
@@ -283,10 +291,8 @@ def run(
             except Exception:  # noqa: BLE001 - a progress callback never stops the review
                 log.debug("general review %s: progress callback failed", run_id)
 
-    try:
-        with faults.during_run(
-            str(run_id), meter.calls
-        ):  # ledger, approved papers, failed steps
+    try:  # `budget.of`: a run on the local model reads smaller pieces per call; a Claude run keeps the method's own sizes
+        with budget.of(inner), faults.during_run(str(run_id), meter.calls):  # ledger, approved papers, failed steps
             _steps(conn, state, mdl, allowed_books, store, say, cancelled)
     except StepFailed as exc:
         state.stop(str(exc))
@@ -785,5 +791,5 @@ def _judge(
         state.stop(stop)
 
 
-# the fake model (tests and the dry run) lives in its own module; kept importable from here
-from .fake import FakeModel  # noqa: E402, F401
+from .fake import FakeModel  # noqa: E402, F401 - tests and the dry run (its own module)
+from .local_model import LocalModel  # noqa: E402, F401

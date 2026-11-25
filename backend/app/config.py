@@ -416,8 +416,8 @@ class Settings(SettingsExt, BaseSettings):
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
     #: ONE local default (owner, 25 Nov 2026 23:25: "let us not use the 35 billion parameter model, it crashes memory"): the
-    #: 14B-class model for Chat's local answers and technical-query drafts. The 35B stays installed and is loaded only when
-    #: the owner asks (set ANSWER_MODEL to it).
+    #: 14B-class model for Chat's local answers, technical-query drafts and the general review on Local only. The 35B stays
+    #: installed and is loaded only when the owner asks (set ANSWER_MODEL to it).
     answer_model: str = "ministral-3:14b"
     answer_prompt_variant: str = "default"
     #: Resident size of the answer model: the 14B MEASURED at 11.10 GB in the engine with a 28,672-token window (25 Nov
