@@ -39,3 +39,15 @@ describe("GeneralResults: steps that did not run", () => {
     expect(screen.queryByTestId("general-steps-not-applied")).toBeNull();
   });
 });
+
+describe("GeneralResults: points decided by code", () => {
+  it("shows the count with its denominator when the review has points, and nothing for an older answer", () => {
+    const sentence = "2 of 5 points decided by code (code compared the paper's value with the rule's limit); the other 3 are AI readings, AI opinions or questions (this paper, this review).";
+    const { unmount } = mount(review({ counts: { points: 5, comments: 1, by_label: {}, boundary: "this paper, this review",
+      decided_by_code: { count: 2, of: 5, sentence } } }));
+    expect(screen.getByTestId("general-counts")).toHaveTextContent(sentence);
+    unmount();
+    mount(review());
+    expect(screen.getByTestId("general-counts")).not.toHaveTextContent("decided by code");
+  });
+});

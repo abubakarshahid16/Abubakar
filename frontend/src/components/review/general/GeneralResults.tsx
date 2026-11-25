@@ -123,6 +123,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         {Object.entries(review.counts.by_shown_label ?? {}).filter(([k]) => k).map(([k, n]) => (
           <span key={k} className="ml-2 text-xs text-slateish-400">{n} {SHOWN_WORDS[k] ?? k.toLowerCase()}</span>
         ))}
+        {" "}{review.counts.decided_by_code?.sentence}
       </p>
 
       <div className="flex flex-wrap items-center gap-3">
