@@ -269,14 +269,14 @@ def test_readiness_one_large_model_at_a_time_and_enough_memory_to_load(monkeypat
     assert local_model.readiness(ours).startswith(
         "this computer has 8.0 GB of memory free"
     )
-    # a smaller model needs its own file size and a margin, not the answer model's
+    # a smaller model needs half its own file size and a margin free (here 8 GB in all: 4 GB to start)
     tags = {"models": [{"name": "invented-mid:9b", "size": 6_000_000_000}]}
     answers = {"/api/tags": tags, "/api/ps": {"models": []}}
     monkeypatch.setattr(model_transport, "get_json", lambda p, **_k: answers[p])
-    monkeypatch.setattr(local_model, "_free_bytes", lambda: 9_000_000_000)
+    monkeypatch.setattr(local_model, "_free_bytes", lambda: 5_000_000_000)
     assert local_model.readiness("invented-mid:9b") is None
-    monkeypatch.setattr(local_model, "_free_bytes", lambda: 7_000_000_000)
-    assert "about 8.0 GB" in local_model.readiness("invented-mid:9b")
+    monkeypatch.setattr(local_model, "_free_bytes", lambda: 3_000_000_000)
+    assert "at least 4.0 GB" in local_model.readiness("invented-mid:9b")
     _engine(monkeypatch, installed=[other], loaded=[])
     assert local_model.readiness(ours) == local_model.NOT_INSTALLED.format(name=ours)
     _engine(
@@ -411,3 +411,36 @@ def _run_row(run_id: str) -> dict:
         .fetchone()
     )
     return dict(row)
+
+
+def test_swap_growing_more_than_one_gb_during_the_run_stops_it(monkeypatch):
+    """The owner's memory rule: measured from the run's first call; the lines already judged are kept by the method."""
+    swap = [2_000_000_000]
+    monkeypatch.setattr(local_model, "_swap_bytes", lambda: swap[0])
+    monkeypatch.setattr(
+        model_transport,
+        "post_json",
+        lambda path, body, *, timeout: {
+            "model": REPORTED,
+            "message": {"content": '{"kind": "datasheet"}'},
+            "prompt_eval_count": 5,
+            "done_reason": "stop",
+        },
+    )
+    m = local_model.LocalModel("invented-big:35b")
+    ask = {
+        "step": "aim_identify",
+        "model": "x",
+        "system": "s",
+        "cached": "c",
+        "prompt": "p",
+        "carries": set(),
+        "max_tokens": 64,
+    }
+    assert m.ask(**ask) == {"kind": "datasheet"}
+    swap[0] += 900_000_000
+    assert m.ask(**ask) == {"kind": "datasheet"}  # under 1 GB more: goes on
+    swap[0] += 200_000_000
+    with pytest.raises(method_engine.StepFailed) as got:
+        m.ask(**ask)
+    assert got.value.stops_run and "local_swap" in str(got.value)

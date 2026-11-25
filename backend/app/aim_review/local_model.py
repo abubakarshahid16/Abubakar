@@ -43,6 +43,12 @@ MEMORY_MARGIN_BYTES = 2_000_000_000
 LOCAL_DOWN = "local_down"
 LOCAL_BARRED = "local_barred"
 LOCAL_BUSY = "local_busy"
+LOCAL_SWAP = "local_swap"
+#: The owner's memory rule (12 Nov 2026): a run whose swap grows more than this above its start stops (its lines are kept).
+SWAP_STOP_BYTES = 1_000_000_000
+#: A run starts with at least this share of the model's memory free; macOS frees its file cache for the rest, and the swap rule
+#: above stops the run if it does not (the app's own Explain warning uses the whole `answer_model_ram_bytes`).
+MIN_FREE_SHARE = 0.5
 
 
 def model_name() -> str:
@@ -68,6 +74,8 @@ class LocalModel:
         self.meter = meter or Meter(cap=0.0)
         #: The model names the engine itself reported (the run record names these, never the setting).
         self.answered_by: set[str] = set()
+        #: swap in use before the run's first call (the owner's memory rule is measured from there)
+        self.swap_at_start: int | None = None
 
     def ask(
         self,
@@ -118,6 +126,7 @@ class LocalModel:
                 "num_predict": num_predict,
             },
         }
+        self._memory_rule(step, rec)
         answer = self._post(step, body, rec)
         rec.model = _answered_model(answer, self.name)
         self.answered_by.add(rec.model)
@@ -143,6 +152,22 @@ class LocalModel:
             raise StepFailed(f"{step}: no_json")
         self.meter.charge(rec)
         return out
+
+    def _memory_rule(self, step: str, rec) -> None:
+        """Before each call: swap more than `SWAP_STOP_BYTES` above the run's start stops the run (the lines judged stay)."""
+        from .engine import StepFailed
+
+        used = _swap_bytes()
+        if used is None:
+            return
+        if self.swap_at_start is None:
+            self.swap_at_start = used
+        elif used - self.swap_at_start > SWAP_STOP_BYTES:
+            rec.ok, rec.code = False, LOCAL_SWAP
+            self.meter.charge(rec)
+            raise StepFailed(
+                f"{step}: stop {LOCAL_SWAP} (the computer began to swap; the run stopped to keep it usable)"
+            )
 
     def _post(self, step: str, body: dict, rec) -> dict:
         from app import local_model_gate, model_transport, worker_review
@@ -225,7 +250,8 @@ NOT_INSTALLED = "the local model {name} is not installed on this computer, so th
 OTHER_LARGE = "another large local model ({name}) is loaded, and only one large model runs at a time; the review did not start"
 LOCK_HELD = "another heavy job holds this computer ({who}); the review did not start; start it again when it ends"
 LOW_MEMORY = (
-    "this computer has {free} GB of memory free and the local model needs about {need} GB, so the review did not start; "
+    "this computer has {free} GB of memory free and the local model needs at least {need} GB free to start, so the review "
+    "did not start; "
     "close other work and start it again"
 )
 ENGINE_DOWN = "the local model engine is not answering on this computer, so the review did not start"
@@ -271,9 +297,20 @@ def readiness(name: str | None = None) -> str | None:
     else:
         need = installed[name] + MEMORY_MARGIN_BYTES
     free = _free_bytes()
-    if free is not None and free < need:
-        return LOW_MEMORY.format(free=round(free / 1e9, 1), need=round(need / 1e9, 1))
+    if free is not None and free < need * MIN_FREE_SHARE:
+        floor = need * MIN_FREE_SHARE
+        return LOW_MEMORY.format(free=round(free / 1e9, 1), need=round(floor / 1e9, 1))
     return None
+
+
+def _swap_bytes() -> int | None:
+    try:
+        import psutil
+
+        return int(psutil.swap_memory().used)
+    except Exception as exc:  # noqa: BLE001 - unknown swap: the engine's own limits apply
+        log.info("local memory rule: swap not read (%s)", type(exc).__name__)
+        return None
 
 
 def _free_bytes() -> int | None:
