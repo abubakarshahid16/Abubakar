@@ -1115,7 +1115,7 @@ def prepare_evidence(
     if not question:
         if proposal_note == technical_query_questions.MODEL_UNAVAILABLE:
             raise ValueError(
-                "no question could be proposed because the local model is not available; write the question and confirm it"
+                "no question could be proposed because the local model cannot answer right now; write the question and confirm it"
             )
         if message.get("attachments"):
             raise ValueError(
