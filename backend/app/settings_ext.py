@@ -678,3 +678,8 @@ class SettingsExt(BaseModel):
     #: separated; steps: name, choose, checklist, attack, judge, second reader, editor (e.g. "judge=qwen3.5:9b"). Empty: every step
     #: on the default. The run record names the model the engine reported for each call. Env: GENERAL_REVIEW_LOCAL_STEP_MODELS.
     general_review_local_step_models: str = ""
+    #: THE WAY BACK for Local only on the general review (planner 26 Nov 2026 03:35, A3). On (default): Local only runs the
+    #: general review on the local model (nothing leaves this computer, USD 0, labelled as not yet scored). Off: Local only is
+    #: refused before the start, as before the local route, and a queued local run stops before it loads a model.
+    #: Env: GENERAL_REVIEW_LOCAL_ENABLED.
+    general_review_local_enabled: bool = True

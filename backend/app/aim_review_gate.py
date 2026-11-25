@@ -32,6 +32,14 @@ LOCAL_PLAN_WORDS = (
     "The general review runs on the local model on this computer. Nothing leaves this computer and nothing is paid. "
     "It is slower than Claude (a large paper can take hours) and its quality is not measured yet: local model, not yet scored."
 )
+#: Local only while the local route is switched off (GENERAL_REVIEW_LOCAL_ENABLED, the way back): refused before the start.
+LOCAL_SWITCHED_OFF = (
+    "The local model is switched off for the general review on this install, so with Local only nothing is sent and nothing "
+    "is reviewed."
+)
+#: The one line the plan shows when the local model is chosen: its measured time and score (night test, 26 Nov 2026, valve copy A
+#: on the 14B: 20 minutes, 0 of 10 planted mistakes found). Change it with the next measured score.
+LOCAL_TEST_NOTE = "Local model: about 20 minutes; found 0 of 10 planted datasheet mistakes in our test."
 #: The score line of a review made on the local model (page and file), in place of the kind's score measured on Claude.
 LOCAL_NOT_SCORED = "local model, not yet scored"
 #: The contractor copy of a general review is refused (409) with these words.
@@ -48,6 +56,11 @@ RUN_CAP_USD = 15.0
 def answered_check_on() -> bool:
     """True: the general review runs the whole-paper check (S4b) after the judge (`AIM_ANSWERED_CHECK_ENABLED`, default off)."""
     return bool(settings.aim_answered_check_enabled)
+
+
+def local_on() -> bool:
+    """True: Local only runs the general review on the local model (the way back, GENERAL_REVIEW_LOCAL_ENABLED, is on)."""
+    return bool(getattr(settings, "general_review_local_enabled", True))
 
 
 def old_engine_on() -> bool:

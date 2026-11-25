@@ -105,13 +105,14 @@ def decide_general(choice: str, f: Facts) -> Plan:
     plan.needs_yes = bool(f.is_contract and not f.contract_yes)
     off = Part(RULE_CHECK, NOT_RUN, aim_review_gate.OLD_ENGINE_OFF_WORDS)
     if choice == LOCAL:
-        if not f.agent_enabled:
-            plan.refused = aim_review_gate.LOCAL_NOT_AVAILABLE
-            plan.refused_code = GENERAL_NOT_ON_LOCAL
-            plan.parts = [
-                off,
-                Part(AI_REVIEW, NOT_RUN, aim_review_gate.LOCAL_NOT_AVAILABLE),
-            ]
+        if not f.agent_enabled or not f.local_enabled:
+            words = (
+                aim_review_gate.LOCAL_NOT_AVAILABLE
+                if not f.agent_enabled
+                else aim_review_gate.LOCAL_SWITCHED_OFF
+            )
+            plan.refused, plan.refused_code = words, GENERAL_NOT_ON_LOCAL
+            plan.parts = [off, Part(AI_REVIEW, NOT_RUN, words)]
             return plan
         # LOCAL ONLY RUNS THE GENERAL REVIEW ON THE LOCAL MODEL (planner 25 Nov 2026 22:35): the run is barred from Claude for its
         # whole length (`review_engine_start`: an AI review not on Claude raises the bar), nothing leaves this computer, USD 0
@@ -262,6 +263,7 @@ def general_plan(
         out["sentence"] = (
             f"{aim_review_gate.LOCAL_PLAN_WORDS} {aim_review_gate.AI_MARK}."
         )
+        out["notes"] = [*out["notes"], aim_review_gate.LOCAL_TEST_NOTE]
     else:
         out["sentence"] = (
             f"The general review runs on Claude. {GENERAL_LEAVES} {aim_review_gate.AI_MARK}."

@@ -208,6 +208,8 @@ EGRESS_SAFE: dict[str, object] = {
     "old_crs_download_enabled": False,  # 16 Nov: the older per-review CRS files (no count line), off
     # order 14: the general review. The way-back switch is pinned ON in tests (TEST_PINS); its production default is False.
     "review_old_engine_enabled": True,
+    # 26 Nov (A3): Local only runs the general review on the local model; nothing leaves; the model URL is the dead port here
+    "general_review_local_enabled": True,
     "general_review_max_usd_per_run": 5.0,  # the general review run's own meter (refused above 15)
     "general_review_lead_model": "claude-sonnet-5-5",  # only on the Claude lane, which stays closed in tests
     "general_review_strong_model": "claude-opus-5-5",

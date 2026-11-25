@@ -359,8 +359,12 @@ def local_books(conn, paper_id: str, scope: frozenset[str]) -> frozenset[str]:
 def local_ready(model) -> str | None:
     """None when a local run may load its models now, else the plain sentence why not (`local_model.readiness`: one model in
     memory at a time, never the 35B, free memory at least the model's need with its window plus 6 GB)."""
+    from . import aim_review_gate
     from .aim_review import local_model
 
+    # the way back was turned on after this run was queued: no model is loaded
+    if not aim_review_gate.local_on():
+        return aim_review_gate.LOCAL_SWITCHED_OFF
     return local_model.readiness(model.names(), model.budget.num_ctx)
 
 
