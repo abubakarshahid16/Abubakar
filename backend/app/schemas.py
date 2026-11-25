@@ -763,6 +763,9 @@ class WorkerStatus(BaseModel):
         description="not running, or no heartbeat, or work pending with no progress"
     )
     stalled_reasons: list[str]
+    reviewing: bool = Field(
+        False, description="a review is running on the worker's one thread; uploads wait behind it (busy, not stopped)"
+    )
     last_error: ApiError | None = Field(
         None, description="response-safe only; tracebacks go to the local log"
     )

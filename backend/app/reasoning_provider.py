@@ -594,6 +594,7 @@ class ClaudeProvider:
                         # Still running at the API, so still billable.
                         raise ProviderRefused(f"{self.name}: batch not ended after {max_wait_s:.0f} s")
                     sleep(poll_seconds)
+                    worker_review.beat_now()  # waiting for a batch is a review working, not a hung worker
                     batch = client.batch_retrieve(request["url"], str(batch.get("id")),
                                                   headers=request["headers"])
             except BaseException as exc:
@@ -636,8 +637,9 @@ class ClaudeProvider:
             model=self.requested_model, prompt_sha256=packet.sha256)
         started = time.time()
         try:
-            payload = send(request["url"], headers=request["headers"], body=body,
-                           timeout=request["timeout"])
+            with worker_review.keep_beating():  # a long Claude call beats the worker's heartbeat (it is working, not hung)
+                payload = send(request["url"], headers=request["headers"], body=body,
+                               timeout=request["timeout"])
         except BaseException as exc:
             # MAY HAVE BEEN BILLED (a read timeout after the API did the
             # work): charged its worst case unless it provably was not.

@@ -570,7 +570,9 @@ def test_a_report_whose_file_is_gone_offers_a_recreated_copy_without_changing_hi
     r = client.get(f"/api/reports/{rec['id']}/download")
     assert r.status_code == 200
     assert "recreated" in r.headers["content-disposition"]
-    assert b"RECREATED COPY FROM SAVED EVIDENCE" in r.content
+    # The PDF's text streams are compressed: read the text, never search the raw bytes.
+    recreated = pymupdf.open(stream=r.content, filetype="pdf")
+    assert "RECREATED COPY FROM SAVED EVIDENCE" in " ".join(page.get_text() for page in recreated).replace("\n", " ")
     after = db.connect().execute("SELECT report_sha256, stored_path FROM reports").fetchone()
     assert after["report_sha256"] == row["report_sha256"] and after["stored_path"] == row["stored_path"]
 
