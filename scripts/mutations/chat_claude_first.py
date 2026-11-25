@@ -27,7 +27,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1109", phase=90,
              description="the tool-call cap never stops the loop offering more tools",
              path=APP / "chat_claude_first.py",
-             anchor='            tool_choice = ({"type": "none"}\n                           if tool_calls_made >= settings.chat_tool_max_calls else None)\n',
+             # re-anchored 25 Nov 2026 (note A): the cap grows with the selected papers (`chat_coverage.tool_cap`)
+             anchor='            tool_choice = ({"type": "none"}\n                           if tool_calls_made >= tool_cap else None)\n',
              replacement="            tool_choice = None\n",
              target="tests/test_chat_claude_first.py",
              keyword="the_tool_call_cap_stops_the_loop_rather_than_running_forever",
