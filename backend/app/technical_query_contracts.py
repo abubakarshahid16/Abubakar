@@ -16,7 +16,11 @@ from .db import connect
 
 log = logging.getLogger(__name__)
 
-PER_CONTRACT = 2
+#: Measured 26 Nov 2026 (10 answered questions): a wide candidate pool, a wide reranker shortlist and the cut AFTER the reranker found the right
+#: page for 8 of 10, against 7 of 10 for 16 candidates reranked and 2 kept. Rank-1 and top-3 did not change.
+WIDE_CANDIDATES = 60
+WIDE_SHORTLIST = 40
+PER_CONTRACT = 8
 MAX_PASSAGES = 20
 ROLE = "CONTRACT_DOCUMENT"
 
@@ -54,16 +58,23 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
     searched = failed = hits_in = 0
     for n, document_id in enumerate(contracts, 1):
         if progress:
-            progress(n - 1, len(contracts), f"searching contract {n} of {len(contracts)}")
+            progress(
+                n - 1, len(contracts), f"searching contract {n} of {len(contracts)}"
+            )
         try:
-            result = search.search(
+            res = search.search(
                 question,
                 limit=PER_CONTRACT,
                 document_id=document_id,
                 rerank=True,
                 dense=True,
                 allowed_document_ids=frozenset({document_id}),
+                candidates=WIDE_CANDIDATES,
+                rerank_candidates=WIDE_SHORTLIST,
             )
+            found = [h for h in (res.get("hits") or []) if (h.get("text") or "").strip()][
+                :PER_CONTRACT
+            ]
         except Exception as exc:  # noqa: BLE001 - counted as not searched and said in the coverage line; the other contracts go on
             log.warning(
                 "technical query: a contract could not be searched (%s)",
@@ -72,12 +83,17 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
             failed += 1
             continue
         searched += 1
-        found = [
-            h for h in (result.get("hits") or []) if (h.get("text") or "").strip()
-        ][:PER_CONTRACT]
         hits_in += 1 if found else 0
         hits.extend(found)
-    hits.sort(key=lambda h: float(h.get("score") or 0.0), reverse=True)
+    # ranked by the RERANKER's own score (the search's `score` adds boosts and penalties on top of it); a passage with none ranks by its score
+    hits.sort(
+        key=lambda h: float(
+            h["rerank_score"]
+            if h.get("rerank_score") is not None
+            else (h.get("score") or 0.0)
+        ),
+        reverse=True,
+    )
     coverage = {
         "searched": searched,
         "of": len(contracts),

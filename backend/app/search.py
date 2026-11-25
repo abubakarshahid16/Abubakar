@@ -948,6 +948,7 @@ def search(
     allowed_document_ids: frozenset[str],
     progress_id: str | None = None,
     soft_identifiers: tuple[str, ...] | list[str] = (),
+    rerank_candidates: int | None = None,
 ) -> dict:
     """Hybrid retrieval end to end.
 
@@ -963,6 +964,8 @@ def search(
     timer = Timer()
     timings: dict[str, float] = {}
     candidates = candidates or settings.search_candidates
+    # How many fused candidates the reranker reads: the setting, unless the caller asks for a wider shortlist (the technical-query reach).
+    shortlist_size = rerank_candidates or settings.rerank_candidates
 
     # Everything that scores sees the normalised question. The original is
     # kept for the response, so the reader is always shown what they typed.
@@ -1066,12 +1069,12 @@ def search(
     reranked = False
     if rerank and pool:
         progress.stage(progress_id, "reranking",
-                       f"{min(len(pool), settings.rerank_candidates)} of "
+                       f"{min(len(pool), shortlist_size)} of "
                        f"{len(pool)} candidates")
         from . import reranker
 
         t = Timer()
-        shortlist = pool[: settings.rerank_candidates]
+        shortlist = pool[:shortlist_size]
         # Recorded before the rerank runs, so the record is of the cut itself
         # and does not depend on the reranker having produced scores. If the
         # reranker returns nothing the pool is left whole below, and these
@@ -1079,7 +1082,7 @@ def search(
         # with them.
         cut = [
             _eviction(c.chunk_id, c.document_id, c.rrf, "displaced_before_rerank")
-            for c in pool[settings.rerank_candidates:]
+            for c in pool[shortlist_size:]
         ]
         # rerank on heading + body, so the cross-encoder can see which coating
         # system, clause or annex a passage belongs to
