@@ -35,12 +35,16 @@ def make_db(
     requirements=(("r1", QUOTE_NUM), ("r2", QUOTE_TXT)),
     standard=STANDARD,
     with_book=False,
+    classified=True,
 ):
     """A database copy holding only what the label job reads: documents, standard_requirements, and (with_book) a
     minimal rule book with approvals. Returns the path."""
     conn = sqlite3.connect(str(path))
     conn.execute("CREATE TABLE documents (id TEXT PRIMARY KEY, filename TEXT)")
     conn.execute("INSERT INTO documents VALUES ('d1', ?)", (standard,))
+    if classified:  # the standards lane lets out only a document held as a company standard (`standards_lane`)
+        conn.execute("CREATE TABLE document_classification (document_id TEXT PRIMARY KEY, document_role TEXT)")
+        conn.execute("INSERT INTO document_classification VALUES ('d1', 'COMPANY_STANDARD')")
     conn.execute(
         "CREATE TABLE standard_requirements (id TEXT PRIMARY KEY, standard_document_id TEXT, clause TEXT, page INTEGER,"
         " source_text TEXT, superseded_at TEXT)"

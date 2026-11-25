@@ -27,12 +27,6 @@ def _labelled(path):
     s.make_db(path)
     with sqlite3.connect(str(path)) as c:
         c.execute("ALTER TABLE standard_requirements ADD COLUMN requirement_text TEXT")
-        c.execute(
-            "CREATE TABLE document_classification (document_id TEXT PRIMARY KEY, document_role TEXT)"
-        )
-        c.execute(
-            "INSERT INTO document_classification VALUES ('d1', 'COMPANY_STANDARD')"
-        )  # the standards lane's check
     run(path, "a", s.MODEL_A, s.FakeModel())
     run(path, "b", s.MODEL_B, s.FakeModel(_comparator_differs))
     return path
