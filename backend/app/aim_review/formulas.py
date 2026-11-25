@@ -80,7 +80,7 @@ def _unit(raw: str | None) -> str:
 
 
 def parse_value(cell: str) -> list | None:
-    """The numbers of a value cell: "9 / 7.5 barg (Note 3)" -> [23.5 barg, 11.03 barg]; "-3 to 121OC / 77OC" -> [-3..121 C, 77 C].
+    """The numbers of a value cell: "9 / 7.5 barg (Note 3)" -> [9 barg, 7.5 barg]; "-5 to 90OC / 60OC" -> [-5..90 C, 60 C].
     A unit written once at the end serves the numbers before it. None when the cell leaves the value open (no figure) or is not a
     plain number list: never a guess."""
     text = re.sub(
