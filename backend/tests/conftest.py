@@ -177,6 +177,21 @@ def _a_test_cannot_leave_the_process_settings_changed():
 
 
 @pytest.fixture(autouse=True)
+def _a_test_cannot_leave_a_sign_in_resolver_behind():
+    """The identity resolver (`access._resolve_user_id`) is put back after each test.
+
+    Many tests sign a user in with `access.set_user_resolver(lambda request: "eng-1")` and no restore (the shared `_signed_in`
+    helper of test_model_matching does). Every later test on that worker then had a signed-in engineer on a request that carries
+    no cookie: the Gmail connection return answered 403 ("started by another person") instead of 401 ("sign in") only when
+    test_standards_acquisition ran before test_tq_g_feature_off (integrator, 26 Nov 2026). Snapshot before, restore after."""
+    from app import access
+
+    before = access._resolve_user_id
+    yield
+    access._resolve_user_id = before
+
+
+@pytest.fixture(autouse=True)
 def _no_test_reads_the_local_edition_cutoff(tmp_path, monkeypatch):
     """Order 14 lane G: a contract's real edition cutoff lives in a git-ignored local file (`standard_editions.LOCAL_POLICY_FILE`,
     or the file EDITION_CUTOFF_FILE names). No test may read it: its contract names would print in an assertion diff. Every test

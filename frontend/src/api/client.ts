@@ -17,6 +17,7 @@ export * from "./documents";
 export * from "./review";
 export * from "./chat";
 export * from "./admin";
+export * from "./technicalQueries";
 
 import { systemApi } from "./admin";
 import { documentsApi } from "./documents";

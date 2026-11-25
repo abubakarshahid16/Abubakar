@@ -168,6 +168,12 @@ def document_original(
     """
     reject_unknown_params(request, {"download"})
     doc = require_document(document_id, scope)
+    return original_response(doc, document_id, download)
+
+
+def original_response(doc, document_id: str, download: bool):
+    """The original bytes of a document row the caller has ALREADY been cleared to read (this route's scope check, or the technical-query
+    route's check for a mailbox attachment that is not filed into the library yet)."""
     stored = Path(stored_paths.local(doc["stored_path"]))
     # An image upload (#525 slice 2): the bytes uploaded, not the pages read from them.
     stored = upload_mod.image_original(stored) or stored

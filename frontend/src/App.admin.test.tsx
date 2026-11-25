@@ -121,12 +121,22 @@ describe("hasAdminCapability: the gate itself", () => {
   });
 
   it("appends the entry rather than mutating the shared NAV constant", () => {
-    const before = NAV.length;
+    const before = NAV.length - 1; // the Technical Queries entry is off by default
     expect(navFor({ required: true, user: PLAIN })).toHaveLength(before);
     expect(navFor({ required: true, user: ADMIN })).toHaveLength(before + 1);
     expect(navFor({ required: true, user: ADMIN }).at(-1)?.id).toBe("admin");
-    expect(NAV).toHaveLength(before);
+    expect(NAV).toHaveLength(before + 1);
     expect(NAV.some((i) => i.id === "admin")).toBe(false);
+  });
+});
+
+describe("the Technical Queries entry follows the server's switch", () => {
+  it("is not in the menu unless the server says the feature is on", () => {
+    const has = (a: Parameters<typeof navFor>[0]) => navFor(a).some((i) => i.id === "technicalQueries");
+    expect(has({ required: true, user: PLAIN })).toBe(false);
+    expect(has({ required: true, user: PLAIN, technical_queries: false })).toBe(false);
+    expect(has(null)).toBe(false);
+    expect(has({ required: true, user: PLAIN, technical_queries: true })).toBe(true);
   });
 });
 

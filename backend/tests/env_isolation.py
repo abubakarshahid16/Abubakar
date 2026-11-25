@@ -171,6 +171,9 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_senior_review_enabled": False,  # a model call per review item
     "applicability_reasoning_enabled": False,  # a model call per standard per review
     "crs_ai_wording_enabled": False,  # a model call per CRS row per review
+    # --- the Gmail lane (gmail_auth, gmail_client; owner, #1584): the technical-query feature and its OAuth secret, off and empty
+    "technical_queries_enabled": False,
+    "gmail_client_secret": "",
     # --- the market lane (market_transport)
     "market_live_enabled": False,
     "market_allow_public_egress": False,

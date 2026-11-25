@@ -321,6 +321,19 @@ class Settings(SettingsExt, BaseSettings):
     auth_max_attempts: int = 8
     auth_lockout_seconds: int = 300
 
+    # Gmail OAuth configuration is read from backend/.env into Settings,
+    # without exporting the client secret to child processes.
+    gmail_client_id: str = ""
+    gmail_client_secret: str = Field(default="", repr=False)
+    gmail_redirect_uri: str = ""
+    #: THE WAY-BACK SWITCH FOR THE WHOLE TECHNICAL-QUERY FEATURE (order 14; owner, 25 Nov 2026). OFF (default): no technical-query route
+    #: does any work (404), no mailbox poller starts, no tables are made, no menu entry is shown, and no Gmail call opens a socket.
+    technical_queries_enabled: bool = False
+    #: The engine of a technical query's draft answer ("local" or "claude"; owner approved the Claude lane on #1584 comment 7170031292).
+    #: Local by default. "claude" is honoured only when REASONING_PROVIDER lets this step use Claude (`claude`, or `per_task` with this
+    #: setting), for the contract documents the engineer chooses for that one query (its own consent record), under the claude_spend caps.
+    technical_query_draft_engine: str = "local"
+
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
     #: The recogniser is the open decision. PP-OCRv6 ships no English model, so
@@ -402,11 +415,15 @@ class Settings(SettingsExt, BaseSettings):
     #: alone still refuses everything. Checked with a real URL parser, never a
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
-    answer_model: str = "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"
+    #: ONE local default (owner, 25 Nov 2026 23:25: "let us not use the 35 billion parameter model, it crashes memory"): the
+    #: 14B-class model for Chat's local answers and technical-query drafts. The 35B stays installed and is loaded only when
+    #: the owner asks (set ANSWER_MODEL to it).
+    answer_model: str = "ministral-3:14b"
     answer_prompt_variant: str = "default"
-    #: Resident size of the answer model (the 35B: a 22 GB file, about 24 GB). Warns BEFORE
-    #: Explain is pressed. Set it with ANSWER_MODEL when pinning a smaller model.
-    answer_model_ram_bytes: int = 24_000_000_000
+    #: Resident size of the answer model: the 14B MEASURED at 11.10 GB in the engine with a 28,672-token window (25 Nov
+    #: 2026; Chat's 8,192-token window needs less); the 35B was about 24 GB. Warns BEFORE Explain is pressed. Set it with
+    #: ANSWER_MODEL when pinning another model.
+    answer_model_ram_bytes: int = 11_100_000_000
 
     # ---------------------------------------------------------- AI task runner
     # (#644). Small strict model tasks run from a background queue by

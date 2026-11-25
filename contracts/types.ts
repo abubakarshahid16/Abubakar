@@ -1476,6 +1476,8 @@ export interface Me {
 export interface AuthStatus {
   required: boolean;
   user: Me | null;
+  /** Whether the technical-query feature is switched on on the server (default off); the menu entry shows only when true. */
+  technical_queries?: boolean;
 }
 
 export interface LoginRequest {
@@ -1494,6 +1496,8 @@ export interface LoginResult {
   token: string | null;
   user: Me;
   expires_in_seconds: number;
+  /** Whether the technical-query feature is switched on here (default off); the menu entry follows it from the first screen. */
+  technical_queries?: boolean;
 }
 
 export interface PasswordResetRequest {

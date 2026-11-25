@@ -43,6 +43,8 @@ AREAS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("admin", "Administration and system: users, health, metrics, jobs, progress",
      ("/api/admin", "/api/health", "/api/metrics", "/api/jobs", "/api/progress")),
     ("watch", "Watched folder", ("/api/watch",)),
+    ("technical-queries", "Technical queries: contractor emails, evidence, reviewed responses, routing",
+     ("/api/technical-queries",)),
 )
 
 _JSON = "application/json"

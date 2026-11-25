@@ -15,6 +15,7 @@ import { ChatView } from "./views/ChatView";
 import { DashboardView } from "./views/DashboardView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
+import { TechnicalQueriesView } from "./views/TechnicalQueriesView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { useSessionExpiry } from "./hooks/useSessionExpiry";
 import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
@@ -211,6 +212,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const [chatVersion, setChatVersion] = useState(0);
   const bumpChats = useCallback(() => setChatVersion((v) => v + 1), []);
   const [session, setSession] = useState<Session>({ s: "checking" });
+  // Whether the server has the technical-query feature switched on (`/api/auth/me`): the menu entry follows it. Read at every check AND right after
+  // a sign-in (the login answer does not carry it, so without this the entry stayed hidden until the next reload).
+  const [technicalQueries, setTechnicalQueries] = useState(false);
 
   // The bearer token, when there is one, mirrored here ONLY so the admin
   // screen can be handed one. A browser login by cookie (the default, order
@@ -234,6 +238,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   const check = useCallback(async () => {
     const r = await auth.me();
     if (r.ok) {
+      setTechnicalQueries(r.data.technical_queries === true);
       // Whose decision drafts may come back, said BEFORE the workspace can
       // draw (it reads its draft as it first draws).
       if (!r.data.required) setDraftOwner(null);
@@ -309,6 +314,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         keepOnlyDraftsOf(r.data.user?.id ?? null);
         signedInAs(r.data.user);
         setSession({ s: "required", me: r.data.user });
+        setTechnicalQueries(r.data.technical_queries === true);
         return { ok: true };
       }
       if (r.disconnected) return { ok: false, kind: "offline" };
@@ -397,9 +403,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
   // nothing.
   const authStatus: AuthStatus | null =
     session.s === "disabled"
-      ? { required: false, user: null }
+      ? { required: false, user: null, technical_queries: technicalQueries }
       : session.s === "required"
-        ? { required: true, user: session.me }
+        ? { required: true, user: session.me, technical_queries: technicalQueries }
         : null;
 
   // The single decision. Both the navigation entry and the screen itself read
@@ -494,6 +500,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           )}
           {view === "ingestion" && (
             <IngestionView connection={connection} onRetryConnection={recheck} />
+          )}
+          {view === "technicalQueries" && (
+            <TechnicalQueriesView queryId={route.kind === "view" ? route.recordId : undefined} />
           )}
           {view === "dashboard" && (
             <DashboardView

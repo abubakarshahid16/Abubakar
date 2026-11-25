@@ -1,0 +1,94 @@
+# Technical Query Implementation Progress
+
+This file is an implementation record for the isolated technical-query worktree.
+It contains no client message text, document numbers, names or credentials.
+
+## Completed
+
+- Query, message, attachment, draft, evidence, decision, send and event tables.
+- Idempotent provider-message import and provider-thread follow-up matching.
+- Owner/admin query visibility and source-document permission checks.
+- Attachment upload through the existing guarded document ingestion path.
+- Exact-quote validation for manually attached evidence.
+- Permission-scoped evidence preparation using existing search.
+- Lifecycle guards for draft, approval, rejection, closure and send preparation.
+- Dependency-free Word response renderer.
+- Technical Queries frontend queue and detail view.
+- Mailbox webhooks stay disabled (503) until push authentication and durable queueing exist; the unused notification-normalizer module was moved aside.
+- Synthetic smoke checks, backend lint and frontend type-check.
+
+## Remaining independent implementation
+
+- Provider fetch worker and reconciliation cursor; adapter activation requires an approved mailbox and credentials.
+- Draft citation-to-evidence binding and conflict/supersession classification.
+- Rich frontend edit, approve, response preview and resolution actions.
+- Provider-backed send worker; activation remains disabled until explicitly approved.
+- Full automated suite once local model artifacts are staged.
+
+## Safety state
+
+- Worktree only: `workspaces/technical-query`.
+- No live database or live service changed.
+- No secret or credential inspected.
+- No external mailbox connected.
+- No external message sent.
+
+## Review and approval controls (26 Nov 2026 practice-app pass)
+
+- A person confirms the question the draft answers; drafting runs the shared answer checks on that confirmed text only.
+- The `technical_query_reviewer` capability is separate from `admin`. It is required to confirm a question, change evidence, approve or decline a draft, close a query and send. An administrator grants or revokes it for someone else (never for themselves); each change is in the admin audit log. `scripts/seed_access.py --role technical_query_reviewer` also assigns it.
+- Evidence taken from any contractor attachment is not searched. Rows saved before that rule are moved once to `needs_review`; approval and send are refused until a reviewer keeps or rejects each one. A reviewer's decision is not undone by a later sweep.
+- The contractor-facing Word file lists only verified evidence.
+- Every state a response has ever been in, every decision, every evidence change and every send attempt stays in the database. The original email is preserved as received.
+- Evidence that is conflicting or ambiguous also blocks approval and send until a reviewer resolves it.
+
+## Attachment checks
+
+- Each PDF attachment gets a static check for active content (scripts, launch actions, embedded files, rich media, form submission). It is NOT an antivirus scan and the screen says so. A flagged PDF keeps its original available, but its text is not pulled into a proposed question. A file that cannot be found is shown as "not checked". If an antivirus tool is added later, it should write its own status beside this one.
+
+## Routing
+
+- An administrator maps an exact sender address, or a company domain, to a contractor and department. A match fills only blank fields when an email arrives and is shown as "from a routing rule"; saving routing by hand overrides it. Public mail domains cannot be routed by domain, because they do not identify a company; an exact address on one can.
+- The queue filters by status, contractor, department, responsible person, received date range and evidence state; the count beside the list uses the same filters except status.
+
+## Retention and deletion
+
+- The application deletes nothing: queries, messages, attachments, evidence, drafts, decisions and send records are kept. This follows the project rule that nobody deletes. Removing a record is a deliberate, backed-up, owner-approved database operation outside the application, not a button.
+
+## Tests
+
+- `backend/tests/test_technical_queries.py` includes one complete workflow test from email to resolution through the real route functions, with only search, the answer model and Gmail replaced.
+- `backend/tests/test_attachment_safety.py` covers the static check.
+
+## Not done (needs the owner or a real account)
+
+- Real Gmail connect, import, polling, thread reply and token expiry or revocation; they need an authorized test account.
+- Release gates on a live update: backup and rehearsal, and the owner's go.
+
+
+## Brought live as its own update (order 14, 25 Nov 2026): sending OFF
+
+Owner approvals: #1584 comment 7170031292 ("Yes, approve both"): Gmail read-only, and Claude for the draft.
+
+- One way-back switch, `TECHNICAL_QUERIES_ENABLED`, default off. Off: every technical-query route answers 404 and does nothing, no tables are made at start,
+  no mailbox is polled, no Gmail call opens a socket, and the menu entry is absent (`/api/auth/me` says `technical_queries`).
+- Google is asked for `gmail.readonly` only, for a label an admin activated. NO code sends mail: the Gmail client has no send call, the worker's send
+  function is gone, and the send route only refuses ("Sending is not approved by the owner"). A crash in the middle of a send cannot happen. The engineer
+  downloads the Word response, sends it by hand, and confirms it resolved.
+- Evidence: every contract the caller may read is searched on its own (dense + rerank); the coverage line is stored and shown. A passage the search found is
+  `proposed` until a reviewer keeps it as evidence; a draft that cites no verified, current evidence cannot be approved.
+- Questions: the local model proposes each question from an attachment page with its page; the engineer ticks and confirms. No page text is copied in bulk.
+- Claude for the draft (`TECHNICAL_QUERY_DRAFT_ENGINE`, local by default): only the contract documents the engineer chooses for that one query and the query's own
+  text are sent, through the ordinary Claude path under the spend caps, after a consent record of its own (`query_claude_consent`: query id, document ids, who,
+  when). Chat's per-request consent is not used. The client-register block still wins. Any other vendor is refused.
+- A query can be entered by hand with its papers (`POST /api/technical-queries/manual`). A paper is checked for active content BEFORE it enters the library.
+- A message that keeps failing is tried three times, marked (`gmail_failed_messages`) and stepped over. The Gmail return needs the person who started it and
+  redirects (303). Attachment text, the original email and the Word file need the grant on the attachment. Every draft and Word file says "AI, to be checked"
+  until a reviewer approves.
+- Needs `keyring` installed on the live machine (it is in `requirements.txt`).
+
+- Preparing evidence is a background job (`query_evidence_jobs`): the request queues it and answers; one job runs at a time; it waits while a review runs;
+  the screen shows "N of M". Attachment pages 1 to 5 are read; the screen says which pages were not read, and a cut wording carries a visible mark.
+- Google returns to a page of the app (`/technicalQueries/gmail-return`), which posts the code to the backend as a same-site request.
+  Set `GMAIL_REDIRECT_URI` to that page's address (the app, not the backend) in Google Cloud and in `backend/.env`.
+- The Claude draft accepts only CONTRACT documents ("not a contract: not sent"). The queue list carries a fixed set of columns.

@@ -19,7 +19,8 @@ export type ViewId =
   | "deliverables"
   | "admin"
   | "standards"
-  | "review";
+  | "review"
+  | "technicalQueries";
 
 export type ThemeMode = "dark" | "light";
 export type DensityMode = "comfortable" | "compact";
@@ -41,6 +42,7 @@ export const NAV: NavItem[] = [
   { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },
   { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
   { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
+  { id: "technicalQueries", label: "Technical Queries", hint: "Email questions and approvals", built: true },
 ];
 
 /** The one role name that means "may administer". `admin` is a CAPABILITY and
@@ -88,7 +90,9 @@ export function hasAdminCapability(auth: AuthStatus | null | undefined): boolean
  *  disabled and never hidden with a class - a non-admin's DOM does not
  *  contain it at all, so there is nothing to un-hide with a devtools edit. */
 export function navFor(auth: AuthStatus | null | undefined): NavItem[] {
-  return hasAdminCapability(auth) ? [...NAV, ADMIN_NAV] : NAV;
+  // Technical Queries is switched off by default on the server (`/api/auth/me` says `technical_queries`): no entry in the DOM then.
+  const base = auth?.technical_queries === true ? NAV : NAV.filter((item) => item.id !== "technicalQueries");
+  return hasAdminCapability(auth) ? [...base, ADMIN_NAV] : base;
 }
 
 export type Connection =

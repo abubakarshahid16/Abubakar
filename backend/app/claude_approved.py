@@ -97,6 +97,11 @@ _NO_CALLER = object()  # no caller named: the run's own background job
 #: anything (refused); an empty set = declared to carry no document content.
 _CARRIED: ContextVar[frozenset[str] | None] = ContextVar("claude_carried_documents", default=None)
 _REQUEST_CONSENT: ContextVar[bool] = ContextVar("claude_request_consent", default=False)
+#: The documents an engineer chose for ONE technical query's Claude draft (its own lane, never chat's `_REQUEST_CONSENT`). Set only by
+#: `technical_query_lane`, after the consent record is stored. The block list is asked first and wins.
+_QUERY_CONSENT: ContextVar[frozenset[str]] = ContextVar(
+    "claude_technical_query_consent", default=frozenset()
+)
 #: The review run whose documents the calls inside `reviewing()` carry. With `claude_spend.current_run()` it is how the gate
 #: knows a prompt belongs to a review run (so which document is the paper under review). None = not a review run.
 _CALLER: ContextVar = ContextVar("claude_caller", default=_NO_CALLER)
@@ -115,6 +120,18 @@ def carrying(document_ids):
         yield
     finally:
         _CARRIED.reset(token)
+
+
+@contextlib.contextmanager
+def technical_query_lane(document_ids):
+    """The Claude draft of ONE technical query may carry exactly these documents (the engineer's choice, recorded first by
+    `technical_query_claude.record`). Narrower than chat's lane: it consents to nothing else, and the client-register block and the
+    money caps still apply."""
+    token = _QUERY_CONSENT.set(frozenset(str(d) for d in (document_ids or ()) if d))
+    try:
+        yield
+    finally:
+        _QUERY_CONSENT.reset(token)
 
 
 @contextlib.contextmanager
@@ -525,9 +542,11 @@ def _consented(ids) -> frozenset[str]:
     """The declared documents the run in force may send because its start was an EXPLICIT choice of Claude with these documents
     on the list the screen showed (`review_shown.consented_ids`; owner, 12 Nov 2026, #1584: "button is enough"). Never the block
     list (asked first, whatever this says), never a document the stored list does not name, never another run's consent."""
+    # a technical query's own lane: the engineer's chosen documents only
+    chosen = _QUERY_CONSENT.get() & frozenset(ids or ())
     run = review_run()
     if not run or not ids:
-        return frozenset()
+        return chosen
     import sqlite3
 
     from . import review_shown
@@ -536,10 +555,10 @@ def _consented(ids) -> frozenset[str]:
     try:
         caller = _CALLER.get()
         if caller is _NO_CALLER:
-            return review_shown.consented_ids(connect(), run, ids)
-        return review_shown.consented_ids(connect(), run, ids, caller)
+            return chosen | review_shown.consented_ids(connect(), run, ids)
+        return chosen | review_shown.consented_ids(connect(), run, ids, caller)
     except sqlite3.Error:
-        return frozenset()
+        return chosen
 
 
 def contracts_without_yes(ids) -> frozenset[str]:
@@ -594,6 +613,20 @@ def unshown_specifications(ids) -> frozenset[str]:
     return _unshown_specifications(ids)
 
 
+def _unfiled_attachments(ids) -> frozenset[str]:
+    """Of the declared documents, the technical-query attachments nobody has filed into the library. An unreadable table is the safe side:
+    nothing is held for it (no attachment can exist without the table)."""
+    import sqlite3
+
+    from . import technical_queries
+    from .db import connect
+
+    try:
+        return frozenset(ids) & technical_queries.unfiled_attachment_ids(connect())
+    except sqlite3.Error:
+        return frozenset()
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name.
@@ -609,6 +642,12 @@ def refusal() -> tuple[str, str] | None:
         stopped = _block_stop(ids)
         if stopped is not None:
             return stopped
+        apart = _unfiled_attachments(ids)
+        if apart:  # a technical-query attachment goes nowhere until an engineer files it into the library
+            return NOT_APPROVED, (
+                f"{len(apart)} of {len(ids)} document(s) in this prompt are technical-query attachments not filed into the library "
+                f"(ids: {', '.join(sorted(apart))}), so nothing is sent"
+            )
     # The list the screen showed is a cap of its own, whether or not the owner's list is enforced.
     held = frozenset() if _REQUEST_CONSENT.get() else _unshown_specifications(ids)
     if held:

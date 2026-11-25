@@ -32,7 +32,7 @@ import getpass
 import re
 import secrets
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,6 +60,11 @@ ROLES = {
     # NOT a fifth discipline. Orthogonal to all four: an administrator holds
     # this AND the discipline they work in.
     "admin": (CAPABILITY, "Administer users, roles and grants"),
+    # Not implied by admin: an administrator's account alone does not prove engineering qualification.
+    "technical_query_reviewer": (
+        CAPABILITY,
+        "Confirm questions, review evidence, approve and send technical query responses",
+    ),
 }
 
 DISCIPLINES = [n for n, (k, _d) in ROLES.items() if k == DISCIPLINE]
@@ -83,7 +88,7 @@ FORBIDDEN = {
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def check_password(password: str, email: str) -> list[str]:

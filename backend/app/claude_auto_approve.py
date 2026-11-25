@@ -298,9 +298,23 @@ def is_contract_paper(document_id: str) -> bool:
         return True
 
 
+def _unfiled_query_attachment(document_id: str) -> bool:
+    """A technical-query attachment nobody has filed into the library never joins the approved list by any automatic route (an engineer
+    files it on purpose with a role first). A table that cannot be read counts as "not flagged" only when it is missing: an error is the
+    safe side (kept off)."""
+    import sqlite3
+
+    from . import technical_queries
+
+    try:
+        return document_id in technical_queries.unfiled_attachment_ids(connect())
+    except sqlite3.Error:
+        return True
+
+
 def _want(row, source: str, *extra_names, withdraw: bool = False) -> dict | None:
     sha = (row["sha256"] or "").strip().lower()
-    if not sha:
+    if not sha or _unfiled_query_attachment(row["id"]):
         return None
     return {
         "document_id": row["id"],

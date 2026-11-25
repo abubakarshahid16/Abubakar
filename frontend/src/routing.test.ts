@@ -78,3 +78,9 @@ describe("every navigation entry survives a refresh", () => {
     expect(parseRoute("/standards")).toEqual({ kind: "view", view: "standards", recordId: undefined });
   });
 });
+
+describe("the Gmail return page", () => {
+  it("is a view of Technical Queries whose record id is the return marker", () => {
+    expect(parseRoute("/technicalQueries/gmail-return")).toEqual({ kind: "view", view: "technicalQueries", recordId: "gmail-return" });
+  });
+});

@@ -29,6 +29,7 @@ see a document is a `document_role_access` row reachable through `user_roles`.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -72,9 +73,20 @@ class AccessScope:
     #: that is `admin` or nothing. Carried on the scope so the routes never
     #: re-derive "is this caller an admin" from a second source.
     capabilities: frozenset[str] = frozenset()
+    #: Technical-query attachments this person could read but that nobody has filed into the library (`technical_queries.unfiled_attachment_ids`).
+    #: They are NOT in `allowed_document_ids`, so search, Chat, the review picker and the approval routes never see them; only the technical-query
+    #: screens ask `may_read_attachment`.
+    query_attachment_ids: frozenset[str] = frozenset()
 
     def may_read(self, document_id: str) -> bool:
         return document_id in self.allowed_document_ids
+
+    def may_read_attachment(self, document_id: str) -> bool:
+        return document_id in self.allowed_document_ids or document_id in self.query_attachment_ids
+
+    @property
+    def readable_with_attachments(self) -> frozenset[str]:
+        return self.allowed_document_ids | self.query_attachment_ids
 
     @property
     def is_admin(self) -> bool:
@@ -120,6 +132,16 @@ class AccessScope:
         return (self.user_id, self.user_id is not None and self.is_admin)
 
 
+def _unfiled_attachments() -> frozenset[str]:
+    """The technical-query attachments nobody has filed into the library: kept out of every scope's readable set (see `AccessScope`)."""
+    from . import technical_queries
+
+    try:
+        return technical_queries.unfiled_attachment_ids(connect())
+    except sqlite3.Error:
+        return frozenset()
+
+
 def unrestricted_scope() -> AccessScope:
     """Every document. Named so it can never be reached by accident.
 
@@ -131,7 +153,8 @@ def unrestricted_scope() -> AccessScope:
     tests that run with auth off, which is most of them.
     """
     ids = frozenset(r["id"] for r in connect().execute("SELECT id FROM documents"))
-    return AccessScope(user_id=None, allowed_document_ids=ids, unrestricted=True)
+    apart = _unfiled_attachments() & ids
+    return AccessScope(user_id=None, allowed_document_ids=ids - apart, unrestricted=True, query_attachment_ids=apart)
 
 
 def scope_for_user(user_id: str) -> AccessScope:
@@ -163,8 +186,9 @@ def scope_for_user(user_id: str) -> AccessScope:
             (user_id,),
         )
     )
-    return AccessScope(user_id=user_id, allowed_document_ids=ids,
-                       capabilities=capabilities)
+    apart = _unfiled_attachments() & ids
+    return AccessScope(user_id=user_id, allowed_document_ids=ids - apart,
+                       capabilities=capabilities, query_attachment_ids=apart)
 
 
 def disciplines_for(document_id: str) -> list[str]:
