@@ -34,7 +34,6 @@ const api = vi.hoisted(() => ({
   createByHand: vi.fn(),
   completeGmail: vi.fn(),
   fileIntoLibrary: vi.fn(),
-  mailboxes: vi.fn(),
   gmailLabels: vi.fn(),
   activateGmailLabel: vi.fn(),
   checkNow: vi.fn(),
