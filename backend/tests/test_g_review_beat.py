@@ -11,11 +11,18 @@ from app.ingest import STALL_AFTER_SECONDS, IngestionWorker
 from app.worker_review import REVIEW_SILENCE_SECONDS
 from tests.test_worker_health import temp_storage  # noqa: F401 - fixture
 
+_ALIVE = type("T", (), {"is_alive": staticmethod(lambda: True)})
 
-def _worker(beat_age: float, reviewing: bool) -> IngestionWorker:
+
+def _worker(
+    review_age: float, reviewing: bool, upload_age: float = 0.0
+) -> IngestionWorker:
+    """Update 7 (#1913): the review runs on its own lane, so a review's silence is the REVIEW lane's heartbeat
+    (`last_review_beat`); the upload lane beats on its own (`last_beat`)."""
     w = IngestionWorker()
-    w._thread = type("T", (), {"is_alive": staticmethod(lambda: True)})()
-    w.last_beat = w.last_progress = time.time() - beat_age
+    w._thread, w._review_thread = _ALIVE(), _ALIVE()
+    w.last_beat = w.last_progress = time.time() - upload_age
+    w.last_review_beat = time.time() - review_age
     w.reviewing = reviewing
     return w
 
@@ -27,7 +34,7 @@ def test_a_review_silent_for_minutes_is_busy_not_hung(temp_storage):  # noqa: F8
 
 
 def test_without_a_review_the_same_silence_is_hung(temp_storage):  # noqa: F811
-    s = _worker(STALL_AFTER_SECONDS + 200, reviewing=False).status()
+    s = _worker(0, reviewing=False, upload_age=STALL_AFTER_SECONDS + 200).status()
     assert s["stalled"] is True and any(
         r.startswith("no_heartbeat") for r in s["stalled_reasons"]
     )

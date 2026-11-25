@@ -236,9 +236,6 @@ def _division_decision(
     construction = scope["construction"]
     if not stated:
         return "unsure", None
-    rule_on = ai_task_runner.settings.scope_type_words_rule_enabled
-    if rule_on and scope_type_words.construction_in_type(construction, classification):
-        return "applies", None
     first = _read(
         CONSTRUCTION_TASK,
         _construction_text(construction, scope["quote"], stated),

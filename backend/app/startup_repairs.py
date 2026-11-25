@@ -1,4 +1,10 @@
-"""Idempotent repairs for retained content and legacy history, before workers start."""
+"""Idempotent repairs for retained content and legacy history.
+
+`restore_blocked_refresh` runs in the ingestion worker. The HISTORY repair (`candidates`, `repair`, `at_startup`) is NOT run
+at start-up: nothing calls it (review of update 6a, M2). It rewrites `audit_events` actors and cancels pending runs, so it is a
+maintenance step started BY HAND, after a verified backup and its own review; `at_startup` takes the verified rollback point
+itself on a live-shaped database.
+"""
 
 from __future__ import annotations
 

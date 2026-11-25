@@ -10,9 +10,11 @@ import re
 from . import WHY_METHOD
 from . import library as L
 
-#: The kinds whose technical rule books need the paper's own scope to name their subject: a contract, and a procedure or study
-#: (a HAZOP got coating, insulation and welding books and used none). The METHOD books of the kind always stay.
-SCOPE_NAMED_KINDS = frozenset({"contract", "procedure", "study"})
+#: The kinds whose technical rule books need the paper's own scope to name their subject: a contract, a specification (it is
+#: checked with the contract-labelled rules, so without this rule the books with the most such rules won: welding and vessel
+#: code books on a job specification, #1903), and a procedure or study (a HAZOP got coating, insulation and welding books and
+#: used none). The METHOD books of the kind always stay; a book the paper cites always stays.
+SCOPE_NAMED_KINDS = frozenset({"contract", "specification", "procedure", "study"})
 #: Words that name no subject by themselves (a scope sentence and a rule subject both use them freely).
 _STOP = frozenset((
     "the", "and", "for", "with", "from", "that", "this", "these", "those", "such", "shall", "will", "must", "under", "into",

@@ -433,7 +433,6 @@ class Settings(SettingsExt, BaseSettings):
     ai_division_scope_enabled: bool = True
     ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
-    scope_type_words_rule_enabled: bool = False  # order 210 draft, off
     #: #645 clause to check: for a clause sentence with no stored limit that
     #: the review could not decide, the model PROPOSES a check (the local runner; in a Claude-lane run Claude when
     #: AI_CLAUSE_REVIEW_ENGINE says claude, LP3) (field, limit, unit, condition, quote); code verifies every part and keeps what
@@ -1536,7 +1535,6 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_answer_reuse_enabled",
 )
 ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
-ANSWER_AFFECTING_SETTINGS += ("scope_type_words_rule_enabled",)
 
 
 def config_version() -> str:

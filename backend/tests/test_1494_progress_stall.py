@@ -88,9 +88,10 @@ FROZEN = 20 * 60  # the row untouched for 20 min, past the claim's 15
 
 def _worker(monkeypatch, *, beat_age: float, reviewing=True, thread=None):
     worker = ingest.IngestionWorker()
-    worker._thread = thread or threading.current_thread()
+    # update 7 (#1913): a review runs on the worker's REVIEW lane thread, which holds the claim and beats its own heartbeat
+    worker._review_thread = thread or threading.current_thread()
     worker.reviewing = reviewing
-    worker.last_beat = time.time() - beat_age
+    worker.last_review_beat = time.time() - beat_age
     monkeypatch.setattr(ingest, "_worker", worker)
     return worker
 

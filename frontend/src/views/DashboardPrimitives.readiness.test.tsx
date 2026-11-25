@@ -1,4 +1,5 @@
-/** The Uploads line of "What this system can do right now": a review on the worker's one thread is busy, not stopped. Invented values. */
+/** The Uploads line of "What this system can do right now": a running review is busy, not stopped; since update 7 uploads are read
+ * beside it on their own lane and "waiting" is said only for uploads that wait for the local model. Invented values. */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -14,15 +15,21 @@ function metrics(worker: Record<string, unknown>): Metrics {
 }
 
 describe("Uploads line", () => {
-  it("says a review is running and how many uploads wait, never that processing stopped", () => {
-    render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 3 })} />);
+  it("says a review is running and how many uploads wait for the model, never that processing stopped", () => {
+    render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 3, uploads_waiting_for_review: 3 })} />);
     expect(screen.getByText("busy with a review: 3 uploads waiting")).toBeInTheDocument();
     expect(screen.queryByText(/processing has stopped/)).toBeNull();
   });
 
   it("one upload waiting is said in the singular", () => {
-    render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 1 })} />);
+    render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 1, uploads_waiting_for_review: 1 })} />);
     expect(screen.getByText("busy with a review: 1 upload waiting")).toBeInTheDocument();
+  });
+
+  it("uploads read beside a running review are not called waiting", () => {
+    render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 2, uploads_waiting_for_review: 0 })} />);
+    expect(screen.getByText("a review is running; 2 uploads are read beside it")).toBeInTheDocument();
+    expect(screen.queryByText(/waiting/)).toBeNull();
   });
 
   it("a stalled worker with no document and no review still says processing has stopped", () => {

@@ -52,7 +52,12 @@ def local(value: str | None, *, directory: bool = False) -> str | None:
         return str(settings.data_dir.joinpath(*parts))
     if Path(value).exists():
         return value
-    # Written on another machine: the longest tail of it that exists here.
+    if directory:
+        # A configured FOLDER (the watch folder) never moves (review of update 6a, M1): a missing absolute folder (an
+        # unmounted share) stays missing, so the caller says "waiting for it"; it is never swapped for a data folder that
+        # only shares its last name.
+        return value
+    # A stored FILE written on another machine: the longest tail of it that exists here.
     for start in range(len(parts)):
         candidate = settings.data_dir.joinpath(*parts[start:])
         matches = candidate.is_dir() if directory else candidate.is_file()
