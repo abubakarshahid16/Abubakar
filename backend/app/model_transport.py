@@ -248,18 +248,21 @@ def post_json(path: str, body: dict, *, timeout: float) -> Any:
     url = endpoint(path)
     body = _normalised(path, body)
     # one large local model at a time between the worker's lanes (`local_model_gate`); no lane outside the worker: no wait
-    with local_model_gate.holding(), httpx.Client(
-        timeout=timeout,
-        # A 302 is a host no check ever saw; following one would move the
-        # destination outside the check that just passed. Same reasoning as
-        # market_transport, and it matters more here because the body is
-        # document text.
-        follow_redirects=False,
-        # Ambient HTTP_PROXY/HTTPS_PROXY would route a "loopback" request
-        # through somebody else's server. The check says the host is this
-        # machine; trust_env=False is what keeps that true.
-        trust_env=False,
-    ) as client:
+    with (
+        local_model_gate.holding(),
+        httpx.Client(
+            timeout=timeout,
+            # A 302 is a host no check ever saw; following one would move the
+            # destination outside the check that just passed. Same reasoning as
+            # market_transport, and it matters more here because the body is
+            # document text.
+            follow_redirects=False,
+            # Ambient HTTP_PROXY/HTTPS_PROXY would route a "loopback" request
+            # through somebody else's server. The check says the host is this
+            # machine; trust_env=False is what keeps that true.
+            trust_env=False,
+        ) as client,
+    ):
         response = client.post(url, json=body)
         response.raise_for_status()
         return response.json()
@@ -381,8 +384,12 @@ def stream_json(path: str, body: dict, *, timeout: float, cancel=None):
         client = httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False)
         abort = _Abort(client, cancel)
         try:
-            with client.stream("POST", url, json={**body, "stream": True},
-                               extensions={"trace": abort.trace}) as response:
+            with client.stream(
+                "POST",
+                url,
+                json={**body, "stream": True},
+                extensions={"trace": abort.trace},
+            ) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
                     if cancel is not None and cancel.is_set():
@@ -391,7 +398,7 @@ def stream_json(path: str, body: dict, *, timeout: float, cancel=None):
                         yield _json.loads(line)
         except (httpx.TransportError, RuntimeError):
             if cancel is not None and cancel.is_set():
-                return        # the abort above, not a failure
+                return  # the abort above, not a failure
             raise
         finally:
             abort.finished.set()
