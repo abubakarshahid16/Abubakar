@@ -123,6 +123,8 @@ CITED_NOT_HELD = "cited_not_held"
 #: of 26 Nov 2026: valve cards were sent as Questions whose ask only stated a pass). An AI verdict of a pass is internal only:
 #: kept on All points, never sent. Decided by the judge's own label and code's result, never by the comment's words.
 AI_MET_UNPROVEN = "ai_met_unproven"
+#: A Question for the ENGINEER only (the cross-document meaning check, `cross_doc_meaning`): on All points, never sent.
+ENGINEER_QUESTION = "engineer_question"
 NOT_SENT_NOTES = (
     NOT_JUDGED,
     PROVISIONAL,
@@ -133,6 +135,7 @@ NOT_SENT_NOTES = (
     NO_ASK,
     CITED_NOT_HELD,
     AI_MET_UNPROVEN,
+    ENGINEER_QUESTION,
 )
 
 
@@ -197,6 +200,7 @@ __all__ = [
     "CONTRACTOR_FILLED",
     "DIFFERENT_ITEMS",
     "EDITED",
+    "ENGINEER_QUESTION",
     "LABELS",
     "MAX_BOOKS",
     "METHOD_VERSION",
