@@ -50,7 +50,8 @@ LOCAL = Budget(
     material=40_000,
     book=12_000,
     text_book=8_000,
-    batch_chars=20_000,
+    # one checklist or attack call's material (A's measure, 26 Nov 2026: at 20,000 a 14B answer was cut at 8,192 tokens)
+    batch_chars=9_000,
     window_tokens=16_768,
     window_chars=50_000,
     judge_batch=3,
