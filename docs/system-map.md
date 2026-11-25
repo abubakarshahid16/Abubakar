@@ -172,6 +172,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.upload_role_suggestion` | Route: GET /api/document-kinds/role-suggestion: whether the one-upload role suggestion is on and which roles the review page lists (order 14 lane E); read only |
 | `api.review_templates` | Routes: GET /api/reviews/templates and GET /api/reviews/baseline-rules - the lists, each with an optional page and its total (order 117 item 5) |
 | `api.rule_labels` | Route: POST /api/admin/rule-labels/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a label file after checking each row again |
+| `api.rule_second` | Route: POST /api/admin/rule-second/import - admin only, 404 feature_off when `agent_review_enabled` is off; dry_run (default) counts only; 409 while a review is queued or running; the server adds a second-model approval file after checking each approval against the live book |
 | `api.rule_equipment` | Route: POST /api/admin/rule-equipment/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores an equipment label file after checking each row again |
 | `api.ocr_boxes` | Route: POST /api/admin/ocr-boxes/import - admin only, 404 feature_off when `agent_review_enabled` is off; the server stores a box file after checking each page again |
 | `api_tags` | The API description grouped by area (one tag per route) with every file response typed; documentation only (order 69) |
