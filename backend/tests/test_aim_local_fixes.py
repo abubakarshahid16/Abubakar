@@ -150,3 +150,39 @@ def test_on_the_local_model_a_chosen_book_offers_every_subject():
         "b1": "all",
         "b2": "all",
     }
+
+
+TWO_LINES = Paper(
+    paper_id="doc_inv_two_lines",
+    pages={1: "Invented sheet.\nCorrosion allowance (pressure parts)\n1.5 mm\n"},
+)
+
+
+def test_on_the_local_model_a_label_and_its_value_on_two_lines_are_one_quote_and_code_compares_it():
+    """The rerun of 26 Nov: the 14B joined a label and its value with a colon; 17 of 52 quotes failed, so code compared none and
+    a Met or Not met fell back to a Question."""
+    from app.aim_review import verify as V
+
+    joined = "Corrosion allowance (pressure parts): 1.5 mm"
+    answer = {**ANSWER, "page": 1, "quote": joined, "label": "Not met",
+              "numbers": {"paper_value": "1.5", "paper_unit": "mm", "operator": ">=", "rule_value": "3", "rule_unit": "mm"}}  # fmt: skip
+    claude = S._decide(ITEM, dict(answer), TWO_LINES, {}, "")
+    with budget.using(budget.LOCAL):
+        local = S._decide(ITEM, dict(answer), TWO_LINES, {}, "")
+        asked = S._decide(
+            ITEM, {**ANSWER, "page": 1, "quote": joined}, TWO_LINES, {}, ""
+        )  # a Question, no numbers given
+        assert not V.quote_in(
+            "Corrosion allowance (pressure parts): 2.5 mm", TWO_LINES.pages[1]
+        )  # a changed number: never
+        assert not V.quote_in(
+            "1.5 mm Corrosion allowance (pressure parts)", TWO_LINES.pages[1]
+        )  # out of order: never
+    assert (
+        claude["label"] == "Question"
+        and "paper quote not found by code" in claude["code"]
+    )  # Claude: word for word, unchanged
+    assert local["label"] == "Not met" and V.LOOSE_NOTE in local["code"]
+    assert (
+        asked["label"] == "Not met" and CN.NOTE in asked["code"]
+    )  # code read the numbers from the joined quote

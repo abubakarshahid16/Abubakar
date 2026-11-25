@@ -33,6 +33,7 @@ from .fail_words import (  # noqa: F401 - one home: fail_words
 from .verify import (
     compare,
     find_page,
+    loose_note,
     norm,
     paper_relation,
     quoted_value,
@@ -668,7 +669,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     quote = str(j.get("quote") or "")
     hint = j.get("page") if isinstance(j.get("page"), int) else None
     page = find_page(quote, paper.pages, hint) if quote else None
-    notes = []
+    notes = [] if page is None else loose_note(quote, paper.pages.get(page))
     if quote and page is None:
         notes.append("paper quote not found by code")
         if label in ("Met", "Not met"):
