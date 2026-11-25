@@ -87,7 +87,9 @@ CONDITIONS_ASK = (
     "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
     "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
     '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
-    "value it covers, and each material, allowance or rating suits the stated condition."
+    "value it covers, and each material, allowance or rating suits the stated condition. A stated hazardous-area "
+    "classification (zone, gas group, temperature class) is such a choice too: ONE item checks that it covers EVERY gas "
+    "or vapour the same paper names, wherever it names it."
 )
 KNOWLEDGE_ASK = (
     "ALSO add the items a senior engineer always checks on this kind of paper that NO clause below covers "
