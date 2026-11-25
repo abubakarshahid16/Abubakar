@@ -186,7 +186,7 @@ def test_on_the_local_model_a_draft_about_a_field_that_has_a_value_is_refused(tw
     a field the code readers read as blank on that page - proved against the
     stored facts, not the model's word."""
     _sub, run, scope = two_pages
-    opinion = dict(GOOD, observation="The design pressure of 23.5 barg is unusual for this service.",
+    opinion = dict(GOOD, observation="The design pressure of 22.2 barg is unusual for this service.",
                    action="Contractor to confirm the design pressure.")       # field: Design pressure, has a value
     elsewhere = dict(GOOD_1, field=NOTE_FIELD)                                # blank, but on page 2
     _local(monkeypatch, PageTransport({1: [opinion, GOOD_1, elsewhere], 2: []}), BLANKS)
@@ -244,7 +244,7 @@ def test_a_draft_about_the_sheets_furniture_is_layout(field, value):
 
 
 @pytest.mark.parametrize("field, value", [
-    ("Design pressure", "23.5 barg"),
+    ("Design pressure", "22.2 barg"),
     ("Hydrotest date", ""),
     ("Tube sheet", "25 mm"),
     ("Revision of design code", "2019"),

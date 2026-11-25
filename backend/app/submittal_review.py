@@ -396,7 +396,7 @@ def ensure_schema() -> None:
             ("is_blank", "INTEGER"),
             ("blank_marker", "TEXT"),
             # #725 F3: the "not provided" phrase printed BESIDE a value
-            # ("340 psig (By Contractor)"): the value is real, this is its note.
+            # ("315 psig (By Contractor)"): the value is real, this is its note.
             ("value_note", "TEXT"),
             ("field_label", "TEXT"),
             ("bbox", "TEXT"),
@@ -412,7 +412,7 @@ def ensure_schema() -> None:
             # Nothing converts between the two unless the answer is the same at
             # any atmospheric pressure (`claims.compare_across_units`).
             ("unit_reference", "TEXT"),
-            # A RANGE HAS TWO NUMBERS AND NEITHER IS "THE" VALUE. `-3 to 55 C`
+            # A RANGE HAS TWO NUMBERS AND NEITHER IS "THE" VALUE. `-7 to 55 C`
             # is an ambient band; averaging it invents a number the sheet does
             # not state, and picking one silently answers a question nobody
             # asked. Both ends are kept and `comparison.compare` chooses the

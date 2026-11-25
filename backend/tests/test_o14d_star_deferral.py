@@ -69,7 +69,7 @@ def test_a_footnote_or_note_star_is_not_a_deferral(line):
 
 def test_the_phrase_markers_still_defer_and_names_a_marker_is_unchanged():
     """`defers_value` adds the star; it takes nothing away, and the readers' `names_a_marker` (single cells) is not widened."""
-    assert blank_markers.defers_value("340 psig By Contractor") is True
+    assert blank_markers.defers_value("315 psig By Contractor") is True
     assert (
         blank_markers.defers_value("* VENDOR TO ADVISE / CONFIRM") is True
     )  # the phrase, not the star

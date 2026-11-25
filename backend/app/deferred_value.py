@@ -1,6 +1,6 @@
 """A value the sheet defers to the contractor is a query, never a verdict (owner decision D2, #1475).
 
-The datasheet reader keeps a figure printed with a deferral phrase ("340 psig By Contractor") as a value and
+The datasheet reader keeps a figure printed with a deferral phrase ("315 psig By Contractor") as a value and
 the phrase as its `value_note` (#725 F3). Both deciders then judged the figure as if it were final: the
 datasheet checklist wrote "is stated" or did the arithmetic, and the standards comparison compared it, so the
 CRS showed a Pass on a number the sheet itself says is not final.

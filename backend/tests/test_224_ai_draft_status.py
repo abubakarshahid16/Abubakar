@@ -43,7 +43,7 @@ def world(tmp_path, monkeypatch):
 
 def _draft(
     page,
-    quote="340 psig",
+    quote="315 psig",
     standard="API 520",
     text="The valve size is blank.",
     action="State the valve size.",
@@ -122,7 +122,7 @@ def test_exact_repeats_are_marked_and_every_row_keeps_its_page_tag_and_quote():
         "Exact repeat of the observation on page 1." in r["ai_rationale"]
         for r in rows[1:]
     )
-    assert {r["contractor_evidence_text"] for r in rows} == {"340 psig"}
+    assert {r["contractor_evidence_text"] for r in rows} == {"315 psig"}
 
 
 def test_a_second_call_changes_nothing():

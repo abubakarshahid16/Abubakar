@@ -4,7 +4,7 @@
 |---|---|---|
 | Public | Public copies of international standards, product brochures | Allowed |
 | Internal | Code, synthetic test files, plans | Allowed, without document text |
-| Confidential | KJO submittals, company standards (SAES), CRSs, review results | **Only** through `reader_transport.py`. In chat, the user's explicit Claude choice plus explicit document selection is consent for only those selected files on that request; every non-chat Claude workflow still requires the owner-approved list (S2). |
+| Confidential | Client submittals, company standards (SAES), CRSs, review results | **Only** through `reader_transport.py`. In chat, the user's explicit Claude choice plus explicit document selection is consent for only those selected files on that request; every non-chat Claude workflow still requires the owner-approved list (S2). |
 | Restricted | Passwords, API keys, `backend/.env`, personal data | **Never** |
 
 - The code already blocks every other outbound path for document content (CLAUDE.md, standing rule 1). Only four modules may open a socket, each behind a gate.

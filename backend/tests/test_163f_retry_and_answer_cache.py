@@ -27,12 +27,12 @@ import pytest
 from app import ai_task_runner, comparison, datasheet_ai, db, model_transport
 from app.config import settings
 
-PAGE = "Design pressure 23.5 barg\nDesign temperature 120 C"
+PAGE = "Design pressure 22.2 barg\nDesign temperature 120 C"
 GOOD = {
     "field": "Design pressure",
-    "value": "23.5",
+    "value": "22.2",
     "unit": "barg",
-    "quote": "Design pressure 23.5 barg",
+    "quote": "Design pressure 22.2 barg",
     "kind": "offered",
 }
 NOT_ON_PAGE = {

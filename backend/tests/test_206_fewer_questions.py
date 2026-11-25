@@ -21,12 +21,12 @@ from app.form_reader_fields import Field
 PUMP = "Centrifugal Pump"
 LONG = "Pressure Safety Valve"  # a long field list: several batches of 8
 PAGE = """EQUIPMENT DATASHEET - CENTRIFUGAL PUMP
-Design pressure: 23.5 barg
+Design pressure: 22.2 barg
 Design temperature: 120 °C
 Rated flow: 42 m3/h
 """
 ROWS = {
-    "design_pressure": ("23.5", "barg", "Design pressure: 23.5 barg"),
+    "design_pressure": ("22.2", "barg", "Design pressure: 22.2 barg"),
     "design_temperature": ("120", "°C", "Design temperature: 120 °C"),
     "rated_flow": ("42", "m3/h", "Rated flow: 42 m3/h"),
 }
@@ -117,7 +117,7 @@ def test_a_field_whose_label_is_nowhere_on_the_page_is_not_asked():
         synonyms=("throughput rate",),
     )
     model = Model()
-    form_reader.read_form({1: "Design pressure: 23.5 barg\n"}, None, model, fields=[f])
+    form_reader.read_form({1: "Design pressure: 22.2 barg\n"}, None, model, fields=[f])
     assert model.prompts == []
 
 

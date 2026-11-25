@@ -5,7 +5,7 @@ Everything needed to run the first drill in one sitting, so the result is a reco
 ## Before it starts (5 minutes, the owner)
 
 - Pick a time-keeper (anyone who is not the incident lead). They hold the clock and write the times.
-- Invite: the owner (incident lead), the planner, s2 (the PC agent that runs the backend), KJO IT security (Q47: functions outside the project team). Legal and communications join through KJO IT for the yearly drill only.
+- Invite: the owner (incident lead), the planner, s2 (the PC agent that runs the backend), the client's IT security (Q47: functions outside the project team). Legal and communications join through the client's IT for the yearly drill only.
 - Everyone has the four files above open. Nobody reads a secret aloud; the "key" in this drill is a made-up string.
 
 ## The scenario
@@ -21,14 +21,14 @@ Everything needed to run the first drill in one sitting, so the result is a reco
 | 3-8 | **Contain: walk the kill switch**, step by step, saying aloud what each person would do and where: close sessions; revoke the cloud token; rotate the Claude key and set `REASONING_PROVIDER=ollama`; stop the backend; post on #692. | planner, s2 | Time for each of the five steps. Target for all five: **5 minutes**. |
 | 8-14 | **Preserve evidence before changing anything:** which files are copied (spend ledger, backend logs, database copy, git log and PR list), into which folder, who records the SHA-256 and the time. | s2 | The list, and who does what. |
 | 14-20 | **Fix and recover:** remove the comment, issue a new key, check the spend ledger for calls the project did not make, restart, run the usual check. | s2, owner | The order of the steps and what "recovered" means. |
-| 20-25 | **Report:** what goes to KJO IT security and when (S1 or S2: within the hours in the table); who writes the 5-working-day report. | incident lead | The wording of the first message, in plain words. |
+| 20-25 | **Report:** what goes to the client's IT security and when (S1 or S2: within the hours in the table); who writes the 5-working-day report. | incident lead | The wording of the first message, in plain words. |
 | 25-30 | **What was slow or unclear?** Every gap becomes a fix to the kill switch or the incident plan. | everyone | The list of fixes, each with an owner. |
 
 ## Pass marks (Q42, Q46, Q47)
 
 - Q42: the five kill-switch steps were walked in order and the total time is written down, with the 5-minute target met or the gap named.
 - Q46: the drill happened; the report below is on #692 within one working day.
-- Q47: the attendee list names at least one person from each function: owner, planner, the agent that runs the backend, KJO IT security. A function that did not attend is written as "not present", not left out.
+- Q47: the attendee list names at least one person from each function: owner, planner, the agent that runs the backend, the client's IT security. A function that did not attend is written as "not present", not left out.
 
 ## Report to post on #692 (copy, fill, post)
 

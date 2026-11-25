@@ -1655,7 +1655,7 @@ def test_the_contractor_filled_note_stays_on_the_line_and_the_sheet_for_every_vi
     note = aim_review.CONTRACTOR_FILLED
     rows = [
         _line(1, "Not met", "Fail, compared by code", code_note=note,
-              code_compare_json=json.dumps({"result": "fail", "why": "380 psig <= 340 psig: false", "read_from": "verified quotes"})),
+              code_compare_json=json.dumps({"result": "fail", "why": "345 psig <= 315 psig: false", "read_from": "verified quotes"})),
         _line(2, "Met", "AI opinion: met", code_note=note, standard="QX-GONE-707", book_document_id="doc_inv_gone"),
     ]  # fmt: skip
     make_run("gen_filled", rows, created="2026-11-19T04:00:00Z")

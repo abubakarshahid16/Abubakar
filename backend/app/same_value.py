@@ -1,7 +1,7 @@
 """When two readings of a field are ONE value (order 223).
 
 The same number, unit and gauge/absolute basis is one value when the only text
-around it is a plain note: "340 psig" and "340 psig (By Contractor, as per
+around it is a plain note: "315 psig" and "315 psig (By Contractor, as per
 Code)", "9400 Kg/hr Note - 2". ANYTHING else around the number may change what
 it means, so the two readings stay two values for the engineer: a condition
 ("at 20 C", "for liquid service"), a bound ("max", "min"), a negation, a side

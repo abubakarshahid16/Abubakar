@@ -2,7 +2,7 @@
 
 Who is responsible for what when the system uses an outside service.
 
-| Area | Us (owner and agents) | Anthropic (Claude API) | GitHub | KJO IT |
+| Area | Us (owner and agents) | Anthropic (Claude API) | GitHub | Client IT |
 |---|---|---|---|---|
 | What data is sent | Decide and limit it (S3). Only through `reader_transport.py`, under the USD caps in `claude_spend` | Processes the request. No training on API data under its commercial terms (**owner to confirm the current terms**) | Stores code, issues and PRs. **No document text** is ever posted there | Owns the policy |
 | Accounts and keys | Create, rotate and revoke them. Keys live only in `backend/.env` | Secures the API | Secures the platform. We set tokens and branch rules (S4) | Approves cloud use |

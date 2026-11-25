@@ -28,7 +28,7 @@ from tests.test_form_reader import (  # noqa: F401
     storage,
 )
 
-PAGE = "EQUIPMENT DATASHEET - CENTRIFUGAL PUMP\nRated flow: By Contractor\nDesign pressure: 23.5 barg\n"
+PAGE = "EQUIPMENT DATASHEET - CENTRIFUGAL PUMP\nRated flow: By Contractor\nDesign pressure: 22.2 barg\n"
 DP_BLANK = row(
     "design_pressure",
     "By Contractor",

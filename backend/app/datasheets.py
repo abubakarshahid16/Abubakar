@@ -76,11 +76,11 @@ from . import dual_unit_form, pdf_guard, slot_options  # isort: skip
 #: families here, which never saw IEC 61511-1, BS EN 13445-3, ANSI/ISA-84.00.01
 #: or an ISO part, so the matcher (#621) never got to match or report them.
 
-#: A label-value row in a numbered form: "5 | Design pressure | 23.5 barg".
+#: A label-value row in a numbered form: "5 | Design pressure | 22.2 barg".
 #: The leading number is the sheet's own line number, not data.
 _NUMBERED_LABEL = re.compile(r"^\s*(?P<no>\d{1,3})\s*[|.\)]?\s*(?P<rest>\S.*)$")
 
-#: A value with a unit at the end: "9970 Kg/hr", "23.5 barg", "0.35 (6.09)".
+#: A value with a unit at the end: "9970 Kg/hr", "22.2 barg", "0.35 (6.09)".
 #:
 #: PARENTHESES BELONG INSIDE A UNIT when it starts with a letter, because
 #: "dB(A)" is one unit and "dB" is a different one - A-weighting is part of
@@ -241,7 +241,7 @@ def quantity_head_noun(label: str | None) -> bool:
 def states_a_value(value: str | None) -> bool:
     """Does this cell say something a FACT can be made of?
 
-    A quantity (one number, or a range - `-3 to 55 C` is a value stated as
+    A quantity (one number, or a range - `-7 to 55 C` is a value stated as
     two), an explicit blank ("By Contractor", "TBA", a drawn rule), a closed
     categorical answer, or a designation (`is_designation_value`: SA-516,
     ASME VIII, CL300 - honesty audit 69). Anything else beside a label is a caption:
@@ -437,11 +437,11 @@ def furniture_labels(pairs_by_page: dict[int, list[tuple[str, str]]],
 
 # ------------------------------------------- degrees, ranges, compounds
 
-#: `121OC` is 121 °C. The PSV sheet renders the degree sign as a capital or
+#: `245OC` is 245 °C. The PSV sheet renders the degree sign as a capital or
 #: lower-case O, and the extracted text carries it literally.
 #:
 #: ONLY IMMEDIATELY AFTER A DIGIT, with nothing between. `doc`, `bloc` and
-#: `Proc.` end in the same two letters and are words; `121OC` cannot be
+#: `Proc.` end in the same two letters and are words; `245OC` cannot be
 #: anything but a temperature. The lookbehind is what keeps the rule from
 #: rewriting prose.
 #:
@@ -452,11 +452,11 @@ _DEGREE_GLYPH = re.compile(r"(?<=\d)[Ooº]([CF])\b")
 
 
 def normalise_degree_glyph(text: str | None) -> str:
-    """`121OC` / `220ºC` -> `121°C` / `220°C`. Everything else untouched."""
+    """`245OC` / `220ºC` -> `245°C` / `220°C`. Everything else untouched."""
     return _DEGREE_GLYPH.sub(r"°\1", text or "")
 
 
-#: `-3 to 55 C`, `4-28 cP`, `0 to 100%`.
+#: `-7 to 55 C`, `4-28 cP`, `0 to 100%`.
 #:
 #: THE HYPHEN IS ONLY A RANGE BETWEEN TWO NUMBERS, and the whole cell must be
 #: the range. `99-05-997` is a P&ID reference: it starts like a range and then
@@ -474,7 +474,7 @@ def parse_range(raw: str | None) -> tuple[str, str, str | None] | None:
     """`(low, high, unit)` when the cell is a range, else None.
 
     A RANGE IS TWO NUMBERS AND ONE UNIT, and both numbers are kept. Nothing
-    here averages them or picks one: an ambient of `-3 to 55 C` has no single
+    here averages them or picks one: an ambient of `-7 to 55 C` has no single
     value, and inventing one is how a range becomes a wrong verdict.
 
     The low must not exceed the high. That is what stops `10-05` - the first
@@ -493,7 +493,7 @@ def parse_range(raw: str | None) -> tuple[str, str, str | None] | None:
     The unit may arrive three ways and all three count: written on the range
     itself (`4-28 cP`), distributed from the other half of a compound value
     by `split_compound_pair` (`27.5 / 12.04 barg`), or recovered by the
-    degree-glyph rule (`-3 to 121OC`). A bare symbol is a unit: `0 to 100%`
+    degree-glyph rule (`-7 to 245OC`). A bare symbol is a unit: `0 to 100%`
     is a percentage range and parses.
     """
     text = normalise_degree_glyph(" ".join((raw or "").split()).replace("\u2212", "-"))
@@ -594,7 +594,7 @@ def split_compound_pair(label: str, value: str) -> list[tuple[str, str]]:
     fields and the value must say two answers, separated the same way and the
     same number of times. `Design/Operating pressure` against
     `27.5 / 12.04 barg` is a pair of pressures; the same label against a
-    single `23.5 barg` is a cell this function will not guess at, and it comes
+    single `22.2 barg` is a cell this function will not guess at, and it comes
     back as one pair whose value `create_fact` then refuses to parse.
 
     A TRAILING UNIT DISTRIBUTES, AND ONLY WHEN NOTHING ELSE CARRIES ONE.
@@ -1097,7 +1097,7 @@ def _join_continuations(parts: list[str]) -> list[str]:
 def split_label_value(cells: list[str]) -> list[tuple[str, str]]:
     """Label-value pairs out of one row of a form.
 
-    A client sheet is TWO FORMS SIDE BY SIDE - "5 | Design pressure | 23.5 barg |
+    A client sheet is TWO FORMS SIDE BY SIDE - "5 | Design pressure | 22.2 barg |
     46 | Bonnet material | CS" - so a row yields more than one pair and the
     leading line numbers are dropped. Pairing is strictly left to right, which
     is the order the sheet is read in.
@@ -2002,7 +2002,7 @@ def measure_value(raw: str) -> tuple[str | None, str | None, claims.Measurement 
     `355 psig` and `9970 Kg/hr` are both recorded exactly as written whether or
     not this system can convert them.
     """
-    # `121OC` IS A TEMPERATURE (the sheet writes the degree sign as a letter): rewritten here so
+    # `245OC` IS A TEMPERATURE (the sheet writes the degree sign as a letter): rewritten here so
     # every caller sees the same cell. U+2212 is a minus sign (audit N1): without this "\u221229 C"
     # was not read at all. En/em dashes are NOT rewritten: a lone dash is "not filled", between
     # numbers a range. "24.8 (109) m3/h (USGPM)" is read as its first system, "24.8 m3/h".

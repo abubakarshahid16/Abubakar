@@ -114,7 +114,7 @@ def test_a_kind_never_adds_a_standard(on, monkeypatch):
         ),
         _doc("std_other", "Other.pdf", "COMPANY_STANDARD", document_number="QQ 1"),
     ]
-    sub = _psv(text="Sizing per ISO 9999. Set pressure 340 psig.")
+    sub = _psv(text="Sizing per ISO 9999. Set pressure 315 psig.")
     scope = _scope(sub, *docs)
     monkeypatch.setattr(settings, "kind_chooses_rules_enabled", False)
     old = {

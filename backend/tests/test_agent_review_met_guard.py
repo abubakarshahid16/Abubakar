@@ -36,7 +36,7 @@ def exit_of(line, item=CHECKLIST):
 @pytest.mark.parametrize(
     "quote",
     [
-        "340 psig (By Contractor, as per Code)",
+        "315 psig (By Contractor, as per Code)",
         "Set pressure: to be confirmed",
         "Capacity TBA",
         "Orifice: vendor to advise",
@@ -100,7 +100,7 @@ def test_not_met_is_not_touched():
 def test_the_guard_never_makes_a_line_more_confident():
     for ai in ("Pass", "Fail", "Query", None):
         for verdict in ("Pass", "Fail", "Query"):
-            for quote in ("340 psig By Contractor", "carbon steel body"):
+            for quote in ("315 psig By Contractor", "carbon steel body"):
                 for checks in (dict(OK), {"paper": False}, None):
                     line = met(
                         ai_verdict=ai,
@@ -153,7 +153,7 @@ def test_the_deferral_word_list_is_the_one_in_blank_markers():
         assert V.quote_defers(f"Value | {word}") or V.quote_defers(f"10 bar {word}"), (
             word
         )
-    for plain in ("carbon steel", "N/A", "not required", "Required", "340 psig", ""):
+    for plain in ("carbon steel", "N/A", "not required", "Required", "315 psig", ""):
         assert not V.quote_defers(plain), plain
 
 
@@ -217,7 +217,7 @@ def test_line_wraps_and_note_references_are_not_deferrals():
         assert not V.quote_defers(text), text
         assert exit_of(met(paper_quote=text))["verdict_label"] == W.THINKS_MET
     assert (
-        exit_of(met(paper_quote="Set pressure 340 psig (By Contractor)"))[
+        exit_of(met(paper_quote="Set pressure 315 psig (By Contractor)"))[
             "verdict_label"
         ]
         == W.WORD_QUERY
@@ -240,7 +240,7 @@ def test_a_met_with_no_clause_quote_recorded_is_a_query_by_design():
     )
 
 
-@pytest.mark.parametrize("quote", ["340 psig (By Contractor)", "plain steel value"])
+@pytest.mark.parametrize("quote", ["315 psig (By Contractor)", "plain steel value"])
 @pytest.mark.parametrize("checks", [None, {"paper": False, "clause": False}, dict(OK)])
 def test_a_proven_fail_with_ai_met_is_never_touched(quote, checks):
     out = exit_of(

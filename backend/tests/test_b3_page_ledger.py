@@ -38,7 +38,7 @@ from app.ingest import IngestionWorker
 from app.main import app
 
 NOW = "2026-09-24T00:00:00Z"
-ROWS = [("Design pressure", "23.5 barg"), ("Set pressure", "355 psig"),
+ROWS = [("Design pressure", "22.2 barg"), ("Set pressure", "355 psig"),
         ("Compressibility factor", "0.892"), ("Design temperature", "80 C")]
 NOTE = ("All materials and workmanship remain subject to inspection by the "
         "purchaser before shipment")
@@ -367,7 +367,7 @@ def test_the_unread_page_decides_the_code_not_an_approval(tmp_path):
 #: quality gate, so the document reaches READY rather than no-searchable.
 READY_ROWS = [("Set pressure", "355 psig By Contractor"),
               ("Density at relieving temper.", "31.75 Kg/m3"),
-              ("Design pressure", "23.5 barg"), ("Compressibility factor", "0.892")]
+              ("Design pressure", "22.2 barg"), ("Compressibility factor", "0.892")]
 
 
 def _ingest(tmp_path, rows, name) -> tuple[str, str]:
@@ -397,10 +397,10 @@ def _ingest(tmp_path, rows, name) -> tuple[str, str]:
 
 #: Tags and bare numbers - no word anywhere, so no chunk of this page can
 #: pass the quality gate however the chunker joins it. (It used to be ROWS,
-#: whose "Design pressure 23.5 barg" was excluded only because the gate read
+#: whose "Design pressure 22.2 barg" was excluded only because the gate read
 #: every number as the end of a sentence; since B6 a labelled value with its
 #: unit is searchable, as it should be - audit entry 58.)
-THIN_ROWS = [("P1", "23.5"), ("P2", "340")]
+THIN_ROWS = [("P1", "22.2"), ("P2", "315")]
 
 
 def test_a_document_with_nothing_searchable_still_has_its_pages_accounted_for(tmp_path):

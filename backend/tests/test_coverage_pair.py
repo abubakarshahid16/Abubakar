@@ -146,7 +146,7 @@ def run():
     _finding(r, "COMPLIANT", rid="r-pass")
     _finding(r, "COMPLIANT", rid="r-pass-repeat")  # same standard + text: one rule
     _finding(r, "NON_COMPLIANT", rid="r-fail")
-    _finding(r, "COMPLIANT", rid="r-d2", finding="340 psig By Contractor")
+    _finding(r, "COMPLIANT", rid="r-d2", finding="315 psig By Contractor")
     _finding(r, "NOT_IN_DOCUMENT_SCOPE", rid="r-sent")
     _finding(r, "COMPLIANT", origin="datasheet_check", requirement="c1")
     _finding(r, "NEEDS_ENGINEER_REVIEW", origin="datasheet_check", requirement="c2")

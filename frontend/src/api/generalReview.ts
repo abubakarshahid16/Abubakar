@@ -20,7 +20,7 @@ export interface GeneralLine {
   topic?: string;
   code_note?: string;
   quote_unverified?: boolean;
-  /** What code compared, in words ("380 psig <= 23.5 barg: false"); empty when code compared nothing. */
+  /** What code compared, in words ("345 psig <= 22.2 barg: false"); empty when code compared nothing. */
   compared?: string;
   compare_kind?: string;
   /** The comment card (code-decided, from the server; absent on an older answer): how serious, a short title, and the parts of the card. */

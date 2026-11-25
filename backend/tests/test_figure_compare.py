@@ -34,7 +34,7 @@ def verdict(document, clause):
         ("12 bar", "not more than 1,5 MPa", True),
         ("20 bar", "not more than 1,5 MPa", False),
         ("200 kPa", "at least 1 bar", True),
-        ("340 psi", "not more than 25 bar", True),
+        ("315 psi", "not more than 25 bar", True),
     ],
 )
 def test_the_code_decides_the_direction_and_the_units(document, clause, expected):

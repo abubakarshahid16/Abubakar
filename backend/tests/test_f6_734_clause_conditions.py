@@ -67,7 +67,7 @@ def test_any_stated_field_naming_the_condition_keeps_it():
 @pytest.mark.parametrize("facts", [
     [],                                                    # nothing on the sheet
     [_field("Service", "TBA")],                            # a placeholder is not a statement
-    [_field("Set pressure", "340 psig")],                  # no application field at all
+    [_field("Set pressure", "315 psig")],                  # no application field at all
 ])
 def test_an_unstated_application_keeps_every_clause_a_check(facts):
     out = _gate(facts)

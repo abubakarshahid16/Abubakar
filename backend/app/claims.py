@@ -665,7 +665,7 @@ def normalise(value_str: str, unit_str: str, comparator: str | None = None) -> M
     entry = _UNIT_TABLE.get(_fold_unit(unit_str))
     if entry is None:
         # #725 F2: A GAUGE OR ABSOLUTE PRESSURE CONVERTS THROUGH ITS BASE UNIT
-        # ("340 psig" is 340 psi, gauge). The reference is not lost: it stays
+        # ("315 psig" is 315 psi, gauge). The reference is not lost: it stays
         # in `raw_unit` and is read back by `Measurement.reference`, and
         # `_compatible` never compares a gauge value with an absolute one.
         base, reference = split_reference(unit_str)
