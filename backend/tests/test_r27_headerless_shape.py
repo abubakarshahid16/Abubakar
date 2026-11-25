@@ -50,7 +50,7 @@ def test_no_field_is_named_after_another_rows_value():
 
 @pytest.mark.parametrize("row0, is_data", [
     (["DESIGN", "Pressure", "0.05 barg"], True),
-    (["Design pressure", "", "23.5 barg"], True),
+    (["Design pressure", "", "22.2 barg"], True),
     (["Parameter", "Units", "Value"], False),              # column names
     (["Description", "Required", "Offered"], False),
     (["Mark", "Size", "Rating", "Service"], False),

@@ -215,8 +215,8 @@ def test_one_field_per_line_is_read_line_by_line(tmp_path):
 
 def test_a_two_line_label_value_block_still_pairs():
     """The control: the pre-existing shape is unchanged."""
-    assert datasheets.pairs_from_blocks([(0, 0, "Design pressure\n23.5 barg")]) == \
-        [("Design pressure", "23.5 barg")]
+    assert datasheets.pairs_from_blocks([(0, 0, "Design pressure\n22.2 barg")]) == \
+        [("Design pressure", "22.2 barg")]
     # A time or a ratio is not a label/value split.
     assert datasheets._self_contained_pair("Start 10:30") is None
 

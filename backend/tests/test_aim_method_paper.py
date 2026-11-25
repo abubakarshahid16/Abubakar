@@ -28,7 +28,7 @@ def aim_db(tmp_path, monkeypatch):
     yield from open_aim_db(tmp_path, monkeypatch)
 
 
-LABEL_VALUE = "Set pressure 380 psig"
+LABEL_VALUE = "Set pressure 345 psig"
 
 
 def _late_value_pdf(path) -> str:
@@ -40,7 +40,7 @@ def _late_value_pdf(path) -> str:
     page.insert_text((72, 140), "Set pressure")
     page.insert_text((260, 140), "psig (By Contractor)")
     page.insert_text((72, 180), "Body material of the invented valve: carbon steel")
-    page.insert_text((180, 140), "380")  # filled in later: last in the content stream
+    page.insert_text((180, 140), "345")  # filled in later: last in the content stream
     stored = page.get_text("text")
     doc.save(str(path))
     doc.close()
@@ -85,11 +85,11 @@ def test_a_value_drawn_after_the_page_is_read_on_its_labels_line(aim_db, tmp_pat
     stored = _late_value_pdf(tmp_path / "late.pdf")
     _point_paper_at(aim_db, tmp_path / "late.pdf", {1: stored})
     # the stored text has the value apart from its label: the quote a person would copy is not in it
-    assert "380" not in _line_of(stored, "Set pressure")
+    assert "345" not in _line_of(stored, "Set pressure")
     assert not quote_in(LABEL_VALUE, stored)
     paper = P.load_paper(aim_db, PAPER)
     line = _line_of(paper.pages[1], "Set pressure")
-    assert "380" in line and "psig" in line
+    assert "345" in line and "psig" in line
     assert quote_in(LABEL_VALUE, paper.pages[1])
     assert paper.sources == {1: P.FROM_PDF}
     assert paper.source_note() == "pages: 1 pdf_visual_order"
@@ -166,7 +166,7 @@ def test_the_judge_sees_and_the_quote_check_verifies_the_visual_text(aim_db, tmp
     def judge(_step, cached, prompt):
         import re
 
-        assert "380" in _line_of(cached, "Set pressure")
+        assert "345" in _line_of(cached, "Set pressure")
         ids = re.findall(r'"id": "(C\d+)"', prompt)
         return {
             "judgments": [

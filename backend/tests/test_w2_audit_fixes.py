@@ -123,9 +123,9 @@ def test_h07_revision_shorthand_is_still_a_reference_in_a_revision_sentence():
 @pytest.mark.parametrize("phrase", ["satisfies the spec", "conforms to the requirement",
                                     "is adequate", "violates the limit", "is not acceptable"])
 def test_a09_a_verdict_in_other_words_is_refused(phrase):
-    pages = {1: "Design pressure 23.5 barg."}
-    item = {"topic": "Pressure", "page": 1, "field": "Design pressure", "value": "23.5 barg",
-            "observation": f"The design pressure of 23.5 barg {phrase}.",
+    pages = {1: "Design pressure 22.2 barg."}
+    item = {"topic": "Pressure", "page": 1, "field": "Design pressure", "value": "22.2 barg",
+            "observation": f"The design pressure of 22.2 barg {phrase}.",
             "action": "Contractor to confirm.", "relates_to": None, "clause": None,
             "confidence": "medium"}
     out = aic.accept(item, pages, {}, [])
@@ -253,18 +253,18 @@ def test_the_document_flag_is_read_from_the_stored_chunks(tmp_path, monkeypatch)
 # --------------------------------------------------------------- M2 (datasheet)
 
 PAGE = """MIN TEMPERATURE DATASHEET     Page 1 of 1
-5 | Design pressure | 23.5 barg
+5 | Design pressure | 22.2 barg
 6 | Casing material | Carbon steel
 7 | Minimum temperature | -5 C
-8 | Set pressure | 340 psig
+8 | Set pressure | 315 psig
 Notes: the vessel is designed, built, tested and inspected to the project specification
 and the contractor shall provide all documents named in the datasheet index.
 """
 
 
 def _gate(**fact):
-    base = {"field": "Design pressure", "value": "23.5", "unit": "barg",
-            "quote": "Design pressure | 23.5 barg", "kind": "offered"}
+    base = {"field": "Design pressure", "value": "22.2", "unit": "barg",
+            "quote": "Design pressure | 22.2 barg", "kind": "offered"}
     proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [{**base, **fact}]}))
     return claude_datasheet.accept(proposals, PAGE, [])
 
@@ -297,7 +297,7 @@ def test_m2_one_matching_word_of_a_two_word_label_is_not_enough():
 
 TABLE_PAGE = """PRESSURE DATASHEET     Page 1 of 1
 Item | Parameter | Value [barg] | Note
-5 | Design pressure | 23.5 | see note 3
+5 | Design pressure | 22.2 | see note 3
 6 | Test pressure | 35 | hydro
 Item | Parameter | Flow (m3/h)
 7 | Rated flow | 125
@@ -307,8 +307,8 @@ Required flow
 
 
 def _table_gate(**fact):
-    base = {"field": "Design pressure", "value": "23.5", "unit": "barg",
-            "quote": "5 | Design pressure | 23.5 | see note 3", "kind": "offered"}
+    base = {"field": "Design pressure", "value": "22.2", "unit": "barg",
+            "quote": "5 | Design pressure | 22.2 | see note 3", "kind": "offered"}
     proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [{**base, **fact}]}))
     return claude_datasheet.accept(proposals, TABLE_PAGE, [])
 
@@ -320,19 +320,19 @@ def test_hd1_a_unit_only_in_the_column_header_is_accepted_and_says_where_it_came
 
 
 def test_hd1_a_unit_in_the_quote_says_quote():
-    page = "Design pressure | 23.5 barg\n"
+    page = "Design pressure | 22.2 barg\n"
     proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [
-        {"field": "Design pressure", "value": "23.5", "unit": "barg",
-         "quote": "Design pressure | 23.5 barg", "kind": "offered"}]}))
+        {"field": "Design pressure", "value": "22.2", "unit": "barg",
+         "quote": "Design pressure | 22.2 barg", "kind": "offered"}]}))
     out = claude_datasheet.accept(proposals, page, [])
     assert out["accepted"][0]["unit_from"] == "quote"
 
 
 def test_hd1_the_header_must_be_the_values_own_column():
-    page = "Item | Parameter | Value | Pressure [barg]\n5 | Design pressure | 23.5 | ref\n"
+    page = "Item | Parameter | Value | Pressure [barg]\n5 | Design pressure | 22.2 | ref\n"
     proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [
-        {"field": "Design pressure", "value": "23.5", "unit": "barg",
-         "quote": "5 | Design pressure | 23.5 | ref", "kind": "offered"}]}))
+        {"field": "Design pressure", "value": "22.2", "unit": "barg",
+         "quote": "5 | Design pressure | 22.2 | ref", "kind": "offered"}]}))
     out = claude_datasheet.accept(proposals, page, [])
     assert [r["reason"] for r in out["rejected"]] == [claude_datasheet.Reason.UNIT_NOT_IN_QUOTE.value]
 
@@ -348,10 +348,10 @@ def test_hd1_no_unit_in_the_quote_or_any_header_is_refused():
 
 
 def test_hd1_a_one_cell_per_line_layout_uses_a_header_like_line_above():
-    page = "Pressure (barg)\nDesign pressure\n23.5\n"
+    page = "Pressure (barg)\nDesign pressure\n22.2\n"
     proposals, _ = claude_datasheet.parse_response(json.dumps({"facts": [
-        {"field": "Design pressure", "value": "23.5", "unit": "barg",
-         "quote": "Design pressure\n23.5", "kind": "offered"}]}))
+        {"field": "Design pressure", "value": "22.2", "unit": "barg",
+         "quote": "Design pressure\n22.2", "kind": "offered"}]}))
     out = claude_datasheet.accept(proposals, page, [])
     assert out["accepted"][0]["unit_from"] == "column_header"
 

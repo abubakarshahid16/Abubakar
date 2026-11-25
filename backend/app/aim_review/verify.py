@@ -159,7 +159,7 @@ def compare(
 
 
 def _converted(paper_value: str, pu: str, rule_value: str, ru: str) -> str:
-    """The limit in the paper value's unit, as code converted it ("23.5 barg is 340.8 psig"), for two units of one quantity on
+    """The limit in the paper value's unit, as code converted it ("22.2 barg is 322 psig"), for two units of one quantity on
     ONE scale (both gauge, both absolute, or neither: a linear factor); "" otherwise (temperatures carry the unit code's own
     note). Said, so a comparison across units is never silent."""
     from app import claims
