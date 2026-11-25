@@ -62,9 +62,9 @@ def run(*rows: str):
     ("cell", "want"),
     [
         ("9 / 7.5 barg (Note 3)", [(9, 9, "barg"), (7.5, 7.5, "barg")]),
-        ("-3 to 121OC / 77OC", [(-3, 121, "C"), (77, 77, "C")]),
+        ("-5 to 90OC / 60OC", [(-5, 90, "C"), (60, 60, "C")]),
         ("3.5 bar (ga)", [(3.5, 3.5, "barg")]),
-        ("380 psig (By Contractor)", [(380, 380, "psig")]),
+        ("200 psig (By Contractor)", [(200, 200, "psig")]),
         ("29 psig / -", [(29, 29, "psig"), None]),
     ],
 )
@@ -225,10 +225,10 @@ def test_the_hydrotest_check_proves_a_low_test_never_a_sufficient_one_and_reads_
 def test_a_range_is_judged_at_its_upper_end_and_a_filled_in_figure_carries_its_note():
     from app.aim_review.formulas import parse_value
 
-    assert parse_value("-3 to 65OC")[0].high == 65
+    assert parse_value("-5 to 70OC")[0].high == 70
     (line,) = run(
-        "Set pressure   380 psig (By Contractor)",
-        "Max. allow. working pressure   23.5 barg",
+        "Set pressure   200 psig (By Contractor)",
+        "Max. allow. working pressure   10 barg",
     )
     assert (
         line["label"] == "Not met" and "filled in" in line["code"]
