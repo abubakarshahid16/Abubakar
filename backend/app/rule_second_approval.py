@@ -70,6 +70,9 @@ NOT_ELIGIBLE = ("ocr_low_confidence", "prompt_version", "model_not_named", "same
 GATE_MIN_JUDGED = 100
 GATE_MAX_WRONG = 0.05
 SAMPLE_N = 200
+#: The first batch (owner, 25 Nov 2026, #1584 comment 7169525003): at most this many rules are sent before a sample of the
+#: approvals is judged and its error rate reported.
+FIRST_BATCH = 2000
 JUDGE_PROMPT_VERSION = "rule-second-judge-v1"
 JUDGE_BATCH = 20
 
@@ -429,6 +432,21 @@ def measure(conn: sqlite3.Connection, sample_id: str) -> dict:
         " VALUES (:sample_id, :measured_at, :covers_until, :judged, :wrong, :judge_model)", row)  # fmt: skip
     conn.commit()
     return row
+
+
+def batch_refusal(conn: sqlite3.Connection, limit: int) -> str | None:
+    """None when a pass over `limit` rules may start (0 = all of them); else the plain sentence. Up to FIRST_BATCH rules always
+    may; more, or all, only once the copy holds a measure that judged at least GATE_MIN_JUDGED approvals."""
+    if 0 < limit <= FIRST_BATCH:
+        return None
+    if has_tables(conn) and conn.execute(
+        "SELECT 1 FROM rule_second_measure WHERE judged >= ? LIMIT 1", (GATE_MIN_JUDGED,)
+    ).fetchone():
+        return None
+    return (
+        f"refused: the first batch is {FIRST_BATCH:,} rules; judge a sample and report the error rate first "
+        f"(--limit {FIRST_BATCH} or fewer until a measure has judged at least {GATE_MIN_JUDGED})"
+    )
 
 
 def gate(conn: sqlite3.Connection) -> dict:
