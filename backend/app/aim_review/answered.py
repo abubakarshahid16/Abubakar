@@ -5,7 +5,8 @@ something, and each request, on every page (v2 asked whether the paper answers t
 beside a right one was never answered, so nothing was taken off). Code checks every answer: the quote is found by code on that
 page and is not the line's own evidence. Such a line stays in "All points" with the claim, the page and the quote (`ANSWERED`, a
 not-sent note: an engineer checks it) and is never a comment. Code comparisons, provisional figures, values left open and lines
-a reference paper checked are never offered. One call per `ANSWER_CHUNK` lines, each applied whole
+a reference paper checked are never offered; nor is a line the judge marked "concern" or both readers agreed on
+(`offered`). One call per `ANSWER_CHUNK` lines, each applied whole
 or not at all; a failed or cut call applies nothing and the run's calls say so."""
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 import logging
 import re
 
-from . import ANSWERED, PROVISIONAL
+from . import ANSWERED, PROVISIONAL, TWO_READERS_AGREE
 from . import prompts as P
 from .engine import StepFailed
 from .references import NOTE_CHECKED as REFERENCE_CHECKED
@@ -44,7 +45,8 @@ QUOTE_WORDS = (3, 40)
 
 def offered(lines: list[dict]) -> dict[int, dict]:
     """{line number: line} of the SENT lines the check may take off: a Question, an AI opinion or a Not met (any source), not
-    compared by code, no provisional figure, no value left open, not checked against a reference paper."""
+    compared by code, no provisional figure, no value left open, not checked against a reference paper, not a "concern" of
+    the judge and not agreed by both readers."""
     from . import sendable
     from .engine import to_line
 
@@ -59,6 +61,11 @@ def offered(lines: list[dict]) -> dict[int, dict]:
             and not any(x.startswith(PROVISIONAL) for x in parts)
             # a line a reference paper checked rests on that paper, which this step never reads (the Schedule of the package)
             and not any(x.startswith(REFERENCE_CHECKED) for x in parts)
+            # the judge suspects a STATED value ("concern"), or two readers found the same: the paper covering one side claim
+            # never answers it (a datasheet copy of 19 Nov: the hydrotest set to NO and the hardness above the limit were taken off
+            # because the paper stated the NPSH test and the H2S content)
+            and d.get("ask") != "concern"
+            and TWO_READERS_AGREE not in parts
         ):
             out[n] = d
     return out
