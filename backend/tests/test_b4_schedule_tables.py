@@ -11,11 +11,12 @@ the page-1 revision block into "facts" (people's names under a service-order
 label).
 
 So, and only this:
-  * the table path alone always runs (owner decision 2026-09-25; the default with no switch since 25 Nov 2026);
+  * GEOMETRY_TABLE_READER_ENABLED runs the table path alone - ON by default
+    (owner decision 2026-09-25);
   * a table carrying the revision header's words is dropped whole.
 
 Synthetic PDFs only - no client document is read (CLAUDE.md rule 3).
-Mutations M782-M785 (scripts/mutations/datasheets.py; M780-M781 retired with the switch, 25 Nov 2026).
+Mutations M780-M785 (scripts/mutations/datasheets.py).
 """
 from __future__ import annotations
 
@@ -51,6 +52,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "sched.sqlite")
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", False)
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
@@ -128,14 +130,19 @@ def _all_current(doc_id: str) -> dict[str, str]:
 
 # ------------------------------------------------------------------ the flag
 
-def test_the_table_path_is_always_read():
-    """Owner decision 2026-09-25: schedules are read; made the default with no switch on 25 Nov 2026 (update 7)."""
-    assert "geometry_table_reader_enabled" not in Settings.model_fields
+def test_the_table_flag_is_on_by_default():
+    """Owner decision 2026-09-25: schedules are read unless switched off."""
+    assert Settings.model_fields["geometry_table_reader_enabled"].default is True
+
+
+def test_off_the_schedule_yields_no_geometry_fact(tmp_path):
+    assert _geometry(_store(tmp_path)) == []
 
 
 # ------------------------------------------------------------ the schedule
 
 def test_on_every_schedule_cell_is_a_fact_under_its_column(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", True)
     doc = _store(tmp_path, revision=False, form=False)
     assert _geometry(doc), "the table path wrote nothing"
     got = _all_current(doc)
@@ -150,6 +157,7 @@ def test_on_every_schedule_cell_is_a_fact_under_its_column(tmp_path, monkeypatch
 def test_table_only_mode_writes_no_form_reading(tmp_path, monkeypatch):
     """The form path mis-pairs real pump sheets, so the table flag must not
     bring it in: every geometry fact comes from a table cell."""
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", True)
     facts = _geometry(_store(tmp_path, revision=False))
     assert facts, "nothing read - the check below would be vacuous"
     sources = {json.loads(f["bbox"])["source"] for f in facts}
@@ -167,6 +175,7 @@ def test_the_full_flag_still_brings_the_form_reading(tmp_path, monkeypatch):
 # ------------------------------------------------------------ the revision block
 
 def test_a_revision_table_is_dropped_whole(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", True)
     facts = _geometry(_store(tmp_path, form=False))
     text = " ".join(f"{f['field_name']} {f['field_value']}" for f in facts).lower()
     for name in ("a. author", "b. checker", "issued for"):
@@ -199,6 +208,7 @@ def test_one_revision_word_does_not_make_a_revision_table():
 def test_a_cell_the_rule_reader_already_read_is_not_written_twice(tmp_path, monkeypatch):
     """The rule reader reads the size column itself; in table-only mode the
     agreeing geometry reading must be dropped, as under the full flag."""
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", True)
     doc = _store(tmp_path, revision=False, form=False)
     geometry = _values(_geometry(doc))
     assert _all_current(doc).get("z1 size") == "6"

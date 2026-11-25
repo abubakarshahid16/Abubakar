@@ -188,7 +188,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "b4q.sqlite")
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
-    monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *a, **k: [])  # no table rows (no switch since update 7)
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", False)
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
@@ -272,7 +272,7 @@ def test_off_never_asks_the_vision_reader(world, monkeypatch):
     monkeypatch.setattr(vision_reader, "provider", explode)
     result = _extract(doc)
     assert not [f for f in _facts(doc) if f["extraction_method"] == "vision"]
-    assert not result.get("vision_facts")  # the table path always runs (update 7), so the key may be there, never a fact
+    assert "vision_facts" not in result
 
 
 def test_on_records_proved_vision_readings_and_the_rule_reader_wins(world, monkeypatch):

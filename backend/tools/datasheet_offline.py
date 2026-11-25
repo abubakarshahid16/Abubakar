@@ -87,6 +87,7 @@ _STAMP = "2026-01-01T00:00:00Z"
 def reader_flags() -> dict:
     """The settings that change what the datasheet reader does, as configured."""
     return {"geometry_reader_enabled": bool(settings.geometry_reader_enabled),
+            "geometry_table_reader_enabled": bool(settings.geometry_table_reader_enabled),
             "datasheet_office_input": bool(settings.datasheet_office_input),
             "datasheet_ai_reader": str(settings.datasheet_ai_reader)}
 

@@ -29,6 +29,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "w5b525.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    monkeypatch.setattr(settings, "docx_input_enabled", True)
     monkeypatch.setattr(settings, "datasheet_office_input", False)
     install_if_missing(monkeypatch)
     db.reset_connection()
@@ -257,6 +258,14 @@ def test_a_docx_is_accepted_and_queued_when_the_setting_is_on(tmp_path):
     with open(path, "rb") as fh:
         row, job_id, _ = upload.ingest(fh, "s.docx")
     assert row["stored_path"].endswith(".docx") and row["status"] == "queued" and job_id
+
+
+def test_a_docx_is_refused_when_the_setting_is_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "docx_input_enabled", False)
+    path = d.build(tmp_path / "s.docx", _structured_body())
+    with open(path, "rb") as fh, pytest.raises(upload.UploadError) as err:
+        upload.ingest(fh, "s.docx")
+    assert err.value.code == "not_xlsx"
 
 
 @pytest.mark.parametrize("entries,name,word", [

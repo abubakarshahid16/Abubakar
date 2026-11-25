@@ -47,8 +47,8 @@ MUTATIONS: tuple[Mutation, ...] = (
         # names the flag; with it off (the default) the meaning is unchanged.
         # Re-anchored 2026-10-09 (W5b-01, #525): a Word upload is also indexed
         # when DOCX_INPUT_ENABLED is on; the mutation (index everything) is the same.
-        # Re-anchored 2026-11-25 (update 7): Word input is the default, no switch.
-        anchor="    indexed = kind in (KIND_PDF, KIND_DOCX) or bool(settings.datasheet_office_input)",
+        anchor=("    indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())\n"
+                "               or bool(settings.datasheet_office_input))"),
         replacement="    indexed = True",
         target="tests/test_xlsx_upload.py",
         keyword="terminal_state or worker_never_selects",

@@ -54,12 +54,11 @@ def _workbook(extra: dict[str, bytes] | None = None) -> bytes:
 
 
 def _docx() -> bytes:
-    """A readable zip with the same magic bytes, no workbook part and no Word part (update 7: Word is always accepted, so
-    the workbook validator is tested with a zip that is neither)."""
+    """A zip with the same magic bytes and no workbook part."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("[Content_Types].xml", "<Types/>")
-        z.writestr("data/notes.xml", "<notes/>")
+        z.writestr("word/document.xml", "<document/>")
     return buf.getvalue()
 
 
@@ -100,15 +99,17 @@ def test_the_suffix_comes_from_the_bytes_not_the_filename():
 
 @pytest.fixture
 def docx_off(monkeypatch):
-    """These tests are about the WORKBOOK validator refusing a readable zip that is not a workbook (Word is always accepted
-    since update 7, so `_docx` is a zip that is neither); the older datasheet seam stays off."""
+    """Word input is ON by default since W5b-01 (#525); these tests are about
+    the WORKBOOK validator refusing a zip that is not a workbook, so they run
+    with the Word setting off, as the system was when they were written."""
+    monkeypatch.setattr(settings, "docx_input_enabled", False)
     monkeypatch.setattr(settings, "datasheet_office_input", False)
 
 
 def test_a_docx_is_refused_although_its_magic_bytes_are_a_zip(docx_off):
     """THE MUTATION TARGET (M16): the xl/workbook.xml requirement."""
     with pytest.raises(upload.UploadError) as exc:
-        upload.ingest(io.BytesIO(_docx()), "notes.zip")
+        upload.ingest(io.BytesIO(_docx()), "notes.docx")
     assert exc.value.code == "not_xlsx"
 
 
@@ -162,14 +163,14 @@ def test_a_corrupt_zip_is_refused_as_not_a_file_we_accept():
 def test_a_readable_zip_that_is_not_a_workbook_says_so_precisely(docx_off):
     """The other half: here the intent IS clear, so the precise code is used."""
     with pytest.raises(upload.UploadError) as exc:
-        upload.ingest(io.BytesIO(_docx()), "notes.zip")
+        upload.ingest(io.BytesIO(_docx()), "notes.docx")
     assert exc.value.code == "not_xlsx"
 
 
 def test_a_refused_upload_stores_nothing(docx_off):
     """Never partially stored: no temp file, no final file, no row."""
     with pytest.raises(upload.UploadError):
-        upload.ingest(io.BytesIO(_docx()), "notes.zip")
+        upload.ingest(io.BytesIO(_docx()), "notes.docx")
     leftovers = list(settings.upload_dir.iterdir())
     assert leftovers == [], f"a refused upload left {leftovers}"
     assert db.connect().execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 0

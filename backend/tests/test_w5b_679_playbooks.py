@@ -31,6 +31,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "w5b679.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    monkeypatch.setattr(settings, "docx_input_enabled", True)
     install_if_missing(monkeypatch)
     db.reset_connection()
     db.init_db()

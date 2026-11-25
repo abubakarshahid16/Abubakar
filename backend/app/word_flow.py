@@ -15,10 +15,12 @@ from .config import settings
 
 
 def applies(path: str | None) -> bool:
-    """True when the switch is on, DATASHEET_OFFICE_INPUT is not, and `path` is a Word document."""
+    """True when the switch and DOCX_INPUT_ENABLED are on, DATASHEET_OFFICE_INPUT
+    is not, and `path` is a Word document."""
     if (
         not path
         or not settings.page_read_by_reading_enabled
+        or not settings.docx_input_enabled
         or (settings.datasheet_office_input and not settings.word_page_markers_enabled)
     ):
         return False
