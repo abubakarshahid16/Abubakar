@@ -122,6 +122,8 @@ export interface GeneralReview {
     confirmation_lines?: number;
     /** The summary tiles: how many comments (and confirmations) of each severity. */
     by_severity?: Partial<Record<Severity, number>>;
+    /** How many points code decided (Pass or Fail, compared by code), out of all points; null for a review with no points. */
+    decided_by_code?: { count: number; of: number; sentence: string } | null;
   };
   comments: GeneralLine[];
   /** The confirmations not sent (absent on an older answer). */
