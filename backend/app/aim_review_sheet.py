@@ -188,8 +188,15 @@ def team_note(p: dict) -> str | None:
     parts = [
         readers_words(p.get("readers")),
         PAIRED_TEAM_WORDS if p.get("paired") else None,
+        *(cut_words(c) for c in p.get("cut") or []),
     ]
     return " ".join(x for x in parts if x) or None
+
+
+def cut_words(cut: dict) -> str:
+    """The mark of a side-claim cut (owner's completeness rule: no text cut without a visible mark and the full text beside it):
+    the page the paper answers the part on and the comment's full text before the cut. Team file only."""
+    return f'A part the paper answers (page {cut.get("page")}) was taken out of this comment. Full text before: "{cut.get("before")}"'
 
 
 def readers_words(readers) -> str | None:
