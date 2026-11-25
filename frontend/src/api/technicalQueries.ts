@@ -78,6 +78,7 @@ export interface TechnicalQueryMailbox {
   connection_state: string;
   label_id: string | null;
   last_checked_at?: string | null;
+  status_note?: string | null;
   import_job?: MailboxImportJob | null;
 }
 

@@ -540,7 +540,7 @@ def test_gmail_down_at_the_start_puts_the_job_back_to_the_queue_with_a_wait_then
         conn.execute("UPDATE gmail_import_jobs SET attempts=? WHERE id=?", (gmail_import_jobs.MAX_ATTEMPTS - 1, job))
     gmail_import_jobs.run_job(job, client=Down([]))
     row = _job(job)
-    assert row["state"] == "failed" and row["error"] == gmail_import_jobs.FAILED_SENTENCE and row["retry_at"] is None
+    assert row["state"] == "failed" and row["error"] == gmail_import_jobs.GIVEN_UP_SENTENCE and row["retry_at"] is None
 
 
 def test_an_outage_in_the_middle_makes_the_rest_wait_and_none_of_them_is_marked_failed(monkeypatch):
@@ -652,3 +652,144 @@ def test_a_full_reference_joins_only_inside_the_same_mailbox(monkeypatch):
     assert other_box["id"] != first["id"]  # another mailbox: its own query, not a refusal and not a join
     rows = {q["id"]: q for q in tq.list_queries("u1", True, False)}
     assert not rows[first["id"]]["needs_person"] and not rows[other_box["id"]]["needs_person"]
+
+
+# ---------------------------------------------------------------- 8. a fault that never clears is not retried for ever (follow-up P1, P2)
+
+
+def _box_state(mb="mb"):
+    with db.connect() as conn:
+        return dict(conn.execute("SELECT connection_state, status_note, label_id FROM gmail_mailboxes WHERE id=?", (mb,)).fetchone())
+
+
+def test_a_job_whose_mailbox_row_is_gone_is_failed_with_a_reason_and_is_not_picked_again(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    with db.connect() as conn:
+        conn.execute("DELETE FROM gmail_mailboxes WHERE id='mb'")
+    gmail_import_jobs.run_job(job, client=FakeClient([]))
+    row = _job(job)
+    assert row["state"] == "failed" and row["error"] == gmail_import_jobs.GONE_SENTENCE
+    with db.connect() as conn:  # the thread has nothing left to pick
+        assert conn.execute("SELECT COUNT(*) c FROM gmail_import_jobs WHERE state='queued'").fetchone()["c"] == 0
+
+
+def test_an_owner_who_lost_the_administrator_role_marks_the_mailbox_in_error_and_nothing_is_retried(monkeypatch):
+    from app import access
+    from app.config import settings
+
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    monkeypatch.setattr(settings, "auth_mode", "demo_required")
+    monkeypatch.setattr(access, "upload_admin_role", lambda user_id: (None, False))
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs.run_job(job, client=FakeClient(["one"]))
+    assert _job(job)["state"] == "failed" and _job(job)["error"] == gmail_import_jobs.ADMIN_SENTENCE
+    box = _box_state()
+    assert box["connection_state"] == "error" and box["status_note"] == gmail_import_jobs.ADMIN_SENTENCE
+    polled = []
+    monkeypatch.setattr("app.gmail_sync.poll_mailbox", lambda *a, **k: polled.append(1) or [])
+    from app import gmail_sync
+
+    assert gmail_sync.run_once() == 0 and polled == []  # the poller leaves a mailbox in error alone
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) c FROM gmail_import_jobs WHERE state='queued'").fetchone()["c"] == 0
+    assert tq.list_queries("u1", True, False) == []
+
+
+def test_a_refused_token_marks_the_mailbox_revoked_with_one_sentence(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+
+    class Refused(FakeClient):
+        def list_message_ids(self, label):
+            request = httpx.Request("GET", "https://gmail.googleapis.com/x")
+            raise httpx.HTTPStatusError("no", request=request, response=httpx.Response(401, request=request))
+
+    gmail_import_jobs.run_job(job, client=Refused([]))
+    assert _job(job)["state"] == "failed"
+    box = _box_state()
+    assert box["connection_state"] == "revoked" and box["status_note"] == gmail_import_jobs.REVOKED_SENTENCE
+
+
+def test_the_last_try_marks_the_mailbox_in_error_and_check_now_starts_it_again(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+
+    class Down(FakeClient):
+        def list_message_ids(self, label):
+            raise _down()
+
+    with db.connect() as conn:
+        conn.execute("UPDATE gmail_import_jobs SET attempts=? WHERE id=?", (gmail_import_jobs.MAX_ATTEMPTS - 1, job))
+    gmail_import_jobs.run_job(job, client=Down([]))
+    assert _job(job)["state"] == "failed"
+    box = _box_state()
+    assert box["connection_state"] == "error" and box["status_note"] == gmail_import_jobs.GIVEN_UP_SENTENCE
+    again = api.check_gmail_mailbox_now("mb", OWNER)["import_job"]  # a person asks: the mailbox is active again and the import is queued again
+    assert _box_state()["connection_state"] == "active" and _box_state()["status_note"] is None
+    assert _job(again)["kind"] == "import" and _job(again)["state"] == "queued"
+
+
+def test_the_poller_stops_queueing_after_three_failed_jobs_and_marks_the_mailbox(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    for _ in range(gmail_import_jobs.MAX_AUTO_REQUEUES):
+        job = gmail_import_jobs.enqueue("mb", "import", "L1")
+        with db.connect() as conn:
+            conn.execute("UPDATE gmail_import_jobs SET state='failed' WHERE id=?", (job,))
+    assert gmail_import_jobs.resume_due("mb") is False
+    box = _box_state()
+    assert box["connection_state"] == "error" and box["status_note"] == gmail_import_jobs.GIVEN_UP_SENTENCE
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) c FROM gmail_import_jobs WHERE state='queued'").fetchone()["c"] == 0
+    # one failed job is still retried by the poller, as before
+    mailbox(state="active", label="L1")
+    with db.connect() as conn:
+        conn.execute("DELETE FROM gmail_import_jobs")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    with db.connect() as conn:
+        conn.execute("UPDATE gmail_import_jobs SET state='failed' WHERE id=?", (job,))
+    assert gmail_import_jobs.resume_due("mb") is True
+
+
+def test_a_queued_job_of_a_stopped_mailbox_is_failed_with_the_sentence(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "poll")
+    gmail_import_jobs.stop_mailbox("mb", "error", gmail_import_jobs.GIVEN_UP_SENTENCE)
+    assert _job(job)["state"] == "failed" and _job(job)["error"] == gmail_import_jobs.GIVEN_UP_SENTENCE
+    gmail_import_jobs.run_job(job, client=FakeClient([]))  # even if it is run by hand, nothing is read from Gmail
+    assert _job(job)["state"] == "failed"
+
+
+def test_connecting_a_revoked_mailbox_again_reuses_its_row_and_asks_for_the_label_again(monkeypatch):
+    from app import gmail_auth
+
+    on(monkeypatch)
+    monkeypatch.setenv("GMAIL_CLIENT_ID", "invented-client")
+    monkeypatch.setenv("GMAIL_CLIENT_SECRET", "invented-secret")
+    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:5173/technicalQueries/gmail-return")
+    mailbox(state="revoked", label="L1")
+    with db.connect() as conn:
+        conn.execute("UPDATE gmail_mailboxes SET email='box@example.test', status_note='x' WHERE id='mb'")
+    state = gmail_auth.start("u1").split("state=")[1].split("&")[0]
+    saved = []
+
+    class Store:
+        def save_refresh_token(self, mailbox_id, token):
+            saved.append(mailbox_id)
+
+        def delete_refresh_token(self, mailbox_id):
+            pass
+
+    got = gmail_auth.complete(
+        "code", state, exchange=lambda body: {"refresh_token": "r", "access_token": "a"},
+        profile=lambda token: {"emailAddress": "Box@Example.test", "historyId": "77"}, store=Store(),
+    )  # fmt: skip
+    assert got["mailbox_id"] == "mb" and saved == ["mb"] and got["connection_state"] == "needs_label"
+    box = _box_state()
+    assert box["connection_state"] == "needs_label" and box["label_id"] is None and box["status_note"] is None

@@ -389,6 +389,7 @@ def gmail_mailboxes(scope: access.AccessScope = Depends(access.current_scope)):
     with connect() as conn:
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(gmail_mailboxes)")}
         checked = "last_checked_at" if "last_checked_at" in columns else "NULL AS last_checked_at"
+        checked += ",status_note" if "status_note" in columns else ",NULL AS status_note"
         rows = conn.execute(
             f"SELECT id,email,label_id,connection_state,{checked} FROM gmail_mailboxes WHERE owner_user_id=? ORDER BY email",
             (scope.user_id,),
@@ -465,7 +466,7 @@ def check_gmail_mailbox_now(mailbox_id: str, scope: access.AccessScope = Depends
         raise HTTPException(status_code=403, detail="an administrator is required")
     with connect() as conn:
         mailbox = conn.execute(
-            "SELECT 1 FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='active'", (mailbox_id, scope.user_id)
+            "SELECT 1 FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state IN ('active','error')", (mailbox_id, scope.user_id)
         ).fetchone()
     if mailbox is None:
         raise HTTPException(status_code=404, detail="mailbox is not active")

@@ -49,11 +49,7 @@ def run_once() -> int:
             gmail_import_jobs._checked(mailbox["id"])  # noqa: SLF001 - "last checked at" on the screen
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
-                with connect() as conn:
-                    conn.execute(
-                        "UPDATE gmail_mailboxes SET connection_state='revoked',updated_at=? WHERE id=?",
-                        (now(), mailbox["id"]),
-                    )
+                gmail_import_jobs.stop_mailbox(mailbox["id"], "revoked", gmail_import_jobs.REVOKED_SENTENCE)
             _failed_last = True
             _log.warning(
                 "technical-query mailbox sync failed: HTTP %s", exc.response.status_code
