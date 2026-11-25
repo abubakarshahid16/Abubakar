@@ -266,17 +266,21 @@ def test_every_verdict_is_recorded_with_what_code_did_with_it():
             "n": 1,
             "answered": True,
             "claim": "no team named",
+            "claims": None,
             "page": 2,
             "quote": TEAM,
             "taken_off": True,
+            "outcome": "taken off",
         },
         {
             "n": 2,
             "answered": True,
             "claim": "",
+            "claims": None,
             "page": 3,
             "quote": "words not on that page at all",
             "taken_off": False,
+            "outcome": "kept",
         },
     ]
     failed: list = []
@@ -309,3 +313,131 @@ def test_the_verdicts_are_stored_with_the_run_and_read_back(tmp_path, monkeypatc
         "2026-11-18T21:01:00Z",
     )
     assert ST.run(conn, "run_rec")["answered"] == verdicts
+
+
+A1 = "The team record is not named."
+A2 = "Spurious action is not reviewed for each node."
+OPEN = "The test is set to NO for a pressure part."
+TAIL = "including the team record"
+FULL = f"{OPEN} {A1} {A2} State the test, {TAIL}."
+SPURIOUS = "Spurious action of a safeguard shall be reviewed for every invented node"
+
+
+def _protected(comment=FULL, **over):
+    return _line("C01", ask="concern", comment=comment, **over)
+
+
+def _claims(*open_words, answered=((A1, 2, TEAM), (A2, 3, SPURIOUS))):
+    return [
+        {"words": w, "answered": True, "page": p, "quote": q} for w, p, q in answered
+    ] + [{"words": w, "answered": False} for w in open_words]
+
+
+def _answer(**over):
+    return {"n": 1, "page": 2, "quote": TEAM, "claim": "team record named", **over}
+
+
+def test_a_protected_line_is_taken_off_only_when_every_claim_of_it_is_answered():
+    """Update 6, the same-judge gate: one side claim was cut and the rest, which the paper also answers, was sent. A concern or
+    a line both readers agree on is offered; it is taken off when EVERY claim is answered, each by a quote code finds."""
+    agreed = _line("C02", label="AI opinion", code=aim_review.TWO_READERS_AGREE)
+    assert sorted(A.offered([_protected(), agreed])) == [1, 2]
+    every = [_line("C01", ask="concern", comment=f"{A1} {A2}")]
+    assert (
+        A.s4b_answered(_Checker([_answer(claims=_claims())]), PAPER, every, MODEL) == 1
+    )
+    assert not aim_review.sendable(to_line(1, every[0]))
+    plain = [
+        _line("C01", comment=FULL)
+    ]  # not protected: any answered claim takes it off, as before
+    assert A.s4b_answered(_Checker([_answer()]), PAPER, plain, MODEL) == 1
+
+
+def test_every_answered_claim_is_cut_the_open_ones_are_sent_and_the_full_text_stays_in_the_team_note():
+    for line in (
+        _protected(),
+        _line(
+            "C01", label="AI opinion", code=aim_review.TWO_READERS_AGREE, comment=FULL
+        ),
+    ):
+        record: list = []
+        assert (
+            A.s4b_answered(
+                _Checker(
+                    [
+                        _answer(
+                            claims=_claims(
+                                OPEN,
+                                "State the test",
+                                answered=(
+                                    (A1, 2, TEAM),
+                                    (A2, 3, SPURIOUS),
+                                    (TAIL, 2, TEAM),
+                                ),
+                            )
+                        )
+                    ]
+                ),
+                PAPER,
+                [line],
+                MODEL,
+                record,
+            )
+            == 0
+        )
+        assert line["comment"] == f"{OPEN} State the test." and aim_review.sendable(
+            to_line(1, line)
+        )  # no dangling comma
+        assert (
+            line["code"].count(A.SIDE_CLAIM) == 1
+            and f'read before the cut: "{FULL}"' in line["code"]
+        )
+        assert (
+            'on page 2: "the chair' in line["code"]
+            and 'on page 3: "Spurious' in line["code"]
+        )
+        assert (
+            A.cuts_of(line["code"]) == [{"page": 2, "pages": [2, 3, 2], "before": FULL}]
+            and record[0]["outcome"] == "cut"
+        )
+
+
+def test_a_protected_line_is_never_taken_off_on_an_answer_code_cannot_check():
+    """No claims list (an older answer): sent whole with the note. An answered claim whose quote is not on its page, or whose
+    words are not in the comment, stays open: never taken off on it, never cut."""
+    line = _protected()
+    assert A.s4b_answered(_Checker([_answer()]), PAPER, [line], MODEL) == 0
+    assert (
+        line["comment"] == FULL
+        and "the answer lists no claims, so nothing was cut" in line["code"]
+    )
+    for claims in (
+        _claims(answered=((A1, 3, TEAM), (A2, 3, SPURIOUS))),
+        _claims(answered=(("words it never had", 2, TEAM), (A2, 3, SPURIOUS))),
+    ):
+        line = _protected(comment=f"{A1} {A2}")
+        assert (
+            A.s4b_answered(_Checker([_answer(claims=claims)]), PAPER, [line], MODEL)
+            == 0
+        )
+        assert line["comment"] == A1 and aim_review.sendable(
+            to_line(1, line)
+        )  # only the checked claim is cut
+    short = _protected()
+    assert A.s4b_answered(_Checker([_answer(claims=[{"words": "State", "answered": True, "page": 2, "quote": TEAM}])]),
+                          PAPER, [short], MODEL) == 0  # fmt: skip
+    assert short["comment"] == FULL
+
+
+def test_the_check_asks_for_every_claim_with_the_comments_own_words():
+    from app.aim_review import prompts
+
+    assert (
+        '"claims": EVERY claim and request' in prompts.ANSWERED_TASK
+        and '"words"' in prompts.ANSWERED_TASK
+    )
+    assert '"main"' not in prompts.ANSWERED_TASK
+    assert (
+        "vendor to advise" in prompts.S4_TASK
+        and "revision and approval block" in prompts.S4_TASK
+    )
