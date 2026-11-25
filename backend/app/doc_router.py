@@ -66,18 +66,17 @@ def vocabulary() -> dict:
 
 
 def _confirmable() -> dict:
-    """The cue file's kinds, plus "Test record" with PAPER_KIND_FIRST_ENABLED on
-    (owner order 11 Nov step 2: a paper kind of the closed list; no cues, so
-    routing never suggests it), and "Calculation" (K1b: a paper kind with a rule label kind of its own). Off: as on main."""
+    """The kinds a person may choose, from THE ONE LIST (`kind_list`), each with its sorter cues when it has any: the routed kinds, plus
+    "Test record" and "Calculation" with PAPER_KIND_FIRST_ENABLED on (owner order 11 Nov step 2 and K1b: paper kinds of the closed
+    list; no cues, so routing never suggests them). Off: as on main."""
+    from . import kind_list
     from .config import settings
 
-    on = settings.paper_kind_first_enabled
-    extra = (
-        {"test_record": {"label": "Test record"}, "calculation": {"label": "Calculation"}}
-        if on
-        else {}
-    )
-    return {**vocabulary()["kinds"], **extra}
+    cues = vocabulary()["kinds"]
+    return {
+        k: {**cues.get(k, {"cues": []}), "label": kind_list.label_of(k), "family": kind_list.family_of(k)}
+        for k in kind_list.confirmable_kinds(with_switch_kinds=settings.paper_kind_first_enabled)
+    }
 
 
 def _refuse_unless_confirmable(kind: str) -> None:
@@ -86,8 +85,8 @@ def _refuse_unless_confirmable(kind: str) -> None:
 
 
 def kinds() -> list[dict]:
-    """The kinds a person may choose, in file order: [{"id", "label"}]."""
-    return [{"id": k, "label": v.get("label", k)} for k, v in _confirmable().items()]
+    """The kinds a person may choose, in the kind list's order: [{"id", "label", "family"}]."""
+    return [{"id": k, "label": v["label"], "family": v["family"]} for k, v in _confirmable().items()]
 
 
 # ------------------------------------------------------------------ features
