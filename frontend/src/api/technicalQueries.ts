@@ -5,6 +5,7 @@ export interface TechnicalQuery {
   subject: string;
   contractor_name: string | null;
   department: string | null;
+  routing_source?: string | null;
   assignee_user_id: string | null;
   /** The email's own question, as received. */
   extracted_question: string | null;
@@ -18,7 +19,7 @@ export interface TechnicalQuery {
   priority: string;
   received_at: string;
   due_at: string | null;
-  messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ filename: string; size_bytes: number; document_id: string | null; scan_status: string; parse_status: string }> }>;
+  messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ filename: string; size_bytes: number; document_id: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
@@ -44,6 +45,7 @@ export interface TechnicalQueryMailbox {
   label_id: string | null;
 }
 
+export interface RoutingRule { id: string; match_type: "address" | "domain"; match_value: string; contractor_name: string | null; department: string | null }
 export interface GmailLabel { id: string; name: string; type: string }
 export interface TechnicalQueryAssignee { id: string; display_name: string }
 
@@ -77,6 +79,12 @@ export const technicalQueriesApi = {
     request(`/technical-queries/${encodeURIComponent(id)}/confirm-question`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }),
   classifyEvidence: (id: string, evidenceId: string, evidenceState: string, supersessionState: string): Promise<Result<TechnicalQuery>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/evidence/${encodeURIComponent(evidenceId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ evidence_state: evidenceState, supersession_state: supersessionState }) }),
+  routingRules: (): Promise<Result<{ items: RoutingRule[] }>> =>
+    request("/technical-queries/routing-rules", undefined, hasArrayField("items")),
+  saveRoutingRule: (rule: Omit<RoutingRule, "id">): Promise<Result<{ items: RoutingRule[] }>> =>
+    request("/technical-queries/routing-rules", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rule) }),
+  deleteRoutingRule: (id: string): Promise<Result<{ items: RoutingRule[] }>> =>
+    request(`/technical-queries/routing-rules/${encodeURIComponent(id)}`, { method: "DELETE" }),
   prepareEvidence: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/prepare-evidence`, { method: "POST" }),
   generateDraft: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/generate-draft`, { method: "POST" }),
   createDraft: (id: string, answer: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer }) }),

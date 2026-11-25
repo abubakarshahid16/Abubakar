@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import (
     access,
@@ -25,7 +25,80 @@ from ..config import settings
 from ..db import connect
 from ..gmail_client import GmailApiClient
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(technical_queries.ensure_ready)])
+
+
+class _Open(BaseModel):
+    """A response model that names the fields every client relies on and lets the rest through."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class QueryOut(_Open):
+    id: str
+    subject: str
+    status: str
+    can_review: bool | None = None
+
+
+class QueryList(BaseModel):
+    items: list[QueryOut]
+
+
+class ImportOut(BaseModel):
+    item: QueryOut
+    duplicate: bool
+
+
+class AttachmentOut(_Open):
+    item: QueryOut
+    document_id: str | None = None
+
+
+class SendOut(_Open):
+    item: QueryOut
+    sent: bool
+    provider_message_id: str | None = None
+
+
+class MetricsOut(BaseModel):
+    received: int = 0
+    triage: int = 0
+    drafting: int = 0
+    awaiting_review: int = 0
+    changes_requested: int = 0
+    approved: int = 0
+    send_pending: int = 0
+    sent: int = 0
+    awaiting_confirmation: int = 0
+    resolved: int = 0
+    duplicate: int = 0
+    cancelled: int = 0
+    failed: int = 0
+    total: int = 0
+
+
+class MailboxConnectedOut(BaseModel):
+    mailbox_id: str
+    email: str
+    connection_state: str
+
+
+class WebhookAckOut(BaseModel):
+    accepted: bool
+
+
+class RowsOut(BaseModel):
+    items: list[dict[str, Any]]
+
+
+class OauthStartOut(BaseModel):
+    authorization_url: str
+
+
+class ActivateOut(BaseModel):
+    imported: int
+    connection_state: str
 
 
 class AttachmentIn(BaseModel):
@@ -61,6 +134,13 @@ class DraftIn(BaseModel):
     answer: str = Field(min_length=1, max_length=100_000)
     assumptions: list[str] = Field(default_factory=list, max_length=100)
     unresolved: list[str] = Field(default_factory=list, max_length=100)
+
+
+class RoutingRuleIn(BaseModel):
+    match_type: Literal["address", "domain"]
+    match_value: str = Field(min_length=3, max_length=320)
+    contractor_name: str | None = Field(default=None, max_length=300)
+    department: str | None = Field(default=None, max_length=300)
 
 
 class QuestionIn(BaseModel):
@@ -159,7 +239,7 @@ def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     }
 
 
-@router.get("/api/technical-queries")
+@router.get("/api/technical-queries", response_model=QueryList)
 def list_technical_queries(
     status: str | None = None,
     contractor: str | None = None,
@@ -184,7 +264,7 @@ def list_technical_queries(
     }
 
 
-@router.get("/api/technical-queries/metrics")
+@router.get("/api/technical-queries/metrics", response_model=MetricsOut)
 def technical_query_metrics(
     contractor: str | None = None,
     department: str | None = None,
@@ -205,14 +285,14 @@ def technical_query_metrics(
     )
 
 
-@router.get("/api/technical-queries/providers/microsoft-graph/webhook")
+@router.get("/api/technical-queries/providers/microsoft-graph/webhook", response_class=PlainTextResponse, responses={200: {"content": {"text/plain": {"schema": {"type": "string"}}}}})
 def graph_validation(validationToken: str | None = Query(default=None)):
     if validationToken is None:
         raise HTTPException(status_code=400, detail="validation token is required")
     return PlainTextResponse(validationToken)
 
 
-@router.get("/api/technical-queries/providers/gmail/oauth/start")
+@router.get("/api/technical-queries/providers/gmail/oauth/start", response_model=OauthStartOut)
 def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope)):
     _require_identity_to_write(scope)
     if not scope.is_admin or not scope.user_id:
@@ -226,7 +306,7 @@ def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope))
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@router.get("/api/technical-queries/providers/gmail/mailboxes")
+@router.get("/api/technical-queries/providers/gmail/mailboxes", response_model=RowsOut)
 def gmail_mailboxes(scope: access.AccessScope = Depends(access.current_scope)):
     _require_identity_to_write(scope)
     if not scope.is_admin or not scope.user_id:
@@ -241,7 +321,7 @@ def gmail_mailboxes(scope: access.AccessScope = Depends(access.current_scope)):
     return {"items": [dict(row) for row in rows]}
 
 
-@router.get("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/labels")
+@router.get("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/labels", response_model=RowsOut)
 def gmail_mailbox_labels(
     mailbox_id: str, scope: access.AccessScope = Depends(access.current_scope)
 ):
@@ -265,7 +345,7 @@ def gmail_mailbox_labels(
         ) from exc
 
 
-@router.post("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/activate")
+@router.post("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/activate", response_model=ActivateOut)
 def activate_gmail_mailbox(
     mailbox_id: str,
     body: GmailLabelIn,
@@ -302,7 +382,7 @@ def activate_gmail_mailbox(
     return {"imported": len(imported), "connection_state": "active"}
 
 
-@router.get("/api/technical-queries/providers/gmail/oauth/callback")
+@router.get("/api/technical-queries/providers/gmail/oauth/callback", response_model=MailboxConnectedOut)
 def gmail_oauth_callback(code: str | None = None, state: str | None = None):
     if not code or not state:
         raise HTTPException(
@@ -320,34 +400,71 @@ def gmail_oauth_callback(code: str | None = None, state: str | None = None):
         ) from exc
 
 
-@router.post("/api/technical-queries/providers/microsoft-graph/webhook")
+@router.post("/api/technical-queries/providers/microsoft-graph/webhook", response_model=WebhookAckOut)
 def graph_webhook(_payload: dict):
     # No subscription secret or signature validation has been configured.
     # A public endpoint must not claim to have accepted unverified events.
     raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
-@router.post("/api/technical-queries/providers/gmail/webhook")
+@router.post("/api/technical-queries/providers/gmail/webhook", response_model=WebhookAckOut)
 def gmail_webhook(_payload: dict):
     # Pub/Sub push authentication and durable queueing are prerequisites.
     raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
-@router.get("/api/technical-queries/reviewers")
+@router.get("/api/technical-queries/routing-rules", response_model=RowsOut)
+def get_routing_rules(scope: access.AccessScope = Depends(access.current_scope)):
+    if not scope.is_admin or not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    return {"items": technical_queries.list_routing_rules()}
+
+
+@router.put("/api/technical-queries/routing-rules", response_model=RowsOut)
+def put_routing_rule(
+    body: RoutingRuleIn, scope: access.AccessScope = Depends(access.current_scope)
+):
+    if not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    try:
+        items = technical_queries.set_routing_rule(
+            body.match_type, body.match_value, body.contractor_name, body.department,
+            scope.user_id, scope.is_admin,
+        )
+    except PermissionError as exc:
+        raise _refuse(403, str(exc)) from exc
+    except ValueError as exc:
+        raise _refuse(422, str(exc)) from exc
+    return {"items": items}
+
+
+@router.delete("/api/technical-queries/routing-rules/{rule_id}", response_model=RowsOut)
+def remove_routing_rule(
+    rule_id: str, scope: access.AccessScope = Depends(access.current_scope)
+):
+    if not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    try:
+        return {"items": technical_queries.delete_routing_rule(rule_id, scope.is_admin)}
+    except PermissionError as exc:
+        raise _refuse(403, str(exc)) from exc
+
+
+@router.get("/api/technical-queries/reviewers", response_model=RowsOut)
 def list_technical_query_reviewers(scope: access.AccessScope = Depends(access.current_scope)):
     if not scope.is_admin or not scope.user_id:
         raise _refuse(403, "an administrator is required")
     return {"items": technical_queries.list_reviewers()}
 
 
-@router.put("/api/technical-queries/reviewers/{user_id}")
+@router.put("/api/technical-queries/reviewers/{user_id}", response_model=RowsOut)
 def grant_technical_query_reviewer(
     user_id: str, scope: access.AccessScope = Depends(access.current_scope)
 ):
     return _change_reviewer(user_id, True, scope)
 
 
-@router.delete("/api/technical-queries/reviewers/{user_id}")
+@router.delete("/api/technical-queries/reviewers/{user_id}", response_model=RowsOut)
 def revoke_technical_query_reviewer(
     user_id: str, scope: access.AccessScope = Depends(access.current_scope)
 ):
@@ -369,7 +486,7 @@ def _change_reviewer(user_id: str, granted: bool, scope: access.AccessScope):
     return {"items": technical_queries.list_reviewers()}
 
 
-@router.get("/api/technical-queries/assignees")
+@router.get("/api/technical-queries/assignees", response_model=RowsOut)
 def technical_query_assignees(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
@@ -383,7 +500,7 @@ def technical_query_assignees(
     return {"items": [dict(row) for row in rows]}
 
 
-@router.get("/api/technical-queries/{query_id}")
+@router.get("/api/technical-queries/{query_id}", response_model=QueryOut)
 def get_technical_query(
     query_id: str, scope: access.AccessScope = Depends(access.current_scope)
 ):
@@ -393,7 +510,7 @@ def get_technical_query(
     return _safe_item(item, scope)
 
 
-@router.get("/api/technical-queries/{query_id}/messages/{message_id}/original.eml")
+@router.get("/api/technical-queries/{query_id}/messages/{message_id}/original.eml", response_class=FileResponse, responses={200: {"content": {"message/rfc822": {"schema": {"type": "string", "format": "binary"}}}}})
 def download_original_query_email(
     query_id: str,
     message_id: str,
@@ -418,7 +535,7 @@ def download_original_query_email(
     )
 
 
-@router.post("/api/technical-queries/{query_id}/assignment")
+@router.post("/api/technical-queries/{query_id}/assignment", response_model=QueryOut)
 def assign_technical_query(
     query_id: str,
     body: AssignmentIn,
@@ -442,7 +559,7 @@ def assign_technical_query(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/{query_id}/triage")
+@router.post("/api/technical-queries/{query_id}/triage", response_model=QueryOut)
 def triage_technical_query(
     query_id: str,
     body: TriageIn,
@@ -469,7 +586,7 @@ def triage_technical_query(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/import")
+@router.post("/api/technical-queries/import", response_model=ImportOut)
 def import_technical_query(
     body: ImportIn, scope: access.AccessScope = Depends(access.current_scope)
 ):
@@ -493,7 +610,7 @@ def import_technical_query(
     return {"item": _safe_item(item, scope), "duplicate": duplicate}
 
 
-@router.post("/api/technical-queries/{query_id}/drafts")
+@router.post("/api/technical-queries/{query_id}/drafts", response_model=QueryOut)
 def create_query_draft(
     query_id: str,
     body: DraftIn,
@@ -516,7 +633,7 @@ def create_query_draft(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/{query_id}/confirm-question")
+@router.post("/api/technical-queries/{query_id}/confirm-question", response_model=QueryOut)
 def confirm_query_question(
     query_id: str,
     body: QuestionIn,
@@ -538,7 +655,7 @@ def confirm_query_question(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/{query_id}/generate-draft")
+@router.post("/api/technical-queries/{query_id}/generate-draft", response_model=QueryOut)
 def generate_query_draft(
     query_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
@@ -640,7 +757,7 @@ def generate_query_draft(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/{query_id}/evidence")
+@router.post("/api/technical-queries/{query_id}/evidence", response_model=QueryOut)
 def add_query_evidence(
     query_id: str,
     body: EvidenceIn,
@@ -668,7 +785,7 @@ def add_query_evidence(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/{query_id}/prepare-evidence")
+@router.post("/api/technical-queries/{query_id}/prepare-evidence", response_model=QueryOut)
 def prepare_query_evidence(
     query_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
@@ -690,7 +807,7 @@ def prepare_query_evidence(
     return _safe_item(item, scope)
 
 
-@router.patch("/api/technical-queries/{query_id}/evidence/{evidence_id}")
+@router.patch("/api/technical-queries/{query_id}/evidence/{evidence_id}", response_model=QueryOut)
 def classify_query_evidence(
     query_id: str,
     evidence_id: str,
@@ -718,7 +835,7 @@ def classify_query_evidence(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/{query_id}/attachments/{attachment_id}/file")
+@router.post("/api/technical-queries/{query_id}/attachments/{attachment_id}/file", response_model=AttachmentOut)
 async def upload_query_attachment(
     query_id: str,
     attachment_id: str,
@@ -804,7 +921,7 @@ async def upload_query_attachment(
     }
 
 
-@router.post("/api/technical-queries/{query_id}/decisions")
+@router.post("/api/technical-queries/{query_id}/decisions", response_model=QueryOut)
 def decide_query(
     query_id: str,
     body: DecisionIn,
@@ -830,7 +947,7 @@ def decide_query(
     return _safe_item(item, scope)
 
 
-@router.get("/api/technical-queries/{query_id}/response.docx")
+@router.get("/api/technical-queries/{query_id}/response.docx", response_class=FileResponse, responses={200: {"content": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {"schema": {"type": "string", "format": "binary"}}}}})
 def query_response_docx(
     query_id: str, scope: access.AccessScope = Depends(access.current_scope)
 ):
@@ -856,7 +973,7 @@ def query_response_docx(
     )
 
 
-@router.post("/api/technical-queries/{query_id}/send")
+@router.post("/api/technical-queries/{query_id}/send", response_model=SendOut)
 def prepare_query_send(
     query_id: str,
     body: SendIn,
@@ -903,7 +1020,7 @@ def prepare_query_send(
     }
 
 
-@router.post("/api/technical-queries/{query_id}/sends/{send_id}/reconcile")
+@router.post("/api/technical-queries/{query_id}/sends/{send_id}/reconcile", response_model=QueryOut)
 def reconcile_query_send(
     query_id: str,
     send_id: str,
@@ -931,7 +1048,7 @@ def reconcile_query_send(
     return _safe_item(item, scope)
 
 
-@router.post("/api/technical-queries/{query_id}/confirm-resolution")
+@router.post("/api/technical-queries/{query_id}/confirm-resolution", response_model=QueryOut)
 def confirm_query_resolution(
     query_id: str,
     scope: access.AccessScope = Depends(access.current_scope),

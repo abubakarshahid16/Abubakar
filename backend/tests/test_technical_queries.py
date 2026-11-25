@@ -708,6 +708,34 @@ def test_old_evidence_from_a_contractor_attachment_needs_review_and_blocks_appro
     decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False, reviewer=True)
 
 
+def test_conflicting_or_ambiguous_evidence_blocks_approval_and_send_until_resolved():
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            ("lib-c", "c.pdf", "d4" * 32, 1, "c.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("lib-c", 1, "The limit is 12 bar.", 20, 0, 1),
+        )
+    item, _ = import_message(envelope("conflict-block"), "owner", True, False)
+    added = add_evidence(
+        item["id"], "lib-c", "The limit is 12 bar.", 1, 1, None,
+        frozenset({"lib-c"}), "owner", True, False, "owner",
+    )
+    evidence_id = added["evidence"][0]["id"]
+    drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False)
+    draft_id = drafted["drafts"][-1]["id"]
+    for state in ("conflicting", "ambiguous"):
+        update_evidence(item["id"], evidence_id, state, "current", None, "owner", "owner", True, False, reviewer=True)
+        with pytest.raises(ValueError, match=f"marked {state}"):
+            decide(item["id"], "approve", "owner", None, draft_id, "owner", True, False, reviewer=True)
+        with pytest.raises(ValueError, match="before sending"):
+            validate_send_evidence(get(item["id"], "owner", True, False), frozenset({"lib-c"}), False)
+    update_evidence(item["id"], evidence_id, "verified", "current", None, "owner", "owner", True, False, reviewer=True)
+    decide(item["id"], "approve", "owner", None, draft_id, "owner", True, False, reviewer=True)
+
+
 def test_an_attachment_row_a_person_added_by_hand_is_not_swept():
     item = _attachment_evidence("a2")
     with db.connect() as conn:
@@ -1810,3 +1838,204 @@ def test_uncertain_provider_send_is_not_retried_automatically():
     )
     assert reconciled["status"] == "approved"
     assert reconciled["sends"][0]["state"] == "confirmed_not_sent"
+
+
+def _routed_envelope(message_id, sender, **extra):
+    data = envelope(message_id)
+    data["provider_thread_id"] = "thread-" + message_id
+    data["from_address"] = sender
+    data.update(extra)
+    return data
+
+
+def test_routing_rules_fill_blank_fields_by_address_then_domain_and_keep_what_the_message_says():
+    from app.technical_queries import list_routing_rules, set_routing_rule
+
+    set_routing_rule("domain", "Acme-Contractor.test", "Acme Contractors", "Piping", "u1", True)
+    set_routing_rule("address", "chief@acme-contractor.test", "Acme Contractors", "Process", "u1", True)
+    by_address, _ = import_message(
+        _routed_envelope("r1", "Chief Engineer <Chief@Acme-Contractor.test>"), "u1", False, False
+    )
+    assert (by_address["contractor_name"], by_address["department"]) == ("Acme Contractors", "Process")
+    assert by_address["routing_source"].startswith("rule:")
+    by_domain, _ = import_message(_routed_envelope("r2", "clerk@acme-contractor.test"), "u1", False, False)
+    assert by_domain["department"] == "Piping"
+    kept, _ = import_message(
+        _routed_envelope("r3", "clerk@acme-contractor.test", department="Civil"), "u1", False, False
+    )
+    assert (kept["contractor_name"], kept["department"]) == ("Acme Contractors", "Civil")
+    unknown, _ = import_message(_routed_envelope("r4", "someone@elsewhere.test"), "u1", False, False)
+    assert unknown["contractor_name"] is None and unknown["routing_source"] is None
+    from app.technical_queries import triage_query
+
+    triaged = triage_query(
+        by_domain["id"], "Other Co", "Mechanical", "normal", None, "owner", True, False
+    )
+    assert triaged["routing_source"] == "manual"
+    assert len(list_routing_rules()) == 2
+
+
+def test_routing_rules_refuse_public_mail_domains_bad_input_and_non_admins():
+    from app.technical_queries import delete_routing_rule, set_routing_rule
+
+    with pytest.raises(ValueError, match="public mail domain"):
+        set_routing_rule("domain", "gmail.com", "X", None, "u1", True)
+    with pytest.raises(ValueError, match="full email address"):
+        set_routing_rule("address", "no-at-sign", "X", None, "u1", True)
+    with pytest.raises(ValueError, match="company domain"):
+        set_routing_rule("domain", "localhost", "X", None, "u1", True)
+    with pytest.raises(ValueError, match="contractor, a department"):
+        set_routing_rule("address", "a@b.test", " ", None, "u1", True)
+    with pytest.raises(PermissionError):
+        set_routing_rule("address", "a@b.test", "X", None, "u1", False)
+    with pytest.raises(PermissionError):
+        delete_routing_rule("nope", False)
+    # an exact address on a public service is allowed
+    rules = set_routing_rule("address", "person@gmail.com", "Sole Trader", None, "u1", True)
+    assert rules[0]["match_value"] == "person@gmail.com"
+    assert delete_routing_rule(rules[0]["id"], True) == []
+
+
+def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
+    """The whole path through the real route functions: an email with a PDF attachment, evidence,
+    a confirmed question, a cited draft, review, the Word file, one explicit send, resolution.
+    Only search, the answer model and Gmail are replaced."""
+    import json
+
+    import pymupdf
+
+    from app.api.technical_queries import (
+        DecisionIn,
+        QuestionIn,
+        confirm_query_question,
+        confirm_query_resolution,
+        decide_query,
+        prepare_query_evidence,
+        query_response_docx,
+    )
+
+    clause = "4.2 Carbon steel exposed to marine atmosphere shall receive three coats."
+    attachment_pdf = tmp_path / "question.pdf"
+    pdf = pymupdf.open()
+    pdf.new_page().insert_text((72, 72), "What coating does carbon steel need?")
+    pdf.save(str(attachment_pdf))
+    pdf.close()
+    with db.connect() as conn:
+        for doc_id, name, path in (
+            ("lib-e2e", "SYN-COATING.pdf", "lib.pdf"),
+            ("att-e2e", "question.pdf", str(attachment_pdf)),
+        ):
+            conn.execute(
+                "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,'ready',?)",
+                (doc_id, name, doc_id.ljust(64, "0")[:64], 1, path, "2026-01-01T00:00:00Z"),
+            )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("lib-e2e", 2, "4 Coating\n" + clause.replace("exposed to", "exposed\nto") + "\n", 90, 0, 1),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("att-e2e", 1, "What coating does carbon steel need?", 36, 0, 1),
+        )
+        conn.execute(
+            "INSERT INTO document_classification(document_id,suggested_by,confirmed_by) VALUES (?,?,?)",
+            ("lib-e2e", "rules", "owner"),
+        )
+        conn.execute(
+            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            ("mb-e2e", "owner", "engineering@example.test", "h1", "Label_TQ", "active", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        )
+    reviewer = AccessScope(
+        "owner", frozenset({"lib-e2e", "att-e2e"}), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})
+    )
+    plain_admin = AccessScope("owner", frozenset({"lib-e2e", "att-e2e"}), capabilities=frozenset({"admin"}))
+
+    # 1. the email arrives, routed by a rule, with its attachment checked
+    set_routing = __import__("app.technical_queries", fromlist=["x"]).set_routing_rule
+    set_routing("domain", "contractor.example", "Example Contractor", "Piping", "owner", True)
+    data = envelope("e2e")
+    data.update(from_address="engineer@contractor.example", body="See attached.", question=None)
+    item, _ = import_message(data, "owner", True, False)
+    assert (item["contractor_name"], item["department"]) == ("Example Contractor", "Piping")
+    linked = link_attachment(
+        item["id"], item["messages"][0]["attachments"][0]["id"], "att-e2e", "owner", "owner", True, False
+    )
+    assert linked["messages"][0]["attachments"][0]["scan_status"] == "static_check_clean"
+
+    # 2. evidence is found in the library, never in the attachment
+    monkeypatch.setattr(
+        "app.search.search",
+        lambda question, **kw: {
+            "hits": [
+                {"document_id": "lib-e2e", "page_start": 2, "page_end": 2, "text": clause},
+                {"document_id": "att-e2e", "page_start": 1, "page_end": 1, "text": "What coating does carbon steel need?"},
+            ]
+        },
+    )
+    prepared = prepare_query_evidence(item["id"], reviewer)
+    assert [(e["document_id"], e["evidence_state"], e["supersession_state"]) for e in prepared["evidence"]] == [
+        ("lib-e2e", "verified", "current")
+    ]
+    assert prepared["proposed_question"] == "See attached.\nWhat coating does carbon steel need?"
+
+    # 3. nothing is drafted until a reviewer confirms the question
+    with pytest.raises(HTTPException) as early:
+        generate_query_draft(item["id"], reviewer)
+    assert "confirm the question" in early.value.detail["message"]
+    with pytest.raises(HTTPException) as not_reviewer:
+        confirm_query_question(item["id"], QuestionIn(question="What coating applies?"), plain_admin)
+    assert not_reviewer.value.status_code == 403
+    confirm_query_question(item["id"], QuestionIn(question="What coating applies to carbon steel?"), reviewer)
+    asked = {}
+
+    def fake_answer(question, **kwargs):
+        asked["question"], asked["scope"] = question, kwargs["allowed_document_ids"]
+        return {
+            "answer_type": "generated", "answer": "Three coats [S1].", "cited": [1],
+            "passages": [{"document_id": "lib-e2e", "page_start": 2, "page_end": 2, "text": clause}],
+            "model": "synthetic-model",
+        }
+
+    monkeypatch.setattr("app.api.technical_queries.answer.answer", fake_answer)
+    drafted = generate_query_draft(item["id"], reviewer)
+    assert asked == {"question": "What coating applies to carbon steel?", "scope": frozenset({"lib-e2e"})}
+    assert drafted["status"] == "awaiting_review"
+    assert json.loads(drafted["drafts"][-1]["citations_json"])[0]["exact_quote"] == clause
+
+    # 4. only a reviewer approves; then the Word file carries the pieces apart
+    draft_id = drafted["drafts"][-1]["id"]
+    with pytest.raises(HTTPException) as refused:
+        decide_query(item["id"], DecisionIn(decision="approve", draft_id=draft_id), plain_admin)
+    assert refused.value.status_code == 403
+    assert decide_query(item["id"], DecisionIn(decision="approve", draft_id=draft_id), reviewer)["status"] == "approved"
+    docx = query_response_docx(item["id"], reviewer)
+    with ZipFile(docx.path) as package:
+        word = package.read("word/document.xml").decode()
+    for expected in ("Technical Query Response", "See attached.", "Attachment text: query.pdf, page 1",
+                     "Question answered (confirmed by the engineer)", "Three coats [S1].", "SYN-COATING.pdf"):
+        assert expected in word
+    assert "DRAFT" not in word and "lib-e2e" not in word and "[Attachment" not in word
+
+    # 5. one explicit send from the original sender's thread, then resolution
+    class FakeClient:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, raw, *, thread_id=None):
+            self.sent.append((raw, thread_id))
+            return "provider-e2e"
+
+    client = FakeClient()
+    monkeypatch.setattr("app.api.technical_queries.gmail_auth.access_token", lambda _id: "t")
+    monkeypatch.setattr("app.api.technical_queries.GmailApiClient", lambda _t: client)
+    with pytest.raises(HTTPException) as no_send:
+        prepare_query_send(item["id"], SendIn(draft_id=draft_id, mailbox_id="mb-e2e", idempotency_key="k" * 16), plain_admin)
+    assert no_send.value.status_code == 403 and client.sent == []
+    sent = prepare_query_send(item["id"], SendIn(draft_id=draft_id, mailbox_id="mb-e2e", idempotency_key="k" * 16), reviewer)
+    assert sent["sent"] is True and sent["item"]["status"] == "sent" and len(client.sent) == 1
+    resolved = confirm_query_resolution(item["id"], reviewer)
+    assert resolved["status"] == "resolved"
+    with db.connect() as conn:
+        events = [r["event"] for r in conn.execute("SELECT event FROM query_events WHERE query_id=? ORDER BY created_at", (item["id"],))]
+    for expected in ("evidence_prepared", "question_confirmed", "decision"):
+        assert expected in events

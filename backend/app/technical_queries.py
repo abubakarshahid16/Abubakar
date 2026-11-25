@@ -45,6 +45,16 @@ REVIEWER_DESCRIPTION = "Confirm questions, review evidence, approve and send tec
 EVIDENCE_STATES = ("verified", "missing", "conflicting", "ambiguous", "needs_review", "rejected")
 
 
+#: Evidence in these states is unresolved: a response resting on it is neither approved nor sent.
+UNRESOLVED_EVIDENCE_STATES = ("needs_review", "conflicting", "ambiguous")
+
+
+def unresolved_evidence_message(state: str, action: str) -> str:
+    if state == "needs_review":
+        return f"evidence from a contractor attachment needs a reviewer's decision before {action}"
+    return f"evidence marked {state} must be resolved by a reviewer before {action}"
+
+
 def is_reviewer(capabilities: frozenset[str] | set[str], unrestricted: bool = False) -> bool:
     return unrestricted or REVIEWER_CAPABILITY in capabilities
 
@@ -54,7 +64,29 @@ def _require_reviewer(reviewer: bool, unrestricted: bool, what: str) -> None:
         raise PermissionError(f"a qualified technical-query reviewer is required to {what}")
 
 
+_READY_FOR: str | None = None
+
+
+def ensure_ready() -> None:
+    """Create the tables once per database. The app does it at start; this makes every route
+    safe on a database the start-up step never saw (a test, a restored copy, a new data folder)."""
+    from .config import settings
+
+    if str(settings.db_path) != _READY_FOR:
+        ensure_schema()
+
+
 def ensure_schema() -> None:
+    """Create the tables and bring them up to date. Memoised per database by `ensure_ready`, so a
+    request made after start-up writes nothing."""
+    global _READY_FOR
+    from .config import settings
+
+    _ensure_schema()
+    _READY_FOR = str(settings.db_path)
+
+
+def _ensure_schema() -> None:
     with connect() as conn:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS technical_queries (
@@ -99,6 +131,12 @@ def ensure_schema() -> None:
             created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_query_evidence_query ON query_evidence(query_id);
+        CREATE TABLE IF NOT EXISTS query_routing_rules (
+            id TEXT PRIMARY KEY, match_type TEXT NOT NULL CHECK(match_type IN ('address','domain')),
+            match_value TEXT NOT NULL, contractor_name TEXT, department TEXT,
+            created_by TEXT REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL,
+            UNIQUE(match_type, match_value)
+        );
         CREATE TABLE IF NOT EXISTS query_decisions (
             id TEXT PRIMARY KEY, query_id TEXT NOT NULL REFERENCES technical_queries(id) ON DELETE CASCADE,
             draft_id TEXT REFERENCES query_drafts(id) ON DELETE SET NULL, actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -135,6 +173,7 @@ def ensure_schema() -> None:
                 "ALTER TABLE technical_queries ADD COLUMN assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL"
             )
         for column in (
+            "routing_source",
             "attachment_context",
             "proposed_question",
             "confirmed_question",
@@ -143,25 +182,33 @@ def ensure_schema() -> None:
         ):
             if column not in columns:
                 conn.execute(f"ALTER TABLE technical_queries ADD COLUMN {column} TEXT")
+        attachment_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(query_attachments)")
+        }
+        if "scan_detail" not in attachment_columns:
+            conn.execute("ALTER TABLE query_attachments ADD COLUMN scan_detail TEXT")
         evidence_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(query_evidence)")
         }
         if "attachment_checked_at" not in evidence_columns:
             conn.execute("ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT")
-        try:
-            if conn.execute("SELECT 1 FROM roles WHERE name=?", (REVIEWER_CAPABILITY,)).fetchone() is None:
-                conn.execute(
-                    "INSERT INTO roles(id,name,description,kind,created_at) VALUES (?,?,?,?,?)",
-                    (
-                        f"role_{REVIEWER_CAPABILITY}",
-                        REVIEWER_CAPABILITY,
-                        REVIEWER_DESCRIPTION,
-                        "capability",
-                        now(),
-                    ),
-                )
-        except Exception:  # noqa: BLE001 - a database without the roles table has no users to grant
-            pass
+        # A database without the roles table has no users to grant the role to.
+        has_roles = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roles'"
+        ).fetchone()
+        if has_roles and conn.execute(
+            "SELECT 1 FROM roles WHERE name=?", (REVIEWER_CAPABILITY,)
+        ).fetchone() is None:
+            conn.execute(
+                "INSERT INTO roles(id,name,description,kind,created_at) VALUES (?,?,?,?,?)",
+                (
+                    f"role_{REVIEWER_CAPABILITY}",
+                    REVIEWER_CAPABILITY,
+                    REVIEWER_DESCRIPTION,
+                    "capability",
+                    now(),
+                ),
+            )
         invalidate_attachment_evidence(conn)
         message_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(query_messages)")
@@ -222,6 +269,19 @@ def _source_supersession(conn, document_id: str) -> str:
     return "current" if row and row["confirmed_by"] else "unknown"
 
 
+def _static_check_for(conn, document_id: str) -> dict[str, Any]:
+    """The honest result for a stored file: checked, or not checked when it cannot be found."""
+    from pathlib import Path
+
+    from . import attachment_safety, stored_paths
+
+    row = conn.execute("SELECT stored_path FROM documents WHERE id=?", (document_id,)).fetchone()
+    local = stored_paths.local(row["stored_path"]) if row else None
+    if not local or not Path(local).is_file():
+        return {"status": attachment_safety.NOT_SCANNED, "findings": []}
+    return attachment_safety.check_pdf(local)
+
+
 def _source_pages(conn, document_id: str, start: int, end: int):
     return conn.execute(
         "SELECT p.page_no,p.text AS native,p.needs_ocr,o.text AS ocr_text "
@@ -259,9 +319,9 @@ def validate_send_evidence(
     with connect() as conn:
         for evidence in item.get("evidence", []):
             document_id = evidence["document_id"]
-            if evidence.get("evidence_state") == "needs_review":
+            if evidence.get("evidence_state") in UNRESOLVED_EVIDENCE_STATES:
                 raise ValueError(
-                    "evidence from a contractor attachment needs a reviewer's decision before sending"
+                    unresolved_evidence_message(evidence["evidence_state"], "sending")
                 )
             if not unrestricted and document_id not in allowed_document_ids:
                 raise PermissionError("source document access changed after approval")
@@ -422,13 +482,17 @@ def import_message(
             return get(
                 threaded["query_id"], actor_user_id, is_admin, unrestricted
             ) or {}, False
+        contractor, department, routed_by = _routed(
+            conn, data["from_address"], data.get("contractor_name"), data.get("department")
+        )
         conn.execute(
-            "INSERT INTO technical_queries(id,owner_user_id,contractor_name,department,subject,extracted_question,status,priority,received_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO technical_queries(id,owner_user_id,contractor_name,department,routing_source,subject,extracted_question,status,priority,received_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 qid,
                 actor_user_id,
-                data.get("contractor_name"),
-                data.get("department"),
+                contractor,
+                department,
+                routed_by,
                 data["subject"],
                 data.get("question"),
                 "received",
@@ -602,7 +666,7 @@ def triage_query(
             raise ValueError("this query cannot be triaged in its current state")
         status = "triage" if current["status"] == "received" else current["status"]
         conn.execute(
-            "UPDATE technical_queries SET contractor_name=?,department=?,priority=?,due_at=?,status=?,updated_at=? WHERE id=?",
+            "UPDATE technical_queries SET contractor_name=?,department=?,routing_source='manual',priority=?,due_at=?,status=?,updated_at=? WHERE id=?",
             (contractor_name, department, priority, due_at, status, now(), query_id),
         )
         _event(
@@ -991,6 +1055,7 @@ def prepare_evidence(
                 not document_id
                 or document_id not in attachment_ids
                 or attachment.get("document_status") != "ready"
+                or attachment.get("scan_status") == "static_check_flagged"
             ):
                 continue
             for page in _source_pages(conn, document_id, 1, 5):
@@ -1197,9 +1262,10 @@ def link_attachment(
         ).fetchone()
         if row is None:
             return None
+        scan = _static_check_for(conn, document_id)
         conn.execute(
-            "UPDATE query_attachments SET document_id=?, scan_status='not_scanned', parse_status='pending' WHERE id=?",
-            (document_id, attachment_id),
+            "UPDATE query_attachments SET document_id=?, scan_status=?, scan_detail=?, parse_status='pending' WHERE id=?",
+            (document_id, scan["status"], json.dumps(scan["findings"]), attachment_id),
         )
         conn.execute(
             "UPDATE technical_queries SET status='changes_requested',updated_at=? WHERE id=? AND status='approved'",
@@ -1251,12 +1317,10 @@ def decide(
     if get(query_id, user_id, is_admin, unrestricted) is None:
         return None
     current = get(query_id, user_id, is_admin, unrestricted)
-    if decision == "approve" and current is not None and any(
-        row["evidence_state"] == "needs_review" for row in current.get("evidence", [])
-    ):
-        raise ValueError(
-            "evidence from a contractor attachment needs a reviewer's decision before approval"
-        )
+    if decision == "approve" and current is not None:
+        for row in current.get("evidence", []):
+            if row["evidence_state"] in UNRESOLVED_EVIDENCE_STATES:
+                raise ValueError(unresolved_evidence_message(row["evidence_state"], "approval"))
     allowed = {
         "request_changes": {"awaiting_review", "changes_requested"},
         "approve": {"awaiting_review"},
@@ -1346,3 +1410,96 @@ def set_reviewer(user_id: str, granted: bool, actor: dict[str, Any]) -> bool:
             actor, "user", user_id, "ok", f"role={REVIEWER_CAPABILITY}", conn=conn,
         )
     return True
+
+
+#: Public mail services say nothing about which company a sender works for, so no rule may
+#: route on one of these domains. An exact address can still be routed.
+PUBLIC_MAIL_DOMAINS = frozenset(
+    {
+        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com",
+        "yahoo.com", "ymail.com", "icloud.com", "me.com", "aol.com", "proton.me",
+        "protonmail.com", "gmx.com", "mail.com", "zoho.com",
+    }
+)
+
+
+def _address_parts(address: str) -> tuple[str, str]:
+    value = (address or "").strip().casefold()
+    if "<" in value and ">" in value:
+        value = value[value.rindex("<") + 1 : value.rindex(">")].strip()
+    return value, value.rpartition("@")[2]
+
+
+def _routed(conn, from_address: str, contractor: str | None, department: str | None):
+    """Fill only the blank fields from the most specific matching rule. Whatever the
+    message already carried is kept. Returns (contractor, department, source)."""
+    if contractor and department:
+        return contractor, department, None
+    address, domain = _address_parts(from_address)
+    rule = conn.execute(
+        "SELECT * FROM query_routing_rules WHERE match_type='address' AND match_value=?",
+        (address,),
+    ).fetchone() or conn.execute(
+        "SELECT * FROM query_routing_rules WHERE match_type='domain' AND match_value=?",
+        (domain,),
+    ).fetchone()
+    if rule is None:
+        return contractor, department, None
+    return (
+        contractor or rule["contractor_name"],
+        department or rule["department"],
+        f"rule:{rule['id']}",
+    )
+
+
+def list_routing_rules() -> list[dict[str, Any]]:
+    with connect() as conn:
+        return [
+            dict(row)
+            for row in conn.execute(
+                "SELECT * FROM query_routing_rules ORDER BY match_type,match_value"
+            )
+        ]
+
+
+def set_routing_rule(
+    match_type: str,
+    match_value: str,
+    contractor_name: str | None,
+    department: str | None,
+    actor_user_id: str | None,
+    is_admin: bool,
+) -> list[dict[str, Any]]:
+    if not is_admin:
+        raise PermissionError("an administrator is required to change routing rules")
+    value = (match_value or "").strip().casefold().lstrip("@")
+    if match_type not in {"address", "domain"} or not value:
+        raise ValueError("a rule names an address or a domain")
+    if match_type == "address" and ("@" not in value or value.startswith("@")):
+        raise ValueError("an address rule needs a full email address")
+    if match_type == "domain" and ("@" in value or "." not in value):
+        raise ValueError("a domain rule needs a company domain such as example.test")
+    if match_type == "domain" and value in PUBLIC_MAIL_DOMAINS:
+        raise ValueError("a public mail domain does not identify a contractor; route an exact address instead")
+    if not (contractor_name or "").strip() and not (department or "").strip():
+        raise ValueError("a rule sets a contractor, a department, or both")
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO query_routing_rules(id,match_type,match_value,contractor_name,department,created_by,created_at) "
+            "VALUES (?,?,?,?,?,?,?) ON CONFLICT(match_type,match_value) DO UPDATE SET "
+            "contractor_name=excluded.contractor_name,department=excluded.department",
+            (
+                str(uuid.uuid4()), match_type, value,
+                (contractor_name or "").strip() or None, (department or "").strip() or None,
+                actor_user_id, now(),
+            ),
+        )
+    return list_routing_rules()
+
+
+def delete_routing_rule(rule_id: str, is_admin: bool) -> list[dict[str, Any]]:
+    if not is_admin:
+        raise PermissionError("an administrator is required to change routing rules")
+    with connect() as conn:
+        conn.execute("DELETE FROM query_routing_rules WHERE id=?", (rule_id,))
+    return list_routing_rules()

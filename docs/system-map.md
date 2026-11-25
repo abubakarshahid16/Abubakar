@@ -156,6 +156,15 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
 | `api.document_classification` | Routes: what a document is - classification, kind, the playbook review |
 | `api.document_files` | Routes: a document's pages, page images, original file, workbook, chunks, excluded text and page ledger |
+| `api.technical_queries` | Routes: technical queries from contractor emails - the queue and filters, original email, attachments, evidence, the confirmed question, drafts, review decisions, the Word response, one explicit send, resolution, routing rules and reviewer grants; Gmail connection routes; mailbox webhooks stay disabled (503) |
+| `technical_queries` | The technical-query records (queries, messages, attachments, evidence, drafts, decisions, sends, routing rules, events): import and follow-up linking, evidence with exact-quote and supersession checks, the reviewer capability and its gates, stale attachment evidence review |
+| `technical_query_docx` | The Word response for a technical query: the email's question, attachment text and confirmed question apart, the answer, cited passages and verified evidence only, with document names rather than ids |
+| `attachment_safety` | A static check of a contractor PDF for active content (scripts, launch actions, embedded files); not an antivirus scan, and labelled so |
+| `gmail_auth` | Gmail OAuth start and completion and short-lived access tokens; fixed Google hosts, no redirects, no ambient proxy |
+| `gmail_client` | The minimal Gmail API client: list, fetch, history, send; injectable so tests use a fake, never logs tokens or message bodies |
+| `gmail_credentials` | Gmail refresh tokens in the Mac Keychain, never in the application database |
+| `gmail_sync` | Background polling of connected Gmail technical-query mailboxes |
+| `gmail_worker` | Retry-safe Gmail work: label activation, history processing, idempotent import, and the approved send with one reservation per query and manual reconciliation of an uncertain result |
 | `api.deliverables` | Routes: the deliverables register, expected deliverables, history, stakeholders, workspace and alerts; management reminders, summary and schedule, escalation rules and the report (moved out of main.py, order 79a) |
 | `api.standards` | Routes: the standards library - list, inventory, missing and cited standards, provenance, OKF concepts, clauses, requirements and their extraction, tables, conflicts, the verification queue, clause checks, revisions and supersede (moved out of main.py, order 79a) |
 | `api.admin` | Routes: users, disciplines, grants, the model unload, the read-only database explorer and the document-kind routing run (moved out of main.py, order 79a) |

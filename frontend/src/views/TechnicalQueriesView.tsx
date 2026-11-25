@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { technicalQueriesApi, type GmailLabel, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
+import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
   try {
@@ -10,6 +10,14 @@ function draftCitations(raw: string | undefined): Array<{ label: string; documen
     return [];
   }
 }
+
+const SCAN_LABELS: Record<string, string> = {
+  static_check_clean: "static check found no active content (not an antivirus scan)",
+  static_check_flagged: "static check found active content: its text is not used automatically",
+  static_check_unreadable: "could not be checked",
+  not_scanned: "not checked",
+  pending: "not checked yet",
+};
 
 export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
@@ -21,6 +29,15 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [contractorFilter, setContractorFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [fromFilter, setFromFilter] = useState("");
+  const [toFilter, setToFilter] = useState("");
+  const [evidenceFilter, setEvidenceFilter] = useState("");
+  const [rules, setRules] = useState<RoutingRule[] | null>(null);
+  const [ruleType, setRuleType] = useState<"address" | "domain">("domain");
+  const [ruleValue, setRuleValue] = useState("");
+  const [ruleContractor, setRuleContractor] = useState("");
+  const [ruleDepartment, setRuleDepartment] = useState("");
   const [triageContractor, setTriageContractor] = useState("");
   const [triageDepartment, setTriageDepartment] = useState("");
   const [triagePriority, setTriagePriority] = useState("normal");
@@ -70,7 +87,10 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   };
 
   const applyFilters = () => {
-    const common = { contractor: contractorFilter.trim(), department: departmentFilter.trim() };
+    const common = {
+      contractor: contractorFilter.trim(), department: departmentFilter.trim(),
+      assignee_user_id: assigneeFilter, received_from: fromFilter, received_to: toFilter, evidence_state: evidenceFilter,
+    };
     void technicalQueriesApi.list({ ...common, status: statusFilter }).then((result) => {
       if (!result.ok) { setError(result.error.message); return; }
       setItems(result.data.items);
@@ -110,6 +130,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     void technicalQueriesApi.assignees().then((result) => {
       if (alive && result.ok) setAssignees(result.data.items);
     });
+    void technicalQueriesApi.routingRules().then((result) => {
+      if (alive && result.ok) setRules(result.data.items);
+    });
     return () => { alive = false; };
   }, [queryId]);
 
@@ -128,7 +151,25 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           <input id="query-contractor-filter" value={contractorFilter} onChange={(event) => setContractorFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
           <label className="block text-xs text-slateish-300" htmlFor="query-department-filter">Department</label>
           <input id="query-department-filter" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+          {assignees.length > 0 && <><label className="block text-xs text-slateish-300" htmlFor="query-assignee-filter">Responsible person</label>
+          <select id="query-assignee-filter" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Anyone</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></>}
+          <label className="block text-xs text-slateish-300" htmlFor="query-from-filter">Received from</label>
+          <input id="query-from-filter" type="date" value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+          <label className="block text-xs text-slateish-300" htmlFor="query-to-filter">Received to</label>
+          <input id="query-to-filter" type="date" value={toFilter} onChange={(event) => setToFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+          <label className="block text-xs text-slateish-300" htmlFor="query-evidence-filter">Evidence</label>
+          <select id="query-evidence-filter" value={evidenceFilter} onChange={(event) => setEvidenceFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Any</option><option value="verified">Verified</option><option value="needs_review">Needs review</option><option value="conflicting">Conflicting</option><option value="ambiguous">Ambiguous</option><option value="missing">Missing</option><option value="rejected">Rejected</option></select>
           <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Refresh and apply filters</button>
+          {rules !== null && <details className="mt-4 rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Routing rules ({rules.length})</summary>
+            <p className="mt-2 text-slateish-400">A match fills a blank contractor or department when an email arrives. A public mail domain cannot be routed; an exact address can.</p>
+            <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><button type="button" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })} className="rounded bg-ink-700 px-2 py-1">Remove</button></li>)}</ul>
+            <div className="mt-2 space-y-1">
+              <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as "address" | "domain")} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5"><option value="domain">Company domain</option><option value="address">Exact address</option></select>
+              <input aria-label="Rule value" value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder={ruleType === "domain" ? "company.example" : "person@company.example"} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <input aria-label="Rule contractor" value={ruleContractor} onChange={(event) => setRuleContractor(event.target.value)} placeholder="Contractor" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <input aria-label="Rule department" value={ruleDepartment} onChange={(event) => setRuleDepartment(event.target.value)} placeholder="Department" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>
+            </div></details>}
         </div>
         {pendingMailbox && <div className="mt-4 rounded border border-warn-600 p-3 text-xs text-slateish-200">
           <p>Gmail account {pendingMailbox.email} is connected but waiting for a dedicated technical-query label. Only messages under that label will be imported.</p>
@@ -155,6 +196,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <label className="text-xs text-slateish-300">Department<input value={triageDepartment} onChange={(event) => setTriageDepartment(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
             <label className="text-xs text-slateish-300">Priority<select value={triagePriority} onChange={(event) => setTriagePriority(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
             <label className="text-xs text-slateish-300">Due date<input type="date" value={triageDue} onChange={(event) => setTriageDue(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
+            {selected.routing_source?.startsWith("rule:") && <p className="text-xs text-slateish-400">Contractor and department were filled from a routing rule. Save routing to confirm or change them.</p>}
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.triage(selected.id, { contractor_name: triageContractor.trim() || null, department: triageDepartment.trim() || null, priority: triagePriority, due_at: triageDue || null }))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save routing</button>
             {assignees.length > 0 && <label className="text-xs text-slateish-300">Responsible person<select value={chosenAssignee} onChange={(event) => setChosenAssignee(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="">Select a person</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>}
             {assignees.length > 0 && <button type="button" disabled={busy || !chosenAssignee} onClick={() => act(() => technicalQueriesApi.assign(selected.id, chosenAssignee))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Assign person</button>}
@@ -194,7 +236,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <p>Received: {message.received_at}</p>
             {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
             <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
-            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/documents/${encodeURIComponent(attachment.document_id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · scan: {attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
+            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/documents/${encodeURIComponent(attachment.document_id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · {SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
           </article>)}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Evidence</h3>
           {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, page {evidence.page_start ?? "unknown"}</a> · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state} · {evidence.supersession_state}</footer>
