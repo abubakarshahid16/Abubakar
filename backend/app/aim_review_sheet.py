@@ -181,10 +181,12 @@ def team_note(p: dict) -> str | None:
     """The team file's ONE note on the AI's own process for a card (owner, 19 Nov 2026: such words are never comment text and
     never in the contractor copy): the two readers' difference and a pairing of two paper values the AI chose."""
     from app.aim_review.fail_words import PAIRED_TEAM_WORDS
+    from app.aim_review_learner import team_words
 
     parts = [
         readers_words(p.get("readers")),
         PAIRED_TEAM_WORDS if p.get("paired") else None,
+        team_words(p.get("learned")),
     ]
     return " ".join(x for x in parts if x) or None
 

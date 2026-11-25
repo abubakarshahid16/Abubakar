@@ -89,6 +89,10 @@ def record(
         {"run": run_id, "comment": row["comment_key"], "part": part, "state": state},
         at=row["decided_at"],
     )
+    from . import aim_review_learner
+
+    # switch off: nothing; ids only, in the same transaction
+    aim_review_learner.learn(conn, row)
     return row
 
 

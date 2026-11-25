@@ -440,6 +440,9 @@ class Settings(SettingsExt, BaseSettings):
     #: passes as a DRAFT for the engineer, never a verdict. ON by default
     #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
+    #: The learner (#1912, owner 25 Nov 2026): an engineer's accept / edit / reject remembered by rule and paper kind; a comment
+    #: rejected before carries "rejected before by <role> on <date>" in the team note; edited wording is reused. OFF until scored.
+    aim_review_learner_enabled: bool = False
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment
