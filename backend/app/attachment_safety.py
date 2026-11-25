@@ -48,6 +48,23 @@ LABELS = {
 }
 
 
+def check_before_library(source) -> dict[str, Any]:
+    """The static check on a file BEFORE it enters the library: `source` is bytes or a binary file object (read from its start, then rewound).
+    A flagged file is never ingested: it does not become a library document, is not indexed and cannot be searched."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp:
+        if isinstance(source, bytes | bytearray):
+            tmp.write(source)
+        else:
+            source.seek(0)
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                tmp.write(block)
+            source.seek(0)
+        tmp.flush()
+        return check_pdf(tmp.name)
+
+
 def check_pdf(path: str | Path) -> dict[str, Any]:
     findings: set[str] = set()
     try:

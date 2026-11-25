@@ -6,6 +6,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from .aim_review_gate import AI_MARK
 from .config import settings
 from .technical_queries import original_email_question
 
@@ -21,6 +22,9 @@ _RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 </Relationships>"""
 _DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>"""
+
+
+APPROVED_STATES = {"approved", "sent", "awaiting_confirmation", "resolved"}
 
 
 def _p(text: str, bold: bool = False) -> str:
@@ -67,12 +71,13 @@ def render(query: dict, output: Path | None = None) -> Path:
     paragraphs = [
         _p(
             "Technical Query Response"
-            if query["status"]
-            in {"approved", "sent", "awaiting_confirmation", "resolved"}
+            if query["status"] in APPROVED_STATES
             else "DRAFT Technical Query Response — engineer review required",
             True,
         ),
         _p(f"Subject: {query['subject']}"),
+        # Until a reviewer approves, the words are an AI's: say so in the file (one home for the label: aim_review_gate.AI_MARK)
+        *([_p(f"{AI_MARK}: not yet approved by an engineer.", True)] if query["status"] not in APPROVED_STATES else []),
         _p("Original question (from the email)", True),
         _p(original_email_question(query.get("extracted_question")) or "Not stated in the email text."),
     ]

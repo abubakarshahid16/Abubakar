@@ -9,7 +9,6 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from app import db, gmail_auth, gmail_sync
-from app import technical_queries as technical_queries_mod
 from app.access import AccessScope
 from app.api.technical_queries import (
     ImportIn,
@@ -30,7 +29,6 @@ from app.gmail_worker import (
     activate_label,
     poll_mailbox,
     process_history,
-    send_approved,
 )
 from app.technical_queries import (
     REVIEWER_CAPABILITY,
@@ -46,7 +44,6 @@ from app.technical_queries import (
     list_queries,
     metrics,
     prepare_evidence,
-    reconcile_send,
     update_evidence,
     validate_send_evidence,
 )
@@ -58,8 +55,9 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "queries.sqlite")
-    monkeypatch.setattr(settings, "technical_queries_enabled", True)  # the feature is switched off by default
-    monkeypatch.setattr(technical_queries_mod, "SENDING_APPROVED", True)  # the send lock has its own tests
+    monkeypatch.setattr(
+        settings, "technical_queries_enabled", True
+    )  # the feature is switched off by default
     db.reset_connection()
     db.init_db()
     with db.connect() as conn:
@@ -81,12 +79,37 @@ def hold_contract(document_id: str, filename: str = "contract.pdf") -> None:
     with db.connect() as conn:
         conn.execute(
             "INSERT OR IGNORE INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            (document_id, filename, document_id.encode().hex().ljust(64, "0")[:64], 1, filename, "ready", "2026-01-01T00:00:00Z"),
+            (
+                document_id,
+                filename,
+                document_id.encode().hex().ljust(64, "0")[:64],
+                1,
+                filename,
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
         )
         conn.execute(
             "INSERT OR REPLACE INTO document_classification(document_id,document_role,suggested_by) VALUES (?,?,?)",
             (document_id, "CONTRACT_DOCUMENT", "rules"),
         )
+
+
+def cited(item_id: str, doc: str = "lib-cited") -> list[dict]:
+    """Verified, current evidence on a held page and the citation of it: a draft is approved only if it cites evidence like this."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,'ready',?)",
+            (doc, "c.pdf", doc.encode().hex().ljust(64, "0")[:64], 1, "c.pdf", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            (doc, 1, "The limit is 12 bar.", 20, 0, 1),
+        )
+    added = add_evidence(item_id, doc, "The limit is 12 bar.", 1, 1, None, frozenset({doc}), "owner", True, False, "owner")
+    evidence_id = added["evidence"][-1]["id"]
+    update_evidence(item_id, evidence_id, "verified", "current", None, "owner", "owner", True, False, reviewer=True)
+    return [{"evidence_id": evidence_id, "label": "S1", "document_id": doc, "page": 1, "exact_quote": "The limit is 12 bar."}]
 
 
 def envelope(message_id: str = "message-1") -> dict:
@@ -138,7 +161,9 @@ def test_triage_requires_admin_and_updates_filtered_metrics():
     result = triage_technical_query(
         item["id"],
         body,
-        AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})),
+        AccessScope(
+            "u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})
+        ),
     )
     assert result["status"] == "triage"
     assert result["contractor_name"] == "Synthetic Contractor"
@@ -229,11 +254,17 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
     assert "[Attachment" not in result["proposed_question"]
     # each question is proposed on its own, with its file and page, for the engineer to confirm
     assert result["proposed_questions"] == [
-        {"question": "What is the permitted coating thickness?", "filename": "query.pdf", "page": 1}
+        {
+            "question": "What is the permitted coating thickness?",
+            "filename": "query.pdf",
+            "page": 1,
+        }
     ]
     assert result["confirmed_question"] is None
     assert result["evidence"] == []
-    assert result["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 0."
+    assert (
+        result["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 0."
+    )
     repeated = prepare_evidence(
         item["id"], frozenset({"query-pdf", "contract-1"}), "u1", True, False, "u1"
     )
@@ -262,7 +293,15 @@ def test_preparing_evidence_twice_does_not_duplicate_a_passage(monkeypatch):
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            ("lib-doc", "standard.pdf", "a1" * 32, 1, "standard.pdf", "ready", "2026-01-01T00:00:00Z"),
+            (
+                "lib-doc",
+                "standard.pdf",
+                "a1" * 32,
+                1,
+                "standard.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
         )
         conn.execute(
             "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
@@ -273,21 +312,38 @@ def test_preparing_evidence_twice_does_not_duplicate_a_passage(monkeypatch):
     monkeypatch.setattr(
         "app.search.search",
         lambda question, **_k: {
-            "hits": [{"document_id": "lib-doc", "page_start": 1, "page_end": 1, "text": "The limit is 12 bar."}]
+            "hits": [
+                {
+                    "document_id": "lib-doc",
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": "The limit is 12 bar.",
+                }
+            ]
         },
     )
     for _ in range(3):
-        result = prepare_evidence(item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1")
+        result = prepare_evidence(
+            item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1"
+        )
     assert len(result["evidence"]) == 1
     assert result["evidence"][0]["supersession_state"] == "unknown"
     with db.connect() as conn:
-        conn.execute("UPDATE document_classification SET confirmed_by='u1' WHERE document_id='lib-doc'")
-    result = prepare_evidence(item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1")
+        conn.execute(
+            "UPDATE document_classification SET confirmed_by='u1' WHERE document_id='lib-doc'"
+        )
+    result = prepare_evidence(
+        item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1"
+    )
     assert len(result["evidence"]) == 1
     assert result["evidence"][0]["supersession_state"] == "current"
     with db.connect() as conn:
-        conn.execute("UPDATE document_classification SET superseded_by='newer' WHERE document_id='lib-doc'")
-    result = prepare_evidence(item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1")
+        conn.execute(
+            "UPDATE document_classification SET superseded_by='newer' WHERE document_id='lib-doc'"
+        )
+    result = prepare_evidence(
+        item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1"
+    )
     assert result["evidence"][0]["supersession_state"] == "superseded"
 
 
@@ -295,17 +351,32 @@ def test_prepare_evidence_does_not_search_the_querys_own_attachment(monkeypatch)
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            ("own-attachment", "query.pdf", "e" * 64, 1, "query.pdf", "ready", "2026-01-01T00:00:00Z"),
+            (
+                "own-attachment",
+                "query.pdf",
+                "e" * 64,
+                1,
+                "query.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
         )
     item, _ = import_message(envelope("scope-check"), "u1", False, False)
     link_attachment(
-        item["id"], item["messages"][0]["attachments"][0]["id"],
-        "own-attachment", "u1", "u1", True, False,
+        item["id"],
+        item["messages"][0]["attachments"][0]["id"],
+        "own-attachment",
+        "u1",
+        "u1",
+        True,
+        False,
     )
     seen = {}
 
     hold_contract("library-doc")
-    hold_contract("own-attachment")  # even a contract-role attachment is never searched: it is the contractor's own paper
+    hold_contract(
+        "own-attachment"
+    )  # even a contract-role attachment is never searched: it is the contractor's own paper
 
     def fake_search(question, **kwargs):
         seen.setdefault("scopes", []).append(kwargs["allowed_document_ids"])
@@ -319,17 +390,33 @@ def test_prepare_evidence_does_not_search_the_querys_own_attachment(monkeypatch)
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            ("other-attachment", "other.pdf", "f1" * 32, 1, "other.pdf", "ready", "2026-01-01T00:00:00Z"),
+            (
+                "other-attachment",
+                "other.pdf",
+                "f1" * 32,
+                1,
+                "other.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
         )
     link_attachment(
-        other["id"], other["messages"][0]["attachments"][0]["id"],
-        "other-attachment", "u1", "u1", True, False,
+        other["id"],
+        other["messages"][0]["attachments"][0]["id"],
+        "other-attachment",
+        "u1",
+        "u1",
+        True,
+        False,
     )
     hold_contract("other-attachment")
     prepare_evidence(
         item["id"],
         frozenset({"own-attachment", "other-attachment", "library-doc"}),
-        "u1", True, False, "u1",
+        "u1",
+        True,
+        False,
+        "u1",
     )
     assert seen["scopes"] == [frozenset({"library-doc"})]
 
@@ -340,11 +427,26 @@ def test_quote_matches_a_clause_the_pdf_wrapped_across_lines_but_not_a_changed_n
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            ("wrapped-source", "standard.pdf", "f" * 64, 1, "standard.pdf", "ready", "2026-01-01T00:00:00Z"),
+            (
+                "wrapped-source",
+                "standard.pdf",
+                "f" * 64,
+                1,
+                "standard.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
         )
         conn.execute(
             "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
-            ("wrapped-source", 1, "4.2 Carbon steel shall receive a total dry film\nthickness of not less than 280 micrometres.\n", 90, 0, 1),
+            (
+                "wrapped-source",
+                1,
+                "4.2 Carbon steel shall receive a total dry film\nthickness of not less than 280 micrometres.\n",
+                90,
+                0,
+                1,
+            ),
         )
         same = "4.2 Carbon steel shall receive a total dry film thickness of not less than 280 micrometres."
         changed = same.replace("280", "250")
@@ -416,7 +518,7 @@ def test_missing_mailbox_id_still_deduplicates():
 
 def test_approval_requires_latest_draft_id():
     item, _ = import_message(envelope("approval-binding"), "u1", False, False)
-    item = add_draft(item["id"], "Answer for review", [], [], "u1", "u1", False, False)
+    item = add_draft(item["id"], "Answer for review", [], [], "u1", "u1", False, False, citations=cited(item["id"]))
     latest_id = item["drafts"][-1]["id"]
     with pytest.raises(ValueError, match="latest draft"):
         decide(
@@ -428,18 +530,38 @@ def test_approval_requires_latest_draft_id():
             "owner",
             True,
             False,
-        reviewer=True,
+            reviewer=True,
         )
     with pytest.raises(ValueError, match="latest draft"):
-        decide(item["id"], "approve", "owner", None, None, "owner", True, False, reviewer=True)
+        decide(
+            item["id"],
+            "approve",
+            "owner",
+            None,
+            None,
+            "owner",
+            True,
+            False,
+            reviewer=True,
+        )
     approved = decide(
-        item["id"], "approve", "owner", None, latest_id, "owner", True, False
-    , reviewer=True)
+        item["id"],
+        "approve",
+        "owner",
+        None,
+        latest_id,
+        "owner",
+        True,
+        False,
+        reviewer=True,
+    )
     assert approved["status"] == "approved"
 
 
 def test_unverified_provider_claim_and_unconnected_send_are_refused():
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
+    scope = AccessScope(
+        "u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})
+    )
     claimed_gmail = envelope("claimed-gmail")
     claimed_gmail["provider"] = "gmail"
     with pytest.raises(HTTPException) as blocked_import:
@@ -477,7 +599,9 @@ def test_invalid_attachment_id_is_rejected_before_document_ingestion(monkeypatch
     monkeypatch.setattr(
         "app.api.technical_queries.upload_mod.ingest", ingest_never_called
     )
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
+    scope = AccessScope(
+        "u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})
+    )
     with pytest.raises(HTTPException) as rejected:
         asyncio.run(
             upload_query_attachment(
@@ -576,7 +700,9 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         },
     )
     seen_questions = []
-    original_answer = __import__("app.api.technical_queries", fromlist=["answer"]).answer.answer
+    original_answer = __import__(
+        "app.api.technical_queries", fromlist=["answer"]
+    ).answer.answer
 
     def spying_answer(question, *_args, **_kwargs):
         seen_questions.append(question)
@@ -587,7 +713,15 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         generate_query_draft(item["id"], scope)
     assert unconfirmed.value.status_code == 409
     assert "confirm the question" in unconfirmed.value.detail["message"]
-    confirm_question(item["id"], "What is the approved limit?", "u1", False, False, "u1", reviewer=True)
+    confirm_question(
+        item["id"],
+        "What is the approved limit?",
+        "u1",
+        False,
+        False,
+        "u1",
+        reviewer=True,
+    )
     monkeypatch.setattr("app.api.technical_queries.answer.answer", spying_answer)
     with pytest.raises(HTTPException) as blocked:
         generate_query_draft(item["id"], scope)
@@ -622,19 +756,47 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
 def test_confirming_a_question_keeps_the_email_and_rejects_empty_or_late_changes():
     item, _ = import_message(envelope("confirm-q"), "u1", False, False)
     assert item["confirmed_question"] is None
-    confirmed = confirm_question(item["id"], "  What coating applies?  ", "u1", False, False, "u1", reviewer=True)
+    confirmed = confirm_question(
+        item["id"], "  What coating applies?  ", "u1", False, False, "u1", reviewer=True
+    )
     assert confirmed["confirmed_question"] == "What coating applies?"
     assert confirmed["confirmed_question_by"] == "u1"
-    assert confirmed["extracted_question"] == "Please confirm the applicable coating schedule."
-    assert confirmed["messages"][0]["body"] == "Please confirm the applicable coating schedule."
+    assert (
+        confirmed["extracted_question"]
+        == "Please confirm the applicable coating schedule."
+    )
+    assert (
+        confirmed["messages"][0]["body"]
+        == "Please confirm the applicable coating schedule."
+    )
     with pytest.raises(ValueError):
         confirm_question(item["id"], "   ", "u1", False, False, "u1", reviewer=True)
     with pytest.raises(ValueError):
-        confirm_question(item["id"], "x" * 5001, "u1", False, False, "u1", reviewer=True)
-    drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False)
-    decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False, reviewer=True)
+        confirm_question(
+            item["id"], "x" * 5001, "u1", False, False, "u1", reviewer=True
+        )
+    drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False, citations=cited(item["id"]))
+    decide(
+        item["id"],
+        "approve",
+        "owner",
+        None,
+        drafted["drafts"][-1]["id"],
+        "owner",
+        True,
+        False,
+        reviewer=True,
+    )
     with pytest.raises(ValueError):
-        confirm_question(item["id"], "Changed after approval", "u1", False, False, "u1", reviewer=True)
+        confirm_question(
+            item["id"],
+            "Changed after approval",
+            "u1",
+            False,
+            False,
+            "u1",
+            reviewer=True,
+        )
 
 
 def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch):
@@ -649,12 +811,33 @@ def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch)
             ("doc-r", 1, "The limit is 12 bar.", 20, 0, 1),
         )
     add_evidence(
-        item["id"], "doc-r", "The limit is 12 bar.", 1, 1, None,
-        frozenset({"doc-r"}), "u1", True, False, "u1",
+        item["id"],
+        "doc-r",
+        "The limit is 12 bar.",
+        1,
+        1,
+        None,
+        frozenset({"doc-r"}),
+        "u1",
+        True,
+        False,
+        "u1",
     )
-    update_evidence(item["id"], get(item["id"], "u1", True, False)["evidence"][0]["id"],
-                    "verified", "current", None, "u1", "u1", True, False, reviewer=True)
-    confirm_question(item["id"], "What is QX-1?", "u1", True, False, "u1", reviewer=True)
+    update_evidence(
+        item["id"],
+        get(item["id"], "u1", True, False)["evidence"][0]["id"],
+        "verified",
+        "current",
+        None,
+        "u1",
+        "u1",
+        True,
+        False,
+        reviewer=True,
+    )
+    confirm_question(
+        item["id"], "What is QX-1?", "u1", True, False, "u1", reviewer=True
+    )
     monkeypatch.setattr(
         "app.api.technical_queries.answer.answer",
         lambda *_a, **_k: {
@@ -664,7 +847,14 @@ def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch)
         },
     )
     with pytest.raises(HTTPException) as refused:
-        generate_query_draft(item["id"], AccessScope("u1", frozenset({"doc-r"}), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})))
+        generate_query_draft(
+            item["id"],
+            AccessScope(
+                "u1",
+                frozenset({"doc-r"}),
+                capabilities=frozenset({"admin", REVIEWER_CAPABILITY}),
+            ),
+        )
     assert refused.value.status_code == 409
     assert "QX-1 does not appear anywhere" in refused.value.detail["message"]
 
@@ -672,10 +862,18 @@ def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch)
 def test_a_proposed_question_is_the_emails_own_or_the_models_numbered_questions_never_a_copy_of_the_pages():
     from app.technical_queries import original_email_question, propose_question
 
-    proposals = [{"question": "Confirm the thickness.", "filename": "q.pdf", "page": 1},
-                 {"question": "State the standard.", "filename": "q.pdf", "page": 2}]
-    assert propose_question("Please confirm the thickness.", proposals) == "Please confirm the thickness.\n1. State the standard."  # what the email already says is not said twice
-    assert propose_question("", proposals) == "1. Confirm the thickness.\n2. State the standard."
+    proposals = [
+        {"question": "Confirm the thickness.", "filename": "q.pdf", "page": 1},
+        {"question": "State the standard.", "filename": "q.pdf", "page": 2},
+    ]
+    assert (
+        propose_question("Please confirm the thickness.", proposals)
+        == "Please confirm the thickness.\n1. State the standard."
+    )  # what the email already says is not said twice
+    assert (
+        propose_question("", proposals)
+        == "1. Confirm the thickness.\n2. State the standard."
+    )
     assert propose_question("", []) == ""
     legacy = "Email part.\n\n[Attachment q.pdf, page 1]\nPDF text"
     assert original_email_question(legacy) == "Email part."
@@ -688,7 +886,15 @@ def _attachment_evidence(item_id_suffix: str):
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            (f"att-{item_id_suffix}", "att.pdf", item_id_suffix.ljust(64, "9")[:64], 1, "att.pdf", "ready", "2026-01-01T00:00:00Z"),
+            (
+                f"att-{item_id_suffix}",
+                "att.pdf",
+                item_id_suffix.ljust(64, "9")[:64],
+                1,
+                "att.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
         )
         conn.execute(
             "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
@@ -696,14 +902,28 @@ def _attachment_evidence(item_id_suffix: str):
         )
     item, _ = import_message(envelope(f"stale-{item_id_suffix}"), "u1", False, False)
     link_attachment(
-        item["id"], item["messages"][0]["attachments"][0]["id"],
-        f"att-{item_id_suffix}", "u1", "u1", True, False,
+        item["id"],
+        item["messages"][0]["attachments"][0]["id"],
+        f"att-{item_id_suffix}",
+        "u1",
+        "u1",
+        True,
+        False,
     )
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (f"ev-{item_id_suffix}", item["id"], f"att-{item_id_suffix}", 1, 1,
-             "Contractor wrote 99 bar.", "h", "current", "2026-01-01T00:00:00Z"),
+            (
+                f"ev-{item_id_suffix}",
+                item["id"],
+                f"att-{item_id_suffix}",
+                1,
+                1,
+                "Contractor wrote 99 bar.",
+                "h",
+                "current",
+                "2026-01-01T00:00:00Z",
+            ),
         )
     return item
 
@@ -713,22 +933,67 @@ def test_old_evidence_from_a_contractor_attachment_needs_review_and_blocks_appro
     ensure_schema()  # the startup sweep
     row = get(item["id"], "owner", True, False)["evidence"][0]
     assert row["evidence_state"] == "needs_review"
-    drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False)
+    drafted = add_draft(
+        item["id"], "Answer", [], [], "owner", "owner", True, False, citations=cited(item["id"])
+    )
     with pytest.raises(ValueError, match="needs a reviewer's decision before approval"):
-        decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False, reviewer=True)
+        decide(
+            item["id"],
+            "approve",
+            "owner",
+            None,
+            drafted["drafts"][-1]["id"],
+            "owner",
+            True,
+            False,
+            reviewer=True,
+        )
     with pytest.raises(ValueError, match="before sending"):
-        validate_send_evidence(get(item["id"], "owner", True, False), frozenset({"att-a1"}), False)
+        validate_send_evidence(
+            get(item["id"], "owner", True, False), frozenset({"att-a1"}), False
+        )
     # The contractor-facing file does not carry it.
     from pathlib import Path
-    path = render_query_docx(get(item["id"], "owner", True, False), Path(settings.data_dir) / "stale.docx")
+
+    path = render_query_docx(
+        get(item["id"], "owner", True, False), Path(settings.data_dir) / "stale.docx"
+    )
     with ZipFile(path) as package:
-        assert "Contractor wrote 99 bar" not in package.read("word/document.xml").decode()
+        assert (
+            "Contractor wrote 99 bar" not in package.read("word/document.xml").decode()
+        )
     # A reviewer's decision stands: a later sweep does not undo it.
-    update_evidence(item["id"], "ev-a1", "rejected", "current", None, "owner", "owner", True, False, reviewer=True)
+    update_evidence(
+        item["id"],
+        "ev-a1",
+        "rejected",
+        "current",
+        None,
+        "owner",
+        "owner",
+        True,
+        False,
+        reviewer=True,
+    )
     ensure_schema()
-    assert get(item["id"], "owner", True, False)["evidence"][0]["evidence_state"] == "rejected"
-    validate_send_evidence(get(item["id"], "owner", True, False), frozenset({"att-a1"}), False)
-    decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False, reviewer=True)
+    assert (
+        get(item["id"], "owner", True, False)["evidence"][0]["evidence_state"]
+        == "rejected"
+    )
+    validate_send_evidence(
+        get(item["id"], "owner", True, False), frozenset({"att-a1", "lib-cited"}), False
+    )
+    decide(
+        item["id"],
+        "approve",
+        "owner",
+        None,
+        drafted["drafts"][-1]["id"],
+        "owner",
+        True,
+        False,
+        reviewer=True,
+    )
 
 
 def test_conflicting_or_ambiguous_evidence_blocks_approval_and_send_until_resolved():
@@ -743,20 +1008,75 @@ def test_conflicting_or_ambiguous_evidence_blocks_approval_and_send_until_resolv
         )
     item, _ = import_message(envelope("conflict-block"), "owner", True, False)
     added = add_evidence(
-        item["id"], "lib-c", "The limit is 12 bar.", 1, 1, None,
-        frozenset({"lib-c"}), "owner", True, False, "owner",
+        item["id"],
+        "lib-c",
+        "The limit is 12 bar.",
+        1,
+        1,
+        None,
+        frozenset({"lib-c"}),
+        "owner",
+        True,
+        False,
+        "owner",
     )
     evidence_id = added["evidence"][0]["id"]
-    drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False)
+    drafted = add_draft(
+        item["id"], "Answer", [], [], "owner", "owner", True, False, citations=[{"evidence_id": evidence_id}]
+    )
     draft_id = drafted["drafts"][-1]["id"]
     for state in ("conflicting", "ambiguous"):
-        update_evidence(item["id"], evidence_id, state, "current", None, "owner", "owner", True, False, reviewer=True)
+        update_evidence(
+            item["id"],
+            evidence_id,
+            state,
+            "current",
+            None,
+            "owner",
+            "owner",
+            True,
+            False,
+            reviewer=True,
+        )
         with pytest.raises(ValueError, match=f"marked {state}"):
-            decide(item["id"], "approve", "owner", None, draft_id, "owner", True, False, reviewer=True)
+            decide(
+                item["id"],
+                "approve",
+                "owner",
+                None,
+                draft_id,
+                "owner",
+                True,
+                False,
+                reviewer=True,
+            )
         with pytest.raises(ValueError, match="before sending"):
-            validate_send_evidence(get(item["id"], "owner", True, False), frozenset({"lib-c"}), False)
-    update_evidence(item["id"], evidence_id, "verified", "current", None, "owner", "owner", True, False, reviewer=True)
-    decide(item["id"], "approve", "owner", None, draft_id, "owner", True, False, reviewer=True)
+            validate_send_evidence(
+                get(item["id"], "owner", True, False), frozenset({"lib-c"}), False
+            )
+    update_evidence(
+        item["id"],
+        evidence_id,
+        "verified",
+        "current",
+        None,
+        "owner",
+        "owner",
+        True,
+        False,
+        reviewer=True,
+    )
+    decide(
+        item["id"],
+        "approve",
+        "owner",
+        None,
+        draft_id,
+        "owner",
+        True,
+        False,
+        reviewer=True,
+    )
 
 
 def test_an_attachment_row_a_person_added_by_hand_is_not_swept():
@@ -764,11 +1084,23 @@ def test_an_attachment_row_a_person_added_by_hand_is_not_swept():
     with db.connect() as conn:
         conn.execute("DELETE FROM query_evidence")
     added = add_evidence(
-        item["id"], "att-a2", "Contractor wrote 99 bar.", 1, 1, None,
-        frozenset({"att-a2"}), "owner", True, False, "owner",
+        item["id"],
+        "att-a2",
+        "Contractor wrote 99 bar.",
+        1,
+        1,
+        None,
+        frozenset({"att-a2"}),
+        "owner",
+        True,
+        False,
+        "owner",
     )
     ensure_schema()
-    assert get(item["id"], "owner", True, False)["evidence"][0]["evidence_state"] == "verified"
+    assert (
+        get(item["id"], "owner", True, False)["evidence"][0]["evidence_state"]
+        == "verified"
+    )
     assert added["evidence"][0]["evidence_state"] == "verified"
 
 
@@ -777,7 +1109,9 @@ def test_only_a_qualified_reviewer_may_confirm_decide_classify_or_send():
     with pytest.raises(PermissionError, match="qualified technical-query reviewer"):
         confirm_question(item["id"], "A question?", "owner", True, False, "owner")
     with pytest.raises(PermissionError, match="qualified technical-query reviewer"):
-        update_evidence(item["id"], "x", "verified", "current", None, "owner", "owner", True, False)
+        update_evidence(
+            item["id"], "x", "verified", "current", None, "owner", "owner", True, False
+        )
     with pytest.raises(PermissionError, match="qualified technical-query reviewer"):
         decide(item["id"], "approve", "owner", None, "d", "owner", True, False)
     admin_only = AccessScope("owner", frozenset(), capabilities=frozenset({"admin"}))
@@ -789,16 +1123,28 @@ def test_only_a_qualified_reviewer_may_confirm_decide_classify_or_send():
     )
 
     with pytest.raises(HTTPException) as denied:
-        confirm_query_question(item["id"], QuestionIn(question="A question?"), admin_only)
+        confirm_query_question(
+            item["id"], QuestionIn(question="A question?"), admin_only
+        )
     assert denied.value.status_code == 403
     with pytest.raises(HTTPException) as denied:
-        decide_query(item["id"], DecisionIn(decision="approve", draft_id="d"), admin_only)
+        decide_query(
+            item["id"], DecisionIn(decision="approve", draft_id="d"), admin_only
+        )
     assert denied.value.status_code == 403
     with pytest.raises(HTTPException) as denied:
-        prepare_query_send(item["id"], SendIn(draft_id="d", mailbox_id="m", idempotency_key="k" * 16), admin_only)
-    assert denied.value.status_code == 403
-    reviewer = AccessScope("owner", frozenset(), capabilities=frozenset({REVIEWER_CAPABILITY}))
-    confirmed = confirm_query_question(item["id"], QuestionIn(question="A question?"), reviewer)
+        prepare_query_send(
+            item["id"],
+            SendIn(draft_id="d", mailbox_id="m", idempotency_key="k" * 16),
+            admin_only,
+        )
+    assert denied.value.status_code == 409  # sending is refused for everyone
+    reviewer = AccessScope(
+        "owner", frozenset(), capabilities=frozenset({REVIEWER_CAPABILITY})
+    )
+    confirmed = confirm_query_question(
+        item["id"], QuestionIn(question="A question?"), reviewer
+    )
     assert confirmed["confirmed_question"] == "A question?"
     assert confirmed["can_review"] is True
 
@@ -820,8 +1166,14 @@ def test_admin_grants_and_revokes_the_reviewer_role_but_not_to_themselves():
     assert REVIEWER_CAPABILITY not in access_mod.scope_for_user("u1").capabilities
     assert list_reviewers() == []
     with db.connect() as conn:
-        actions = [r["action"] for r in conn.execute("SELECT action FROM audit_events ORDER BY id")]
-    assert actions[-2:] == ["technical_query_reviewer_granted", "technical_query_reviewer_revoked"]
+        actions = [
+            r["action"]
+            for r in conn.execute("SELECT action FROM audit_events ORDER BY id")
+        ]
+    assert actions[-2:] == [
+        "technical_query_reviewer_granted",
+        "technical_query_reviewer_revoked",
+    ]
 
 
 def test_word_preview_marks_unapproved_response_and_missing_evidence(tmp_path):
@@ -838,7 +1190,15 @@ def test_word_response_keeps_line_breaks_and_names_documents_not_ids(tmp_path):
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            ("doc-internal-id", "SYN-STD-001.pdf", "b2" * 32, 1, "x.pdf", "ready", "2026-01-01T00:00:00Z"),
+            (
+                "doc-internal-id",
+                "SYN-STD-001.pdf",
+                "b2" * 32,
+                1,
+                "x.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
         )
         conn.execute(
             "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
@@ -846,10 +1206,21 @@ def test_word_response_keeps_line_breaks_and_names_documents_not_ids(tmp_path):
         )
     item, _ = import_message(envelope("word-names"), "u1", False, False)
     add_evidence(
-        item["id"], "doc-internal-id", "The limit is 12 bar.", 1, 1, None,
-        frozenset({"doc-internal-id"}), "u1", True, False, "u1",
+        item["id"],
+        "doc-internal-id",
+        "The limit is 12 bar.",
+        1,
+        1,
+        None,
+        frozenset({"doc-internal-id"}),
+        "u1",
+        True,
+        False,
+        "u1",
     )
-    item = add_draft(item["id"], "First line.\nSecond line.", [], [], "u1", "u1", True, False)
+    item = add_draft(
+        item["id"], "First line.\nSecond line.", [], [], "u1", "u1", True, False
+    )
     path = render_query_docx(item, tmp_path / "names.docx")
     with ZipFile(path) as package:
         document = package.read("word/document.xml").decode()
@@ -859,10 +1230,14 @@ def test_word_response_keeps_line_breaks_and_names_documents_not_ids(tmp_path):
     assert "First line.</w:t></w:r><w:r><w:br/></w:r><w:r><w:t" in document
 
 
-def test_word_response_separates_email_question_attachment_text_and_confirmed_question(tmp_path):
+def test_word_response_separates_email_question_attachment_text_and_confirmed_question(
+    tmp_path,
+):
     item, _ = import_message(envelope("word-sections"), "u1", False, False)
     drafted = add_draft(item["id"], "The answer.", [], [], "u1", "u1", True, False)
-    drafted["attachment_context"] = [{"filename": "q.pdf", "page": 2, "text": "Attachment line."}]
+    drafted["attachment_context"] = [
+        {"filename": "q.pdf", "page": 2, "text": "Attachment line."}
+    ]
     drafted["confirmed_question"] = "Confirmed wording?"
     path = render_query_docx(drafted, tmp_path / "sections.docx")
     with ZipFile(path) as package:
@@ -928,7 +1303,11 @@ def test_admin_assignment_grants_assignee_visibility():
     assert {
         person["id"]
         for person in technical_query_assignees(
-            AccessScope("owner", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
+            AccessScope(
+                "owner",
+                frozenset(),
+                capabilities=frozenset({"admin", REVIEWER_CAPABILITY}),
+            )
         )["items"]
     } == {"u1", "owner"}
     with db.connect() as conn:
@@ -1539,25 +1918,6 @@ def test_mailbox_imports_only_selected_user_label_before_activation():
         assert conn.execute("SELECT COUNT(*) FROM query_messages").fetchone()[0] == 1
 
 
-def test_gmail_send_client_preserves_thread_id_in_request():
-    captured = {}
-
-    def transport(method, url, **kwargs):
-        captured.update(kwargs["json"])
-        httpx = __import__("httpx")
-        return httpx.Response(
-            200, json={"id": "sent-1"}, request=httpx.Request(method, url)
-        )
-
-    client = GmailApiClient("synthetic-token", transport=transport)
-    assert (
-        client.send("From: example@example.test\n\nBody", thread_id="thread-1")
-        == "sent-1"
-    )
-    assert captured["threadId"] == "thread-1"
-    assert captured["raw"]
-
-
 def test_gmail_network_calls_use_fixed_hosts_without_redirects_or_ambient_proxy(
     monkeypatch,
 ):
@@ -1611,275 +1971,6 @@ def test_html_only_gmail_message_keeps_visible_question():
     assert message.body == "Please confirm the test pressure."
 
 
-def test_send_worker_uses_approved_content_and_original_recipient_only():
-    item, _ = import_message(envelope("send-1"), "u1", False, False)
-
-    class FakeClient:
-        calls = 0
-        raw = ""
-
-        def send(self, raw, *, thread_id=None):
-            self.calls += 1
-            self.raw = raw
-            assert thread_id == "thread-1"
-            return "provider-send-1"
-
-    client = FakeClient()
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
-    drafted = add_draft(
-        item["id"], "Approved technical answer", [], [], "u1", "u1", True, False
-    )
-    draft_id = drafted["drafts"][0]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
-    with pytest.raises(ValueError, match="not been approved"):
-        send_approved(
-            client,
-            item["id"],
-            "wrong-draft",
-            scope,
-            "send-key-wrong",
-            "engineering@example.test",
-        )
-    assert client.calls == 0
-    sent_id = send_approved(
-        client, item["id"], draft_id, scope, "send-key-1", "engineering@example.test"
-    )
-    assert sent_id == "provider-send-1"
-    assert client.calls == 1
-    assert "To: contractor@example.test" in client.raw
-    assert "Approved technical answer" in client.raw
-    assert (
-        send_approved(
-            client,
-            item["id"],
-            draft_id,
-            scope,
-            "send-key-1",
-            "engineering@example.test",
-        )
-        == sent_id
-    )
-    assert client.calls == 1
-    assert get(item["id"], "u1", True, False)["status"] == "sent"
-    with pytest.raises(ValueError, match="current query state"):
-        prepare_evidence(item["id"], frozenset(), "u1", True, False, "u1")
-    with pytest.raises(ValueError, match="locked"):
-        link_attachment(
-            item["id"],
-            item["messages"][0]["attachments"][0]["id"],
-            "other-document",
-            "u1",
-            "u1",
-            True,
-            False,
-        )
-
-
-def test_second_send_key_cannot_send_while_first_request_is_in_flight():
-    item, _ = import_message(envelope("send-race"), "u1", False, False)
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
-    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
-    draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
-
-    class ReentrantClient:
-        calls = 0
-
-        def send(self, _raw, *, thread_id=None):
-            self.calls += 1
-            with pytest.raises(ValueError, match="approved"):
-                send_approved(
-                    self,
-                    item["id"],
-                    draft_id,
-                    scope,
-                    "different-send-key",
-                    "engineering@example.test",
-                )
-            return "provider-one"
-
-    client = ReentrantClient()
-    assert (
-        send_approved(
-            client,
-            item["id"],
-            draft_id,
-            scope,
-            "original-send-key",
-            "engineering@example.test",
-        )
-        == "provider-one"
-    )
-    assert client.calls == 1
-    with db.connect() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM query_sends").fetchone()[0] == 1
-
-
-def test_send_stops_if_approved_source_is_later_superseded():
-    with db.connect() as conn:
-        conn.execute(
-            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
-            (
-                "source-old",
-                "source.pdf",
-                "b" * 64,
-                1,
-                "source.pdf",
-                "ready",
-                "2026-01-01T00:00:00Z",
-            ),
-        )
-        conn.execute(
-            "INSERT INTO pages(document_id,page_no,text,char_count,batch_no) VALUES (?,?,?,?,?)",
-            ("source-old", 1, "The limit is 12 bar.", 20, 1),
-        )
-    item, _ = import_message(envelope("source-changed"), "u1", False, False)
-    add_evidence(
-        item["id"],
-        "source-old",
-        "The limit is 12 bar.",
-        1,
-        1,
-        None,
-        frozenset({"source-old"}),
-        "u1",
-        True,
-        False,
-        "u1",
-    )
-    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
-    draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
-    with db.connect() as conn:
-        conn.execute(
-            "INSERT INTO document_classification(document_id,suggested_by,superseded_by) VALUES (?,?,?)",
-            ("source-old", "synthetic-test", "source-new"),
-        )
-
-    class FakeClient:
-        calls = 0
-
-        def send(self, _raw, *, thread_id=None):
-            self.calls += 1
-            return "unexpected"
-
-    client = FakeClient()
-    scope = AccessScope(
-        "u1", frozenset({"source-old"}), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})
-    )
-    with pytest.raises(ValueError, match="superseded"):
-        send_approved(
-            client,
-            item["id"],
-            draft_id,
-            scope,
-            "superseded-send",
-            "engineering@example.test",
-        )
-    assert client.calls == 0
-
-
-def test_explicit_send_endpoint_uses_connected_mailbox_and_fake_provider(monkeypatch):
-    item, _ = import_message(envelope("endpoint-send"), "u1", False, False)
-    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
-    draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
-    with db.connect() as conn:
-        conn.execute(
-            "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-            (
-                "mailbox-send",
-                "u1",
-                "engineering@example.test",
-                "h1",
-                "Label_TQ",
-                "active",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z",
-            ),
-        )
-
-    class FakeClient:
-        calls = 0
-
-        def send(self, _raw, *, thread_id=None):
-            self.calls += 1
-            return "fake-provider-id"
-
-    client = FakeClient()
-    monkeypatch.setattr(
-        "app.api.technical_queries.gmail_auth.access_token",
-        lambda _id: "synthetic-token",
-    )
-    monkeypatch.setattr(
-        "app.api.technical_queries.GmailApiClient", lambda _token: client
-    )
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
-    result = prepare_query_send(
-        item["id"],
-        SendIn(
-            draft_id=draft_id,
-            mailbox_id="mailbox-send",
-            idempotency_key="endpoint-key-1",
-        ),
-        scope,
-    )
-    assert result["sent"] is True
-    assert result["item"]["status"] == "sent"
-    assert client.calls == 1
-
-
-def test_uncertain_provider_send_is_not_retried_automatically():
-    item, _ = import_message(envelope("send-uncertain"), "u1", False, False)
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
-    drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
-    draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
-
-    class UncertainClient:
-        calls = 0
-
-        def send(self, _raw, *, thread_id=None):
-            self.calls += 1
-            raise TimeoutError("provider reply lost")
-
-    client = UncertainClient()
-    for _ in range(2):
-        with pytest.raises(RuntimeError, match="reconcile"):
-            send_approved(
-                client,
-                item["id"],
-                draft_id,
-                scope,
-                "send-key-uncertain",
-                "engineering@example.test",
-            )
-    assert client.calls == 1
-    with db.connect() as conn:
-        row = conn.execute(
-            "SELECT state FROM query_sends WHERE query_id=?", (item["id"],)
-        ).fetchone()
-    assert row["state"] == "uncertain"
-    current = get(item["id"], "u1", True, False)
-    send_id = current["sends"][0]["id"]
-    with pytest.raises(PermissionError):
-        reconcile_send(
-            item["id"], send_id, "not_sent", None, "Checked mailbox", "u1", False, False
-        )
-    reconciled = reconcile_send(
-        item["id"],
-        send_id,
-        "not_sent",
-        None,
-        "Checked mailbox and provider logs",
-        "u1",
-        True,
-        False,
-    )
-    assert reconciled["status"] == "approved"
-    assert reconciled["sends"][0]["state"] == "confirmed_not_sent"
-
-
 def _routed_envelope(message_id, sender, **extra):
     data = envelope(message_id)
     data["provider_thread_id"] = "thread-" + message_id
@@ -1891,20 +1982,45 @@ def _routed_envelope(message_id, sender, **extra):
 def test_routing_rules_fill_blank_fields_by_address_then_domain_and_keep_what_the_message_says():
     from app.technical_queries import list_routing_rules, set_routing_rule
 
-    set_routing_rule("domain", "Acme-Contractor.test", "Acme Contractors", "Piping", "u1", True)
-    set_routing_rule("address", "chief@acme-contractor.test", "Acme Contractors", "Process", "u1", True)
-    by_address, _ = import_message(
-        _routed_envelope("r1", "Chief Engineer <Chief@Acme-Contractor.test>"), "u1", False, False
+    set_routing_rule(
+        "domain", "Acme-Contractor.test", "Acme Contractors", "Piping", "u1", True
     )
-    assert (by_address["contractor_name"], by_address["department"]) == ("Acme Contractors", "Process")
+    set_routing_rule(
+        "address",
+        "chief@acme-contractor.test",
+        "Acme Contractors",
+        "Process",
+        "u1",
+        True,
+    )
+    by_address, _ = import_message(
+        _routed_envelope("r1", "Chief Engineer <Chief@Acme-Contractor.test>"),
+        "u1",
+        False,
+        False,
+    )
+    assert (by_address["contractor_name"], by_address["department"]) == (
+        "Acme Contractors",
+        "Process",
+    )
     assert by_address["routing_source"].startswith("rule:")
-    by_domain, _ = import_message(_routed_envelope("r2", "clerk@acme-contractor.test"), "u1", False, False)
+    by_domain, _ = import_message(
+        _routed_envelope("r2", "clerk@acme-contractor.test"), "u1", False, False
+    )
     assert by_domain["department"] == "Piping"
     kept, _ = import_message(
-        _routed_envelope("r3", "clerk@acme-contractor.test", department="Civil"), "u1", False, False
+        _routed_envelope("r3", "clerk@acme-contractor.test", department="Civil"),
+        "u1",
+        False,
+        False,
     )
-    assert (kept["contractor_name"], kept["department"]) == ("Acme Contractors", "Civil")
-    unknown, _ = import_message(_routed_envelope("r4", "someone@elsewhere.test"), "u1", False, False)
+    assert (kept["contractor_name"], kept["department"]) == (
+        "Acme Contractors",
+        "Civil",
+    )
+    unknown, _ = import_message(
+        _routed_envelope("r4", "someone@elsewhere.test"), "u1", False, False
+    )
     assert unknown["contractor_name"] is None and unknown["routing_source"] is None
     from app.technical_queries import triage_query
 
@@ -1931,14 +2047,16 @@ def test_routing_rules_refuse_public_mail_domains_bad_input_and_non_admins():
     with pytest.raises(PermissionError):
         delete_routing_rule("nope", False)
     # an exact address on a public service is allowed
-    rules = set_routing_rule("address", "person@gmail.com", "Sole Trader", None, "u1", True)
+    rules = set_routing_rule(
+        "address", "person@gmail.com", "Sole Trader", None, "u1", True
+    )
     assert rules[0]["match_value"] == "person@gmail.com"
     assert delete_routing_rule(rules[0]["id"], True) == []
 
 
 def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
     """The whole path through the real route functions: an email with a PDF attachment, evidence,
-    a confirmed question, a cited draft, review, the Word file, one explicit send, resolution.
+    a confirmed question, a cited draft, review, the Word file, the send route refusing, resolution.
     Only search, the answer model and Gmail are replaced."""
     import json
 
@@ -1967,11 +2085,25 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
         ):
             conn.execute(
                 "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,'ready',?)",
-                (doc_id, name, doc_id.ljust(64, "0")[:64], 1, path, "2026-01-01T00:00:00Z"),
+                (
+                    doc_id,
+                    name,
+                    doc_id.ljust(64, "0")[:64],
+                    1,
+                    path,
+                    "2026-01-01T00:00:00Z",
+                ),
             )
         conn.execute(
             "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
-            ("lib-e2e", 2, "4 Coating\n" + clause.replace("exposed to", "exposed\nto") + "\n", 90, 0, 1),
+            (
+                "lib-e2e",
+                2,
+                "4 Coating\n" + clause.replace("exposed to", "exposed\nto") + "\n",
+                90,
+                0,
+                1,
+            ),
         )
         conn.execute(
             "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
@@ -1983,106 +2115,194 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
         )
         conn.execute(
             "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-            ("mb-e2e", "owner", "engineering@example.test", "h1", "Label_TQ", "active", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            (
+                "mb-e2e",
+                "owner",
+                "engineering@example.test",
+                "h1",
+                "Label_TQ",
+                "active",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z",
+            ),
         )
     reviewer = AccessScope(
-        "owner", frozenset({"lib-e2e", "att-e2e"}), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})
+        "owner",
+        frozenset({"lib-e2e", "att-e2e"}),
+        capabilities=frozenset({"admin", REVIEWER_CAPABILITY}),
     )
-    plain_admin = AccessScope("owner", frozenset({"lib-e2e", "att-e2e"}), capabilities=frozenset({"admin"}))
+    plain_admin = AccessScope(
+        "owner", frozenset({"lib-e2e", "att-e2e"}), capabilities=frozenset({"admin"})
+    )
 
     # 1. the email arrives, routed by a rule, with its attachment checked
     set_routing = __import__("app.technical_queries", fromlist=["x"]).set_routing_rule
-    set_routing("domain", "contractor.example", "Example Contractor", "Piping", "owner", True)
-    data = envelope("e2e")
-    data.update(from_address="engineer@contractor.example", body="See attached.", question=None)
-    item, _ = import_message(data, "owner", True, False)
-    assert (item["contractor_name"], item["department"]) == ("Example Contractor", "Piping")
-    linked = link_attachment(
-        item["id"], item["messages"][0]["attachments"][0]["id"], "att-e2e", "owner", "owner", True, False
+    set_routing(
+        "domain", "contractor.example", "Example Contractor", "Piping", "owner", True
     )
-    assert linked["messages"][0]["attachments"][0]["scan_status"] == "static_check_clean"
+    data = envelope("e2e")
+    data.update(
+        from_address="engineer@contractor.example", body="See attached.", question=None
+    )
+    item, _ = import_message(data, "owner", True, False)
+    assert (item["contractor_name"], item["department"]) == (
+        "Example Contractor",
+        "Piping",
+    )
+    linked = link_attachment(
+        item["id"],
+        item["messages"][0]["attachments"][0]["id"],
+        "att-e2e",
+        "owner",
+        "owner",
+        True,
+        False,
+    )
+    assert (
+        linked["messages"][0]["attachments"][0]["scan_status"] == "static_check_clean"
+    )
 
     # 2. evidence is found in the library, never in the attachment
-    monkeypatch.setattr("app.technical_query_questions._ask", lambda page_text: ["What coating does carbon steel need?"])
+    monkeypatch.setattr(
+        "app.technical_query_questions._ask",
+        lambda page_text: ["What coating does carbon steel need?"],
+    )
     monkeypatch.setattr(
         "app.search.search",
         lambda question, **kw: {
             "hits": [
-                {"document_id": "lib-e2e", "page_start": 2, "page_end": 2, "text": clause},
-                {"document_id": "att-e2e", "page_start": 1, "page_end": 1, "text": "What coating does carbon steel need?"},
+                {
+                    "document_id": "lib-e2e",
+                    "page_start": 2,
+                    "page_end": 2,
+                    "text": clause,
+                },
+                {
+                    "document_id": "att-e2e",
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": "What coating does carbon steel need?",
+                },
             ]
         },
     )
     prepared = prepare_query_evidence(item["id"], reviewer)
     # a passage the search found is only PROPOSED: no person has judged that it answers the question
-    assert [(e["document_id"], e["evidence_state"], e["supersession_state"]) for e in prepared["evidence"]] == [
-        ("lib-e2e", "proposed", "current")
-    ]
+    assert [
+        (e["document_id"], e["evidence_state"], e["supersession_state"])
+        for e in prepared["evidence"]
+    ] == [("lib-e2e", "proposed", "current")]
     # a reviewer reads the passage and keeps it as evidence; only then can a draft rest on it
     update_evidence(
-        item["id"], prepared["evidence"][0]["id"], "verified", "current", None, "owner", "owner", True, False, reviewer=True
+        item["id"],
+        prepared["evidence"][0]["id"],
+        "verified",
+        "current",
+        None,
+        "owner",
+        "owner",
+        True,
+        False,
+        reviewer=True,
     )
-    assert prepared["proposed_question"] == "See attached.\n1. What coating does carbon steel need?"
-    assert prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1."
+    assert (
+        prepared["proposed_question"]
+        == "See attached.\n1. What coating does carbon steel need?"
+    )
+    assert (
+        prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1."
+    )
 
     # 3. nothing is drafted until a reviewer confirms the question
     with pytest.raises(HTTPException) as early:
         generate_query_draft(item["id"], reviewer)
     assert "confirm the question" in early.value.detail["message"]
     with pytest.raises(HTTPException) as not_reviewer:
-        confirm_query_question(item["id"], QuestionIn(question="What coating applies?"), plain_admin)
+        confirm_query_question(
+            item["id"], QuestionIn(question="What coating applies?"), plain_admin
+        )
     assert not_reviewer.value.status_code == 403
-    confirm_query_question(item["id"], QuestionIn(question="What coating applies to carbon steel?"), reviewer)
+    confirm_query_question(
+        item["id"],
+        QuestionIn(question="What coating applies to carbon steel?"),
+        reviewer,
+    )
     asked = {}
 
     def fake_answer(question, **kwargs):
         asked["question"], asked["scope"] = question, kwargs["allowed_document_ids"]
         return {
-            "answer_type": "generated", "answer": "Three coats [S1].", "cited": [1],
-            "passages": [{"document_id": "lib-e2e", "page_start": 2, "page_end": 2, "text": clause}],
+            "answer_type": "generated",
+            "answer": "Three coats [S1].",
+            "cited": [1],
+            "passages": [
+                {
+                    "document_id": "lib-e2e",
+                    "page_start": 2,
+                    "page_end": 2,
+                    "text": clause,
+                }
+            ],
             "model": "synthetic-model",
         }
 
     monkeypatch.setattr("app.api.technical_queries.answer.answer", fake_answer)
     drafted = generate_query_draft(item["id"], reviewer)
-    assert asked == {"question": "What coating applies to carbon steel?", "scope": frozenset({"lib-e2e"})}
+    assert asked == {
+        "question": "What coating applies to carbon steel?",
+        "scope": frozenset({"lib-e2e"}),
+    }
     assert drafted["status"] == "awaiting_review"
-    assert json.loads(drafted["drafts"][-1]["citations_json"])[0]["exact_quote"] == clause
+    assert (
+        json.loads(drafted["drafts"][-1]["citations_json"])[0]["exact_quote"] == clause
+    )
 
     # 4. only a reviewer approves; then the Word file carries the pieces apart
     draft_id = drafted["drafts"][-1]["id"]
     with pytest.raises(HTTPException) as refused:
-        decide_query(item["id"], DecisionIn(decision="approve", draft_id=draft_id), plain_admin)
+        decide_query(
+            item["id"], DecisionIn(decision="approve", draft_id=draft_id), plain_admin
+        )
     assert refused.value.status_code == 403
-    assert decide_query(item["id"], DecisionIn(decision="approve", draft_id=draft_id), reviewer)["status"] == "approved"
+    assert (
+        decide_query(
+            item["id"], DecisionIn(decision="approve", draft_id=draft_id), reviewer
+        )["status"]
+        == "approved"
+    )
     docx = query_response_docx(item["id"], reviewer)
     with ZipFile(docx.path) as package:
         word = package.read("word/document.xml").decode()
-    for expected in ("Technical Query Response", "See attached.", "Attachment text: query.pdf, page 1",
-                     "Question answered (confirmed by the engineer)", "Three coats [S1].", "SYN-COATING.pdf"):
+    for expected in (
+        "Technical Query Response",
+        "See attached.",
+        "Attachment text: query.pdf, page 1",
+        "Question answered (confirmed by the engineer)",
+        "Three coats [S1].",
+        "SYN-COATING.pdf",
+    ):
         assert expected in word
     assert "DRAFT" not in word and "lib-e2e" not in word and "[Attachment" not in word
 
-    # 5. one explicit send from the original sender's thread, then resolution
-    class FakeClient:
-        def __init__(self):
-            self.sent = []
-
-        def send(self, raw, *, thread_id=None):
-            self.sent.append((raw, thread_id))
-            return "provider-e2e"
-
-    client = FakeClient()
-    monkeypatch.setattr("app.api.technical_queries.gmail_auth.access_token", lambda _id: "t")
-    monkeypatch.setattr("app.api.technical_queries.GmailApiClient", lambda _t: client)
+    # 5. nothing is emailed from here: the send route only refuses; the engineer hands the Word file over and closes the query
     with pytest.raises(HTTPException) as no_send:
-        prepare_query_send(item["id"], SendIn(draft_id=draft_id, mailbox_id="mb-e2e", idempotency_key="k" * 16), plain_admin)
-    assert no_send.value.status_code == 403 and client.sent == []
-    sent = prepare_query_send(item["id"], SendIn(draft_id=draft_id, mailbox_id="mb-e2e", idempotency_key="k" * 16), reviewer)
-    assert sent["sent"] is True and sent["item"]["status"] == "sent" and len(client.sent) == 1
+        prepare_query_send(
+            item["id"],
+            SendIn(draft_id=draft_id, mailbox_id="mb-e2e", idempotency_key="k" * 16),
+            reviewer,
+        )
+    assert no_send.value.status_code == 409 and "not approved by the owner" in str(
+        no_send.value.detail
+    )
     resolved = confirm_query_resolution(item["id"], reviewer)
     assert resolved["status"] == "resolved"
     with db.connect() as conn:
-        events = [r["event"] for r in conn.execute("SELECT event FROM query_events WHERE query_id=? ORDER BY created_at", (item["id"],))]
+        events = [
+            r["event"]
+            for r in conn.execute(
+                "SELECT event FROM query_events WHERE query_id=? ORDER BY created_at",
+                (item["id"],),
+            )
+        ]
     for expected in ("evidence_prepared", "question_confirmed", "decision"):
         assert expected in events

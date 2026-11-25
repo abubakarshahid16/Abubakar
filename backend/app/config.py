@@ -329,9 +329,10 @@ class Settings(SettingsExt, BaseSettings):
     #: THE WAY-BACK SWITCH FOR THE WHOLE TECHNICAL-QUERY FEATURE (order 14; owner, 25 Nov 2026). OFF (default): no technical-query route
     #: does any work (404), no mailbox poller starts, no tables are made, no menu entry is shown, and no Gmail call opens a socket.
     technical_queries_enabled: bool = False
-    #: Claude may write the draft answer of a technical query ONLY behind this second switch, OFF by default: the owner has NOT approved
-    #: this lane. Off, a request for it is refused with "not approved by the owner" and nothing leaves the machine.
-    technical_query_claude_draft_enabled: bool = False
+    #: The engine of a technical query's draft answer ("local" or "claude"; owner approved the Claude lane on #1584 comment 7170031292).
+    #: Local by default. "claude" is honoured only when REASONING_PROVIDER lets this step use Claude (`claude`, or `per_task` with this
+    #: setting), for the contract documents the engineer chooses for that one query (its own consent record), under the claude_spend caps.
+    technical_query_draft_engine: str = "local"
 
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"

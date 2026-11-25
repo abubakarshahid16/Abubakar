@@ -73,10 +73,10 @@ _READY_FOR: str | None = None
 OFF_WORDS = "Technical queries are switched off on this server."
 
 
-#: Sending an answer by email is NOT approved by the owner (25 Nov 2026): it waits for the words "sending approved" and a second Google consent.
-#: Every send path asks `require_sending_approved` first. A code change, not a setting, turns it on.
-SENDING_APPROVED = False
-CLAUDE_DRAFT_OFF_WORDS = "Claude for the draft is not approved by the owner: the draft is written by the local model."
+CLAUDE_DRAFT_OFF_WORDS = "Claude for the draft is not enabled on this server."
+#: Sending an answer by email is NOT approved by the owner (25 Nov 2026) and there is NO code that sends: the Gmail client has no send call,
+#: the scope asked of Google is read-only, and the send route only refuses. No setting lifts this: it takes the owner's written "sending
+#: approved" and a code change with a second Google consent.
 SEND_OFF_WORDS = "Sending is not approved by the owner: the answer is prepared as a Word file, never emailed."
 
 
@@ -95,11 +95,6 @@ def require_enabled() -> None:
     """Raise `FeatureOff` when the switch is off. Every Gmail call that would open a socket asks this first."""
     if not enabled():
         raise FeatureOff(OFF_WORDS)
-
-
-def require_sending_approved() -> None:
-    if not SENDING_APPROVED:
-        raise PermissionError(SEND_OFF_WORDS)
 
 
 def ensure_ready() -> None:
@@ -1370,11 +1365,12 @@ def decide(
         for row in current.get("evidence", []):
             if row["evidence_state"] in UNRESOLVED_EVIDENCE_STATES:
                 raise ValueError(unresolved_evidence_message(row["evidence_state"], "approval"))
+
     allowed = {
         "request_changes": {"awaiting_review", "changes_requested"},
         "approve": {"awaiting_review"},
         "reject": {"awaiting_review", "changes_requested"},
-        "close": {"sent", "awaiting_confirmation"},
+        "close": {"approved", "sent", "awaiting_confirmation"},  # approved: the engineer handed the Word file over; nothing is emailed from here
     }
     if current is not None and current["status"] not in allowed[decision]:
         raise ValueError(
@@ -1384,6 +1380,8 @@ def decide(
         latest = current["drafts"][-1] if current and current["drafts"] else None
         if latest is None or draft_id != latest["id"]:
             raise ValueError("the decision must name the latest draft")
+        if decision == "approve":
+            _require_cited(current)
     target = {
         "request_changes": "changes_requested",
         "approve": "approved",
@@ -1415,6 +1413,23 @@ def decide(
         )
         _event(conn, query_id, "decision", actor_user_id, f"decision={decision}")
     return get(query_id, user_id, is_admin, unrestricted)
+
+
+def _require_cited(current: dict[str, Any]) -> None:
+    """A draft is approved only if its latest version cites at least one passage that is verified, current evidence of this query: a claim
+    with no citation that resolves is never approved (rule 4; reviewer's M7)."""
+    latest = current["drafts"][-1] if current.get("drafts") else None
+    try:
+        cited = json.loads((latest or {}).get("citations_json") or "[]")
+    except ValueError:
+        cited = []
+    good = {
+        row["id"]
+        for row in current.get("evidence", [])
+        if row["evidence_state"] == "verified" and row["supersession_state"] == "current"
+    }
+    if not any(isinstance(c, dict) and c.get("evidence_id") in good for c in cited):
+        raise ValueError("the draft cites no verified, current evidence of this query; add a citation before approval")
 
 
 def list_reviewers() -> list[dict[str, Any]]:

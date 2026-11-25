@@ -372,10 +372,11 @@ SOCKET_ALLOWLIST = {
     # document text, a filename or a page reference - pinned by
     # tests/test_196_notification_bodies.py.
     "notifications.py",
-    # The technical-query Gmail integration (order 14, F2). EXACTLY these two modules, each calling Google's fixed hosts (no redirects,
-    # no ambient proxy), and each refusing BEFORE the socket unless the one way-back switch `TECHNICAL_QUERIES_ENABLED` is on (default
-    # off): `technical_queries.require_enabled`, pinned by tests/test_tq_g_feature_off.py. Read-only scope; sending is locked
-    # (`SENDING_APPROVED`) until the owner writes "sending approved".
+    # The technical-query Gmail integration. Owner-approved: #1584 comment 7170031292 ("Yes, approve both", 25 Nov 2026; CLAUDE.md rule 1).
+    # EXACTLY these two modules, each calling Google's fixed hosts (no redirects, no ambient proxy), each refusing BEFORE the socket
+    # unless the one way-back switch `TECHNICAL_QUERIES_ENABLED` is on (default off): `technical_queries.require_enabled`, pinned by
+    # tests/test_tq_g_feature_off.py (nothing connects while it is off). Read-only scope; no code sends mail; only for a label an admin
+    # activated.
     "gmail_auth.py",
     "gmail_client.py",
 }

@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 
-from .technical_queries import require_enabled, require_sending_approved
+from .technical_queries import require_enabled
 
 BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
@@ -166,18 +166,6 @@ class GmailApiClient:
                 "labelFilterBehavior": "INCLUDE",
             },
         )
-
-    def send(self, raw_rfc822: str, *, thread_id: str | None = None) -> str:
-        require_sending_approved()  # no mail leaves until the owner writes "sending approved"
-        encoded = base64.urlsafe_b64encode(raw_rfc822.encode()).decode().rstrip("=")
-        outgoing = {"raw": encoded}
-        if thread_id:
-            outgoing["threadId"] = thread_id
-        payload = self._request("POST", "/messages/send", json=outgoing)
-        if not payload.get("id"):
-            raise RuntimeError("Gmail did not return an outbound message id")
-        return str(payload["id"])
-
 
 def _headers(payload: dict[str, Any]) -> dict[str, str]:
     return {

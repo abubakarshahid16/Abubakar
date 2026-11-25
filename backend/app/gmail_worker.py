@@ -4,30 +4,26 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
+import logging
 import os
-import uuid
-from email.message import EmailMessage
 from email.utils import parseaddr
 from io import BytesIO
 from typing import Any
 
 import httpx
 
-from . import access
+from . import access, attachment_safety
 from . import upload as upload_mod
-from .access import AccessScope
 from .config import settings
 from .db import connect
 from .gmail_client import GmailApiClient
 from .technical_queries import (
-    get,
     import_message,
     link_attachment,
     now,
-    validate_send_evidence,
 )
-from .technical_query_docx import render
+
+log = logging.getLogger(__name__)
 
 
 def _store_raw_email(raw: bytes) -> tuple[str, str]:
@@ -45,6 +41,125 @@ def _store_raw_email(raw: bytes) -> tuple[str, str]:
     with os.fdopen(descriptor, "wb") as output:
         output.write(raw)
     return digest, str(path)
+
+
+def _process_message(
+    client: GmailApiClient,
+    message_id: str,
+    *,
+    mailbox_id: str,
+    actor_user_id: str,
+    admin_role,
+    label_id: str | None,
+    mailbox_address: str | None,
+) -> dict[str, Any] | None:
+    """Import one message with its PDF attachments. None when it is not one to import (another label, or the mailbox's own mail)."""
+    message = client.message(message_id)
+    if label_id and label_id not in message.label_ids:
+        return None
+    if (
+        mailbox_address
+        and parseaddr(message.from_address)[1].casefold()
+        == mailbox_address.casefold()
+    ):
+        return None
+    raw_hash, raw_ref = _store_raw_email(client.raw_message(message_id))
+    item, duplicate = import_message(
+        {
+            "provider": "gmail",
+            "mailbox_id": mailbox_id,
+            "provider_message_id": message.provider_message_id,
+            "provider_thread_id": message.thread_id,
+            "from_address": message.from_address,
+            "to_addresses": message.to_addresses,
+            "cc_addresses": message.cc_addresses,
+            "subject": message.subject,
+            "body": message.body,
+            "received_at": message.received_at,
+            "raw_message_hash": raw_hash,
+            "raw_storage_ref": raw_ref,
+            "attachments": message.attachments,
+        },
+        actor_user_id,
+        False,
+        settings.auth_mode == access.AUTH_DISABLED,
+    )
+    stored_message = next(
+        row
+        for row in item["messages"]
+        if row["provider_message_id"] == message.provider_message_id
+    )
+    for source, stored in zip(
+        message.attachments, stored_message["attachments"], strict=True
+    ):
+        if stored["document_id"] or not source["filename"].lower().endswith(".pdf"):
+            continue
+        if source.get("attachment_id"):
+            content = client.attachment(
+                message.provider_message_id, source["attachment_id"]
+            )
+        elif source.get("inline_data"):
+            encoded = source["inline_data"]
+            content = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        else:
+            continue
+        if source["size_bytes"] and len(content) != source["size_bytes"]:
+            raise ValueError("the Gmail attachment size did not match its metadata")
+        checked = attachment_safety.check_before_library(content)
+        if checked["status"] != attachment_safety.CLEAN:  # flagged or unreadable: it never enters the library
+            with connect() as conn:
+                conn.execute(
+                    "UPDATE query_attachments SET scan_status=?,scan_detail=? WHERE id=?",
+                    (checked["status"], ", ".join(checked["findings"]) or None, stored["id"]),
+                )
+            continue
+        row, _, duplicate_of = upload_mod.ingest(
+            BytesIO(content), source["filename"]
+        )
+        if duplicate_of is not None and settings.auth_mode != access.AUTH_DISABLED:
+            if not access.scope_for_user(actor_user_id).may_read(row["id"]):
+                raise PermissionError(
+                    "the duplicate attachment document is not readable"
+                )
+        elif admin_role is not None:
+            access.grant_uploaded_document_to_admin(
+                row["id"], admin_role, actor_user_id
+            )
+        item = (
+            link_attachment(
+                item["id"],
+                stored["id"],
+                row["id"],
+                actor_user_id,
+                actor_user_id,
+                False,
+                settings.auth_mode == access.AUTH_DISABLED,
+            )
+            or item
+        )
+    return {"query_id": item.get("id"), "duplicate": duplicate}
+
+
+MAX_TRIES = 3
+
+
+def _note_failure(mailbox_id: str, message_id: str, exc: Exception) -> int:
+    """Count one failed import of this message and say why in plain words (the exception type only, never its text). Returns the tries."""
+    with connect() as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS gmail_failed_messages(mailbox_id TEXT NOT NULL, provider_message_id TEXT NOT NULL, tries INTEGER NOT NULL, "
+            "reason TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(mailbox_id, provider_message_id))"
+        )
+        row = conn.execute(
+            "SELECT tries FROM gmail_failed_messages WHERE mailbox_id=? AND provider_message_id=?", (mailbox_id, message_id)
+        ).fetchone()
+        tries = (row["tries"] if row else 0) + 1
+        state = "failed" if tries >= MAX_TRIES else "retrying"
+        conn.execute(
+            "INSERT OR REPLACE INTO gmail_failed_messages(mailbox_id,provider_message_id,tries,reason,state,updated_at) VALUES (?,?,?,?,?,?)",
+            (mailbox_id, message_id, tries, f"the message could not be imported ({type(exc).__name__})", state, now()),
+        )
+    return tries
 
 
 def process_history(
@@ -68,82 +183,18 @@ def process_history(
     for message_id in (
         message_ids if message_ids is not None else client.history(history_id, label_id)
     ):
-        message = client.message(message_id)
-        if label_id and label_id not in message.label_ids:
-            continue
-        if (
-            mailbox_address
-            and parseaddr(message.from_address)[1].casefold()
-            == mailbox_address.casefold()
-        ):
-            continue
-        raw_hash, raw_ref = _store_raw_email(client.raw_message(message_id))
-        item, duplicate = import_message(
-            {
-                "provider": "gmail",
-                "mailbox_id": mailbox_id,
-                "provider_message_id": message.provider_message_id,
-                "provider_thread_id": message.thread_id,
-                "from_address": message.from_address,
-                "to_addresses": message.to_addresses,
-                "cc_addresses": message.cc_addresses,
-                "subject": message.subject,
-                "body": message.body,
-                "received_at": message.received_at,
-                "raw_message_hash": raw_hash,
-                "raw_storage_ref": raw_ref,
-                "attachments": message.attachments,
-            },
-            actor_user_id,
-            False,
-            settings.auth_mode == access.AUTH_DISABLED,
-        )
-        stored_message = next(
-            row
-            for row in item["messages"]
-            if row["provider_message_id"] == message.provider_message_id
-        )
-        for source, stored in zip(
-            message.attachments, stored_message["attachments"], strict=True
-        ):
-            if stored["document_id"] or not source["filename"].lower().endswith(".pdf"):
-                continue
-            if source.get("attachment_id"):
-                content = client.attachment(
-                    message.provider_message_id, source["attachment_id"]
-                )
-            elif source.get("inline_data"):
-                encoded = source["inline_data"]
-                content = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-            else:
-                continue
-            if source["size_bytes"] and len(content) != source["size_bytes"]:
-                raise ValueError("the Gmail attachment size did not match its metadata")
-            row, _, duplicate_of = upload_mod.ingest(
-                BytesIO(content), source["filename"]
+        try:
+            result = _process_message(
+                client, message_id, mailbox_id=mailbox_id, actor_user_id=actor_user_id,
+                admin_role=admin_role, label_id=label_id, mailbox_address=mailbox_address,
             )
-            if duplicate_of is not None and settings.auth_mode != access.AUTH_DISABLED:
-                if not access.scope_for_user(actor_user_id).may_read(row["id"]):
-                    raise PermissionError(
-                        "the duplicate attachment document is not readable"
-                    )
-            elif admin_role is not None:
-                access.grant_uploaded_document_to_admin(
-                    row["id"], admin_role, actor_user_id
-                )
-            item = (
-                link_attachment(
-                    item["id"],
-                    stored["id"],
-                    row["id"],
-                    actor_user_id,
-                    actor_user_id,
-                    False,
-                    settings.auth_mode == access.AUTH_DISABLED,
-                )
-                or item
-            )
-        results.append({"query_id": item.get("id"), "duplicate": duplicate})
+        except Exception as exc:  # noqa: BLE001 - one bad message is counted, marked and, after MAX_TRIES, stepped over; never logged by text
+            log.warning("gmail import: a message failed (%s)", type(exc).__name__)
+            if _note_failure(mailbox_id, message_id, exc) < MAX_TRIES:
+                raise  # the cursor stays: it is tried again at the next poll
+            continue
+        if result is not None:
+            results.append(result)
     return results
 
 
@@ -230,158 +281,3 @@ def activate_label(
         if changed.rowcount != 1:
             raise RuntimeError("mailbox activation changed; retry safely")
     return results
-
-
-def send_approved(
-    client: GmailApiClient,
-    query_id: str,
-    draft_id: str,
-    scope: AccessScope,
-    idempotency_key: str,
-    mailbox_address: str,
-) -> str:
-    """Send one approved response; an uncertain provider result needs manual reconciliation.
-
-    The API invokes this only after an explicit authorised send action.
-    Tests pass an in-memory fake client and never contact Gmail.
-    """
-    from .technical_queries import is_reviewer, require_sending_approved
-
-    require_sending_approved()  # first: nothing is stored or sent until the owner writes "sending approved"
-    if not is_reviewer(scope.capabilities, scope.unrestricted) or not scope.user_id:
-        raise PermissionError("a qualified technical-query reviewer is required to send")
-    if len(idempotency_key) < 8:
-        raise ValueError("an idempotency key is required")
-    with connect() as conn:
-        prior = conn.execute(
-            "SELECT query_id,state,provider_message_id FROM query_sends WHERE idempotency_key=?",
-            (idempotency_key,),
-        ).fetchone()
-        if prior:
-            if prior["query_id"] != query_id:
-                raise ValueError("the send key belongs to a different query")
-            if prior["state"] == "sent" and prior["provider_message_id"]:
-                return prior["provider_message_id"]
-            raise RuntimeError(
-                "send outcome is uncertain; reconcile the mailbox before retrying"
-            )
-
-    item = get(query_id, scope.user_id, scope.is_admin, scope.unrestricted)
-    if item is None:
-        raise ValueError("technical query not found")
-    if item["status"] != "approved":
-        raise ValueError("only an approved query can be sent")
-    draft = item["drafts"][-1] if item["drafts"] else None
-    if (
-        draft is None
-        or draft["id"] != draft_id
-        or not any(
-            decision["decision"] == "approve" and decision["draft_id"] == draft_id
-            for decision in item["decisions"]
-        )
-    ):
-        raise ValueError("the latest draft has not been approved")
-    if not item["messages"]:
-        raise ValueError("the original email is missing")
-    first = item["messages"][0]
-    recipient = parseaddr(first["from_address"])[1]
-    sender = parseaddr(mailbox_address)[1]
-    if not recipient or "@" not in recipient or not sender or "@" not in sender:
-        raise ValueError("the sender or original recipient is invalid")
-    if "\n" in first["from_address"] or "\r" in first["from_address"]:
-        raise ValueError("the original sender is invalid")
-    if sender.casefold() not in {
-        parseaddr(address)[1].casefold()
-        for address in first["to_addresses"] + first["cc_addresses"]
-    }:
-        raise ValueError("the connected mailbox was not an original recipient")
-    validate_send_evidence(item, scope.allowed_document_ids, scope.unrestricted)
-
-    message = EmailMessage()
-    message["From"] = sender
-    message["To"] = recipient
-    message["Subject"] = (
-        first["subject"]
-        if first["subject"].lower().startswith("re:")
-        else f"Re: {first['subject']}"
-    )
-    if (
-        first.get("internet_message_id")
-        and "\n" not in first["internet_message_id"]
-        and "\r" not in first["internet_message_id"]
-    ):
-        message["In-Reply-To"] = first["internet_message_id"]
-        message["References"] = first["internet_message_id"]
-    domain = sender.rsplit("@", 1)[-1]
-    digest = hashlib.sha256(idempotency_key.encode()).hexdigest()[:20]
-    message["Message-ID"] = f"<tq-{query_id}-{digest}@{domain}>"
-    message.set_content(draft["answer"])
-    document = render(item)
-    message.add_attachment(
-        document.read_bytes(),
-        maintype="application",
-        subtype="vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=f"technical-query-{query_id}.docx",
-    )
-
-    send_id = str(uuid.uuid4())
-    with connect() as conn:
-        reserved = conn.execute(
-            "UPDATE technical_queries SET status='send_pending',updated_at=? "
-            "WHERE id=? AND status='approved'",
-            (now(), query_id),
-        )
-        if reserved.rowcount != 1:
-            raise RuntimeError(
-                "this query is already being sent or its approval changed"
-            )
-        conn.execute(
-            "INSERT INTO query_sends(id,query_id,draft_id,idempotency_key,to_addresses,cc_addresses,state,created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (
-                send_id,
-                query_id,
-                draft_id,
-                idempotency_key,
-                json.dumps([recipient]),
-                "[]",
-                "sending",
-                now(),
-            ),
-        )
-        conn.execute(
-            "INSERT INTO query_events(query_id,actor_user_id,event,detail,created_at) VALUES (?,?,?,?,?)",
-            (query_id, scope.user_id, "send_requested", f"draft={draft_id}", now()),
-        )
-    try:
-        provider_id = client.send(
-            message.as_string(), thread_id=first.get("provider_thread_id")
-        )
-    except Exception as exc:
-        with connect() as conn:
-            conn.execute(
-                "UPDATE query_sends SET state='uncertain',error='provider outcome requires reconciliation' WHERE id=?",
-                (send_id,),
-            )
-        raise RuntimeError(
-            "send outcome is uncertain; reconcile the mailbox before retrying"
-        ) from exc
-    with connect() as conn:
-        conn.execute(
-            "UPDATE query_sends SET state='sent',provider_message_id=? WHERE id=?",
-            (provider_id, send_id),
-        )
-        conn.execute(
-            "UPDATE technical_queries SET status='sent',updated_at=? WHERE id=?",
-            (now(), query_id),
-        )
-        conn.execute(
-            "INSERT INTO query_events(query_id,actor_user_id,event,detail,created_at) VALUES (?,?,?,?,?)",
-            (
-                query_id,
-                scope.user_id,
-                "sent",
-                f"provider_message_id={provider_id}",
-                now(),
-            ),
-        )
-    return provider_id

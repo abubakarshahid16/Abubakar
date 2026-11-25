@@ -68,12 +68,21 @@ It contains no client message text, document numbers, names or credentials.
 
 ## Brought live as its own update (order 14, 25 Nov 2026): sending OFF
 
+Owner approvals: #1584 comment 7170031292 ("Yes, approve both"): Gmail read-only, and Claude for the draft.
+
 - One way-back switch, `TECHNICAL_QUERIES_ENABLED`, default off. Off: every technical-query route answers 404 and does nothing, no tables are made at start,
   no mailbox is polled, no Gmail call opens a socket, and the menu entry is absent (`/api/auth/me` says `technical_queries`).
-- Google is asked for `gmail.readonly` only. Sending is locked in code (`technical_queries.SENDING_APPROVED`) until the owner writes "sending approved";
-  it then also needs a second Google consent.
-- Evidence: every contract the caller may read is searched on its own; the coverage line is stored and shown. A passage the search found is `proposed`
-  until a reviewer keeps it as evidence.
+- Google is asked for `gmail.readonly` only, for a label an admin activated. NO code sends mail: the Gmail client has no send call, the worker's send
+  function is gone, and the send route only refuses ("Sending is not approved by the owner"). A crash in the middle of a send cannot happen. The engineer
+  downloads the Word response, sends it by hand, and confirms it resolved.
+- Evidence: every contract the caller may read is searched on its own (dense + rerank); the coverage line is stored and shown. A passage the search found is
+  `proposed` until a reviewer keeps it as evidence; a draft that cites no verified, current evidence cannot be approved.
 - Questions: the local model proposes each question from an attachment page with its page; the engineer ticks and confirms. No page text is copied in bulk.
-- Claude for the draft: built, refused behind its own switch (`TECHNICAL_QUERY_CLAUDE_DRAFT_ENABLED`, off): "not approved by the owner".
-- A query can be entered by hand with its papers (`POST /api/technical-queries/manual`); papers go through the guarded upload and the attachment safety check.
+- Claude for the draft (`TECHNICAL_QUERY_DRAFT_ENGINE`, local by default): only the contract documents the engineer chooses for that one query and the query's own
+  text are sent, through the ordinary Claude path under the spend caps, after a consent record of its own (`query_claude_consent`: query id, document ids, who,
+  when). Chat's per-request consent is not used. The client-register block still wins. Any other vendor is refused.
+- A query can be entered by hand with its papers (`POST /api/technical-queries/manual`). A paper is checked for active content BEFORE it enters the library.
+- A message that keeps failing is tried three times, marked (`gmail_failed_messages`) and stepped over. The Gmail return needs the person who started it and
+  redirects (303). Attachment text, the original email and the Word file need the grant on the attachment. Every draft and Word file says "AI, to be checked"
+  until a reviewer approves.
+- Needs `keyring` installed on the live machine (it is in `requirements.txt`).

@@ -5,19 +5,22 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import (
     access,
     answer,
+    attachment_safety,
+    chat_model,
+    claude_approved,
     errors,
     gmail_auth,
     gmail_sync,
     gmail_worker,
     technical_queries,
+    technical_query_claude,
     technical_query_docx,
 )
 from .. import upload as upload_mod
@@ -132,9 +135,12 @@ class ImportIn(BaseModel):
 
 
 class GenerateDraftIn(BaseModel):
-    """Which engine writes the draft answer. `claude` is refused unless its own switch is on (the owner has not approved that lane)."""
+    """Which engine writes the draft answer. Local by default. `claude` (owner approved, #1584 comment 7170031292) sends only the
+    contract documents named in `document_ids` (the engineer's choice for this one query) and the query's own text; any other engine
+    is refused as not approved by the owner."""
 
-    engine: Literal["local", "claude"] = "local"
+    engine: str = Field(default="local", max_length=40)
+    document_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
 class ManualOut(_Open):
@@ -220,6 +226,29 @@ def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
     return scope.user_id, scope.is_admin, scope.unrestricted
 
 
+def _attachment_documents(item: dict) -> set[str]:
+    return {
+        a["document_id"]
+        for m in item.get("messages", [])
+        for a in m.get("attachments", [])
+        if a.get("document_id")
+    }
+
+
+def _hide_unreadable_attachment_text(item: dict, scope: access.AccessScope) -> dict:
+    """Text copied out of an attachment is shown only to a person who may read that attachment's document (rule 5: a copy never widens
+    access). When a person may not, the copy, the questions found in it and the wording built from it are left out, and it says so."""
+    if _attachment_documents(item) <= set(scope.allowed_document_ids):
+        return item
+    return {
+        **item,
+        "attachment_context": [],
+        "proposed_questions": [],
+        "proposed_question": None,
+        "attachment_text_hidden": True,
+    }
+
+
 def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     """Hide source material retained after a document grant is revoked."""
     item = {
@@ -232,6 +261,7 @@ def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     }
     if scope.unrestricted:
         return item
+    item = _hide_unreadable_attachment_text(item, scope)
     inaccessible = {
         evidence["document_id"]
         for evidence in item.get("evidence", [])
@@ -394,22 +424,28 @@ def activate_gmail_mailbox(
     return {"imported": len(imported), "connection_state": "active"}
 
 
-@router.get("/api/technical-queries/providers/gmail/oauth/callback", response_model=MailboxConnectedOut)
-def gmail_oauth_callback(code: str | None = None, state: str | None = None):
+@router.get("/api/technical-queries/providers/gmail/oauth/callback", response_class=RedirectResponse)
+def gmail_oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """The return from Google. The signed-in person must be the administrator who started the connection (the state names them), so a
+    link started by one person cannot bind a mailbox from another person's browser; then the person is sent on to the screen with a
+    303, so the one-time code does not stay in the address bar."""
+    _require_identity_to_write(scope)
     if not code or not state:
-        raise HTTPException(
-            status_code=400, detail="Gmail OAuth callback requires code and state"
-        )
+        raise HTTPException(status_code=400, detail="Gmail OAuth callback requires code and state")
+    if not scope.is_admin or not scope.user_id or gmail_auth.validate_state(state) != scope.user_id:
+        raise _refuse(403, "this connection was started by another person; start it again from your own sign-in")
     try:
-        mailbox = gmail_auth.complete(code, state)
+        gmail_auth.complete(code, state)
         gmail_sync.start()
-        return mailbox
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=503, detail="Gmail connection could not be completed; try again"
-        ) from exc
+        raise HTTPException(status_code=503, detail="Gmail connection could not be completed; try again") from exc
+    return RedirectResponse("/technicalQueries", status_code=303)
 
 
 @router.post("/api/technical-queries/providers/microsoft-graph/webhook", response_model=WebhookAckOut)
@@ -534,6 +570,11 @@ def download_original_query_email(
     message = next((row for row in item["messages"] if row["id"] == message_id), None)
     if message is None or not message.get("raw_storage_ref"):
         raise HTTPException(status_code=404, detail="original email not stored")
+    if not scope.unrestricted and not {
+        a["document_id"] for a in message.get("attachments", []) if a.get("document_id")
+    } <= set(scope.allowed_document_ids):
+        # the stored message holds its attachments' bytes: a person who may not read one of them does not get the whole message
+        raise _refuse(403, "the original email carries an attachment you may not read")
     folder = (settings.data_dir / "technical_query_mail").resolve()
     path = Path(message["raw_storage_ref"]).resolve()
     if not path.is_relative_to(folder) or not path.is_file():
@@ -735,11 +776,14 @@ def generate_query_draft(
     body: GenerateDraftIn | None = None,
 ):
     """Generate a grounded draft through the existing citation-checked answer lane. The engine is the local model unless the request asks
-    for Claude, which is refused ("not approved by the owner") unless its own switch is on; the owner has not approved that lane, and the
-    chat's per-request consent is chat's lane only, never used here."""
+    for Claude: then only the documents the engineer chose (a consent record of this lane, stored first) and the query's own text are
+    sent, through the ordinary Claude path under the spend caps, and only when the server's draft-engine setting says claude. Any other
+    vendor is refused. Chat's per-request consent is chat's lane only and is never used here."""
     _require_identity_to_write(scope)
-    engine = body.engine if body else "local"
-    if engine == "claude" and not settings.technical_query_claude_draft_enabled:
+    engine = (body.engine if body else "local").strip().lower()
+    if engine not in {"local", "claude"}:
+        raise _refuse(409, f"The engine {engine!r} is not approved by the owner: only the local model and Claude can write a draft.")
+    if engine == "claude" and settings.technical_query_draft_engine.strip().lower() != "claude":
         raise _refuse(409, technical_queries.CLAUDE_DRAFT_OFF_WORDS)
     current = technical_queries.get(query_id, *_visible(scope))
     if current is None:
@@ -761,15 +805,24 @@ def generate_query_draft(
         raise _refuse(
             409, "an engineer must confirm the question before a draft is generated"
         )
+    scope_ids = frozenset(item["document_id"] for item in usable_evidence)
+    chosen: frozenset[str] = frozenset()
+    if engine == "claude":
+        chosen = frozenset(body.document_ids if body else ())
+        if not chosen:
+            raise _refuse(409, "choose the contract documents Claude may read for this query before asking for a Claude draft")
+        if not chosen <= scope_ids:
+            raise _refuse(409, "a chosen document is not verified, current evidence of this query that you may read")
+        with connect() as conn:  # the choice is recorded BEFORE anything can be sent: ids only
+            technical_query_claude.record(conn, query_id, chosen, scope.user_id)
     try:
-        result = answer.answer(
-            question,
-            tier="generated",
-            allowed_document_ids=frozenset(
-                item["document_id"] for item in usable_evidence
-            ),
-            model="local" if engine == "local" else None,  # None: the app's own engine, behind the approved list of documents
-        )
+        with claude_approved.technical_query_lane(chosen):
+            result = answer.answer(
+                question,
+                tier="generated",
+                allowed_document_ids=chosen if engine == "claude" else scope_ids,
+                model="local" if engine == "local" else chat_model.TQ_DRAFT,
+            )
     except (
         Exception
     ) as exc:  # model availability is an operational failure, not a 500 leak
@@ -821,11 +874,14 @@ def generate_query_draft(
             409,
             "the generated answer cited passages outside the query's verified evidence",
         )
+    unresolved = [result.get("reason")] if result.get("reason") else []
+    if engine == "claude" and not str(result.get("model") or "").lower().startswith("claude"):
+        unresolved.append("Claude did not write this draft (the lane was closed or refused); the local model did.")
     item = technical_queries.add_draft(
         query_id,
         result["answer"],
         [],
-        [result.get("reason")] if result.get("reason") else [],
+        unresolved,
         scope.user_id,
         *_visible(scope),
         citations=citations,
@@ -979,6 +1035,19 @@ def _ingest_query_attachment(query_id: str, attachment: dict, file: UploadFile, 
             admin_role, _ = access.upload_admin_role(scope.user_id)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+    checked = attachment_safety.check_before_library(file.file)
+    if checked["status"] != attachment_safety.CLEAN:
+        # the file is NOT ingested: it never becomes a library document; the attachment row says why
+        with connect() as conn:
+            conn.execute(
+                "UPDATE query_attachments SET scan_status=?,scan_detail=? WHERE id=?",
+                (checked["status"], ", ".join(checked["findings"]) or None, attachment["id"]),
+            )
+        raise _refuse(
+            422,
+            "the attachment was not accepted: the static check "
+            + ("found active content in it" if checked["status"] == attachment_safety.FLAGGED else "could not check it"),
+        )
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as exc:
@@ -1047,6 +1116,11 @@ def query_response_docx(
             status_code=403,
             detail="source access has changed; response must be reviewed again",
         )
+    if not scope.unrestricted and _hide_unreadable_attachment_text(item, scope) is not item:
+        raise HTTPException(
+            status_code=403,
+            detail="the response quotes an attachment you may not read",
+        )
     try:
         path = technical_query_docx.render(item)
     except ValueError as exc:
@@ -1064,47 +1138,9 @@ def prepare_query_send(
     body: SendIn,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    """Send only after an authorised user explicitly requests this approved draft."""
+    """Sending is NOT approved by the owner, and no code sends: this route only says so. Nothing is read, stored or sent."""
     _require_identity_to_write(scope)
-    if not technical_queries.SENDING_APPROVED:
-        raise _refuse(409, technical_queries.SEND_OFF_WORDS)
-    if not _reviewer(scope) or not scope.user_id:
-        raise _refuse(403, "a qualified technical-query reviewer is required to send")
-    item = technical_queries.get(query_id, *_visible(scope))
-    if item is None:
-        raise HTTPException(status_code=404, detail="technical query not found")
-    with connect() as conn:
-        mailbox = conn.execute(
-            "SELECT email FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='active' AND label_id IS NOT NULL",
-            (body.mailbox_id, scope.user_id),
-        ).fetchone()
-    if mailbox is None:
-        raise HTTPException(
-            status_code=409,
-            detail="a connected mailbox owned by the sender is required",
-        )
-    try:
-        provider_id = gmail_worker.send_approved(
-            GmailApiClient(gmail_auth.access_token(body.mailbox_id)),
-            query_id,
-            body.draft_id,
-            scope,
-            body.idempotency_key,
-            mailbox["email"],
-        )
-    except (PermissionError, ValueError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    except (RuntimeError, httpx.HTTPError) as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="email provider is unavailable or send outcome needs reconciliation",
-        ) from exc
-    refreshed = technical_queries.get(query_id, *_visible(scope))
-    return {
-        "item": _safe_item(refreshed, scope),
-        "sent": True,
-        "provider_message_id": provider_id,
-    }
+    raise _refuse(409, technical_queries.SEND_OFF_WORDS)
 
 
 @router.post("/api/technical-queries/{query_id}/sends/{send_id}/reconcile", response_model=QueryOut)

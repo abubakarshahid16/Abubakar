@@ -47,18 +47,16 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [canManageGmail, setCanManageGmail] = useState(false);
   const [assignees, setAssignees] = useState<TechnicalQueryAssignee[]>([]);
   const [chosenAssignee, setChosenAssignee] = useState("");
-  const [mailboxId, setMailboxId] = useState("");
-  const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [labels, setLabels] = useState<GmailLabel[]>([]);
   const [labelId, setLabelId] = useState("");
   const [engine, setEngine] = useState<"local" | "claude">("local");
+  const [claudeDocs, setClaudeDocs] = useState<string[]>([]);
   const [ticked, setTicked] = useState<number[]>([]);
   const [handOpen, setHandOpen] = useState(false);
   const [handSubject, setHandSubject] = useState("");
   const [handContractor, setHandContractor] = useState("");
   const [handBody, setHandBody] = useState("");
   const [handFiles, setHandFiles] = useState<File[]>([]);
-  const activeMailboxes = mailboxes.filter((mailbox) => mailbox.connection_state === "active");
   const pendingMailbox = mailboxes.find((mailbox) => mailbox.connection_state === "needs_label");
 
   useEffect(() => {
@@ -107,19 +105,6 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     setChosenAssignee(selected?.assignee_user_id || "");
   }, [selected?.id, selected?.contractor_name, selected?.department, selected?.priority, selected?.due_at, selected?.assignee_user_id]);
 
-  const sendApproved = () => {
-    if (!selected || !selected.drafts?.length || !mailboxId) return;
-    if (!window.confirm("Send the approved response and Word file to the original email sender?")) return;
-    setBusy(true);
-    void technicalQueriesApi.send(selected.id, selected.drafts.at(-1)!.id, mailboxId, sendKey).then((result) => {
-      setBusy(false);
-      if (!result.ok) { setError(result.error.message); return; }
-      setSelected(result.data.item);
-      setItems((current) => current.map((item) => item.id === result.data.item.id ? result.data.item : item));
-      setSendKey(crypto.randomUUID());
-    });
-  };
-
   const applyFilters = () => {
     const common = {
       contractor: contractorFilter.trim(), department: departmentFilter.trim(),
@@ -160,7 +145,6 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
       if (!alive || !result.ok) return;
       setCanManageGmail(true);
       setMailboxes(result.data.items);
-      setMailboxId(result.data.items.find((mailbox) => mailbox.connection_state === "active")?.id || "");
     });
     void technicalQueriesApi.assignees().then((result) => {
       if (alive && result.ok) setAssignees(result.data.items);
@@ -213,7 +197,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         {pendingMailbox && <div className="mt-4 rounded border border-warn-500 p-3 text-xs text-slateish-200">
           <p>Gmail account {pendingMailbox.email} is connected but waiting for a dedicated technical-query label. Only messages under that label will be imported.</p>
           <button type="button" onClick={() => void technicalQueriesApi.gmailLabels(pendingMailbox.id).then((result) => { if (result.ok) { setLabels(result.data.items); setLabelId(result.data.items[0]?.id || ""); } else setError(result.error.message); })} className="mt-2 rounded bg-ink-700 px-2 py-1">Choose label</button>
-          {labels.length > 0 && <div className="mt-2"><label htmlFor="gmail-query-label">Gmail label</label><select id="gmail-query-label" value={labelId} onChange={(event) => setLabelId(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2">{labels.map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}</select><button type="button" disabled={busy || !labelId} onClick={() => { if (!window.confirm("Import existing messages under this label and begin automatic sync?")) return; setBusy(true); void technicalQueriesApi.activateGmailLabel(pendingMailbox.id, labelId).then((result) => { setBusy(false); if (!result.ok) { setError(result.error.message); return; } setMailboxes((current) => current.map((mailbox) => mailbox.id === pendingMailbox.id ? { ...mailbox, connection_state: "active", label_id: labelId } : mailbox)); setMailboxId(pendingMailbox.id); setLabels([]); void technicalQueriesApi.list().then((listed) => { if (listed.ok) setItems(listed.data.items); }); }); }} className="mt-2 rounded bg-signal-500 px-2 py-1 text-white disabled:opacity-50">Activate selected label</button></div>}
+          {labels.length > 0 && <div className="mt-2"><label htmlFor="gmail-query-label">Gmail label</label><select id="gmail-query-label" value={labelId} onChange={(event) => setLabelId(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2">{labels.map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}</select><button type="button" disabled={busy || !labelId} onClick={() => { if (!window.confirm("Import existing messages under this label and begin automatic sync?")) return; setBusy(true); void technicalQueriesApi.activateGmailLabel(pendingMailbox.id, labelId).then((result) => { setBusy(false); if (!result.ok) { setError(result.error.message); return; } setMailboxes((current) => current.map((mailbox) => mailbox.id === pendingMailbox.id ? { ...mailbox, connection_state: "active", label_id: labelId } : mailbox)); setLabels([]); void technicalQueriesApi.list().then((listed) => { if (listed.ok) setItems(listed.data.items); }); }); }} className="mt-2 rounded bg-signal-500 px-2 py-1 text-white disabled:opacity-50">Activate selected label</button></div>}
         </div>}
         <div className="mt-4">
           <button type="button" onClick={() => setHandOpen((open) => !open)} aria-expanded={handOpen} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">New query by hand / upload</button>
@@ -256,16 +240,20 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Prepare evidence</button>
             <label className="flex items-center gap-1 text-xs text-slateish-300">Written by
-              <select value={engine} onChange={(event) => setEngine(event.target.value as "local" | "claude")} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100"><option value="local">Local model</option><option value="claude">Claude (not approved by the owner)</option></select></label>
-            <button type="button" disabled={busy || !selected.confirmed_question} title={selected.confirmed_question ? undefined : "Confirm the question first"} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
+              <select value={engine} onChange={(event) => setEngine(event.target.value as "local" | "claude")} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100"><option value="local">Local model</option><option value="claude">Claude (the documents you choose go to Claude)</option></select></label>
+            {engine === "claude" && <fieldset className="w-full rounded border border-ink-700 p-2 text-xs text-slateish-300" aria-label="Documents Claude may read for this query"><legend className="px-1">Contract documents Claude may read for this one query</legend>
+              {[...new Set((selected.evidence ?? []).filter((e) => e.evidence_state === "verified").map((e) => e.document_id))].map((documentId) => <label key={documentId} className="mr-4 inline-flex items-center gap-1"><input type="checkbox" checked={claudeDocs.includes(documentId)} onChange={(event) => setClaudeDocs((current) => event.target.checked ? [...current, documentId] : current.filter((d) => d !== documentId))} />{documentId}</label>)}
+              <p className="mt-1 text-slateish-400">Only the ticked documents and this query's question are sent. Choose none and nothing is sent.</p></fieldset>}
+            <button type="button" disabled={busy || !selected.confirmed_question} title={selected.confirmed_question ? undefined : "Confirm the question first"} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine, engine === "claude" ? claudeDocs : []))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
-            {selected.status === "approved" && selected.can_review && activeMailboxes.length > 0 && <div className="flex items-center gap-2"><label htmlFor="query-send-mailbox" className="text-xs text-slateish-300">Send from</label><select id="query-send-mailbox" value={mailboxId} onChange={(event) => setMailboxId(event.target.value)} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100">{activeMailboxes.map((mailbox) => <option key={mailbox.id} value={mailbox.id}>{mailbox.email}</option>)}</select><button type="button" disabled={busy} onClick={sendApproved} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Send approved response</button><span className="text-xs text-warn-500">Sending is not approved by the owner yet: download the Word response instead.</span></div>}
-            {(selected.status === "sent" || selected.status === "awaiting_confirmation") && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
+            {selected.status === "approved" && <span className="text-xs text-warn-500">Sending is not approved by the owner: download the Word response, send it yourself, then confirm it resolved.</span>}
+            {(selected.status === "approved" || selected.status === "sent" || selected.status === "awaiting_confirmation") && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
             {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
           </div>
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question in the email</h3>
           <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.extracted_question || "Not stated in the email text."}</p>
+          {selected.attachment_text_hidden && <p className="mt-6 text-xs text-warn-500">The attachment text is hidden: you may not read that attachment.</p>}
           {selected.attachment_context?.length ? <>
             <h3 className="mt-6 text-sm font-semibold text-slateish-200">Attachment text</h3>
             {selected.attachment_context.map((part) => <div key={`${part.filename}-${part.page}`} className="mt-2 rounded border border-ink-700 p-2 text-sm text-slateish-300"><p className="text-xs text-slateish-500">{part.filename}, page {part.page}</p><p className="mt-1 whitespace-pre-wrap">{part.text}</p></div>)}
@@ -301,7 +289,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-500"><p>{evidence.evidence_state === "proposed" ? "Found by the system; the words are checked to stand on that page, but nobody has judged that they answer the question. A reviewer keeps it as evidence or rejects it before a draft uses it or the response is approved." : "This passage comes from a contractor's attachment. A reviewer must decide before the response is approved or sent."}</p>
               {selected.can_review ? <div className="mt-1 flex gap-2"><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "verified", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Keep as evidence</button><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "rejected", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Reject</button></div> : <p className="mt-1">Only a qualified reviewer can decide.</p>}</div>}
           </blockquote>) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
-          <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed response</h3>
+          <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed response{selected.status !== "approved" && selected.drafts?.length ? <span className="ml-2 rounded border border-warn-500 px-2 py-0.5 text-xs font-normal text-warn-500">AI, to be checked</span> : null}</h3>
           {selected.drafts?.length ? <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.drafts.at(-1)?.answer}</p> : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
           {draftCitations(selected.drafts?.at(-1)?.citations_json).map((citation) => <p key={citation.label} className="mt-2 text-xs text-slateish-400">[{citation.label}] <a className="underline" href={`/api/documents/${encodeURIComponent(citation.document_id)}/original#page=${citation.page}`} target="_blank" rel="noreferrer">Source page {citation.page}</a>: {citation.exact_quote}</p>)}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-3">

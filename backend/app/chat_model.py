@@ -40,6 +40,9 @@ log = logging.getLogger(__name__)
 
 #: The budget step every chat call is charged to in the Claude ledger.
 CHAT_STEP = "chat"
+#: A technical query's draft answer (its own lane, not chat's): `answer.answer(model=TQ_DRAFT)`. Claude only when the step's OWN engine
+#: setting (`technical_query_draft_engine`) says claude and the lane is open; otherwise the local model.
+TQ_DRAFT = "technical_query_draft"
 
 #: A turn's text is cut to this many characters before it enters the history,
 #: so one long quoted passage cannot crowd out every other turn.
@@ -139,6 +142,10 @@ def provider(preference: str | None = None) -> rp.ReasoningProvider:
     `ClaudeProvider` (`reader_transport`, `claude_spend` caps, the approved and
     block lists at call time) as under `claude`."""
     if (preference or "auto") == LOCAL:
+        return rp.OllamaProvider()
+    if preference == TQ_DRAFT:
+        if rp.claude_unavailable_for_task(settings.technical_query_draft_engine)[0] is None:
+            return rp.ClaudeProvider(settings.claude_reasoning_model, step=TQ_DRAFT)
         return rp.OllamaProvider()
     if rp._provider_setting() == rp.PER_TASK:
         if preference == CLAUDE and _gate()[0] is None:

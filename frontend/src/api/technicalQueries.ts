@@ -32,6 +32,8 @@ export interface TechnicalQuery {
   drafts?: Array<{ id: string; version: number; answer: string; assumptions_json: string; unresolved_json: string; citations_json: string; model: string | null }>;
   decisions?: Array<{ decision: string; comment: string | null; created_at: string }>;
   source_access_revoked?: boolean;
+  /** True when the attachment text was left out because the signed-in person may not read that attachment. */
+  attachment_text_hidden?: boolean;
 }
 
 export interface TechnicalQueryFilters {
@@ -92,15 +94,13 @@ export const technicalQueriesApi = {
   deleteRoutingRule: (id: string): Promise<Result<{ items: RoutingRule[] }>> =>
     request(`/technical-queries/routing-rules/${encodeURIComponent(id)}`, { method: "DELETE" }),
   prepareEvidence: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/prepare-evidence`, { method: "POST" }),
-  /** `engine: "claude"` is refused by the server ("not approved by the owner") unless its own switch is on. */
-  generateDraft: (id: string, engine: "local" | "claude" = "local"): Promise<Result<TechnicalQuery>> =>
-    request(`/technical-queries/${encodeURIComponent(id)}/generate-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine }) }),
+  /** `engine: "claude"` sends only `documentIds` (the contract documents the engineer chose for this one query) and is refused while the server's draft engine is local. */
+  generateDraft: (id: string, engine: "local" | "claude" = "local", documentIds: string[] = []): Promise<Result<TechnicalQuery>> =>
+    request(`/technical-queries/${encodeURIComponent(id)}/generate-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine, document_ids: documentIds }) }),
   /** A query entered by hand with its papers, so the feature works with no mailbox. */
   createByHand: (form: FormData): Promise<Result<{ item: TechnicalQuery; uploaded: number }>> =>
     request("/technical-queries/manual", { method: "POST", body: form }),
   createDraft: (id: string, answer: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer }) }),
-  send: (id: string, draftId: string, mailboxId: string, idempotencyKey: string): Promise<Result<{ item: TechnicalQuery; sent: boolean; provider_message_id: string }>> =>
-    request(`/technical-queries/${encodeURIComponent(id)}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft_id: draftId, mailbox_id: mailboxId, idempotency_key: idempotencyKey }) }),
   decide: (id: string, decision: string, draftId?: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, draft_id: draftId }) }),
   confirmResolution: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/confirm-resolution`, { method: "POST" }),
 };

@@ -57,6 +57,18 @@ from app.config import settings  # noqa: E402
 GRACEFUL_SHUTDOWN_SECONDS = 5
 
 
+def _keep_oauth_code_out_of_the_access_log() -> None:
+    """The Gmail return address carries a one-time code in its query string: that one request line is never logged (reviewer's M4); every
+    other request is logged exactly as before."""
+    import logging
+
+    class _NoOauthCallback(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "/providers/gmail/oauth/callback" not in record.getMessage()
+
+    logging.getLogger("uvicorn.access").addFilter(_NoOauthCallback())
+
+
 def main() -> None:
     # THE SERVER OWNS THE LIVE DATABASE. Marked here and only here, before the
     # app is imported, so `db.connect()` lets this process - and the worker
@@ -75,15 +87,13 @@ def main() -> None:
         from app import review_trace
 
         review_trace.install_live()
+    _keep_oauth_code_out_of_the_access_log()
     uvicorn.run(
         "app.main:app",
         host=settings.host,
         port=settings.port,
         server_header=False,
         date_header=True,
-        # The request log stays on exactly as before while the technical-query feature is off. With it on, the Gmail return address carries a
-        # one-time code in its query string, so the log is off then (reviewer's M4).
-        access_log=not settings.technical_queries_enabled,
         log_level="info",
         timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )

@@ -43,7 +43,7 @@ describe("Technical Queries screen", () => {
     api.mailboxes.mockResolvedValue({ ok: false, error: { message: "no" } });
     api.assignees.mockResolvedValue({ ok: false, error: { message: "no" } });
     api.routingRules.mockResolvedValue({ ok: false, error: { message: "no" } });
-    api.generateDraft.mockResolvedValue({ ok: false, error: { message: "Claude for the draft is not approved by the owner." } });
+    api.generateDraft.mockResolvedValue({ ok: false, error: { message: "Claude for the draft is not enabled on this server." } });
   });
 
   it("states how many contracts the evidence search covered", async () => {
@@ -61,14 +61,27 @@ describe("Technical Queries screen", () => {
     expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
   });
 
+  it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, status: "approved", confirmed_question: "What applies?", evidence: [{ id: "e1", document_id: "contract-1", page_start: 1, exact_quote: "x", evidence_state: "verified", supersession_state: "current" }] } });
+    api.generateDraft.mockResolvedValue({ ok: true, data: query });
+    render(<TechnicalQueriesView />);
+    await screen.findByText("Coating question", { selector: "h2" });
+    expect(screen.queryByText("Send approved response")).toBeNull();
+    expect(screen.getByText(/Sending is not approved by the owner/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Written by"), { target: { value: "claude" } });
+    fireEvent.click(screen.getByLabelText("contract-1"));
+    fireEvent.click(screen.getByText("Generate draft"));
+    await waitFor(() => expect(api.generateDraft).toHaveBeenCalledWith("q1", "claude", ["contract-1"]));
+  });
+
   it("shows the server's refusal when Claude is chosen for the draft", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, confirmed_question: "What applies?" } });
     render(<TechnicalQueriesView />);
     await screen.findByText("Coating question", { selector: "h2" });
     fireEvent.change(screen.getByLabelText("Written by"), { target: { value: "claude" } });
     fireEvent.click(screen.getByText("Generate draft"));
-    await waitFor(() => expect(api.generateDraft).toHaveBeenCalledWith("q1", "claude"));
-    expect((await screen.findByRole("alert")).textContent).toContain("not approved by the owner");
+    await waitFor(() => expect(api.generateDraft).toHaveBeenCalledWith("q1", "claude", []));
+    expect((await screen.findByRole("alert")).textContent).toContain("not enabled on this server");
   });
 
   it("creates a query by hand with its papers, with no mailbox", async () => {
