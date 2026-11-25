@@ -38,6 +38,9 @@ class Paper:
     file_note: str = (
         ""  # why the stored file was not read (a code word), "" when it was
     )
+    unread: list = field(
+        default_factory=list
+    )  # [{"where": "page 7", "why": code}]: pages with no text and no picture reading (`unread`)
 
     def source_note(self) -> str:
         """Counts only, never text: "pages: 4 pdf_visual_order, 1 recognised_text" (+ why the file was not read)."""

@@ -324,6 +324,11 @@ def _summary(ws: Worksheet, model: dict) -> None:
         ("Decided by code", (counts.get("decided_by_code") or {}).get("sentence")),
         ("Sign-off", signoff_words(model.get("signoff"))),
         (
+            "Pages not read",
+            " ".join(x["sentence"] for x in model.get("pages_not_read") or [])
+            or "none: every page had text or a picture reading",
+        ),
+        (
             "AI steps that did not run",
             " ".join(x["sentence"] for x in model.get("steps_not_applied") or [])
             or "none",
