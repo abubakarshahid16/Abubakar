@@ -83,7 +83,7 @@ def test_key_terms_drop_filler_and_stem_lightly():
         and "coat" in terms
     )
     assert (
-        M.key_terms("PSV-101 set pressure") == ["psv-101", "set", "pressure"]
+        M.key_terms("model Q7 set pressure") == ["model", "q7", "set", "pressure"]
         and M.key_terms("") == []
     )
 
