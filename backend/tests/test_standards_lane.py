@@ -174,3 +174,15 @@ def test_only_its_named_users_open_the_lane_and_never_inside_a_review_or_another
         (rule_second_approval, "rule approval"), (rule_second_approval, "rule approval judge"),
         (rule_label_job, "standards converter"))]  # fmt: skip
     assert named == [1, 1, 1] and standards_lane.USERS == {"rule approval", "rule approval judge", "standards converter"}
+
+
+def test_the_lane_is_never_opened_inside_a_run_named_only_through_the_spend_ledger(conn):
+    """Recheck of update 8: the lane asked only the review marker, while the gate also counts a run the spend ledger names.
+    Its own users open the lane first and name their spend run inside it."""
+    from app import claude_spend
+
+    with claude_spend.for_run("run-1"), pytest.raises(standards_lane.NotStandardsLane), \
+            standards_lane.open_for(conn, ["std"], user="rule approval"):  # fmt: skip
+        pytest.fail("never inside a run the spend ledger names")
+    with standards_lane.open_for(conn, ["std"], user="rule approval"), claude_spend.for_run("rule-second"):
+        assert claude_approved.carried() == {"std"}
