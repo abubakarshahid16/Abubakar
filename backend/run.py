@@ -81,6 +81,7 @@ def main() -> None:
         port=settings.port,
         server_header=False,
         date_header=True,
+        access_log=False,
         log_level="info",
         timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )
