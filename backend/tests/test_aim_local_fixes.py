@@ -45,7 +45,7 @@ def test_the_local_model_reads_the_same_rule_material_as_claude_in_smaller_calls
         and len(local_batches) > len(MT._batches(claude_rows)) > 0
     )
     assert all(
-        sum(len(MT._material_line(r)) for r in b) <= MT.LOCAL_BATCH_CHARS
+        sum(len(MT._material_line(r)) for r in b) <= budget.LOCAL.batch_chars
         for b in local_batches
     )
 

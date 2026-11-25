@@ -14,9 +14,6 @@ BOOK_BUDGET = 45_000
 TEXT_BOOK_BUDGET = 25_000
 BATCH_CHARS = 50_000
 RULE_CHARS = 700
-#: One checklist (and attack) call's rule material on the local model (26 Nov 2026, the 14B at 141a9f50: with 20,000 characters
-#: per call three answers came within 200 tokens of the 8,192-token limit and one was cut). Smaller calls, the same material.
-LOCAL_BATCH_CHARS = 9_000
 
 
 def _dumps(o) -> str:
@@ -116,10 +113,7 @@ def _material_line(r: dict) -> str:
 
 def _batches(rows: list[dict]) -> list[list[dict]]:
     out, cur, size = [], [], 0
-    from .budget import is_local
-
     batch_chars = cap(BATCH_CHARS, "batch_chars")
-    batch_chars = min(batch_chars, LOCAL_BATCH_CHARS) if is_local() else batch_chars
     for r in rows:
         ln = len(_material_line(r))
         if cur and size + ln > batch_chars:
