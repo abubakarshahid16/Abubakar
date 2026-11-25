@@ -99,3 +99,47 @@ def test_a_failed_or_stopped_general_review_is_a_reason_to_look(world):
     d = dash(client(PAPER, BOOK))
     assert d["needs_attention_reasons"].get("the review stopped early") == 1
     assert d["needs_attention"] == sum(d["needs_attention_reasons"].values())
+
+
+def test_the_equipment_column_says_what_the_ai_named_for_the_paper(world):
+    import json
+
+    from app import db
+
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE aim_runs SET identity_json = ?",
+            (json.dumps({"kind": "datasheet", "equipment_type": "pressure_vessel"}),),
+        )
+    d = dash(client(PAPER, BOOK))
+    assert d["recent"][0]["equipment_tags"] == ["pressure vessel"]
+    with db.connect() as conn:
+        conn.execute("UPDATE aim_runs SET identity_json = NULL")
+    assert (
+        dash(client(PAPER, BOOK))["recent"][0]["equipment_tags"] == []
+    )  # none named: nothing, never a guess
+
+
+def test_the_dashboard_and_the_documents_page_say_one_awaiting_a_type_count(world):
+    """Planner 19 Nov, item 9: the Documents page said 10 and the Dashboard 307. The coverage route (the Dashboard's) carries the same
+    `awaiting_type` as the vocabulary route (the Documents page's), and it is not the unconfirmed count."""
+    from app import access, classification, db
+    from app import register_type_split as split
+
+    with (
+        db.connect() as conn
+    ):  # one document with no type and no role is still waiting for a type
+        conn.execute(
+            "DELETE FROM document_classification WHERE document_id = ?", (PAPER,)
+        )
+    scope = access.AccessScope(
+        user_id="u",
+        allowed_document_ids=frozenset({PAPER, BOOK}),
+        capabilities=frozenset(),
+    )
+    got = classification.coverage(scope)
+    assert got["awaiting_type"] == split.untyped_split(scope)[0] >= 1
+    assert (
+        got["needs_classification"] != got["awaiting_type"]
+        or got["needs_classification"] >= 1
+    )

@@ -73,3 +73,19 @@ def lead_model() -> str:
 def strong_model() -> str:
     """The model of the attack on a new checklist."""
     return str(settings.general_review_strong_model)
+
+
+#: A review that STOPPED because the Claude account itself cannot answer says so in plain words, at the top of its page and in its file:
+#: never as a generic failure (the stop codes are `agent_claude.ACCOUNT_STOPS`).
+NO_CREDIT_WORDS = "The AI account has no credit left, so the Claude steps cannot run. Choose Local only, or ask the owner to add credit."
+USAGE_LIMIT_WORDS = "The AI account's usage limit is reached, so the Claude steps cannot run until it resets. Choose Local only, or ask the owner to raise the limit."
+ACCOUNT_WORDS = {
+    "account_no_credit": NO_CREDIT_WORDS,
+    "account_usage_limit": USAGE_LIMIT_WORDS,
+}
+
+
+def account_words(stop_reason) -> str | None:
+    """The plain sentence for a stop reason that names an account refusal ("aim_judge: stop account_no_credit"), else None."""
+    said = str(stop_reason or "")
+    return next((words for code, words in ACCOUNT_WORDS.items() if code in said), None)

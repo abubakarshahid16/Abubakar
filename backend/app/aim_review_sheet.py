@@ -319,7 +319,11 @@ def _summary(ws: Worksheet, model: dict) -> None:
         (
             "Status",
             model["status"]
-            + (f": {model['stop_reason']}" if model.get("stop_reason") else ""),
+            + (
+                f": {model.get('stop_words') or model['stop_reason']}"
+                if model.get("stop_reason")
+                else ""
+            ),
         ),
         ("Kind of paper", model["identity"].get("kind")),
         ("Equipment type", model["identity"].get("equipment_type")),
@@ -331,6 +335,11 @@ def _summary(ws: Worksheet, model: dict) -> None:
         # the planner's measure (19 Nov 2026): count and denominator, never a bare share
         ("Decided by code", (counts.get("decided_by_code") or {}).get("sentence")),
         ("Sign-off", signoff_words(model.get("signoff"))),
+        (
+            "Pages not read",
+            " ".join(x["sentence"] for x in model.get("pages_not_read") or [])
+            or "none: every page had text or a picture reading",
+        ),
         (
             "AI steps that did not run",
             " ".join(x["sentence"] for x in model.get("steps_not_applied") or [])

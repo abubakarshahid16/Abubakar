@@ -96,3 +96,26 @@ describe("EngineBar with no paper to plan for", () => {
   });
 });
 
+describe("EngineBar: a paper Automatic holds back has a way forward", () => {
+  it("offers one click to choose Claude, and that switches the engine and asks for the Claude plan", async () => {
+    plan.mockReset();
+    plan.mockImplementation(async (_d: string, engine: string) => engine === "automatic"
+      ? { ok: true, data: { ...base, choice: "automatic", text_leaves: false, refused: "Automatic will not send this paper to Claude on its own: choose Claude to send it", refused_code: "UNSCORED",
+          documents: { paper: false, rule_books: [], rule_books_note: null, leaving: [], not_sent: [], not_readable: 0 } } }
+      : general(engine));
+    render(<EngineBar documentId="doc1" isAdmin onStarted={vi.fn()} />);
+    const button = await screen.findByTestId("v2-choose-claude");
+    fireEvent.click(button);
+    await waitFor(() => expect(plan).toHaveBeenCalledWith("doc1", "claude"));
+    expect(screen.queryByTestId("v2-choose-claude")).toBeNull();
+  });
+
+  it("offers nothing when the plan is not held back", async () => {
+    plan.mockReset();
+    plan.mockImplementation(async (_d: string, engine: string) => general(engine));
+    render(<EngineBar documentId="doc1" isAdmin onStarted={vi.fn()} />);
+    await waitFor(() => expect(plan).toHaveBeenCalled());
+    expect(screen.queryByTestId("v2-choose-claude")).toBeNull();
+  });
+});
+

@@ -41,6 +41,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
   const drawOld = !generalLatest && general.state !== "loading";
   const pts = usePoints(generalLatest ? null : documentId);
   const [tab, setTab] = useState<V2Tab>("points");
+  const [again, setAgain] = useState(false); // the engine choice and plan of a new review, opened by "Review this paper again"
   const [tile, setTile] = useState<TileKey | null>(null);
   const [book, setBook] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ page: number } | null>(null);
@@ -57,9 +58,22 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
         <div className="min-w-[16rem] flex-1 space-y-1">
           <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
           <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
-          <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} />
+          <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} aiEquipment={latest?.identity?.equipment_type ?? null} />
         </div>
-        <div className="min-w-[18rem]"><EngineBar documentId={documentId} isAdmin={isAdmin} onStarted={onOpenRun} /></div>
+        <div className="min-w-[18rem]">
+          {/* A finished review's page is about THAT review: the engine choice and the plan of a NEW review wait behind "Review again" (a
+              plan shown here read like the plan of the run on screen, and its "Checking..." could hang under the button). */}
+          {general.state === "loading" ? null : generalLatest && !again ? (
+            isAdmin !== false ? (
+              <button type="button" data-testid="review-again" onClick={() => setAgain(true)}
+                className="rounded-[var(--radius-sm)] border border-ink-500 px-4 py-1.5 text-sm text-slateish-100 hover:bg-ink-700">
+                Review this paper again
+              </button>
+            ) : null
+          ) : (
+            <EngineBar documentId={documentId} isAdmin={isAdmin} onStarted={onOpenRun} />
+          )}
+        </div>
       </header>
 
       {general.state === "loading" && <p className="text-slateish-300">Reading the review…</p>}

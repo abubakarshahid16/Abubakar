@@ -1903,8 +1903,17 @@ def coverage(scope: access.AccessScope) -> dict:
         "by_discipline": by_discipline,
         "by_subject": by_subject,
         "needs_classification": needs_classification(scope),
+        # THE ONE "awaiting a type" count: the Documents page's own (`register_type_split`), so the two screens never say 10 and 307
+        "awaiting_type": _awaiting_type(scope),
         "corpus_wide": bool(scope.unrestricted or scope.is_admin),
     }
+
+
+def _awaiting_type(scope: access.AccessScope) -> int:
+    """Documents in the caller's scope with no register type and no role: the count the Documents page calls "awaiting a type"."""
+    from . import register_type_split
+
+    return register_type_split.untyped_split(scope)[0]
 
 
 def new_id(prefix: str) -> str:

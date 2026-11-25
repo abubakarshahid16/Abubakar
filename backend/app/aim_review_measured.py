@@ -110,8 +110,33 @@ def false_alarm(row: dict | None) -> dict | None:
         "percent": percent,
         "target_percent": FALSE_ALARM_TARGET_PERCENT,
         "within_target": wrong * 100 <= FALSE_ALARM_TARGET_PERCENT * of,
-        "sentence": f"A strict reader judged {wrong} of {of} comments wrong ({percent}%; target {FALSE_ALARM_TARGET_PERCENT}% or less).",
+        "sentence": f"A strict reader judged {wrong} of {of} comments wrong across those test copies ({percent}%; target {FALSE_ALARM_TARGET_PERCENT}% or less).",
     }
+
+
+def _copies_words(row: dict | None) -> str:
+    """ "2 planted test copies" when the row says how many, else "planted test copies": the score is of test copies, never of this paper."""
+    n = _count((row or {}).get("copies"))
+    return f"{n} planted test copies" if n else "planted test copies"
+
+
+def _when_words(row: dict | None) -> str:
+    """ " (measured 18 Nov 2026, version 71152b91)" from the row's own date and code head, so an old number says it is old."""
+    on, head = (
+        str((row or {}).get("measured_on") or "").strip(),
+        str((row or {}).get("code_head") or "").strip(),
+    )
+    if not on and not head:
+        return ""
+    return (
+        " ("
+        + ", ".join(
+            x
+            for x in (f"measured {on}" if on else "", f"version {head}" if head else "")
+            if x
+        )
+        + ")"
+    )
 
 
 def _not_measured(label: str, target) -> dict:
@@ -145,7 +170,7 @@ def for_run(identity: dict | None) -> dict | None:
         return _not_measured(label, target)
     verdict = AT_OR_ABOVE if found >= target else BELOW
     sentence = (
-        f"Measured on planted test copies of this kind: {_fmt(found)} of {_fmt(top).rstrip('0').rstrip('.')} "
+        f"Measured on {_copies_words(row)} of this kind{_when_words(row)}: {_fmt(found)} of {_fmt(top).rstrip('0').rstrip('.')} "
         f"mistakes found (target {_fmt(target).rstrip('0').rstrip('.')}): {verdict}."
     )
     old = _number((row or {}).get("old_engine_mean"), top)
