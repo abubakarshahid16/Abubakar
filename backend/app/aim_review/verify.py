@@ -389,3 +389,72 @@ def _whole_notes() -> tuple[str, ...]:
     from .steps import NOT_ON_ANY_PAGE
 
     return (NOT_JUDGED, NOT_ON_ANY_PAGE, NOT_CITED)
+
+
+#: How close a figure the judge converted must come to the quote's own figure after code's conversion (rounding of the judge).
+CONVERTED_WITHIN = 0.005
+
+
+def converted_value(value, unit, quote: str) -> dict | None:
+    """The ONE figure the verified `quote` prints that equals `value unit` once the app's unit code converts both (the judge
+    converted it: "10.34 barg" for a printed "150 psig"), as `quoted_value` gives a figure: {"value", "unit", "op"}, read from
+    the quote's own words, plus "converted" (what code matched). Same quantity and the same gauge or absolute reference only,
+    within CONVERTED_WITHIN; none, two such figures or a unit code does not convert: None. Code then compares the PRINTED figure."""
+    from app import claims, numparse
+
+    if not unit or not quote:
+        return None
+    want = claims.normalise(str(value if value is not None else ""), str(unit))
+    if want.normalized_value is None:
+        return None
+    hits = []
+    for m in claims.extract_measurements(quote):
+        if (
+            not m.raw_unit
+            or m.raw_unit.strip().casefold() == str(unit).strip().casefold()
+        ):
+            continue
+        got = claims.normalise(str(m.raw_value), m.raw_unit)
+        same = (
+            got.normalized_unit == want.normalized_unit
+            and got.reference == want.reference
+        )
+        if (
+            same
+            and got.normalized_value is not None
+            and abs(got.normalized_value - want.normalized_value)
+            <= (CONVERTED_WITHIN * max(abs(want.normalized_value), 1e-12))
+        ):
+            hits.append(m)
+    if len(hits) != 1:
+        return None
+    m = hits[0]
+    found = quoted_value(numparse.parse_value(str(m.raw_value)), quote) or {
+        "value": str(m.raw_value),
+        "op": None,
+    }
+    return {
+        **found,
+        "unit": str(m.raw_unit),
+        "converted": f"{value} {unit} is the quote's {m.raw_value} {m.raw_unit}",
+    }
+
+
+def met_unproven(said, label: str, nums, deferred: bool, code_cmp) -> list[str]:
+    """[AI_MET_UNPROVEN] when the judge itself said Met, with numbers, and code could not prove them (no pass or fail on the
+    verified quotes, so the line fell back to a Question): an AI verdict of a pass is internal only (owner, 12 Nov 2026: "proven
+    by code: Pass" only when code compared), kept on All points, never sent as a concern. Decided by the judge's own label and
+    code's result, never by the comment's words. A value left open, or anything else: []."""
+    from . import AI_MET_UNPROVEN
+
+    if said != "Met" or label != "Question" or deferred or not isinstance(nums, dict):
+        return []
+    if isinstance(code_cmp, dict) and code_cmp.get("result") in ("pass", "fail"):
+        return []
+    return [AI_MET_UNPROVEN]
+
+
+def value_in(value, unit, quote: str) -> dict | None:
+    """The figure as the quote prints it (`quoted_value`), else the one printed figure the judge's converted `value unit` matches
+    (`converted_value`)."""
+    return quoted_value(value, quote) or converted_value(value, unit, quote)
