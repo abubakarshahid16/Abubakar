@@ -16,6 +16,7 @@ from . import (
     PAPER_COMPARE_PASSED,
     PROVISIONAL,
 )
+from . import disciplines as D
 from . import items as I
 from . import library as L
 from . import prompts as P
@@ -362,6 +363,7 @@ def s4_judge(
     jobs: list[
         tuple[list[dict], dict]
     ] = []  # (batch, request) in window, then batch order: the one-at-a-time order
+    discipline = D.judge_head(scope)  # "" = the general judge
     for win in windows or [sorted(paper.pages)]:
         cached = paper_block(paper, win if windowed else None)
         head = (
@@ -370,6 +372,7 @@ def s4_judge(
             if windowed
             else ""
         ) + _scope_line(scope)
+        head += discipline
         jobs += [
             (b, _batch_request(paper, b, books, text, cached, head, lead))
             for b in batches

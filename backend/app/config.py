@@ -443,6 +443,9 @@ class Settings(SettingsExt, BaseSettings):
     #: The learner (#1912, owner 25 Nov 2026): an engineer's accept / edit / reject remembered by rule and paper kind; a comment
     #: rejected before carries "rejected before by <role> on <date>" in the team note; edited wording is reused. OFF until scored.
     aim_review_learner_enabled: bool = False
+    #: Discipline reviewers (owner 25 Nov 2026): the judge with a mechanical or contract section and worked examples
+    #: (`aim_review/disciplines.py`, `reference/discipline_reviewers.json`). OFF until scored against the general judge.
+    aim_discipline_reviewers_enabled: bool = False
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment
