@@ -333,6 +333,10 @@ class Settings(SettingsExt, BaseSettings):
     #: Local by default. "claude" is honoured only when REASONING_PROVIDER lets this step use Claude (`claude`, or `per_task` with this
     #: setting), for the contract documents the engineer chooses for that one query (its own consent record), under the claude_spend caps.
     technical_query_draft_engine: str = "local"
+    #: How far a technical query's evidence search reaches into each contract (measured one idea at a time, lead 4, 26 Nov 2026). Letters:
+    #: "b" more candidates per contract before the reranker, cut after it; "c" the contract's own headings searched as well as its body text;
+    #: "a" the question widened with words from the contract's own headings and defined terms (code, no model). Empty (default) = as before.
+    technical_query_reach: str = ""
 
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
