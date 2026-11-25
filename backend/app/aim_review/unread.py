@@ -165,7 +165,9 @@ def _word_unread(conn, path) -> list[dict]:
                 )
             }
         except Exception as exc:  # noqa: BLE001 - no table: no reading
-            log.debug("general review: no stored picture readings (%s)", type(exc).__name__)
+            log.debug(
+                "general review: no stored picture readings (%s)", type(exc).__name__
+            )
             status = {}
     out = []
     for p in pictures:
