@@ -376,7 +376,7 @@ def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope))
         gmail_auth.connection_ready()
         return {"authorization_url": gmail_auth.start(scope.user_id)}
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise _refuse(424, str(exc)) from exc
 
 
 @router.get("/api/technical-queries/providers/gmail/mailboxes", response_model=RowsOut)
@@ -416,8 +416,8 @@ def gmail_mailbox_labels(
     try:
         return {"items": GmailApiClient(gmail_auth.access_token(mailbox_id)).labels()}
     except Exception as exc:
-        raise HTTPException(
-            status_code=503, detail="Gmail labels are unavailable"
+        raise _refuse(
+            424, "Gmail could not be reached, so the labels could not be listed. Try again in a moment."
         ) from exc
 
 
@@ -442,7 +442,7 @@ def activate_gmail_mailbox(
     try:
         labels = {label.get("id") for label in GmailApiClient(gmail_auth.access_token(mailbox_id)).labels()}
     except Exception as exc:
-        raise _refuse(503, "Gmail could not be reached, so nothing was changed. Try again in a moment.") from exc
+        raise _refuse(424, "Gmail could not be reached, so nothing was changed. Try again in a moment.") from exc
     if body.label_id not in labels:
         raise _refuse(422, "That is not one of your own Gmail labels. Choose a label you created.")
     with connect() as conn:
@@ -504,7 +504,7 @@ def gmail_oauth_complete(body: OauthCompleteIn, scope: access.AccessScope = Depe
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Gmail connection could not be completed; try again") from exc
+        raise _refuse(424, "Gmail connection could not be completed. Try again.") from exc
     return {"result": "connected", "mailbox_id": str((mailbox or {}).get("id") or "") or None}
 
 

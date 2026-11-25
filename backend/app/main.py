@@ -697,6 +697,7 @@ def login(body: schemas.LoginRequest, request: Request, response: Response):
         # is None for some transports (a raw ASGI call): the email bucket only.
         client_host = request.client.host if request.client else None
         result = auth_mod.login(body.email, body.password, client_host=client_host)
+        result = {**result, "technical_queries": technical_queries_mod.enabled()}  # the menu entry shows from the first screen after sign-in
         return auth_session_mod.session_login(body.session, request, response, result)
     except auth_mod.AuthError as exc:
         headers = ({"Retry-After": str(exc.retry_after)}

@@ -135,7 +135,7 @@ def _fail(job_id: str, message_id: str, subject: str | None, exc: Exception) -> 
                 job_id,
                 message_id,
                 (subject or "")[:200] or None,
-                f"the message could not be imported ({type(exc).__name__})",
+                "this message could not be read, so it was skipped",
             ),
         )
 
@@ -185,7 +185,7 @@ def run_job(job_id: str, *, client=None) -> None:
         _set(
             job_id,
             state="failed",
-            error=f"the mailbox could not be read ({type(exc).__name__}); use Check now to try again",
+            error="Gmail could not be read just now. Use Check now to try again.",
         )
         return
     _checked(box["id"])
@@ -193,12 +193,12 @@ def run_job(job_id: str, *, client=None) -> None:
 
 
 def _import_one(
-    job_id, client, box, label_id, admin_role, message_id, progress_failed
+    job_id, client, box, label_id, admin_role, message_id, progress_failed, known_subject=None
 ) -> bool:
     """One message, in its own transaction(s); returns True when imported (or already imported), False when it failed (counted and named)."""
     from . import gmail_worker
 
-    subject = None
+    subject = known_subject
     try:
         message = client.message(message_id)
         subject = message.subject
@@ -235,13 +235,15 @@ def _poll(job_id, client, box, admin_role) -> None:
     from . import gmail_worker
 
     with connect() as conn:
-        again = [r["provider_message_id"] for r in conn.execute(
-            "SELECT f.provider_message_id FROM gmail_import_failures f JOIN gmail_import_jobs j ON j.id=f.job_id WHERE j.mailbox_id=?", (box["id"],))]  # fmt: skip
+        again: dict[str, str | None] = {}
+        for r in conn.execute(
+            "SELECT f.provider_message_id, f.subject FROM gmail_import_failures f JOIN gmail_import_jobs j ON j.id=f.job_id WHERE j.mailbox_id=? ORDER BY j.created_at", (box["id"],)):  # fmt: skip
+            again[r["provider_message_id"]] = r["subject"] or again.get(r["provider_message_id"])  # a later row with no subject never hides the name
     _set(job_id, total=len(again))
     done = failed = 0
-    for message_id in again:
+    for message_id, known_subject in again.items():
         ok = _import_one(
-            job_id, client, box, box["label_id"], admin_role, message_id, lambda: None
+            job_id, client, box, box["label_id"], admin_role, message_id, lambda: None, known_subject
         )
         done += 1 if ok else 0
         failed += 0 if ok else 1

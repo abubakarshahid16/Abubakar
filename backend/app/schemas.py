@@ -1551,6 +1551,10 @@ class LoginResult(BaseModel):
     )
     user: Me
     expires_in_seconds: int
+    technical_queries: bool = Field(
+        default=False,
+        description="whether the technical-query feature is switched on here (default off); the menu entry follows it from the first screen",
+    )
 
 
 class TokenRevocationResult(BaseModel):

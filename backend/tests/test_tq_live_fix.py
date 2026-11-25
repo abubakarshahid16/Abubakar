@@ -129,7 +129,7 @@ def test_a_failed_activation_says_one_plain_sentence_and_changes_nothing(monkeyp
     )
     with pytest.raises(HTTPException) as down:
         api.activate_gmail_mailbox("mb", api.GmailLabelIn(label_id="L1"), OWNER)
-    assert down.value.status_code == 503 and "nothing was changed" in str(
+    assert down.value.status_code == 424 and "nothing was changed" in str(
         down.value.detail
     )
     monkeypatch.setattr(
@@ -144,6 +144,27 @@ def test_a_failed_activation_says_one_plain_sentence_and_changes_nothing(monkeyp
         state_of()["connection_state"] == "needs_label"
         and state_of()["label_id"] is None
     )
+
+
+def test_the_label_list_failure_is_a_sentence_the_screen_can_show(monkeypatch):
+    on(monkeypatch)
+    mailbox()
+
+    class Down(FakeClient):
+        def labels(self):
+            raise httpx.ConnectError(
+                "down", request=httpx.Request("GET", "https://gmail.googleapis.com/x")
+            )
+
+    monkeypatch.setattr("app.api.technical_queries.GmailApiClient", lambda _t: Down([]))
+    monkeypatch.setattr(
+        "app.api.technical_queries.gmail_auth.access_token", lambda _id: "t"
+    )
+    with pytest.raises(HTTPException) as down:
+        api.gmail_mailbox_labels("mb", OWNER)
+    detail = down.value.detail
+    assert down.value.status_code == 424 and isinstance(detail, dict)  # {code, message}; never 502/503/504: the screen reads those as "the backend is down"
+    assert "Gmail could not be reached" in detail["message"]
 
 
 # ---------------------------------------------------------------- 2. the import is a background job
@@ -171,7 +192,7 @@ def test_the_import_job_imports_one_message_at_a_time_names_a_failure_by_subject
     assert done["failures"] == [
         {
             "subject": "Beta - broken one",
-            "reason": "the message could not be imported (ValueError)",
+            "reason": "this message could not be read, so it was skipped",
         }
     ]
     subjects = {q["subject"] for q in tq.list_queries("u1", True, False)}
@@ -287,6 +308,28 @@ def test_check_now_queues_one_poll_that_retries_the_failed_messages_and_then_pol
         mailbox(state="needs_label")
         api.check_gmail_mailbox_now("mb", OWNER)
     assert inactive.value.status_code == 404
+
+
+def test_a_retry_that_fails_again_still_names_the_message_by_its_first_subject(
+    monkeypatch,
+):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs.run_job(
+        job, client=FakeClient(["good one", "bad one"], broken={"bad one"})
+    )
+    monkeypatch.setattr("app.gmail_worker.poll_mailbox", lambda *a, **k: [])
+
+    class Down(FakeClient):
+        def message(self, message_id):
+            raise OSError("down")
+
+    poll = api.check_gmail_mailbox_now("mb", OWNER)["import_job"]
+    gmail_import_jobs.run_job(poll, client=Down(["good one", "bad one"]))
+    with db.connect() as conn:
+        latest = gmail_import_jobs.latest(conn, "mb")
+    assert [f["subject"] for f in latest["failures"]] == ["bad one"]  # never "(no subject)"
 
 
 # ---------------------------------------------------------------- 5. the subject is the identity
