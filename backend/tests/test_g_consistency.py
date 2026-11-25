@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import openpyxl
-
 import sys
 from pathlib import Path
 
+import openpyxl
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
-import aim_consistency as C  # noqa: E402
+import aim_consistency as C
 
 
 def pt(
