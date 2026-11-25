@@ -115,7 +115,7 @@ def open_for(conn, document_ids, checked: Checked | None = None, *, user: str):
 
     if user not in USERS:
         raise NotStandardsLane(f"{user!r} is not a user of the standards lane; nothing is sent")
-    if claude_approved._REVIEW_RUN.get() or claude_approved.carried() is not None:
+    if claude_approved.review_run() or claude_approved.carried() is not None:  # the gate's own question (spend ledger too)
         raise NotStandardsLane("the standards lane is never opened inside a review run or another declaration")
     ids = frozenset(str(d) for d in (document_ids or ()) if d)
     if not (isinstance(checked, Checked) and ids and ids <= checked):
