@@ -86,9 +86,11 @@ def _stand_in_engine(monkeypatch, kind: str) -> list[dict]:
             == reasoning_provider.UNAVAILABLE_RUN_LOCAL
         )
         # a model that does not think is not sent the thinking switch
-        assert path == "/api/chat" and body["format"] == "json" and "think" not in body
+        assert path == "/api/chat" and "think" not in body
         bodies.append(body)
         kw = asked.kw
+        # the step's own answer shape when the method writes one (A's `answer_schema`), else plain JSON
+        assert body["format"] == local_model._answer_shape(kw["step"])
         out = fake.fake_answer(kw["step"], kw.get("cached") or "", kw["prompt"])
         return {
             "model": REPORTED,
@@ -709,6 +711,10 @@ def test_the_steps_answer_shape_goes_to_the_engine_and_a_page_window_or_map_is_n
 def test_without_the_answer_schema_module_every_step_keeps_plain_json(monkeypatch):
     import sys
 
+    import app.aim_review as package
+
+    # an imported module stays a package attribute: both must go for the import to fail
+    monkeypatch.delattr(package, "answer_schema", raising=False)
     monkeypatch.setitem(
         sys.modules, "app.aim_review.answer_schema", None
     )  # the module is absent: import fails
