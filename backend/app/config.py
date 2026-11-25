@@ -446,6 +446,9 @@ class Settings(SettingsExt, BaseSettings):
     #: Discipline reviewers (owner 25 Nov 2026): the judge with a mechanical or contract section and worked examples
     #: (`aim_review/disciplines.py`, `reference/discipline_reviewers.json`). OFF until scored against the general judge.
     aim_discipline_reviewers_enabled: bool = False
+    #: The paper map (owner 25 Nov 2026 23:15, NO BLIND CHUNKING): a paper too long for one judge call is judged with a map made
+    #: by code plus each item's cited pages (`aim_review/paper_map.py`), never window by window blind. OFF until scored.
+    aim_paper_map_enabled: bool = False
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment

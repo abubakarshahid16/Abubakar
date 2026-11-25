@@ -16,7 +16,6 @@ from . import (
     PAPER_COMPARE_PASSED,
     PROVISIONAL,
 )
-from . import disciplines as D
 from . import items as I
 from . import library as L
 from . import prompts as P
@@ -353,30 +352,18 @@ def s4_judge(
 
     One window (the paper fits): the measured method exactly. Several windows (a long paper): every batch is judged in each
     window; an item's answers are merged by `_merge`. A batch never asked (cancelled, or the run stopped) is 'not judged'."""
-    from . import parallel
+    from . import paper_map, parallel
 
+    # a long paper: the map and each item's cited pages
+    if len(windows) > 1 and paper_map.on():
+        return paper_map.judge(model, paper, checklist, text, items=items, windows=windows, lead=lead,
+                               cancelled=cancelled, progress=progress, scope=scope)  # fmt: skip
     books = {b["alias"]: b for b in checklist.get("books") or []}
     windowed = len(windows) > 1
     answers: dict[str, list[dict]] = {it["id"]: [] for it in items}
     errors: dict[str, str] = {}
     batches = [items[k : k + JUDGE_BATCH] for k in range(0, len(items), JUDGE_BATCH)]
-    jobs: list[
-        tuple[list[dict], dict]
-    ] = []  # (batch, request) in window, then batch order: the one-at-a-time order
-    discipline = D.judge_head(scope)  # "" = the general judge
-    for win in windows or [sorted(paper.pages)]:
-        cached = paper_block(paper, win if windowed else None)
-        head = (
-            P.WINDOW_LINE
-            % {"first": win[0], "last": win[-1], "count": len(paper.pages)}
-            if windowed
-            else ""
-        ) + _scope_line(scope)
-        head += discipline
-        jobs += [
-            (b, _batch_request(paper, b, books, text, cached, head, lead))
-            for b in batches
-        ]
+    jobs = paper_map.window_jobs(paper, batches, windows, books, text, scope, lead)
     total, finished = max(1, len(jobs)), [0]
 
     def tick() -> None:
