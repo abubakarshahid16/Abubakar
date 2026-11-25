@@ -110,6 +110,8 @@ export interface GeneralReview {
   mark: string;
   status: "completed" | "stopped";
   stop_reason?: string | null;
+  /** A stop caused by the Claude account itself (no credit, usage limit) in plain words, to be said at the TOP of the page. */
+  stop_words?: string | null;
   identity: { kind: string | null; equipment_type: string | null; subject: string | null };
   counts: {
     points: number; comments: number; by_label: Record<string, number>; by_shown_label?: Record<string, number>; boundary: string;

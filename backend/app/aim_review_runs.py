@@ -78,6 +78,16 @@ def _equipment(row) -> list[str]:
     return [word] if word else []
 
 
+def _account_stop(row) -> str | None:
+    """The plain words when the run STOPPED because the Claude account cannot answer (no credit, usage limit): such a run is listed as
+    failed with that reason, never as a finished review."""
+    from . import aim_review_gate
+
+    if str(row["status"]) != "stopped":
+        return None
+    return aim_review_gate.account_words(row["stop_reason"])
+
+
 def total(conn, allowed: frozenset[str]) -> int:
     """How many general runs of papers the caller may read there are (every run, not only the newest of a paper)."""
     return len(_rows(conn, allowed))
@@ -117,7 +127,7 @@ def entries(
                 "review_run_id": run_id,
                 "submittal_document_id": r["paper_document_id"],
                 "submittal_filename": doc["filename"] if doc else None,
-                "status": STATUS_SHOWN.get(status, status),
+                "status": "failed" if _account_stop(r) else STATUS_SHOWN.get(status, status),
                 "created_at": r["created_at"],
                 "completed_at": r["finished_at"],
                 "method": GENERAL,
@@ -125,9 +135,8 @@ def entries(
                 "general_counts": counts_of(conn, run_id)
                 if status in ENDED_WITH_LINES
                 else None,
-                "failure_reason": (r["stop_reason"] or None)
-                if status == "failed"
-                else None,
+                "failure_reason": _account_stop(r)
+                or ((r["stop_reason"] or None) if status == "failed" else None),
                 "job": job,
             }
         )
