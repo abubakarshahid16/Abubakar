@@ -19,8 +19,6 @@ log = logging.getLogger(__name__)
 
 #: A page with fewer characters than this has no text for a reader to use (a bare page number is not a page read).
 MIN_PAGE_CHARS = 20
-#: At most this many pages are recognised during one review (the rest are said as waiting).
-MAX_RECOGNISE = 30
 
 NO_TEXT, WAITING, FAILED, NO_TEXT_AFTER = (
     "no_text",
@@ -32,7 +30,7 @@ PICTURE_NOT_READ, PICTURE_FAILED = "picture_not_read", "picture_reading_failed"
 
 #: The plain words of each code (the same on the page and in the file).
 WHY_WORDS = {
-    NO_TEXT: "it has no text and no picture reading came back",
+    NO_TEXT: "it has no text, or almost none (fewer than 20 characters), and no picture reading came back",
     WAITING: "its picture reading has not run yet",
     FAILED: "its picture reading failed",
     NO_TEXT_AFTER: "its picture reading came back with no text",
@@ -47,8 +45,8 @@ LISTED, ALL_READ, NOT_RECORDED = "listed", "all_read", "not_recorded"
 
 
 def with_unread(conn, paper_id: str, paper, reload):
-    """The paper with its `unread` list filled: a PDF's pages with no usable text (after the pending pictures were read), or a Word
-    file's pictures with no reading. `reload(conn, paper_id)` loads the paper again after recognition. Never raises."""
+    """The paper with its `unread` list filled: a PDF's pages with no usable text (waiting pages are named, not read here), or a Word
+    file's pictures with no reading. `reload` is kept for the caller's signature. Never raises."""
     try:
         ref = _ref(conn, paper_id)
         if ref is None:
@@ -59,13 +57,7 @@ def with_unread(conn, paper_id: str, paper, reload):
                 ref["path"] is not None
             )  # a Word file that was not found was not checked
             return paper
-        try:
-            if _recognise_pending(paper_id):
-                paper = reload(conn, paper_id)
-        except Exception as exc:  # noqa: BLE001 - a recognition that fails leaves its pages unread, and they are said
-            log.info(
-                "general review: pending pictures not read (%s)", type(exc).__name__
-            )
+        # 7a: a page waiting for the upload's own picture reading is only NAMED (WAITING); the review never runs recognition itself
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
         paper.unread_checked = True
     except Exception as exc:  # noqa: BLE001 - never a failed review: the pages simply are not claimed
@@ -96,17 +88,6 @@ def _ref(conn, paper_id: str) -> dict | None:
         except agent_review_pages.PageImageUnavailable:
             path = None
     return {"word": word, "path": path, "pages": int(row["page_count"] or 0)}
-
-
-def _recognise_pending(paper_id: str) -> bool:
-    """Read the pages flagged for picture reading that have no reading yet, with the app's own local engine. True when it ran."""
-    from app import ocr
-
-    pending = ocr.pending_pages(paper_id)
-    if not pending:
-        return False
-    ocr.recognise_document(paper_id, max_pages=MAX_RECOGNISE)
-    return True
 
 
 def _pdf_unread(conn, paper_id: str, paper, total: int) -> list[dict]:

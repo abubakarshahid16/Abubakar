@@ -47,7 +47,7 @@ describe("GeneralResults header", () => {
 
   it("names the pages that were not read, and says nothing when every page was", () => {
     const { unmount } = mount(review({ pages_not_read: [
-      { where: "page 7", why: "no_text", sentence: "Page 7 was not read: it has no text and no picture reading came back." },
+      { where: "page 7", why: "no_text", sentence: "Page 7 was not read: it has no text, or almost none (fewer than 20 characters), and no picture reading came back." },
       { where: "picture 2", why: "picture_not_read", sentence: "Picture 2 was not read: no picture reading came back." },
     ] }));
     const note = screen.getByTestId("general-pages-not-read");
