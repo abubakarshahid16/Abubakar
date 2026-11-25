@@ -53,6 +53,12 @@ contractor copy issued only after that sign-off. Until then every file is the te
    17 Nov 2026, #1584 comment 6930244442; `standards_web_search.py`, `STANDARDS_WEB_SEARCH_ENABLED`, off by default) sends
    only a public standard's name taken from the app's own tables of public standards (never the paper's words), through
    `reader_transport.py` under the same caps; a stored answer is reused for 90 days and says when it was searched.
+   TECHNICAL QUERIES (owner, 25 Nov 2026, #1584 comment 7170031292: "Yes, approve both"): (1) the Gmail client may
+   connect to Google with the `gmail.readonly` scope only, behind the feature's own switch (off by default), for a mailbox
+   label an admin activated; mail comes in, nothing goes out by it; (2) an answer draft may send the contract documents
+   the engineer chooses for that one query, and the query's own text, to Claude through `reader_transport.py` under the
+   `claude_spend` caps (per-request consent for those files only, its own lane, not chat's); sending mail stays off
+   (`gmail.send` is not asked for) until the owner writes "sending approved".
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only four modules may open a
    socket, each behind a gate:
