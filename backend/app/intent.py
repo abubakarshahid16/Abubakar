@@ -505,7 +505,12 @@ STYLES = {
     "shorter": r"\bshorter\b|\bbriefer\b|\bmore\s+concise\b|\bin\s+short\b|\btl;?dr\b|\bsummari[sz]e\s+(?:it|that|this)\b",
     "simpler": r"\bsimpl(?:er|y|ify)\b|\bplain\s+(?:english|language|words)\b|\blike\s+i'?m\s+not\s+an?\s+engineer\b|\bfor\s+a\s+(?:beginner|non-?engineer|layman)\b",
     "engineer": r"\bfor\s+an?\s+engineer\b|\bmore\s+technical\b|\btechnical(?:ly)?\s+precise\b",
-    "check_documents": r"\bcheck\s+(?:it\s+|this\s+|that\s+)?against\s+(?:my|our|the)\s+documents?\b",
+    "check_documents": r"\bcheck\s+(?:it\s+|this\s+|that\s+)?against\s+(?:my|our|the)\s+documents?\b"
+    # the whole message only asks to look the last question up in the reader's own material (planner 19 Nov 02:00: "check in
+    # database" lost the earlier question): anchored, so "search the library for welding" stays a new question
+    r"|^\s*(?:please\s+|now\s+|ok(?:ay)?\s+|can\s+you\s+|could\s+you\s+)*(?:check|look|search|find)"
+    r"(?:\s+(?:it|this|that|them))?(?:\s+up)?\s+(?:in|against|through|with)?\s*(?:my|our|the)?\s*"
+    r"(?:documents?|database|library|files|records|register)(?:\s+(?:for\s+)?(?:it|this|that))?(?:\s+please)?\s*[.?!]*\s*$",
     "manager": r"\bfor\s+(?:my|the|a)\s+manager\b",
 }
 _STYLE_RES = {name: re.compile(p) for name, p in STYLES.items()}
