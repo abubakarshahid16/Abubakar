@@ -163,7 +163,10 @@ to state it with the offer, never a request to complete the sheet; the sheet's o
 A "Question" ASKS: its comment never says that a value passes, fails,
 exceeds or meets a limit (code compares the numbers you give). Compare a value only with a limit for the SAME quantity: a field
 with two names and two values split by "/" pairs them in order (the first value is the first name's), and a limit for one kind
-of a quantity (one part, one case, one state) never judges another kind of it.
+of a quantity (one part, one case, one state) never judges another kind of it: a limit the clause gives for one component of a
+pressure (built-up, superimposed, constant, variable, total; internal or external; operating or design) is never held against
+another component. A comment states every condition as the paper gives it (its own value and unit), never a stronger or a
+generic one (an external design pressure is not "full vacuum" unless the paper says so).
 Read each item's "applies_when" against THIS place of the paper (this sheet, this item, its stated type and service): when the
 condition does not hold there (the item is for a part, a type or a service this place does not have), the label is "Does not
 apply" with the paper words that show it; a blank field for a part the condition excludes is never a Question.
