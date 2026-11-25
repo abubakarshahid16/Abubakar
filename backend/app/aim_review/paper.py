@@ -26,7 +26,7 @@ DEFAULT_OVERLAP_PAGES = 1
 
 #: Where a page's text came from (`Paper.sources`): the stored PDF in visual order, the stored text, the recognised text.
 FROM_PDF, FROM_STORED, FROM_OCR = "pdf_visual_order", "stored_text", "recognised_text"
-#: A page Claude transcribed from its picture (`picture_pages`): the page held no text and local recognition found none.
+#: A page Claude transcribed from its picture (`picture_stage`, the upload's picture reading; such a page is stored as recognised text): the page held no text and local recognition found none.
 FROM_PICTURE = "claude_picture_reading"
 
 
@@ -43,6 +43,7 @@ class Paper:
     unread: list = field(
         default_factory=list
     )  # [{"where": "page 7", "why": code}]: pages with no text and no picture reading (`unread`)
+    unread_checked: bool = False  # True only when the unread pages were really worked out (a check that failed or a missing file is not "none")
 
     def source_note(self) -> str:
         """Counts only, never text: "pages: 4 pdf_visual_order, 1 recognised_text" (+ why the file was not read)."""

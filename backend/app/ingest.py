@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from . import acronyms as acronyms_mod
 from . import claude_auto_approve
 from . import doc_router, document_kind, errors, intake, job_queue, page_ledger, sheet_chunks, states, startup_repairs
-from . import intake_blocks
+from . import intake_blocks, picture_stage
 from .chunker import chunk_document
 from . import reading_state, telemetry
 from .db import connect
@@ -598,6 +598,19 @@ class IngestionWorker(ReviewDrain):
                             # progress - but falling through here would embed
                             # and mark the document ready with scanned pages
                             # still unread.
+                            continue
+
+                    # PICTURE READING (order 14, #1905): a page local recognition could not read is transcribed from its picture by
+                    # Claude, once, here, never inside a review. Behind VISION_READER_ENGINE and the gate; otherwise nothing runs.
+                    if picture_stage.wanted(doc_id):
+                        result["picture"] = picture_stage.run(doc_id)
+                        intake_blocks.refresh(doc_id)
+                        _refresh_page_ledger(doc_id)
+                        result["stages"].append("picture")
+                        if self._stop.is_set():
+                            return result
+                        if result["picture"].get("read"):
+                            self._set_state(doc_id, states.CHUNKING)  # the new text is chunked and searchable like a recognised scan
                             continue
 
                     # never trust the stored count as the gate on its own repair.

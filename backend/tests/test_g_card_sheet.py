@@ -136,3 +136,39 @@ def test_a_cut_card_cell_is_checked_like_the_comment_and_the_quote():
     row[S.COMMENT_HEADERS.index("We ask")] = "Please state it."
     row[S.COMMENT_HEADERS.index("Paper says")] = "page 1: who"  # cut with no mark either
     assert len(C._cut_check([row], view)[1]) == 1
+
+
+def test_a_field_on_several_pages_keeps_every_page_in_the_applies_to_cell():
+    members = [
+        {"field": "Required relieving capacity", "page": p, "quote": "x"} for p in (3, 1, 2, 4)
+    ] + [{"field": "Set pressure", "page": 2, "quote": "y"}]
+    places = CARD._places(members)
+    assert S.applies_text(places) == "p1, 2, 3, 4 · Required relieving capacity\np2 · Set pressure"
+
+
+def test_applies_text_still_reads_an_older_place_with_one_page_and_a_place_with_none():
+    assert S.applies_text([{"field": "Backpressure", "page": 4}]) == "p4 · Backpressure"
+    assert S.applies_text([{"field": "Backpressure"}]) == "Backpressure"
+    assert S.applies_text([]) is None
+
+
+def test_the_contractor_copy_names_the_same_pages_because_it_uses_the_same_function():
+    from app import aim_review_contractor as C
+
+    assert C.applies_text is S.applies_text
+
+
+def test_every_members_quote_stays_with_its_own_page_on_the_place():
+    """Reviewer's B2: members on pages 3 then 1: the quote of page 3 is never shown beside page 1."""
+    members = [
+        {"field": "Set pressure", "page": 3, "quote": "page three says 12 bar"},
+        {"field": "Set pressure", "page": 1, "quote": "page one says 10 bar"},
+        {"field": "Set pressure", "page": 3, "quote": "page three says 12 bar"},  # the same quote twice: once
+    ]
+    (place,) = CARD._places(members)
+    assert place["pages"] == [1, 3] and place["page"] == 1
+    assert place["quotes"] == [
+        {"page": 1, "quote": "page one says 10 bar"},
+        {"page": 3, "quote": "page three says 12 bar"},
+    ]
+    assert place["quote"] == "page one says 10 bar"  # older readers: the first page's OWN quote, not the first member's

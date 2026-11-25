@@ -186,16 +186,6 @@ ACCOUNT_REFUSAL_HOURS = 24
 log = logging.getLogger(__name__)
 
 
-def _picture_note(conn, document_id) -> str | None:
-    from .aim_review import picture_pages
-
-    try:
-        return picture_pages.plan_note(conn, str(document_id))
-    except Exception as exc:  # noqa: BLE001 - a note is never worth a failed plan
-        log.debug("picture pages note not made (%s)", type(exc).__name__)
-        return None
-
-
 def _recent_account_refusal(conn) -> str | None:
     """The plain sentence when a general review of the last day STOPPED because the Claude account cannot answer, else None. It says what
     the last review met, not that the account is still empty (credit may have been added since)."""
@@ -209,13 +199,23 @@ def _recent_account_refusal(conn) -> str | None:
         timespec="seconds"
     )
     row = conn.execute(
-        f"SELECT stop_reason FROM {aim_review_store.RUNS} WHERE status = 'stopped' AND created_at >= ? AND ("
+        f"SELECT stop_reason, COALESCE(finished_at, created_at) AS stopped_at FROM {aim_review_store.RUNS} WHERE status = 'stopped' AND created_at >= ? AND ("
         + " OR ".join("stop_reason LIKE ?" for _ in aim_review_gate.ACCOUNT_WORDS)
         + ") ORDER BY created_at DESC LIMIT 1",
         (since, *[f"%{c}%" for c in aim_review_gate.ACCOUNT_WORDS]),
     ).fetchone()
     words = aim_review_gate.account_words(row["stop_reason"]) if row else None
-    return f"The last review's Claude call was refused. {words}" if words else None
+    if not words:
+        return None
+    # Credit may have been added since: a later general review that spent on Claude and finished (done, usd > 0) clears the note at once.
+    later = conn.execute(
+        f"SELECT 1 FROM {aim_review_store.RUNS} WHERE status = 'done' AND COALESCE(usd, 0) > 0 AND COALESCE(finished_at, created_at) > ? LIMIT 1",
+        (row["stopped_at"],),
+    ).fetchone()
+    if later is not None:
+        return None
+    at = str(row["stopped_at"])[11:16]
+    return f"A review's Claude call was refused{f' at {at}' if at else ''}. {words}"
 
 
 def general_plan(
@@ -250,10 +250,6 @@ def general_plan(
         conn
     ):  # the last Claude call was refused by the account: say it before the start
         out["notes"] = [*out["notes"], refusal]
-    if plan.text_leaves and (
-        pictures := _picture_note(conn, document_id)
-    ):  # pages Claude would read as pictures, said before the start
-        out["notes"] = [*out["notes"], pictures]
     if plan.refused:
         out["sentence"] = (
             plan.refused if plan.refused.endswith(".") else plan.refused + "."

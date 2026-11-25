@@ -128,7 +128,7 @@ def place_text(m: dict) -> str:
 
 def _places(members: list[dict]) -> list[dict]:
     """APPLIES TO: ONE chip per field (planner 19 Nov, item 3), with every page the field stands on; the tag is the field's last bracket
-    (a valve tag, a sheet). `page` stays the first page (older readers); `value` is what the paper says there when it says the same on
+    (a valve tag, a sheet). `page` stays the first page and `quote` is that page's own quote (older readers); `quotes` holds every member's quote with its own page; `value` is what the paper says there when it says the same on
     every page, else nothing (the quotes are under the card's evidence)."""
     out: dict[str, dict] = {}
     for m in members:
@@ -139,7 +139,8 @@ def _places(members: list[dict]) -> list[dict]:
                 "page": m.get("page"),
                 "pages": [],
                 "field": field,
-                "quote": m.get("quote") or "",
+                "quote": "",
+                "quotes": [],
                 "tag": ((_TAG.search(field) or [None, ""])[1]).strip(),
                 "values": [],
             },
@@ -147,6 +148,11 @@ def _places(members: list[dict]) -> list[dict]:
         page = m.get("page")
         if page is not None and page not in item["pages"]:
             item["pages"].append(page)
+        quote = (m.get("quote") or "").strip()
+        if quote and {"page": page, "quote": quote} not in item["quotes"]:
+            item["quotes"].append(
+                {"page": page, "quote": quote}
+            )  # every quote stays with ITS OWN page
         text = place_text(m)
         if text and text not in item["values"]:
             item["values"].append(text)
@@ -154,6 +160,12 @@ def _places(members: list[dict]) -> list[dict]:
         item["pages"].sort()
         if item["pages"]:
             item["page"] = item["pages"][0]
+        item["quotes"].sort(
+            key=lambda q: (q["page"] is None, q["page"] if q["page"] is not None else 0)
+        )
+        item["quote"] = next(
+            (q["quote"] for q in item["quotes"] if q["page"] == item["page"]), ""
+        )  # older readers: the first page's own quote
         values = item.pop("values")
         item["value"] = values[0] if len(values) == 1 else ""
     return list(out.values())

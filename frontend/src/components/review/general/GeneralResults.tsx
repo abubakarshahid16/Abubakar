@@ -124,12 +124,16 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
 
       {(review.pages_not_read ?? []).length > 0 && (
         <div role="note" data-testid="general-pages-not-read" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
-          <strong>{(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper were not read.</strong>
+          <strong>{(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read.</strong>
           <p className="text-slateish-200">Nothing below says anything about them: no text and no picture reading came back, or it has not run yet.</p>
           <ul className="list-disc pl-5 text-slateish-200">
             {(review.pages_not_read ?? []).map((x) => <li key={x.where}>{x.sentence}</li>)}
           </ul>
         </div>
+      )}
+
+      {(review.pages_not_read ?? []).length === 0 && review.pages_not_read_record === "not_recorded" && (
+        <p data-testid="general-pages-not-recorded" className="text-sm text-slateish-300">Which pages were read is not recorded for this review.</p>
       )}
 
       <p data-testid="general-counts" className="text-sm text-slateish-200">
