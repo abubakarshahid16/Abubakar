@@ -50,10 +50,13 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
 
   useEffect(() => { void load(); }, [load]);
 
+  // IN-PAGE question (house rule: never the browser's own confirm box): the row being asked about, or none.
+  const [asking, setAsking] = useState<string | null>(null);
+
   async function confirm(row: HeldCompanyStandard) {
     if (!client.confirmCompanyStandard) return;
     const name = row.filename ?? row.id;
-    if (!window.confirm(`Use "${name}" in reviews from the next run? This is recorded under your name.`)) return;
+    setAsking(null);
     setBusy(row.id);
     setMessage(null);
     const r = await client.confirmCompanyStandard(row.id);
@@ -110,10 +113,24 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
                   <span className="font-medium text-slateish-100">{row.filename ?? row.id}</span>
                   {row.uploaded_at && <span className="text-xs text-slateish-400">uploaded {formatWhen(row.uploaded_at)}</span>}
                   <button type="button" disabled={busy !== null || !client.confirmCompanyStandard}
-                    onClick={() => void confirm(row)}
+                    onClick={() => { setMessage(null); setAsking(row.id); }}
                     className="ml-auto rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-100 disabled:opacity-50">
                     {busy === row.id ? "Confirming…" : "Confirm for reviews"}
                   </button>
+                  {asking === row.id && (
+                    <div role="alertdialog" aria-label="Confirm this standard for reviews" data-testid={`admin-held-ask-${row.id}`}
+                      className="w-full rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-slateish-100">
+                      {`Use "${row.filename ?? row.id}" in reviews from the next run? This is recorded under your name.`}
+                      <button type="button" disabled={busy !== null} onClick={() => void confirm(row)}
+                        className="ml-2 rounded-[var(--radius-sm)] bg-signal-500 px-2 py-0.5 text-white disabled:opacity-50">
+                        Yes, use it in reviews
+                      </button>
+                      <button type="button" onClick={() => setAsking(null)}
+                        className="ml-2 rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-slateish-100">
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
