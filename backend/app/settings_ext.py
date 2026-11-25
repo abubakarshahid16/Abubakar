@@ -52,6 +52,18 @@ class SettingsExt(BaseModel):
     #: (`standard_editions.py`), on a database COPY. The pure choice of edition needs no switch. OFF: nothing is read,
     #: created or written. Env: STANDARD_EDITIONS_ENABLED.
     standard_editions_enabled: bool = False
+    #: Order 14 builder H, the cross-document check, lane 1 (`cross_doc.py`): exact facts by code across the papers of one
+    #: package (tag, number plus unit after conversion, standard plus edition), each a Question with both quotes found on their
+    #: pages. OFF: a review keeps builder C's check by tag (`tag_cross`) exactly. Env: CROSS_DOC_FACTS_ENABLED.
+    cross_doc_facts_enabled: bool = False
+    #: Lane 2 (`cross_doc_meaning.py`): meaning mismatches the LOCAL model finds, shown only as a Question to the engineer on
+    #: "All points" (never sent, never Pass or Fail). OFF: nothing is asked. Env: CROSS_DOC_MEANING_ENABLED.
+    cross_doc_meaning_enabled: bool = False
+    #: Lane 2's local model (never the 35B, owner 25 Nov 2026). Env: CROSS_DOC_MEANING_MODEL.
+    cross_doc_meaning_model: str = "ministral-3:14b"
+    #: Builder H, route by kind (`kind_route.py`, `reference/kind_route.json`): one table, kind family -> steps, checklists,
+    #: reviewers. OFF: every kind routes exactly as before the table. Env: KIND_ROUTE_ENABLED.
+    kind_route_enabled: bool = False
     #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.

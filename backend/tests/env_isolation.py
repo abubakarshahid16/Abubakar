@@ -374,6 +374,11 @@ EGRESS_SAFE: dict[str, object] = {
     "rulebook_v2_enabled": False,
     # --- local only, no model or socket: the edition register on a database copy (STEP 5, off by default)
     "standard_editions_enabled": False,
+    # --- order 14 builder H: lane 1 of the cross-document check is code only (no model, no socket); lane 2 asks the LOCAL
+    # model through model_transport only; route by kind is plain code. All off by default.
+    "cross_doc_facts_enabled": False,
+    "cross_doc_meaning_enabled": False,
+    "kind_route_enabled": False,
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,

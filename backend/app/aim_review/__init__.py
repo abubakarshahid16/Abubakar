@@ -118,6 +118,8 @@ DIFFERENT_ITEMS = "different_items"
 NO_ASK = "no_ask"
 #: A point that a standard the paper cites is not held, so its requirements were not checked: on All points, never sent.
 CITED_NOT_HELD = "cited_not_held"
+#: A Question for the ENGINEER only (the cross-document meaning check, `cross_doc_meaning`): on All points, never sent.
+ENGINEER_QUESTION = "engineer_question"
 NOT_SENT_NOTES = (
     NOT_JUDGED,
     PROVISIONAL,
@@ -127,6 +129,7 @@ NOT_SENT_NOTES = (
     ANSWERED,
     NO_ASK,
     CITED_NOT_HELD,
+    ENGINEER_QUESTION,
 )
 
 
@@ -190,6 +193,7 @@ __all__ = [
     "CONTRACTOR_FILLED",
     "DIFFERENT_ITEMS",
     "EDITED",
+    "ENGINEER_QUESTION",
     "LABELS",
     "MAX_BOOKS",
     "METHOD_VERSION",
