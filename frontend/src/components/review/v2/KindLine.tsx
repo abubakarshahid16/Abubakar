@@ -33,7 +33,7 @@ export function KindLine({ documentId, pages, isAdmin }: { documentId: string | 
           if (r.ok) { setCls(r); return null; }
           return "The kind could not be saved. Try again."; // shown beside the picker, never silent (G2)
         }} />}
-      {equipment && <span>· {equipment}</span>}
+      {equipment && <span>· {equipment}{!c?.confirmed && " (suggested)"}</span>}
       {pages != null && <span>· {pages} page{pages === 1 ? "" : "s"}</span>}
       {how && <span>· kind decided by {how}</span>}
     </p>

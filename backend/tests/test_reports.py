@@ -556,19 +556,25 @@ def test_the_download_name_is_the_report_id_and_the_response_is_private():
     assert r.headers["cache-control"] == "private, no-store"
 
 
-def test_a_report_whose_file_is_gone_says_so_in_the_list_and_in_a_plain_404_sentence():
-    """V2 (audit): 4 of 4 readable reports in the live copy listed a Download that answered 404 "no report with that id"."""
+def test_a_report_whose_file_is_gone_offers_a_recreated_copy_without_changing_history():
+    """A missing original is recoverable from the immutable saved snapshot."""
     ingest()
     rec = reports.generate(answered_message()["id"], access.unrestricted_scope())
     client = TestClient(app)
     assert client.get("/api/reports").json()["reports"][0]["file_available"] is True
-    row = db.connect().execute("SELECT stored_path FROM reports").fetchone()
+    row = db.connect().execute("SELECT stored_path, report_sha256 FROM reports").fetchone()
     reports.Path(stored_paths_local(row["stored_path"])).unlink()
     listed = client.get("/api/reports").json()["reports"][0]
     assert listed["id"] == rec["id"] and listed["file_available"] is False
+    assert listed["recreation_available"] is True
     r = client.get(f"/api/reports/{rec['id']}/download")
-    assert r.status_code == 404
-    assert "not on this machine" in r.text and "no report with that id" not in r.text
+    assert r.status_code == 200
+    assert "recreated" in r.headers["content-disposition"]
+    # The PDF's text streams are compressed: read the text, never search the raw bytes.
+    recreated = pymupdf.open(stream=r.content, filetype="pdf")
+    assert "RECREATED COPY FROM SAVED EVIDENCE" in " ".join(page.get_text() for page in recreated).replace("\n", " ")
+    after = db.connect().execute("SELECT report_sha256, stored_path FROM reports").fetchone()
+    assert after["report_sha256"] == row["report_sha256"] and after["stored_path"] == row["stored_path"]
 
 
 # ------------------------------------------------------------------- access

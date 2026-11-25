@@ -367,6 +367,10 @@ def _short_api_is_a_quantity(text: str, m: re.Match) -> bool:
 _FOUR_DIGIT_YEAR_AFTER = re.compile(r"-\d{4}(?![\dA-Za-z])")
 #: One more level of part after a part: the "-1" of "IEC 60534-2-1".
 _SUB_PART = re.compile(r"-\d{1,2}(?![\dA-Za-z])")
+_COMPANY_STD = re.compile(
+    r"\b[A-Z][A-Z0-9]{1,11}(?:[-\s]+[A-Z][A-Z0-9]{0,11}){0,3}"
+    r"[-\s]+STD[-\s]+\d{1,8}\b"
+)
 
 
 @lru_cache(maxsize=1)
@@ -446,6 +450,8 @@ def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str
     for pattern in [general, *classes]:
         for m in pattern.finditer(folded):
             found.append((m.start(), m.end()))
+    for m in _COMPANY_STD.finditer(folded):
+        found.append((m.start(), m.end()))
     out: list[tuple[str, int, int]] = []
     taken_until = -1
     # Reading order; at one start the longer reading wins ("BS EN 13445-3", not "BS").

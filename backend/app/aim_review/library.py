@@ -566,6 +566,21 @@ def _paper_citations(conn, paper_id: str) -> list[str]:
     return names
 
 
+def citation_evidence(conn, paper_id: str) -> list[dict]:
+    """Read citation names and their exact source lines without a model call."""
+    from app import agent_review_standards, standard_ids
+
+    pages = agent_review_standards.read_book(conn, str(paper_id)).pages
+    found = []
+    for page, text in sorted(pages.items()):
+        for name, start, end in standard_ids.find_citations(text):
+            line_start = text.rfind("\n", 0, start) + 1
+            line_end = text.find("\n", end)
+            quote = text[line_start : line_end if line_end >= 0 else len(text)]
+            found.append({"name": name, "page": page, "quote": quote, "verified": True})
+    return found
+
+
 def cited_rule_books(
     conn, paper_id: str, lib: list[dict] | None = None
 ) -> list[tuple[dict | None, str]]:

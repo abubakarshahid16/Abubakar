@@ -106,6 +106,7 @@ export function DocumentsView({
   onRetryConnection,
   isAdmin = false,
   polling = true,
+  initialDocumentId,
 }: {
   connection: Connection;
   onRetryConnection: () => void;
@@ -116,6 +117,7 @@ export function DocumentsView({
   isAdmin?: boolean;
   /** Tests and static previews may request one initial read without intervals. */
   polling?: boolean;
+  initialDocumentId?: string;
 }) {
   const [load, setLoad] = useState<Load>({ state: "loading" });
   // Worker DETAIL from the scoped metrics route, never from health.
@@ -123,6 +125,16 @@ export function DocumentsView({
   const [drawer, setDrawer] = useState<Drawer>({ kind: "none" });
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!initialDocumentId) return;
+    let cancelled = false;
+    void api.document(initialDocumentId).then((result) => {
+      if (cancelled) return;
+      if (result.ok) setDrawer({ kind: "preview", doc: result.data });
+      else setNotice(result.error.message);
+    });
+    return () => { cancelled = true; };
+  }, [initialDocumentId]);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [listQuery, setListQuery] = useState("");
   const [sort, setSort] = useState("uploaded_at");

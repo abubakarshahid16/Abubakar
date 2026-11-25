@@ -489,7 +489,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         <Suspense fallback={<Spinner />}>
           <CommandPalette onNavigate={guardedNavigate} auth={authStatus} connection={connection} />
           {view === "documents" && (
-            <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin} />
+            <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin}
+              initialDocumentId={route.kind === "view" ? route.recordId : undefined} />
           )}
           {view === "ingestion" && (
             <IngestionView connection={connection} onRetryConnection={recheck} />

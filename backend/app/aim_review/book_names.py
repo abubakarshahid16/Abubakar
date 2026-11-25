@@ -194,7 +194,7 @@ def with_cited_not_held(conn, paper_id: str, cited, not_held: list[dict]) -> lis
         L._fold(str(n.get("name") or "")) for n in not_held or [] if isinstance(n, dict)
     }
     out = list(not_held or [])
-    for c in cited or []:
+    for c in [*(cited or []), *L.citation_evidence(conn, paper_id)]:
         if not isinstance(c, dict) or not c.get("verified"):
             continue
         name = " ".join(

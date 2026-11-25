@@ -205,7 +205,10 @@ function ReportRow({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-1.5">
-          {report.file_available === false ? (
+          {report.recreation_available && (
+            <span className="text-xs text-warn-500">Original PDF missing. This copy uses the saved evidence.</span>
+          )}
+          {report.file_available === false && !report.recreation_available ? (
             <span className="rounded-[var(--radius-sm)] border border-warn-500/40 px-2.5 py-1 text-xs text-warn-500">
               File missing: this report&apos;s PDF is not on this machine
             </span>
@@ -215,7 +218,7 @@ function ReportRow({
               onClick={() => onDownload(report.id)}
               className="rounded-[var(--radius-sm)] border border-signal-500/60 bg-signal-500/10 px-2.5 py-1 text-xs text-signal-300 shadow-[var(--shadow-resting)] motion-safe:transition-colors hover:bg-signal-500/20"
             >
-              Download
+              {report.recreation_available ? "Download recreated copy" : "Download"}
             </button>
           )}
           <button
