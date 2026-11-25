@@ -247,6 +247,13 @@ def _field_key(field) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", str(field or "").lower()).split())
 
 
+def editor_group(p: dict) -> int | None:
+    """The editor's (S5) group mark of a line (`same_point_as`, the group's first line), or None: part of every merge key, so
+    two lines the editor judged different points never share a comment (none of a run without marks changes)."""
+    group = p.get("same_point_as")
+    return group if isinstance(group, int) and not isinstance(group, bool) else None
+
+
 def _keys(sent: list[dict]) -> dict[int, tuple]:
     """{line number: the key of its comment}. ONE comment per CHECK: the lines of one checklist item that show the same label,
     the same compare kind and the same provisional kind (a provisional figure never joins an ordinary Question), across tags,
@@ -261,12 +268,9 @@ def _keys(sent: list[dict]) -> dict[int, tuple]:
     from .aim_review.always import TOPIC as ALWAYS
 
     def key(p: dict) -> tuple:
-        group = (
-            p.get("same_point_as") if isinstance(p.get("same_point_as"), int) else None
-        )
         own = _field_key(p.get("field")) if p.get("topic") == ALWAYS else ""
         return ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
-                _provisional_kind(p.get("code_note")), group, own)  # fmt: skip
+                _provisional_kind(p.get("code_note")), editor_group(p), own)  # fmt: skip
 
     return {p["n"]: key(p) for p in sent}
 
@@ -335,6 +339,9 @@ def _finding_key(p: dict) -> tuple | None:
         p["shown_label"],
         p.get("compare_kind") or "",
         _provisional_kind(p.get("code_note")),
+        editor_group(
+            p
+        ),  # two lines the editor judged different points are never one finding
     )
     quote = "" if p.get("quote_unverified") else _field_key(p.get("quote"))
     if quote:
