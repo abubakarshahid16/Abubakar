@@ -23,6 +23,7 @@ from . import book_names as BN
 from . import library as L
 from . import prompts as P
 from . import scope_books as SB
+from .budget import is_local
 from .carried import knowledge_rows, say_none, set_aside
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
@@ -639,24 +640,29 @@ def s3_attack(
         }
         for it in made["items"]
     ]
-    out = model.ask(
-        step="aim_attack",
-        model=strong,
-        system="",
-        cached=None,
-        prompt=_for_type(P.ATTACK_TASK)
-        % {
-            "identity": _identity(ident),
-            "kinds": _dumps(list(ITEM_KINDS)),
-            "items": "\n".join(_dumps(s) for s in shown),
-            "not_held": _not_held_line(sel) or "none",
-            "books": _books_line(sel),
-            "material": "\n".join(_material_line(r) for r in rows),
-        },
-        carries=set(alias_to_book.values()),
-        max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
-    )
-    out = out if isinstance(out, dict) else {}
+    # one call with all the material on Claude; on the local model one call per material batch (its window holds one batch),
+    # the answers joined: every rule is read by the attack on both, none cut (26 Nov 2026)
+    out: dict = {"remove": [], "fix": [], "add": []}
+    for part in _batches(rows) if is_local() else [rows]:
+        got = model.ask(
+            step="aim_attack",
+            model=strong,
+            system="",
+            cached=None,
+            prompt=_for_type(P.ATTACK_TASK)
+            % {
+                "identity": _identity(ident),
+                "kinds": _dumps(list(ITEM_KINDS)),
+                "items": "\n".join(_dumps(s) for s in shown),
+                "not_held": _not_held_line(sel) or "none",
+                "books": _books_line(sel),
+                "material": "\n".join(_material_line(r) for r in part),
+            },
+            carries=set(alias_to_book.values()),
+            max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
+        )
+        for k in out:
+            out[k] += (got.get(k) or []) if isinstance(got, dict) else []
     by_id = {it["id"]: it for it in made["items"]}
     log = {"removed": [], "fixed": [], "added": [], "rejected": []}
     for r in out.get("remove") or []:

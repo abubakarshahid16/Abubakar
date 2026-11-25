@@ -16,6 +16,7 @@ from . import (
     PAPER_COMPARE_PASSED,
     PROVISIONAL,
 )
+from . import code_numbers as CN
 from . import disciplines as D
 from . import items as I
 from . import library as L
@@ -192,6 +193,10 @@ def _compare(
     is never compared."""
     held = it["source"] == HELD
     rule_quote = str(it.get("rule_quote") or "")
+    # the local model gives few numbers: code reads them when unambiguous
+    got = CN.decided(it, label, quote, notes, paper, deferred, _compare, nums)
+    if got:
+        return got
     if nums and quote and label in ("Met", "Not met") and (held or it.get("always_on")):
         return _numbers(
             nums, quote, rule_quote, notes, paper, it.get("what_to_check") or ""
