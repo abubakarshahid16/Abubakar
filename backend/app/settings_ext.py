@@ -683,3 +683,7 @@ class SettingsExt(BaseModel):
     #: refused before the start, as before the local route, and a queued local run stops before it loads a model.
     #: Env: GENERAL_REVIEW_LOCAL_ENABLED.
     general_review_local_enabled: bool = True
+    #: Chat in Claude mode may call the database tools (list documents, a paper's latest review, technical-query open items)
+    #: whose answers go to Claude: titles, ids, counts and review comments of documents the caller may read; never the
+    #: register or a blocked file; never document text (owner, 25 Nov 2026, #1584). Env: CHAT_DATABASE_TOOLS_ENABLED.
+    chat_database_tools_enabled: bool = False
