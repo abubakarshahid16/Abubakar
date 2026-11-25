@@ -27,6 +27,7 @@ from . import (
 )
 from .aim_review import references as aim_review_references
 from .aim_review import unread
+from .aim_review.faults import NOT_APPLIED_WORDS
 from .aim_review.updates import group_mark, u7b
 
 #: The boundary every count carries.
@@ -761,32 +762,6 @@ def served(conn, paper_id: str, scope, run_id: str | None = None) -> dict | None
     return view
 
 
-#: What a run's checking step that did not run means for the sheet, in plain words (a failed AI step is shown and never makes a
-#: comment more confident: its lines stay as the step before left them).
-_NOT_APPLIED_WORDS = {
-    "aim_second_read": "The second reader did not run on this sheet ({why}): its findings are sent as the first reader judged "
-    'them, none is marked "two readers agree".',
-    "aim_answered": "The whole-paper check did not run on this sheet ({why}): no comment was taken off for a claim the paper "
-    "contradicts.",
-    "aim_edit": "The editor did not run on this sheet ({why}): repeated comments are not grouped or taken off.",
-    # code steps that fail and let the review go on (planner 26 Nov 2026, D2: a failed step is reported; `aim_review.faults`)
-    "aim_unread_check": "The check of which pages were read did not run on this sheet ({why}): pages with no text are not "
-    "named, so do not take every page as read.",
-    "aim_picture_readings": "The stored picture readings could not be read ({why}): every picture is named as not read.",
-    "aim_g1_facts": "The library facts for the cited-standards check (G1) were not read ({why}): G1 was judged on the paper "
-    "alone.",
-    "aim_contract_code": "A code check of the contract did not run on this sheet ({why}): the points it checks are not "
-    "checked by code.",
-    "aim_contract_schedules": "The package's Schedules could not be read ({why}): no line about the package's Schedules "
-    "was written.",
-    "aim_book_reasons": "The table's reasons for the rule books were not read ({why}): a rule book the scope step gave no "
-    "reason for says the reason was not recorded.",
-    "aim_checklist_keys": "The list of saved checklists could not be read ({why}): the paper was named without the saved "
-    "checklist types to choose from.",
-    "aim_checklist_save": "The checklist was not saved for reuse ({why}); this sheet was judged on it all the same.",
-}
-
-
 def steps_not_applied(calls) -> list[dict]:
     """[{step, why, sentence}] for each checking step whose answer was not applied (its code note "<step> not applied: <why>"),
     once per step, in run order. Read from the run's calls only; no document words."""
@@ -804,7 +779,7 @@ def steps_not_applied(calls) -> list[dict]:
             if ":" in str(c.get("code"))
             else "no reason recorded"
         )
-        words = _NOT_APPLIED_WORDS.get(
+        words = NOT_APPLIED_WORDS.get(
             step, "The step " + step + " did not run on this sheet ({why})."
         )
         out.setdefault(

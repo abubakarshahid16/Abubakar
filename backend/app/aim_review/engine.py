@@ -291,8 +291,8 @@ def run(
             except Exception:  # noqa: BLE001 - a progress callback never stops the review
                 log.debug("general review %s: progress callback failed", run_id)
 
-    try:  # `budget.of`: a run on the local model reads smaller pieces per call; a Claude run keeps the method's own sizes
-        with budget.of(inner), faults.during_run(str(run_id), meter.calls):  # ledger, approved papers, failed steps
+    try:  # budget.of: smaller pieces per call on the local model; faults.during_run: ledger, papers it may send, failed steps
+        with budget.of(inner), faults.during_run(str(run_id), meter.calls):
             _steps(conn, state, mdl, allowed_books, store, say, cancelled)
     except StepFailed as exc:
         state.stop(str(exc))
@@ -497,13 +497,9 @@ def _steps(
     )
     if not state.stop_reason:
         _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
-        from .formulas import (
-            add_lines,
-        )  # the formula checks: points the paper decides by code, after every AI stage
-        from .updates import formula_checks
+        from .updates import formula_lines
 
-        if formula_checks():  # its own switch, on; off: none, as main
-            add_lines(conn, paper, state)
+        formula_lines(conn, paper, state)  # own switch, on; off: none
     state.decided += BN.cited_points(
         state.not_held
     )  # a cited book not held: one point each, on All points, never sent

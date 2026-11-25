@@ -53,3 +53,11 @@ def second_sql(conn, held, labels):
     from app import rule_second_approval
 
     return rule_second_approval.review_sql(conn, held, labels) if u8() else None
+
+
+def formula_lines(conn, paper, state) -> None:
+    """The formula checks' lines after every AI stage (`formulas.add_lines`), only while their switch is on."""
+    if formula_checks():
+        from .formulas import add_lines
+
+        add_lines(conn, paper, state)
