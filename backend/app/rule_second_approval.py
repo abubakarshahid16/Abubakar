@@ -454,3 +454,23 @@ def gate(conn: sqlite3.Connection) -> dict:
     return {"open": ok, "judged": judged, "wrong": wrong, "covers_until": until,
             "sentence": f"Second-model approvals: {wrong} wrong of {judged} judged{pct}; used in reviews only with at most "
                         f"{GATE_MAX_WRONG:.0%} wrong of at least {GATE_MIN_JUDGED} judged: {'open' if ok else 'closed'}."}  # fmt: skip
+
+
+def review_sql(conn, held: set[str], labels: Sequence[str]) -> dict | None:
+    """The review's rule pool's part for second-model approvals (`library.rule_pool`), or None when the gate is closed or the
+    table is not there: the join (approvals made up to the latest measure's time), the reading column, and the extra kind
+    test for a needs_human rule."""
+    if "rule_second_approval" not in held:
+        return None
+    g = gate(conn)
+    if not g["open"]:
+        return None
+    marks = ",".join("?" for _ in labels)
+    return {
+        "join": " LEFT JOIN rule_second_approval sa ON sa.source = 'requirement' AND sa.rule_ref = sr.id"
+        " AND sa.state = 'second_approved' AND sa.approved_at <= ?",
+        "join_args": [g["covers_until"]],
+        "reading": "CASE WHEN rl.state = 'ai_approved' THEN rl.reading_json ELSE sa.reading_json END AS reading_json",
+        "where": f" OR (rl.state = '{NEEDS_HUMAN}' AND sa.paper_kind IN ({marks}))",
+        "where_args": list(labels),
+    }
