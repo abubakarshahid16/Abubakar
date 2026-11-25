@@ -26,6 +26,7 @@ def _world(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "claude_cache_dir", tmp_path / "cache")
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", 5.0)
     monkeypatch.setattr(settings, "claude_budget_usd_total", 20.0)
+    monkeypatch.setattr(settings, "db_path", settings.db_path)  # the runner points it at its copy: restored after each test
     yield
     reset_shared_meter_for_tests()
 
@@ -242,3 +243,24 @@ def test_the_rest_may_run_once_a_measure_judged_enough_approvals(copy):
                  " VALUES (?, '2026-11-25', '2026-11-25', ?, 3, ?)", (sample, RS.GATE_MIN_JUDGED, JUDGE))  # fmt: skip
     conn.commit()
     assert RS.batch_refusal(conn, 0) is None and RS.batch_refusal(conn, RS.FIRST_BATCH + 1) is None
+
+
+def test_the_runner_points_the_apps_gate_at_the_copy_it_sends_from(copy, monkeypatch):
+    """Review u8 B2: the runner never set `settings.db_path`, so the gate's block check read another database (by default
+    the live one) than the copy whose rule text is sent. It now points every helper at the copy, as the label runner does."""
+    from app import claude_approved
+    from app import rule_label_job as job
+
+    script, fake, seen = _script(), s.FakeModel(), []
+    real_lane, real_block = job.Lane, claude_approved._block_stop
+    monkeypatch.setattr(job, "Lane", lambda ledger: real_lane(ledger, send=fake, env=s.ENV, retry_base=0))
+
+    def block_seen(ids):
+        seen.append(str(settings.db_path))
+        return real_block(ids)
+
+    monkeypatch.setattr(claude_approved, "_block_stop", block_seen)
+    assert script.main(["run", "--db", str(copy), "--max-usd", "1", "--limit", "5", "--model", THIRD]) == 0
+    assert settings.db_path == copy.resolve() and seen and set(seen) == {str(copy.resolve())}
+    assert fake.calls == 1 and job.open_copy(copy).execute(
+        "SELECT state FROM rule_second_approval WHERE rule_ref = 'r1'").fetchone()[0] == RS.APPROVED  # fmt: skip

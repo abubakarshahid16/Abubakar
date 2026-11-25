@@ -66,13 +66,13 @@ def test_the_import_adds_once_and_a_rerun_adds_nothing_and_rule_label_is_never_w
     exported, live, monkeypatch
 ):
     before = table_hash(live, "rule_label")
-    first = RI.import_second(live, exported)
+    first = RI.import_second(live, exported, dry_run=False)
     assert (
         first["added:second_approved"] == 1
         and first["rule_second_sample:added"] == 1
         and first["rule_second_measure:added"] == 1
     )
-    again = RI.import_second(live, exported)
+    again = RI.import_second(live, exported, dry_run=False)
     assert (
         again["already_held"] == 1
         and again["rule_second_measure:already_held"] == 1
@@ -86,14 +86,14 @@ def test_the_import_adds_once_and_a_rerun_adds_nothing_and_rule_label_is_never_w
 
 
 def test_a_held_row_is_never_changed(exported, live):
-    RI.import_second(live, exported)
+    RI.import_second(live, exported, dry_run=False)
     changed = {
         **exported,
         "approvals": [
             {**exported["approvals"][0], "model": "claude-haiku-5-5-20261201"}
         ],
     }
-    got = RI.import_second(live, changed)
+    got = RI.import_second(live, changed, dry_run=False)
     assert got["conflict"] == 1
     assert (
         live.execute("SELECT model FROM rule_second_approval").fetchone()[0]
@@ -134,3 +134,52 @@ def test_a_file_of_another_format_is_refused(tmp_path):
     bad.write_text('{"format": "rule-labels-v1", "rows": []}')
     with pytest.raises(RI.NotASecondFile):
         RI.read_file(bad)
+
+
+def test_the_import_is_a_dry_run_unless_told_otherwise(exported, live):
+    """Review u8 note 16: the route defaulted to a dry run, the function did not."""
+    assert RI.import_second(live, exported)["dry_run"] and not RS.has_tables(live)
+
+
+def test_a_review_queued_after_the_first_check_stops_the_write_and_nothing_lands(exported, live, monkeypatch):
+    """Review u8 M7: the "no review running" question was one read with no lock. It is asked again inside the write
+    transaction (BEGIN IMMEDIATE), and a refusal rolls back."""
+    asked = iter([False, True])
+    monkeypatch.setattr(RI, "review_running", lambda conn: next(asked))
+    with pytest.raises(RI.ReviewRunning):
+        RI.import_second(live, exported, dry_run=False)
+    assert not live.in_transaction and live.execute("SELECT COUNT(*) FROM rule_second_approval").fetchone()[0] == 0
+
+
+def test_an_error_mid_import_rolls_every_row_back(exported, live, monkeypatch):
+    real = RI._insert
+
+    def fails_on_the_measure(conn, table, cols, row):
+        if table == "rule_second_measure":
+            raise sqlite3.IntegrityError("invented")
+        real(conn, table, cols, row)
+
+    monkeypatch.setattr(RI, "_insert", fails_on_the_measure)
+    with pytest.raises(sqlite3.IntegrityError):
+        RI.import_second(live, exported, dry_run=False)
+    assert not live.in_transaction
+    assert [live.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in
+            ("rule_second_approval", "rule_second_sample", "rule_second_measure")] == [0, 0, 0]  # fmt: skip
+
+
+def test_a_measure_lands_only_when_code_recounts_it_from_its_sample_rows(exported, live, monkeypatch):
+    """Review u8 M8: a file's measure was taken as it stood, so one forged line could open the gate for every review."""
+    monkeypatch.setattr(RS, "GATE_MIN_JUDGED", 100)
+    forged = {**exported, "measures": [{**exported["measures"][0], "judged": 150, "wrong": 0}]}
+    got = RI.import_second(live, forged, dry_run=False)
+    assert got["rule_second_measure:measure_does_not_match"] == 1 and "rule_second_measure:added" not in got
+    assert not RS.gate(live)["open"]
+    other_judge = {**exported, "measures": [{**exported["measures"][0], "judge_model": "claude-opus-5-5"}]}
+    assert RI.import_second(live, other_judge, dry_run=True)["rule_second_measure:measure_does_not_match"] == 1
+    assert RI.import_second(live, exported, dry_run=True)["rule_second_measure:would_add"] == 1  # the true one lands
+
+
+def test_a_sample_row_of_no_held_approval_or_with_another_verdict_is_refused(exported, live):
+    rows = [{**exported["samples"][0], "rule_ref": "r2"}, {**exported["samples"][0], "verdict": "maybe"}]
+    got = RI.import_second(live, {**exported, "samples": rows}, dry_run=True)
+    assert got["rule_second_sample:refused"] == 2 and got["rule_second_measure:measure_does_not_match"] == 1

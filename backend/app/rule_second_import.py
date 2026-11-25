@@ -11,7 +11,10 @@ EVERY APPROVAL IS CHECKED AGAIN, BY CODE, AGAINST THE LIVE BOOK BEFORE IT LANDS:
 APPEND-ONLY AND IDEMPOTENT: a row already held identically is counted `already_held` and not written; a row held
 DIFFERENTLY is never changed (`conflict`). Samples and measures are added the same way, so the gate (`gate`) reads the
 measure the copy made. REFUSES while a review is queued or running (`ReviewRunning`): nothing changes under a review.
-DRY RUN: every check runs and the counts are what would be added; nothing is written and no table is created.
+A sample row lands only for a rule whose second approval is held (or added with it) and with a verdict of the two words;
+a measure lands only when code recounts it from its sample rows (`measure_does_not_match`), so no file can open the gate
+with a count of its own. ONE TRANSACTION (BEGIN IMMEDIATE), the review question asked again inside it, rolled back on error.
+DRY RUN (the default): every check runs and the counts are what would be added; nothing is written and no table is created.
 Counts are by standards family (`by_family`)."""
 
 from __future__ import annotations
@@ -31,7 +34,11 @@ from .rule_label_schema import NEEDS_HUMAN, require_on
 log = logging.getLogger(__name__)
 
 
-class ReviewRunning(RuntimeError):
+class ImportBusy(RuntimeError):
+    """The import cannot take the database now (nothing is written)."""
+
+
+class ReviewRunning(ImportBusy):
     """A review is queued or running on this database: the import waits."""
 
 
@@ -135,71 +142,141 @@ def _held(conn, table: str, keys: dict, cols) -> tuple | None:
 
 
 def import_second(
-    conn: sqlite3.Connection, data: dict, *, dry_run: bool = False
+    conn: sqlite3.Connection, data: dict, *, dry_run: bool = True
 ) -> dict:
     """Check and add the file's rows on `conn` (the server's own connection). Returns counts only: approvals by outcome and
-    by family, samples and measures added. Dry run: the same checks and counts, nothing written."""
+    by family, samples and measures added. Dry run (the default): the same checks and counts, nothing written.
+
+    A write is ONE transaction taken with BEGIN IMMEDIATE (no other writer, a review's queue among them, can start under it);
+    the "no review queued or running" question is asked again inside it, and any error rolls every row back."""
     require_on()
     if review_running(conn):
         raise ReviewRunning("a review is queued or running; import after it ends")
-    tables = RS.has_tables(conn)
-    if not dry_run:
-        RS.create(conn)
-        tables = True
+    if dry_run:
+        return _report(_add(conn, data, dry_run=True, tables=RS.has_tables(conn)), dry_run)
+    if conn.in_transaction:
+        raise ImportBusy("this connection holds an open transaction; nothing is imported")
+    RS.create(conn)
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if review_running(conn):
+            raise ReviewRunning("a review is queued or running; import after it ends")
+        counts = _add(conn, data, dry_run=False, tables=True)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return _report(counts, dry_run)
+
+
+def _report(counts: tuple[Counter, dict], dry_run: bool) -> dict:
+    flat, by_family = counts
+    out = {**dict(flat), "dry_run": dry_run, "by_family": {k: dict(v) for k, v in sorted(by_family.items())}}
+    log.info("second approvals imported: %s", {k: v for k, v in out.items() if k != "by_family"})
+    return out
+
+
+def _insert(conn, table: str, cols, row: dict) -> None:
+    conn.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                 tuple(row[c] for c in cols))  # fmt: skip
+
+
+def _add(conn, data: dict, *, dry_run: bool, tables: bool) -> tuple[Counter, dict]:
     counts: Counter = Counter()
     by_family: dict[str, Counter] = {}
     pages: dict = {}
+    approved = (
+        {r[0] for r in conn.execute("SELECT rule_ref FROM rule_second_approval WHERE state = ?", (RS.APPROVED,))}
+        if tables else set()
+    )  # fmt: skip
     for row in data["approvals"]:
         why, fam = _check(conn, row, pages)
         if not why and tables:
-            have = _held(
-                conn,
-                "rule_second_approval",
-                {"source": row["source"], "rule_ref": row["rule_ref"]},
-                RS.APPROVAL_COLUMNS,
-            )
-            why = (
-                ""
-                if have is None
-                else (
-                    "already_held"
-                    if tuple(have) == tuple(row[c] for c in RS.APPROVAL_COLUMNS)
-                    else "conflict"
-                )
-            )
+            have = _held(conn, "rule_second_approval", {"source": row["source"], "rule_ref": row["rule_ref"]},
+                         RS.APPROVAL_COLUMNS)  # fmt: skip
+            if have is not None:
+                why = "already_held" if tuple(have) == tuple(row[c] for c in RS.APPROVAL_COLUMNS) else "conflict"
         outcome = why or ("would_add" if dry_run else "added") + ":" + row["state"]
         counts[outcome] += 1
         by_family.setdefault(fam, Counter())[outcome] += 1
+        if not why and row["state"] == RS.APPROVED:
+            approved.add(row["rule_ref"])
         if not why and not dry_run:
-            conn.execute(f"INSERT INTO rule_second_approval ({', '.join(RS.APPROVAL_COLUMNS)}) VALUES"
-                         f" ({', '.join('?' * len(RS.APPROVAL_COLUMNS))})", tuple(row[c] for c in RS.APPROVAL_COLUMNS))  # fmt: skip
-    for table, cols, key, rows in (("rule_second_sample", RS.SAMPLE_COLUMNS, ("sample_id", "source", "rule_ref"), data["samples"]),
-                                   ("rule_second_measure", RS.MEASURE_COLUMNS, ("sample_id", "measured_at"), data["measures"])):  # fmt: skip
-        for row in rows:
-            if not isinstance(row, dict) or set(row) != set(cols):
-                counts[f"{table}:refused"] += 1
-                continue
-            have = (
-                _held(conn, table, {k: row[k] for k in key}, cols) if tables else None
-            )
-            if have is not None:
-                counts[
-                    f"{table}:{'already_held' if tuple(have) == tuple(row[c] for c in cols) else 'conflict'}"
-                ] += 1
-                continue
-            counts[f"{table}:{'would_add' if dry_run else 'added'}"] += 1
-            if not dry_run:
-                conn.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-                             tuple(row[c] for c in cols))  # fmt: skip
-    if not dry_run:
-        conn.commit()
-    out = {
-        **dict(counts),
-        "dry_run": dry_run,
-        "by_family": {k: dict(v) for k, v in sorted(by_family.items())},
-    }
-    log.info(
-        "second approvals imported: %s",
-        {k: v for k, v in out.items() if k != "by_family"},
+            _insert(conn, "rule_second_approval", RS.APPROVAL_COLUMNS, row)
+    samples = _add_samples(conn, data["samples"], approved, counts, dry_run=dry_run, tables=tables)
+    _add_measures(conn, data["measures"], samples, counts, dry_run=dry_run, tables=tables)
+    return counts, by_family
+
+
+def _sample_problem(row, approved: set) -> bool:
+    """A sample row of the wrong shape, a verdict outside the two words, or of a rule with no second approval held here."""
+    return (
+        not isinstance(row, dict)
+        or set(row) != set(RS.SAMPLE_COLUMNS)
+        or row["verdict"] not in (None, "right", "wrong")
+        or row["source"] != "requirement"
+        or row["rule_ref"] not in approved
     )
-    return out
+
+
+def _add_samples(conn, rows, approved: set, counts: Counter, *, dry_run: bool, tables: bool) -> dict:
+    """Add the sample rows; return every sample row held or added, by sample id (what a measure is recounted from)."""
+    table, key = "rule_second_sample", ("sample_id", "source", "rule_ref")
+    held: dict[str, list[dict]] = {}
+    for row in rows:
+        if _sample_problem(row, approved):
+            counts[f"{table}:refused"] += 1
+            continue
+        have = _held(conn, table, {k: row[k] for k in key}, RS.SAMPLE_COLUMNS) if tables else None
+        if have is not None:
+            same = tuple(have) == tuple(row[c] for c in RS.SAMPLE_COLUMNS)
+            counts[f"{table}:{'already_held' if same else 'conflict'}"] += 1
+            continue
+        counts[f"{table}:{'would_add' if dry_run else 'added'}"] += 1
+        held.setdefault(row["sample_id"], []).append(row)
+        if not dry_run:
+            _insert(conn, table, RS.SAMPLE_COLUMNS, row)
+    for sample_id in list(held):
+        if tables and not dry_run:  # what is now held (the rows just added among them)
+            held[sample_id] = [dict(zip(RS.SAMPLE_COLUMNS, r, strict=True)) for r in conn.execute(
+                f"SELECT {', '.join(RS.SAMPLE_COLUMNS)} FROM {table} WHERE sample_id = ?", (sample_id,))]  # fmt: skip
+        elif tables:
+            held[sample_id] += [dict(zip(RS.SAMPLE_COLUMNS, r, strict=True)) for r in conn.execute(
+                f"SELECT {', '.join(RS.SAMPLE_COLUMNS)} FROM {table} WHERE sample_id = ?", (sample_id,))]  # fmt: skip
+    return held
+
+
+def _recount(rows: list[dict]) -> tuple:
+    """The measure the copy's `RS.measure` stores for these sample rows: judged, wrong, judge models, earliest draw."""
+    judged = [r for r in rows if r["verdict"] is not None]
+    models = {r["judge_model"] for r in judged if r["judge_model"]}
+    return (len(judged), sum(r["verdict"] == "wrong" for r in judged), models,
+            min((r["drawn_at"] for r in rows), default=None))  # fmt: skip
+
+
+def _add_measures(conn, rows, samples: dict, counts: Counter, *, dry_run: bool, tables: bool) -> None:
+    """A measure lands only when its counts are recounted, by code, from its sample rows (`measure_does_not_match`)."""
+    table = "rule_second_measure"
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != set(RS.MEASURE_COLUMNS):
+            counts[f"{table}:refused"] += 1
+            continue
+        mine = samples.get(row["sample_id"])
+        if mine is None and tables:
+            mine = [dict(zip(RS.SAMPLE_COLUMNS, r, strict=True)) for r in conn.execute(
+                f"SELECT {', '.join(RS.SAMPLE_COLUMNS)} FROM rule_second_sample WHERE sample_id = ?",
+                (row["sample_id"],))]  # fmt: skip
+        judged, wrong, models, drawn = _recount(mine or [])
+        claimed = set(str(row["judge_model"] or "").split(",")) - {""}
+        if not mine or (row["judged"], row["wrong"], row["covers_until"]) != (judged, wrong, drawn) or claimed != models:
+            counts[f"{table}:measure_does_not_match"] += 1
+            continue
+        have = _held(conn, table, {"sample_id": row["sample_id"], "measured_at": row["measured_at"]},
+                     RS.MEASURE_COLUMNS) if tables else None  # fmt: skip
+        if have is not None:
+            same = tuple(have) == tuple(row[c] for c in RS.MEASURE_COLUMNS)
+            counts[f"{table}:{'already_held' if same else 'conflict'}"] += 1
+            continue
+        counts[f"{table}:{'would_add' if dry_run else 'added'}"] += 1
+        if not dry_run:
+            _insert(conn, table, RS.MEASURE_COLUMNS, row)
