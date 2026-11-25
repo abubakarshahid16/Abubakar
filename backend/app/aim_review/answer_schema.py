@@ -4,11 +4,9 @@ note 25 Nov 2026 23:05: forced output lifts a small model's structural validity,
 The schema says what the step's prompt already asks; code checks every answer the same way afterwards (`prompts.parse_json`
 and each step's own checks), so a schema never decides anything. The judge's schema lists "numbers" among the fields every
 judgment carries (an object, or null when there is no limit), so a small model is asked for it on every item. A step with no
-schema of its own gets an object that must hold its answer keys (`prompts.ANSWER_KEYS`). Shapes only; no text."""
+full schema of its own gets none (plain JSON). Shapes only; no text."""
 
 from __future__ import annotations
-
-from .prompts import ANSWER_KEYS
 
 _LABELS = ["Met", "Not met", "Question", "Does not apply", "AI opinion"]
 _STR, _INT, _BOOL = {"type": "string"}, {"type": "integer"}, {"type": "boolean"}
@@ -113,15 +111,7 @@ SCHEMAS: dict[str, dict] = {
 
 
 def for_step(step: str) -> dict | None:
-    """The step's schema; an object holding its answer keys for a step listed in `ANSWER_KEYS` without one; None otherwise
-    (the engine's plain JSON mode)."""
-    if step in SCHEMAS:
-        return SCHEMAS[step]
-    keys = ANSWER_KEYS.get(step)
-    if not keys:
-        return None
-    return {
-        "type": "object",
-        "properties": {k: {} for k in sorted(keys)},
-        "required": sorted(keys),
-    }
+    """The step's own schema, or None (the engine's plain JSON mode). A step without a full shape of its own gets NO schema: a
+    schema naming only its answer keys let the local model write those keys alone (26 Nov 2026: the paper's identity came back
+    as the kind only, 30 tokens against 741, and the review lost its equipment type and subject)."""
+    return SCHEMAS.get(step)

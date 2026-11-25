@@ -48,14 +48,22 @@ def validate(value, s: dict) -> None:
             validate(v, s["items"])
 
 
-def test_every_step_of_the_method_has_a_shape_holding_its_answer_keys():
-    for step, keys in P.ANSWER_KEYS.items():
-        s = A.for_step(step)
-        assert s and set(s["required"]) >= (
-            keys if step not in ("aim_attack", "aim_edit", "aim_select") else set()
-        )
-        assert s["type"] == "object"
-    assert A.for_step("not_a_step") is None
+def test_only_a_step_with_a_full_shape_is_forced_and_every_other_step_keeps_plain_json():
+    """26 Nov 2026: a schema naming only the answer keys let the 14B write the paper's identity as its kind alone (30 tokens
+    against 741), so the review lost the equipment type and subject: such a step gets no schema."""
+    forced = {s for s in P.ANSWER_KEYS if A.for_step(s)}
+    assert forced == {
+        "aim_judge",
+        "aim_second_read",
+        "aim_checklist",
+        "aim_checklist_retry",
+        "aim_checklist_knowledge",
+    }
+    for step in forced:
+        assert A.for_step(step)["type"] == "object" and set(
+            A.for_step(step)["required"]
+        ) == set(P.ANSWER_KEYS[step])
+    assert A.for_step("aim_identify") is None and A.for_step("not_a_step") is None
 
 
 def test_the_judges_labels_are_the_methods_and_numbers_is_asked_on_every_item():
