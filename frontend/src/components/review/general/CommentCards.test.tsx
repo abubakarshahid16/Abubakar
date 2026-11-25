@@ -255,8 +255,8 @@ describe("one chip per field (planner 19 Nov, item 3)", () => {
 describe("side-claim cut mark (A, update 6)", () => {
   it("shows the page and the full text before the cut, never inside We ask", () => {
     const before = "The test is set to NO. The record is not named. State the test.";
-    mount(review([card(1, { we_ask: "The test is set to NO. State the test.", cut: [{ page: 2, before }] })]));
-    expect(screen.getByTestId("card-cut")).toHaveTextContent(`Part answered on page 2 taken out. Before: ${before}`);
+    mount(review([card(1, { we_ask: "The test is set to NO. State the test.", cut: [{ page: 2, pages: [2, 5], before }] })]));
+    expect(screen.getByTestId("card-cut")).toHaveTextContent(`Part answered on page 2, 5 taken out. Before: ${before}`);
     expect(screen.getByText("The test is set to NO. State the test.")).not.toHaveTextContent("taken out");
   });
 
