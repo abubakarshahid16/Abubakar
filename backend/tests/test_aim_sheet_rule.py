@@ -144,6 +144,8 @@ def test_the_page_json_has_the_contract_shape(world):
         "not_sent": {"edited": 0, "answered": 0},
         "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
         "by_shown_label": body["counts"]["by_shown_label"], "boundary": "this paper, this review",
+        # update 7, the planner's measure: the points code decided (Pass or Fail, compared by code), with the denominator
+        "decided_by_code": {"count": 2, "of": 6, "sentence": body["counts"]["decided_by_code"]["sentence"]},
     }  # fmt: skip
     assert [c["n"] for c in body["comments"]] == [1, 3, 5]
     assert set(body["comments"][0]) >= {

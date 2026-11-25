@@ -28,6 +28,27 @@ from .aim_review import references as aim_review_references
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
+
+
+def decided_by_code(points: list[dict]) -> dict | None:
+    """The planner's measure (19 Nov 2026): how many of the review's points code decided, out of all its points. A point is
+    decided by code when its shown label is code's own verdict (Pass or Fail, compared by code: `aim_review_card.BY_CODE`);
+    every other point is an AI reading, an AI opinion or a question. The count always comes with its denominator; None for a
+    review with no points (no measure, never "0 of 0")."""
+    from .aim_review_card import BY_CODE
+
+    total = len(points)
+    if not total:
+        return None
+    n = sum(1 for p in points if p.get("shown_label") in BY_CODE)
+    return {
+        "count": n,
+        "of": total,
+        "sentence": f"{n} of {total} points decided by code (code compared the paper's value with the rule's limit); the other "
+        f"{total - n} are AI readings, AI opinions or questions ({BOUNDARY}).",
+    }
+
+
 #: The sentence when rule books apply that were not on the list the person saw (the same words the older reviews use).
 #: The sentence's one home is `review_shown` (the rule check's notes say it too).
 UNLISTED_SENTENCE = review_shown.FOUND_DURING_REVIEW_WORDS
@@ -687,6 +708,7 @@ def build(conn, run: dict, scope=None) -> dict:
             **_apart(points, comments, confirmations),
             "by_label": by_label,
             "by_shown_label": by_shown,
+            "decided_by_code": decided_by_code(points),
             "boundary": BOUNDARY,
         },
         "comments": comments,

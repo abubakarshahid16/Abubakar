@@ -320,6 +320,8 @@ def _summary(ws: Worksheet, model: dict) -> None:
         # piece G: the measured score of this paper's kind; a null prints as an empty cell ("below target" / "not measured yet")
         ("Measured score of this kind", (model.get("measured") or {}).get("sentence")),
         ("Comments by severity", severity_words(counts.get("by_severity"))),
+        # the planner's measure (19 Nov 2026): count and denominator, never a bare share
+        ("Decided by code", (counts.get("decided_by_code") or {}).get("sentence")),
         ("Sign-off", signoff_words(model.get("signoff"))),
         (
             "AI steps that did not run",
