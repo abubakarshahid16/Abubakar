@@ -340,7 +340,7 @@ def _summary(ws: Worksheet, model: dict) -> None:
             ),
         ),
         (
-            "AI steps that did not run",
+            "Steps that did not run",
             " ".join(x["sentence"] for x in model.get("steps_not_applied") or [])
             or "none",
         ),
