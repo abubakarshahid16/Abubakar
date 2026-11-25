@@ -118,6 +118,10 @@ DIFFERENT_ITEMS = "different_items"
 NO_ASK = "no_ask"
 #: A point that a standard the paper cites is not held, so its requirements were not checked: on All points, never sent.
 CITED_NOT_HELD = "cited_not_held"
+#: `code_note` part of a line the judge itself said was Met, with numbers code could not prove on the paper (planner's live check
+#: of 26 Nov 2026: valve cards were sent as Questions whose ask only stated a pass). An AI verdict of a pass is internal only:
+#: kept on All points, never sent. Decided by the judge's own label and code's result, never by the comment's words.
+AI_MET_UNPROVEN = "ai_met_unproven"
 NOT_SENT_NOTES = (
     NOT_JUDGED,
     PROVISIONAL,
@@ -127,6 +131,7 @@ NOT_SENT_NOTES = (
     ANSWERED,
     NO_ASK,
     CITED_NOT_HELD,
+    AI_MET_UNPROVEN,
 )
 
 
@@ -185,6 +190,7 @@ def run(
 
 
 __all__ = [
+    "AI_MET_UNPROVEN",
     "ANSWERED",
     "CITED_NOT_HELD",
     "CONTRACTOR_FILLED",

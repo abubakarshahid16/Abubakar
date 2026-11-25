@@ -697,6 +697,8 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     ):  # any knowledge item (not held, or not from a held standard)
         label = "AI opinion" if label == "Not met" else "Does not apply"
         notes.append("not from a held standard: never Met or Not met")
+    # the judge said Met and code could not prove it: never sent
+    notes += CN.met_unproven(j.get("label"), label, nums, deferred, code_cmp)
     code_note = _code_note(notes, code_cmp, j.get("label"))
     return {
         **base,
