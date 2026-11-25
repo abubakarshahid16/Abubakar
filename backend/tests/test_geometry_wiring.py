@@ -40,9 +40,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "geo.sqlite")
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
-    # "OFF" below means every geometry path off - the table path alone is
-    # on by default since 2026-09-25 (test_b4_schedule_tables.py).
-    monkeypatch.setattr(settings, "geometry_table_reader_enabled", False)
+    # "OFF" below means the full geometry flag off: the TABLE path alone is always read (no switch since update 7).
     db.reset_connection()
     db.init_db()
     submittal_review.ensure_schema()
@@ -103,12 +101,12 @@ def _explode(*_a, **_k):
 # ------------------------------------------------------------------ flag OFF
 
 def test_off_never_calls_the_geometry_reader_and_the_facts_are_identical(tmp_path, monkeypatch):
-    """THE MUTATION TARGET (M586): OFF = the pre-B4 extraction, byte for byte.
+    """THE MUTATION TARGET (M586): OFF = the rule readers plus the TABLE path only, byte for byte.
 
-    Run 1: flag ON with a geometry reader that contributes nothing - the
-    rule readers alone. Run 2: flag OFF, with the geometry reader rigged to
-    fail the test if it is so much as called. The two fact sets must be
-    identical column for column, and the OFF result carries no geometry keys.
+    Run 1: flag ON with a geometry reader that contributes nothing - the rule readers alone. Run 2: flag OFF, with the
+    geometry reader returning only a FORM row (update 7: the table path is always read, so the reader is called; a form row
+    is dropped with the flag off) and the page reader rigged to fail if it is so much as called. The two fact sets must be
+    identical column for column, and no geometry fact is written.
     """
     doc = _store(tmp_path)
     monkeypatch.setattr(settings, "geometry_reader_enabled", True)
@@ -118,14 +116,14 @@ def test_off_never_calls_the_geometry_reader_and_the_facts_are_identical(tmp_pat
     assert rules_only, "the rule readers read nothing - the comparison would be vacuous"
 
     monkeypatch.setattr(settings, "geometry_reader_enabled", False)
-    monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", _explode)
+    monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *_a: [{"source": "form"}])
     monkeypatch.setattr(geometry_reader, "read_page_rows", _explode)
     result = _extract(doc)
     off = _snapshot(doc)
     # extractor_version is the same code hash in both runs (same source).
     assert off == rules_only
     assert not [f for f in off if f["extraction_method"] == "geometry"]
-    assert "geometry_facts" not in result and "geometry_conflicts" not in result
+    assert not result.get("geometry_facts") and not result.get("geometry_conflicts")
 
 
 # ------------------------------------------------------------------ flag ON

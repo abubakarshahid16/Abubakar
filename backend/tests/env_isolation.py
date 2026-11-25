@@ -225,7 +225,6 @@ EGRESS_SAFE: dict[str, object] = {
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
-    "scope_type_words_rule_enabled": False,
     # Order 205: a cache that only SKIPS a local model call; on is the code
     # default and the safe value (the suite stubs the model identity, so
     # nothing is reused until a test asks for it).
@@ -259,11 +258,9 @@ EGRESS_SAFE: dict[str, object] = {
     "watch_owner_email": "",
     "applicability_taxonomy_path": None,
     # --- local only; listed so the completeness check has seen it
-    "geometry_table_reader_enabled": True,
     # --- local only, no model or socket: records a text cell of a standards table with no value (off by default)
     "table_text_cells_enabled": False,
     # --- local only: reads an uploaded Word file with the standard library
-    "docx_input_enabled": True,
     # --- local only, no model or socket: one intake layer for every file type (off by default)
     "one_intake_enabled": False,
     # --- local only, no model or socket: images and workbooks accepted through intake (off by default)

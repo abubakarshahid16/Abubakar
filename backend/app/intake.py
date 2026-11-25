@@ -175,10 +175,6 @@ def read_word(path: str | os.PathLike) -> IntakeResult:
                 )
             )
         return IntakeResult(KIND_WORD, pages, list(reading.notes))
-    if not settings.docx_input_enabled:
-        raise IntakeRefused(
-            "word_not_enabled", "Word input is switched off (DOCX_INPUT_ENABLED)."
-        )
     structure = docx_reader.read_structure(path)
     return IntakeResult(
         KIND_WORD,

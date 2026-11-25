@@ -433,7 +433,6 @@ class Settings(SettingsExt, BaseSettings):
     ai_division_scope_enabled: bool = True
     ai_answer_reuse_enabled: bool = True  # order 205: off for the final client test
     ai_division_scope_max_per_run: int = 120
-    scope_type_words_rule_enabled: bool = False  # order 210 draft, off
     #: #645 clause to check: for a clause sentence with no stored limit that
     #: the review could not decide, the model PROPOSES a check (the local runner; in a Claude-lane run Claude when
     #: AI_CLAUSE_REVIEW_ENGINE says claude, LP3) (field, limit, unit, condition, quote); code verifies every part and keeps what
@@ -728,9 +727,7 @@ class Settings(SettingsExt, BaseSettings):
     #: "IMPELLER DIA." with "RATED *". The same precedence as the full flag
     #: applies - a rule-reader fact always wins, and a geometry reading never
     #: makes a page "read into fields" in the ledger.
-    #: Env: GEOMETRY_TABLE_READER_ENABLED. ON by default (owner, 2026-09-25, after the
-    #: measurement above); false goes back to the rule readers alone.
-    geometry_table_reader_enabled: bool = True
+    #: Made the default 25 Nov 2026 (update 7: on in live since 25 Sep, 3,739 table facts read): no switch.
     table_text_cells_enabled: bool = False  # order 271.4 fix B: standards re-extraction
     #: Datasheets that are NOT a PDF text layer (`datasheet_inputs.py`): an
     #: uploaded .docx is accepted, an .xlsx or .docx is INDEXED (its pages
@@ -743,11 +740,8 @@ class Settings(SettingsExt, BaseSettings):
     #: Trade-off: a CRS template workbook is then indexed too. OFF. Env: DATASHEET_OFFICE_INPUT.
     datasheet_office_input: bool = False
     procedure_path_enabled: bool = True  # #1476, see procedure_text
-    #: Word (.docx) as a first-class input (W5b-01, #525). ON: an uploaded .docx
-    #: is accepted and indexed through the SAME pipeline as a PDF, read by
-    #: `docx_reader` with its structure kept and cited by heading path and
-    #: paragraph. OFF: refused unless DATASHEET_OFFICE_INPUT is on. Env: DOCX_INPUT_ENABLED.
-    docx_input_enabled: bool = True
+    #: Word (.docx) is a first-class input (W5b-01, #525; made the default 25 Nov 2026, update 7, after 11 Word papers read on
+    #: live): an uploaded .docx is indexed through the SAME pipeline as a PDF, read by `docx_reader`. No switch.
     #: #1473: a page counts as READ when a recorded text or picture reading came
     #: back for it, apart from "fields found" (`page_ledger.coverage` adds
     #: `pages_read` / `pages_not_read`), and a Word file reaches the fact reader
@@ -1536,7 +1530,6 @@ ANSWER_AFFECTING_SETTINGS = (
     "ai_answer_reuse_enabled",
 )
 ANSWER_AFFECTING_SETTINGS += ("answer_prompt_variant",)
-ANSWER_AFFECTING_SETTINGS += ("scope_type_words_rule_enabled",)
 
 
 def config_version() -> str:
