@@ -65,14 +65,29 @@ def with_unread(conn, paper_id: str, paper, reload):
                 "general review: pending pictures not read (%s)", type(exc).__name__
             )
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
-        from . import picture_pages
-
-        paper = picture_pages.read(
-            conn, paper_id, paper, ref["path"]
-        )  # Claude's picture reading of what local recognition cannot read
+        paper = _read_as_pictures(paper_id, paper, ref["path"])
     except Exception as exc:  # noqa: BLE001 - never a failed review: the pages simply are not claimed
         log.info("general review: unread pages not worked out (%s)", type(exc).__name__)
     return paper
+
+
+def _read_as_pictures(paper_id: str, paper, path):
+    """Claude's picture reading of the pages local recognition cannot read. A refusal is said by `picture_pages.read` itself; if the
+    reading breaks in any other way, the pages it would have taken stay unread and say "its picture reading failed": a failure is
+    shown in the run and on the sheet, never hidden and never counted as read."""
+    from . import picture_pages
+
+    try:
+        return picture_pages.read(paper_id, paper, path)
+    except Exception as exc:  # noqa: BLE001 - logged, and the pages are marked failed below (never silent, never a failed review)
+        log.warning("general review: picture reading failed (%s)", type(exc).__name__)
+        paper.unread = [
+            {**i, "why": PICTURE_FAILED}
+            if i["where"].startswith("page ") and i["why"] in picture_pages.READABLE
+            else i
+            for i in paper.unread
+        ]
+        return paper
 
 
 def _ref(conn, paper_id: str) -> dict | None:
