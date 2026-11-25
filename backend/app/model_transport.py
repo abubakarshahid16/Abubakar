@@ -371,7 +371,9 @@ def stream_json(path: str, body: dict, *, timeout: float, cancel=None):
 
     The same gates as `post_json` - `endpoint()` re-validates the host - and
     the same client settings. `cancel` (a threading.Event) closes the
-    connection mid-stream; the generator then simply ends.
+    connection mid-stream; the generator then simply ends. A caller CLOSES it
+    (`contextlib.closing`): inside a worker lane it holds the local model gate
+    until it ends or is closed (`local_model_gate`).
     """
     import json as _json
 

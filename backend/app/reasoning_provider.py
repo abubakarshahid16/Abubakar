@@ -32,6 +32,7 @@ egress ON is not a guard, it is a bypass.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -341,13 +342,16 @@ def _ollama_stream(provider: "OllamaProvider", packet: Packet, on_text, cancel) 
     parts: list[str] = []
     last: dict = {}
     try:
-        for chunk in model_transport.stream_json("/api/generate", body, timeout=provider.timeout,
-                                                 cancel=cancel):
-            piece = str(chunk.get("response") or "")
-            if piece:
-                parts.append(piece)
-                on_text(piece)
-            last = chunk
+        # CLOSED on every path (update 7): an open stream holds the local model gate (`local_model_gate`); an exception kept
+        # with its traceback would otherwise keep the generator, and the model, until garbage collection
+        with contextlib.closing(model_transport.stream_json("/api/generate", body, timeout=provider.timeout,
+                                                            cancel=cancel)) as stream:
+            for chunk in stream:
+                piece = str(chunk.get("response") or "")
+                if piece:
+                    parts.append(piece)
+                    on_text(piece)
+                last = chunk
     except Exception as exc:
         raise ProviderRefused(f"{provider.name}: {type(exc).__name__}: {exc}") from exc
     text = "".join(parts).strip()
