@@ -730,7 +730,7 @@ def test_an_excluded_standards_requirements_produce_no_findings_at_all():
     # comparison logic it is actually about, not that separate mechanism.
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
-        raw_value="23.5 barg", page=1)
+        raw_value="22.2 barg", page=1)
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
         raw_value="80 C", page=1)
@@ -1037,7 +1037,7 @@ def test_a_full_run_writes_findings_into_the_phase_1_columns():
     # standards-comparison finding alone, checked below by `.fetchone()`.
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
-        raw_value="23.5 barg", page=1)
+        raw_value="22.2 barg", page=1)
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
         raw_value="80 C", page=1)
@@ -1088,7 +1088,7 @@ def test_re_running_a_comparison_does_not_double_the_findings():
     # about how many findings a run produces the first time.
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Design pressure",
-        raw_value="23.5 barg", page=1)
+        raw_value="22.2 barg", page=1)
     datasheets.create_fact(
         submittal_document_id=sub, chunk_id=fc, field_label="Design temperature",
         raw_value="80 C", page=1)
