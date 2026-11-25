@@ -115,6 +115,15 @@ def ensure_schema() -> None:
             conn.execute(
                 "ALTER TABLE technical_queries ADD COLUMN assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL"
             )
+        for column in (
+            "attachment_context",
+            "proposed_question",
+            "confirmed_question",
+            "confirmed_question_by",
+            "confirmed_question_at",
+        ):
+            if column not in columns:
+                conn.execute(f"ALTER TABLE technical_queries ADD COLUMN {column} TEXT")
         message_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(query_messages)")
         }
@@ -564,6 +573,12 @@ def get(
         if not row:
             return None
         result = dict(row)
+        try:
+            result["attachment_context"] = json.loads(
+                result.get("attachment_context") or "[]"
+            )
+        except ValueError:
+            result["attachment_context"] = []
         result["messages"] = [
             dict(r)
             for r in conn.execute(
@@ -791,6 +806,85 @@ def update_evidence(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
+_ATTACHMENT_MARK = "\n\n[Attachment "
+MAX_PROPOSED_QUESTION = 12_000
+MAX_CONFIRMED_QUESTION = 5_000
+
+
+def query_attachment_document_ids(conn) -> frozenset[str]:
+    """Every document that arrived as a query attachment, from any query. A
+    contractor's attachment is context for its own query, never an authority for
+    anyone's answer, so none of them is searched as evidence."""
+    return frozenset(
+        row["document_id"]
+        for row in conn.execute(
+            "SELECT DISTINCT document_id FROM query_attachments WHERE document_id IS NOT NULL"
+        )
+    )
+
+
+def original_email_question(saved: str | None) -> str:
+    """The email's own question. Older rows stored the email question and the
+    attachment text joined under "[Attachment ...]" labels; only the first part is
+    the email's."""
+    text = (saved or "").strip()
+    cut = text.find(_ATTACHMENT_MARK)
+    if cut >= 0:
+        return text[:cut].strip()
+    if text.startswith("[Attachment "):
+        return ""
+    return text
+
+
+def propose_question(email_question: str, context: list[dict[str, Any]]) -> str:
+    """A clean question for an engineer to confirm: the email's question, then any
+    attachment lines it does not already say. No labels and no file names; the
+    attachments stay available, with their pages, beside it. It is a proposal, not
+    an answer to anything."""
+    lines = [email_question.strip()] if email_question.strip() else []
+    seen = {_squash(email_question)}
+    for part in context:
+        for line in (part.get("text") or "").splitlines():
+            key = _squash(line)
+            if key and key not in seen and key not in _squash(email_question):
+                seen.add(key)
+                lines.append(line.strip())
+    text = "\n".join(lines).strip()
+    if len(text) > MAX_PROPOSED_QUESTION:
+        text = text[:MAX_PROPOSED_QUESTION].rstrip()
+    return text
+
+
+def confirm_question(
+    query_id: str,
+    question: str,
+    user_id: str | None,
+    is_admin: bool,
+    unrestricted: bool,
+    actor_user_id: str | None,
+) -> dict[str, Any] | None:
+    current = get(query_id, user_id, is_admin, unrestricted)
+    if current is None:
+        return None
+    if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
+        raise ValueError("the question cannot be confirmed in the current query state")
+    text = question.strip()
+    if not text:
+        raise ValueError("the confirmed question cannot be empty")
+    if len(text) > MAX_CONFIRMED_QUESTION:
+        raise ValueError(
+            f"the confirmed question is longer than {MAX_CONFIRMED_QUESTION} characters"
+        )
+    with connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET confirmed_question=?,confirmed_question_by=?,"
+            "confirmed_question_at=?,updated_at=? WHERE id=?",
+            (text, actor_user_id, now(), now(), query_id),
+        )
+        _event(conn, query_id, "question_confirmed", actor_user_id, f"chars={len(text)}")
+    return get(query_id, user_id, is_admin, unrestricted)
+
+
 def prepare_evidence(
     query_id: str,
     allowed_document_ids: frozenset[str],
@@ -807,11 +901,11 @@ def prepare_evidence(
         raise ValueError("evidence cannot be prepared in the current query state")
     message = (current.get("messages") or [{}])[0]
     body = (message.get("body") or "").strip()
-    saved_question = current.get("extracted_question") or ""
-    question = body if "[Attachment " in saved_question else saved_question or body
+    saved_question = original_email_question(current.get("extracted_question"))
+    email_question = saved_question or body
     marker = body.upper().find("QUESTION")
-    if not current.get("extracted_question") and marker >= 0:
-        question = body[marker:].split(":", 1)[-1].strip()
+    if not saved_question and marker >= 0:
+        email_question = body[marker:].split(":", 1)[-1].strip()
     attachment_ids = {
         attachment["document_id"]
         for message_row in current.get("messages", [])
@@ -819,7 +913,7 @@ def prepare_evidence(
         if attachment.get("document_id")
         and (unrestricted or attachment["document_id"] in allowed_document_ids)
     }
-    attachment_sections: list[str] = []
+    context: list[dict[str, Any]] = []
     with connect() as conn:
         for attachment in message.get("attachments", []):
             document_id = attachment.get("document_id")
@@ -829,43 +923,51 @@ def prepare_evidence(
                 or attachment.get("document_status") != "ready"
             ):
                 continue
-            pages = _source_pages(conn, document_id, 1, 5)
-            for page in pages:
+            for page in _source_pages(conn, document_id, 1, 5):
                 text = _page_text(page).strip()
                 if text:
-                    attachment_sections.append(
-                        f"[Attachment {attachment['filename']}, page {page['page_no']}]\n{text}"
+                    context.append(
+                        {
+                            "filename": attachment["filename"],
+                            "page": page["page_no"],
+                            "text": text,
+                        }
                     )
-    if attachment_sections:
-        question = "\n\n".join([question, *attachment_sections]).strip()
-        if len(question) > 12_000:
-            question = (
-                question[:12_000].rstrip()
-                + "\n[More attachment text exists; open the original PDF.]"
+    proposal = propose_question(email_question, context)
+    if not proposal:
+        if message.get("attachments"):
+            raise ValueError(
+                "the attached question is not readable yet; wait for PDF processing or OCR"
             )
-    elif not question and message.get("attachments"):
-        raise ValueError(
-            "the attached question is not readable yet; wait for PDF processing or OCR"
-        )
-    if not question:
         raise ValueError("the query contains no extractable question")
+    # An engineer's confirmed wording, when there is one, is what evidence is found for.
+    question = current.get("confirmed_question") or proposal
     from . import search
 
     # The query's own attachments are context, never an authority, so they must not
     # take a place among the few results: search everything else the caller may read.
+    with connect() as conn:
+        attachment_documents = query_attachment_document_ids(conn)
     field = search.search(
         question,
         limit=5,
         rerank=False,
         dense=False,
-        allowed_document_ids=frozenset(allowed_document_ids) - attachment_ids,
+        allowed_document_ids=frozenset(allowed_document_ids) - attachment_documents,
     )
     # `search.search` returns its results under "hits" (answer.answer uses "passages").
     hits = field.get("hits") or []
     with connect() as conn:
         conn.execute(
-            "UPDATE technical_queries SET extracted_question=?,status='drafting',updated_at=? WHERE id=?",
-            (question, now(), query_id),
+            "UPDATE technical_queries SET extracted_question=?,attachment_context=?,"
+            "proposed_question=?,status='drafting',updated_at=? WHERE id=?",
+            (
+                email_question or None,
+                json.dumps(context),
+                proposal,
+                now(),
+                query_id,
+            ),
         )
         for passage in hits[:5]:
             quote = (passage.get("text") or "").strip()
@@ -878,8 +980,8 @@ def prepare_evidence(
                 and passage.get("document_id") not in allowed_document_ids
             ):
                 continue
-            if passage.get("document_id") in attachment_ids:
-                # The contractor's question is context, not an authority for its answer.
+            if passage.get("document_id") in attachment_documents:
+                # A contractor's attachment is context, not an authority for any answer.
                 continue
             if not _quote_on_pages(
                 conn,

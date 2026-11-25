@@ -35,6 +35,7 @@ from app.technical_queries import (
     add_draft,
     add_evidence,
     assign_query,
+    confirm_question,
     decide,
     ensure_schema,
     get,
@@ -197,12 +198,25 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
         item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
     )
     assert "What is the permitted coating thickness?" in captured["question"]
-    assert "What is the permitted coating thickness?" in result["extracted_question"]
+    assert "[Attachment" not in captured["question"]
+    # The email's own question stays as written; the attachment is kept apart.
+    assert result["extracted_question"] == "Please see attached."
+    assert result["attachment_context"] == [
+        {
+            "filename": "query.pdf",
+            "page": 1,
+            "text": "What is the permitted coating thickness?",
+        }
+    ]
+    assert "What is the permitted coating thickness?" in result["proposed_question"]
+    assert "[Attachment" not in result["proposed_question"]
+    assert result["confirmed_question"] is None
     assert result["evidence"] == []
     repeated = prepare_evidence(
         item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
     )
     assert repeated["extracted_question"] == result["extracted_question"]
+    assert repeated["proposed_question"] == result["proposed_question"]
 
 
 def test_real_search_returns_results_under_hits_not_passages():
@@ -275,8 +289,23 @@ def test_prepare_evidence_does_not_search_the_querys_own_attachment(monkeypatch)
         return {"hits": []}
 
     monkeypatch.setattr("app.search.search", fake_search)
+    # Another query's attachment is just as much a contractor paper.
+    other_envelope = envelope("other-query")
+    other_envelope["provider_thread_id"] = "thread-other"
+    other, _ = import_message(other_envelope, "u1", False, False)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            ("other-attachment", "other.pdf", "f1" * 32, 1, "other.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+    link_attachment(
+        other["id"], other["messages"][0]["attachments"][0]["id"],
+        "other-attachment", "u1", "u1", True, False,
+    )
     prepare_evidence(
-        item["id"], frozenset({"own-attachment", "library-doc"}), "u1", True, False, "u1"
+        item["id"],
+        frozenset({"own-attachment", "other-attachment", "library-doc"}),
+        "u1", True, False, "u1",
     )
     assert seen["scope"] == frozenset({"library-doc"})
 
@@ -520,9 +549,25 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
             ],
         },
     )
+    seen_questions = []
+    original_answer = __import__("app.api.technical_queries", fromlist=["answer"]).answer.answer
+
+    def spying_answer(question, *_args, **_kwargs):
+        seen_questions.append(question)
+        return original_answer(question)
+
+    # Nothing is drafted from a question no engineer has confirmed.
+    with pytest.raises(HTTPException) as unconfirmed:
+        generate_query_draft(item["id"], scope)
+    assert unconfirmed.value.status_code == 409
+    assert "confirm the question" in unconfirmed.value.detail["message"]
+    confirm_question(item["id"], "What is the approved limit?", "u1", False, False, "u1")
+    monkeypatch.setattr("app.api.technical_queries.answer.answer", spying_answer)
     with pytest.raises(HTTPException) as blocked:
         generate_query_draft(item["id"], scope)
     assert blocked.value.status_code == 409
+    assert "outside the query's verified evidence" in blocked.value.detail["message"]
+    assert seen_questions == ["What is the approved limit?"]
     assert get(item["id"], "u1", False, False)["drafts"] == []
     monkeypatch.setattr(
         "app.api.technical_queries.answer.answer",
@@ -546,6 +591,68 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
     citations = __import__("json").loads(drafted["drafts"][-1]["citations_json"])
     assert citations[0]["document_id"] == "doc-2"
     assert citations[0]["page"] == 1
+
+
+def test_confirming_a_question_keeps_the_email_and_rejects_empty_or_late_changes():
+    item, _ = import_message(envelope("confirm-q"), "u1", False, False)
+    assert item["confirmed_question"] is None
+    confirmed = confirm_question(item["id"], "  What coating applies?  ", "u1", False, False, "u1")
+    assert confirmed["confirmed_question"] == "What coating applies?"
+    assert confirmed["confirmed_question_by"] == "u1"
+    assert confirmed["extracted_question"] == "Please confirm the applicable coating schedule."
+    assert confirmed["messages"][0]["body"] == "Please confirm the applicable coating schedule."
+    with pytest.raises(ValueError):
+        confirm_question(item["id"], "   ", "u1", False, False, "u1")
+    with pytest.raises(ValueError):
+        confirm_question(item["id"], "x" * 5001, "u1", False, False, "u1")
+    drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False)
+    decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False)
+    with pytest.raises(ValueError):
+        confirm_question(item["id"], "Changed after approval", "u1", False, False, "u1")
+
+
+def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch):
+    item, _ = import_message(envelope("refusal-reason"), "u1", False, False)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            ("doc-r", "r.pdf", "c3" * 32, 1, "r.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            ("doc-r", 1, "The limit is 12 bar.", 20, 0, 1),
+        )
+    add_evidence(
+        item["id"], "doc-r", "The limit is 12 bar.", 1, 1, None,
+        frozenset({"doc-r"}), "u1", True, False, "u1",
+    )
+    update_evidence(item["id"], get(item["id"], "u1", True, False)["evidence"][0]["id"],
+                    "verified", "current", None, "u1", "u1", True, False)
+    confirm_question(item["id"], "What is QX-1?", "u1", True, False, "u1")
+    monkeypatch.setattr(
+        "app.api.technical_queries.answer.answer",
+        lambda *_a, **_k: {
+            "answer_type": "insufficient_evidence",
+            "answer": None,
+            "reason": "QX-1 does not appear anywhere in the indexed documents",
+        },
+    )
+    with pytest.raises(HTTPException) as refused:
+        generate_query_draft(item["id"], AccessScope("u1", frozenset({"doc-r"}), capabilities=frozenset({"admin"})))
+    assert refused.value.status_code == 409
+    assert "QX-1 does not appear anywhere" in refused.value.detail["message"]
+
+
+def test_proposed_question_drops_labels_and_repeated_lines():
+    from app.technical_queries import original_email_question, propose_question
+
+    context = [{"filename": "q.pdf", "page": 1, "text": "Contractor query\nPlease confirm the thickness.\nAlso state the standard."}]
+    proposal = propose_question("Please confirm the thickness.", context)
+    assert proposal == "Please confirm the thickness.\nContractor query\nAlso state the standard."
+    assert "[Attachment" not in proposal and "q.pdf" not in proposal
+    legacy = "Email part.\n\n[Attachment q.pdf, page 1]\nPDF text"
+    assert original_email_question(legacy) == "Email part."
+    assert original_email_question("[Attachment q.pdf, page 1]\nPDF text") == ""
 
 
 def test_word_preview_marks_unapproved_response_and_missing_evidence(tmp_path):
@@ -581,6 +688,23 @@ def test_word_response_keeps_line_breaks_and_names_documents_not_ids(tmp_path):
     assert "doc-internal-id" not in document
     assert "Status:" not in document
     assert "First line.</w:t></w:r><w:r><w:br/></w:r><w:r><w:t" in document
+
+
+def test_word_response_separates_email_question_attachment_text_and_confirmed_question(tmp_path):
+    item, _ = import_message(envelope("word-sections"), "u1", False, False)
+    drafted = add_draft(item["id"], "The answer.", [], [], "u1", "u1", True, False)
+    drafted["attachment_context"] = [{"filename": "q.pdf", "page": 2, "text": "Attachment line."}]
+    drafted["confirmed_question"] = "Confirmed wording?"
+    path = render_query_docx(drafted, tmp_path / "sections.docx")
+    with ZipFile(path) as package:
+        document = package.read("word/document.xml").decode()
+    assert "Original question (from the email)" in document
+    assert "Please confirm the applicable coating schedule." in document
+    assert "Attachment text: q.pdf, page 2" in document
+    assert "Question answered (confirmed by the engineer)" in document
+    assert "Confirmed wording?" in document
+    assert "[Attachment" not in document
+    assert "Assumptions" not in document and "Unresolved points" not in document
 
 
 def test_new_message_in_same_provider_thread_is_follow_up():

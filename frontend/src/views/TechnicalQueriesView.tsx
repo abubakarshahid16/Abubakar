@@ -17,6 +17,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editedAnswer, setEditedAnswer] = useState("");
+  const [questionDraft, setQuestionDraft] = useState("");
   const [contractorFilter, setContractorFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -34,6 +35,18 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [labelId, setLabelId] = useState("");
   const activeMailboxes = mailboxes.filter((mailbox) => mailbox.connection_state === "active");
   const pendingMailbox = mailboxes.find((mailbox) => mailbox.connection_state === "needs_label");
+
+  useEffect(() => {
+    setQuestionDraft(selected?.confirmed_question || selected?.proposed_question || selected?.extracted_question || "");
+  }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.extracted_question]);
+
+  const confirmQuestion = () => act(async () => {
+    const confirmed = await technicalQueriesApi.confirmQuestion(selected!.id, questionDraft.trim());
+    if (!confirmed.ok) return confirmed;
+    // Evidence is then found for the confirmed wording, not for the first proposal.
+    const prepared = await technicalQueriesApi.prepareEvidence(selected!.id);
+    return prepared.ok ? prepared : confirmed;
+  });
 
   useEffect(() => {
     setTriageContractor(selected?.contractor_name || "");
@@ -71,6 +84,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const act = (action: () => Promise<Result<TechnicalQuery>>) => {
     if (!selected) return;
     setBusy(true);
+    setError(null);
     void action().then((result) => {
       setBusy(false);
       if (!result.ok) { setError(result.error?.message || "The action could not be completed."); return; }
@@ -148,7 +162,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.source_access_revoked && <p role="alert" className="mt-3 text-sm text-warn-400">Access to a cited source changed. The draft is hidden until an authorised reviewer checks it again.</p>}
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Prepare evidence</button>
-            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id))} className="rounded bg-signal-700 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
+            <button type="button" disabled={busy || !selected.confirmed_question} title={selected.confirmed_question ? undefined : "Confirm the question first"} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id))} className="rounded bg-signal-700 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
             {selected.status === "awaiting_review" && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
             {selected.status === "approved" && activeMailboxes.length > 0 && <div className="flex items-center gap-2"><label htmlFor="query-send-mailbox" className="text-xs text-slateish-300">Send from</label><select id="query-send-mailbox" value={mailboxId} onChange={(event) => setMailboxId(event.target.value)} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100">{activeMailboxes.map((mailbox) => <option key={mailbox.id} value={mailbox.id}>{mailbox.email}</option>)}</select><button type="button" disabled={busy} onClick={sendApproved} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Send approved response</button></div>}
@@ -156,8 +170,21 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {selected.status === "sent" || selected.status === "awaiting_confirmation" ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
             {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
           </div>
-          <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question</h3>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.extracted_question || "Not extracted yet."}</p>
+          <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question in the email</h3>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.extracted_question || "Not stated in the email text."}</p>
+          {selected.attachment_context?.length ? <>
+            <h3 className="mt-6 text-sm font-semibold text-slateish-200">Attachment text</h3>
+            {selected.attachment_context.map((part) => <div key={`${part.filename}-${part.page}`} className="mt-2 rounded border border-ink-700 p-2 text-sm text-slateish-300"><p className="text-xs text-slateish-500">{part.filename}, page {part.page}</p><p className="mt-1 whitespace-pre-wrap">{part.text}</p></div>)}
+          </> : null}
+          <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question for the draft</h3>
+          {selected.confirmed_question
+            ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${selected.confirmed_question_at}` : ""}. The draft answers exactly this wording.</p>
+            : <p className="mt-1 text-xs text-warn-400">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
+          {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-2">
+            <label htmlFor="technical-query-question" className="block text-xs text-slateish-300">Question the draft will answer</label>
+            <textarea id="technical-query-question" value={questionDraft} onChange={(event) => setQuestionDraft(event.target.value)} rows={4} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            <button type="button" disabled={busy || !questionDraft.trim() || questionDraft.trim() === (selected.confirmed_question || "")} onClick={confirmQuestion} className="mt-2 rounded bg-signal-700 px-3 py-1.5 text-xs text-white disabled:opacity-50">Confirm question</button>
+          </div>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Original email and attachments</h3>
           {selected.messages?.map((message, index) => <article key={`${message.received_at}-${index}`} className="mt-3 rounded border border-ink-700 p-3 text-sm text-slateish-300">
             <p>From: {message.from_address}</p><p>To: {message.to_addresses.join(", ")}</p>

@@ -6,7 +6,14 @@ export interface TechnicalQuery {
   contractor_name: string | null;
   department: string | null;
   assignee_user_id: string | null;
+  /** The email's own question, as received. */
   extracted_question: string | null;
+  attachment_context?: Array<{ filename: string; page: number; text: string }>;
+  /** A clean question the system proposes; a guess until an engineer confirms it. */
+  proposed_question?: string | null;
+  confirmed_question?: string | null;
+  confirmed_question_by?: string | null;
+  confirmed_question_at?: string | null;
   status: string;
   priority: string;
   received_at: string;
@@ -64,6 +71,8 @@ export const technicalQueriesApi = {
     request(`/technical-queries/${encodeURIComponent(id)}/assignment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignee_user_id: assigneeUserId }) }),
   triage: (id: string, fields: { contractor_name: string | null; department: string | null; priority: string; due_at: string | null }): Promise<Result<TechnicalQuery>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/triage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) }),
+  confirmQuestion: (id: string, question: string): Promise<Result<TechnicalQuery>> =>
+    request(`/technical-queries/${encodeURIComponent(id)}/confirm-question`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }),
   prepareEvidence: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/prepare-evidence`, { method: "POST" }),
   generateDraft: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/generate-draft`, { method: "POST" }),
   createDraft: (id: string, answer: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer }) }),

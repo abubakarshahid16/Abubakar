@@ -7,6 +7,7 @@ from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from .config import settings
+from .technical_queries import original_email_question
 
 _CONTENT = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -72,19 +73,27 @@ def render(query: dict, output: Path | None = None) -> Path:
             True,
         ),
         _p(f"Subject: {query['subject']}"),
-        _p("Original question", True),
-        _p(query.get("extracted_question") or "Not extracted"),
+        _p("Original question (from the email)", True),
+        _p(original_email_question(query.get("extracted_question")) or "Not stated in the email text."),
+    ]
+    for part in query.get("attachment_context") or []:
+        paragraphs += [
+            _p(f"Attachment text: {part['filename']}, page {part['page']}", True),
+            _p(part["text"]),
+        ]
+    confirmed = (query.get("confirmed_question") or "").strip()
+    if confirmed:
+        paragraphs += [_p("Question answered (confirmed by the engineer)", True), _p(confirmed)]
+    paragraphs += [
         _p("Proposed answer", True),
         _p(draft["answer"]),
     ]
-    if draft.get("assumptions_json"):
-        paragraphs += [_p("Assumptions", True)] + [
-            _p(f"- {x}") for x in __import__("json").loads(draft["assumptions_json"])
-        ]
-    if draft.get("unresolved_json"):
-        paragraphs += [_p("Unresolved points", True)] + [
-            _p(f"- {x}") for x in __import__("json").loads(draft["unresolved_json"])
-        ]
+    assumptions = __import__("json").loads(draft.get("assumptions_json") or "[]")
+    if assumptions:
+        paragraphs += [_p("Assumptions", True)] + [_p(f"- {x}") for x in assumptions]
+    unresolved = __import__("json").loads(draft.get("unresolved_json") or "[]")
+    if unresolved:
+        paragraphs += [_p("Unresolved points", True)] + [_p(f"- {x}") for x in unresolved]
     if citations:
         paragraphs += [_p("Cited passages", True)] + [
             _p(

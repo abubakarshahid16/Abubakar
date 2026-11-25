@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from .. import (
     access,
     answer,
+    errors,
     gmail_auth,
     gmail_sync,
     gmail_worker,
@@ -62,6 +63,10 @@ class DraftIn(BaseModel):
     unresolved: list[str] = Field(default_factory=list, max_length=100)
 
 
+class QuestionIn(BaseModel):
+    question: str = Field(min_length=1, max_length=technical_queries.MAX_CONFIRMED_QUESTION)
+
+
 class EvidenceIn(BaseModel):
     document_id: str
     exact_quote: str = Field(min_length=1, max_length=20_000)
@@ -107,6 +112,12 @@ class ReconcileSendIn(BaseModel):
 
 class GmailLabelIn(BaseModel):
     label_id: str = Field(min_length=1, max_length=200)
+
+
+def _refuse(status_code: int, message: str, code: str = errors.INVALID_PARAMETER):
+    """A refusal the screen can show in words: the shared client renders a server
+    reason only when it arrives as {code, message}, never as a bare string."""
+    return HTTPException(status_code=status_code, detail=errors.safe_error(code, message))
 
 
 def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
@@ -458,7 +469,27 @@ def create_query_draft(
             *_visible(scope),
         )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise _refuse(409, str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
+    return _safe_item(item, scope)
+
+
+@router.post("/api/technical-queries/{query_id}/confirm-question")
+def confirm_query_question(
+    query_id: str,
+    body: QuestionIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """An engineer confirms the wording the draft will answer. The email stays as
+    received; this is the clean question the answer checks are run on."""
+    _require_identity_to_write(scope)
+    try:
+        item = technical_queries.confirm_question(
+            query_id, body.question, *_visible(scope), scope.user_id
+        )
+    except ValueError as exc:
+        raise _refuse(409, str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return _safe_item(item, scope)
@@ -474,20 +505,23 @@ def generate_query_draft(
     current = technical_queries.get(query_id, *_visible(scope))
     if current is None:
         raise HTTPException(status_code=404, detail="technical query not found")
+    with connect() as conn:
+        attachment_documents = technical_queries.query_attachment_document_ids(conn)
     usable_evidence = [
         item
         for item in current.get("evidence", [])
-        if item["evidence_state"] == "verified"
+        if item["document_id"] not in attachment_documents
+        and item["evidence_state"] == "verified"
         and item["supersession_state"] == "current"
         and item["document_id"] in scope.allowed_document_ids
     ]
     if not usable_evidence:
-        raise HTTPException(
-            status_code=409, detail="verified evidence is required before drafting"
+        raise _refuse(409, "verified, current evidence is required before drafting")
+    question = (current.get("confirmed_question") or "").strip()
+    if not question:
+        raise _refuse(
+            409, "an engineer must confirm the question before a draft is generated"
         )
-    question = current.get("extracted_question") or " ".join(
-        message.get("body", "") for message in current.get("messages", [])
-    )
     try:
         result = answer.answer(
             question,
@@ -500,12 +534,17 @@ def generate_query_draft(
     except (
         Exception
     ) as exc:  # model availability is an operational failure, not a 500 leak
-        raise HTTPException(
-            status_code=503, detail="the configured local drafting model is unavailable"
+        raise _refuse(
+            503,
+            "the configured local drafting model is unavailable",
+            errors.MODEL_UNAVAILABLE,
         ) from exc
     if result.get("answer_type") != "generated" or not result.get("answer"):
-        raise HTTPException(
-            status_code=409, detail="the evidence was insufficient for a grounded draft"
+        reason = (result.get("reason") or "").strip()
+        raise _refuse(
+            409,
+            "the evidence was insufficient for a grounded draft"
+            + (f": {reason}" if reason else ""),
         )
     passages = result.get("passages") or []
     cited = result.get("cited") or []
@@ -539,9 +578,9 @@ def generate_query_draft(
             }
         )
     if not cited or len(citations) != len(cited):
-        raise HTTPException(
-            status_code=409,
-            detail="the generated answer cited passages outside the query's verified evidence",
+        raise _refuse(
+            409,
+            "the generated answer cited passages outside the query's verified evidence",
         )
     item = technical_queries.add_draft(
         query_id,
@@ -602,7 +641,7 @@ def prepare_query_evidence(
             scope.user_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise _refuse(422, str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return _safe_item(item, scope)
