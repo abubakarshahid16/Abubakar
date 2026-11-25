@@ -186,16 +186,6 @@ ACCOUNT_REFUSAL_HOURS = 24
 log = logging.getLogger(__name__)
 
 
-def _picture_note(conn, document_id) -> str | None:
-    from .aim_review import picture_pages
-
-    try:
-        return picture_pages.plan_note(conn, str(document_id))
-    except Exception as exc:  # noqa: BLE001 - a note is never worth a failed plan
-        log.debug("picture pages note not made (%s)", type(exc).__name__)
-        return None
-
-
 def _recent_account_refusal(conn) -> str | None:
     """The plain sentence when a general review of the last day STOPPED because the Claude account cannot answer, else None. It says what
     the last review met, not that the account is still empty (credit may have been added since)."""
@@ -260,10 +250,6 @@ def general_plan(
         conn
     ):  # the last Claude call was refused by the account: say it before the start
         out["notes"] = [*out["notes"], refusal]
-    if plan.text_leaves and (
-        pictures := _picture_note(conn, document_id)
-    ):  # pages Claude would read as pictures, said before the start
-        out["notes"] = [*out["notes"], pictures]
     if plan.refused:
         out["sentence"] = (
             plan.refused if plan.refused.endswith(".") else plan.refused + "."
