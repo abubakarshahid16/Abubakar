@@ -428,6 +428,88 @@ def _line(check, decided, a: Field, av: Val, b: Field, bv: Val, hit: Hit) -> dic
     }
 
 
+#: Two figures are the same figure when their unit code's values (gauge against absolute kept apart) are within this share.
+JOIN_WITHIN = 0.005
+JOINED = "joined the comment already made on this field and page: its reading is now proven by code"
+
+
+def _quantities(nums) -> list[tuple] | None:
+    """[(unit, reference, value)] of a line's paper value and rule value through the app's unit code; None when either is unreadable."""
+    from app import claims
+
+    if not isinstance(nums, dict):
+        return None
+    out = []
+    for value, unit in (
+        (nums.get("paper_value"), nums.get("paper_unit")),
+        (nums.get("rule_value"), nums.get("rule_unit")),
+    ):
+        if value in (None, "") or not unit:
+            return None
+        m = claims.normalise(str(value), str(unit))
+        if m.normalized_value is None:
+            return None
+        out.append((m.normalized_unit, m.reference, m.normalized_value))
+    return out
+
+
+def _same_figure(a: tuple, b: tuple) -> bool:
+    return (
+        a[0] == b[0]
+        and a[1] == b[1]
+        and abs(a[2] - b[2]) <= JOIN_WITHIN * max(abs(a[2]), abs(b[2]), 1e-12)
+    )
+
+
+def _same_pair(a: list[tuple], b: list[tuple]) -> bool:
+    """The same two figures, whichever of them each line calls the paper's and the rule's."""
+    return (_same_figure(a[0], b[0]) and _same_figure(a[1], b[1])) or (
+        _same_figure(a[0], b[1]) and _same_figure(a[1], b[0])
+    )
+
+
+def _existing(decided: list[dict], line: dict) -> dict | None:
+    """The first line already decided on the SAME page that makes the SAME comparison (the same two figures through the unit code) and
+    is only an AI opinion or a Question (never a line code or the judge already settled, never a value left open). None: no such line."""
+    want = _quantities(line.get("numbers"))
+    if want is None:
+        return None
+    for d in decided:
+        if (
+            d.get("page") != line.get("page")
+            or d.get("label") not in ("AI opinion", "Question")
+            or d.get("deferred")
+        ):
+            continue
+        have = _quantities(d.get("numbers"))
+        if have is not None and _same_pair(have, want):
+            return d
+    return None
+
+
+def join_into(decided: list[dict], new: list[dict]) -> list[dict]:
+    """The formula lines to APPEND to `decided`. A firm Not met whose finding is already a comment on this paper (the same page, the same two
+    figures) does not become a second or third comment: it UPGRADES that line in place (AI opinion -> Not met, proven by code, the clause
+    and both quotes of the formula check) and is not appended. A Met line, or a Not met nobody has commented on, is appended as before. Pure."""
+    appended = []
+    for line in new:
+        target = _existing(decided, line) if line.get("label") == "Not met" else None
+        if target is None:
+            appended.append(line)
+            continue
+        key = "code" if "code" in target else "code_note"
+        target.update(
+            label="Not met", comment=line["comment"], standard=line["standard"], clause=line["clause"], source=line["source"],
+            book_document_id=line.get("book_document_id"), numbers=line["numbers"], code_compare=line["code_compare"], deferred=False, ask="",
+        )  # fmt: skip
+        target[key] = "; ".join(
+            [line.get("code") or line.get("code_note") or "", JOINED]
+        ).strip("; ")
+    return appended
+
+
 def add_lines(conn, paper, state) -> None:
-    """Append the formula lines to the run (`state.decided`), from the rule books the run carried."""
-    state.decided += lines(conn, paper, sorted(state.books - state.reference_ids))
+    """Add the formula lines to the run (`state.decided`), from the rule books the run carried (`join_into`: a finding already commented on is upgraded, not repeated)."""
+    state.decided += join_into(
+        state.decided, lines(conn, paper, sorted(state.books - state.reference_ids))
+    )
