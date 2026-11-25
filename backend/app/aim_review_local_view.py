@@ -39,6 +39,10 @@ STEP_WORDS = {
 }
 
 
+#: The end of a judge call's note when it read the whole paper (`local_model._note`); "... not the whole paper" is not it.
+WHOLE = "; the whole paper"
+
+
 def by_step(run: dict) -> dict:
     """{"steps": {step: [models]}, "sentence": ..., "paper": ...}: the models each step's calls recorded (from the run, never a
     setting), and for a local run whether every judge call saw the whole paper (owner, 25 Nov 2026: no blind chunking)."""
@@ -58,10 +62,10 @@ def by_step(run: dict) -> dict:
     ]
     if not notes:
         paper = None
-    elif all(n.endswith("the whole paper") for n in notes):
+    elif all(n.endswith(WHOLE) for n in notes):
         paper = f"The judge saw the whole paper in each of its {len(notes)} calls."
     else:
-        part = sum(1 for n in notes if not n.endswith("the whole paper"))
+        part = sum(1 for n in notes if not n.endswith(WHOLE))
         paper = f"The judge saw a page window, not the whole paper, in {part} of its {len(notes)} calls."
     return {"steps": steps, "sentence": sentence, "paper": paper}
 

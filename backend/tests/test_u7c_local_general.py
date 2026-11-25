@@ -171,7 +171,9 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
         .fetchone()[0]
     )
-    assert outcome["answer_model"] == settings.answer_model  # the resolved setting, a name only
+    assert (
+        outcome["answer_model"] == settings.answer_model
+    )  # the resolved setting, a name only
     assert aim_review_store.lines(db.connect(), run_id)  # the same method's points
     saved = (
         db.connect()
@@ -208,7 +210,7 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         c.startswith("name: " + REPORTED) for c in cells
     )  # the model of each step
     judge = [c for c in model_calls if c["step"] == "aim_judge"]
-    assert judge and all(c["note"].endswith("the whole paper") for c in judge)
+    assert judge and all(c["note"].endswith("; the whole paper") for c in judge)
     assert "The judge saw the whole paper" in page["measured"]["sentence"]
 
 
@@ -659,3 +661,55 @@ def test_a_prompt_counted_longer_than_the_estimate_is_no_cut_but_one_filling_the
     assert local_model._prompt_cut(28_672 - 512 - 10, 28_672, 512, text) is True
     assert local_model._prompt_cut(3, 28_672, 512, text) is True
     assert local_model._prompt_cut(None, 28_672, 512, text) is True
+
+
+def test_the_steps_answer_shape_goes_to_the_engine_and_a_page_window_or_map_is_never_the_whole_paper(
+    monkeypatch,
+):
+    import sys
+    import types
+
+    schema = {
+        "type": "object",
+        "properties": {"kind": {"type": "string"}},
+        "required": ["kind"],
+    }
+    fake = types.ModuleType("app.aim_review.answer_schema")
+    fake.for_step = lambda step: schema if step == "aim_identify" else None
+    monkeypatch.setitem(sys.modules, "app.aim_review.answer_schema", fake)
+    import app.aim_review as package
+
+    monkeypatch.setattr(package, "answer_schema", fake, raising=False)
+    m = local_model.LocalModel("invented-mid:14b")
+    msgs = [{"role": "user", "content": "p"}]
+    assert m._body("invented-mid:14b", msgs, 8, "aim_identify")["format"] == schema
+    assert (
+        m._body("invented-mid:14b", msgs, 8, "aim_judge")["format"] == "json"
+    )  # no schema written: plain JSON
+    assert local_model._note(
+        "aim_judge", "THIS IS A LONG PAPER of 9 pages", 1
+    ).endswith("not the whole paper")
+    assert local_model._note("aim_judge", local_model.WINDOW_MARK, 1).endswith(
+        "not the whole paper"
+    )
+    from app import aim_review_local_view as LV
+
+    notes = [
+        {
+            "step": "aim_judge",
+            "note": local_model._note("aim_judge", local_model.WINDOW_MARK, 1),
+        }
+    ]
+    seen = LV.by_step({"calls_json": json.dumps(notes)})["paper"]
+    assert seen.startswith(
+        "The judge saw a page window, not the whole paper, in 1 of its 1 calls"
+    )
+
+
+def test_without_the_answer_schema_module_every_step_keeps_plain_json(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(
+        sys.modules, "app.aim_review.answer_schema", None
+    )  # the module is absent: import fails
+    assert local_model._answer_shape("aim_identify") == "json"
