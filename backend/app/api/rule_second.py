@@ -26,13 +26,26 @@ class RuleSecondImportBody(BaseModel):
     )
 
 
+class RuleSecondImportResult(BaseModel):
+    dry_run: bool = Field(description="true: every check ran and nothing was written")
+    counts: dict[str, int] = Field(
+        description='rows by outcome: "added:<state>" / "would_add:<state>", "already_held", "conflict", "refused",'
+        ' "unknown_rule", "changed_quote", "quote_not_on_page", "not_needs_human_here", and per table'
+        ' "rule_second_sample:<outcome>", "rule_second_measure:<outcome>" (incl. "measure_does_not_match")'
+    )
+    by_family: dict[str, dict[str, int]] = Field(
+        description="the approvals' outcomes by standards family"
+    )
+
+
 @router.post(
     "/api/admin/rule-second/import",
+    response_model=RuleSecondImportResult,
     responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
 )
 def import_rule_second(
     body: RuleSecondImportBody, _admin: dict | None = Depends(admin_mod.current_admin)
-) -> dict:
+) -> RuleSecondImportResult:
     if not rule_label_schema.switch_on():
         raise HTTPException(status_code=404, detail="feature_off")
     try:
@@ -45,6 +58,11 @@ def import_rule_second(
     ) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     try:
-        return rule_second_import.import_second(connect(), data, dry_run=body.dry_run)
+        out = rule_second_import.import_second(connect(), data, dry_run=body.dry_run)
     except rule_second_import.ImportBusy as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
+    return RuleSecondImportResult(
+        dry_run=bool(out["dry_run"]),
+        by_family=out["by_family"],
+        counts={k: int(v) for k, v in out.items() if k not in ("dry_run", "by_family")},
+    )
