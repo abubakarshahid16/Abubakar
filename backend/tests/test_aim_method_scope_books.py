@@ -133,9 +133,12 @@ def test_a_saved_contract_checklist_resting_on_books_the_scope_does_not_name_is_
     assert r.status == "done" and r.checklist_reused is False and r.books == []
 
 
-def test_a_specification_keeps_only_the_books_its_scope_names_or_it_cites():
+def test_a_specification_keeps_only_the_books_its_scope_names_or_it_cites(monkeypatch):
     """#1903: a specification is checked with the contract-labelled rules, so it takes the same scope rule as a contract: a
     technical book stays only when the specification's own scope names its subject or the specification cites it."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_u7b_enabled", True)  # its update's switch (`aim_review.updates`)
     cat = _cat(
         ("b1", "welding inspection"),
         ("b2", "pressure vessel design"),

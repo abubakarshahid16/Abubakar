@@ -3,9 +3,20 @@ unrelated fields). Invented words only; no model, no call."""
 
 from __future__ import annotations
 
+import pytest
+
 from app import aim_review_view as V
 from app.aim_review.always import TOPIC as ALWAYS
 from tests.test_g_asks import point
+
+
+@pytest.fixture(autouse=True)
+def _update_on(monkeypatch):
+    """This file tests a part of an update that goes live switched off (`aim_review.updates`): switched on here."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_u7b_enabled", True)
+
 
 
 def _lines(comments):

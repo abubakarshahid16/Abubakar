@@ -177,6 +177,9 @@ def test_the_blind_sample_judge_measures_wrong_of_judged_and_the_gate_needs_both
 def test_reviews_use_a_second_model_approval_only_behind_the_open_gate(
     copy, monkeypatch
 ):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_u8_enabled", True)  # its update's switch (`aim_review.updates`)
     conn, _c, rules = _second(copy, s.FakeModel())
     pool = lambda: {r["id"] for r in library.rule_pool(conn, "datasheet", None)}  # noqa: E731
     assert (

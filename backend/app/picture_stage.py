@@ -109,7 +109,10 @@ def wanted(document_id: str) -> bool:
     recognition, and some page has no text. Never raises."""
     try:
         from . import ocr, vision_reader
+        from .aim_review.updates import u7b
 
+        if not u7b():  # 7b switched off: no page is sent at upload, as main
+            return False
         provider, _why = vision_reader.provider()
         if provider is None:
             return False

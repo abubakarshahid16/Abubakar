@@ -27,6 +27,7 @@ from . import (
 )
 from .aim_review import references as aim_review_references
 from .aim_review import unread
+from .aim_review.updates import group_mark, u7b
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
@@ -254,8 +255,7 @@ def _field_key(field) -> str:
 def editor_group(p: dict) -> int | None:
     """The editor's (S5) group mark of a line (`same_point_as`, the group's first line), or None: part of every merge key, so
     two lines the editor judged different points never share a comment (none of a run without marks changes)."""
-    group = p.get("same_point_as")
-    return group if isinstance(group, int) and not isinstance(group, bool) else None
+    return group_mark(p)  # 7b switched off: no group in any key, as main
 
 
 def _keys(sent: list[dict]) -> dict[int, tuple]:
@@ -272,7 +272,7 @@ def _keys(sent: list[dict]) -> dict[int, tuple]:
     from .aim_review.always import TOPIC as ALWAYS
 
     def key(p: dict) -> tuple:
-        own = _field_key(p.get("field")) if p.get("topic") == ALWAYS else ""
+        own = _field_key(p.get("field")) if p.get("topic") == ALWAYS and u7b() else ""
         return ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
                 _provisional_kind(p.get("code_note")), editor_group(p), own)  # fmt: skip
 

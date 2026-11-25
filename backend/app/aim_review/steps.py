@@ -535,7 +535,7 @@ def _batch_request(
         "system": "",
         "cached": cached,
         "prompt": head
-        + P.S4_TASK
+        + P.s4_task()
         % {"items": "\n".join(_dumps(_shown_item(it, books, text)) for it in batch)},
         "carries": carries,
         "max_tokens": JUDGE_MAX_TOKENS,

@@ -404,7 +404,10 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
             cancelled=lambda: _cancel_requested(conn, job_id),
             model=model,
         )
-        result.lines += _cross_document(conn, paper_id, scope, len(result.lines))
+        from .aim_review.updates import u8
+
+        if u8():  # update 8 switched off: no cross-document lines, as main
+            result.lines += _cross_document(conn, paper_id, scope, len(result.lines))
         holder["result"] = _result_dict(result)
         if _cancel_requested(conn, job_id):
             raise _Cancelled()

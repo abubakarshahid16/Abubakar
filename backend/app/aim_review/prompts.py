@@ -425,3 +425,61 @@ def _shape_blocks(body: dict) -> list[str]:
     if caches > 4:
         out.append(f"{caches} cache_control blocks (at most 4)")
     return out
+
+
+# ------------------------------------------------------------------ the way back (main 475adb91), per update switch
+#: The texts as main 475adb91 sends them, word for word (`aim_review.updates`: a switch OFF sends these). Removed when the update
+#: is switched on for good.
+CONDITIONS_ASK_MAIN = (
+    "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
+    "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
+    '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
+    "value it covers, and each material, allowance or rating suits the stated condition."
+)
+#: The judge's task as main 475adb91 sends it: S4_TASK without the three passages update 7b added (the vendor-field rule, the
+#: pressure-component rule, the values-as-printed line). Built, not copied: `tests/test_aim_updates_off.py` pins it to main.
+_7B_ADDED = (
+    "On a data sheet issued for enquiry or purchase, a field left for the\nvendor to fill (vendor to advise, by vendor, a blank vendor entry) is no fault of the sheet: at most a Question asking the vendor\nto state it with the offer, never a request to complete the sheet; the sheet's own revision and approval block is no comment.\n",
+    ': a limit the clause gives for one component of a\npressure (built-up, superimposed, constant, variable, total; internal or external; operating or design) is never held against\nanother component. A comment states every condition as the paper gives it (its own value and unit), never a stronger or a\ngeneric one (an external design pressure is not "full vacuum" unless the paper says so)',
+    "each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),\n             ",
+)
+S4_TASK_MAIN = S4_TASK
+for _added in _7B_ADDED:
+    S4_TASK_MAIN = S4_TASK_MAIN.replace(_added, "", 1)
+
+ANSWERED_TASK_MAIN = """TASK S4B - CHECK EACH COMMENT'S CLAIMS AGAINST THE WHOLE PAPER. Below are comments a reviewer would send about
+the paper above (one per line: n, field, page, comment). Read EVERY page of the paper. A comment often CLAIMS that the paper
+lacks something, leaves it blank or unstated, does not define or address it, or ONLY says X; it may also ask for something.
+For EACH comment, as a strict senior engineer checking the reviewer's work, check EVERY such claim and request against the whole
+paper, on ANY page, not only the comment's own page (another section, a table, an annex, an attachment, a note, a filled field):
+answered true when the paper states what the comment says is missing or asks for, or states the opposite of what it claims,
+for ANY ONE of its claims (a comment with one false claim is wrong as written, even when another part of it is right): give that
+claim in at most 12 words, the page, and the exact paper words that show it (5 to 30 words from that one page, character for
+character, no "..."); answered false when the paper covers none of its claims. Code checks every quote on its page.
+Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
+{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "..."}, {"n": n, "answered": false}]}
+THE COMMENTS:
+%(comments)s"""
+
+
+def conditions_ask() -> str:
+    from .updates import u7b
+
+    return CONDITIONS_ASK if u7b() else CONDITIONS_ASK_MAIN
+
+
+def knowledge_ask() -> str:
+    """KNOWLEDGE_ASK with the conditions text of the switch (main's has no gas-group sentence)."""
+    return KNOWLEDGE_ASK.replace(CONDITIONS_ASK, conditions_ask())
+
+
+def s4_task() -> str:
+    from .updates import u7b
+
+    return S4_TASK if u7b() else S4_TASK_MAIN
+
+
+def answered_task() -> str:
+    from .updates import u6b
+
+    return ANSWERED_TASK if u6b() else ANSWERED_TASK_MAIN
