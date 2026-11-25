@@ -488,8 +488,12 @@ def import_message(
         from . import technical_query_subject
 
         ref = technical_query_subject.parse(data.get("subject"))
-        if ref:  # the number in the subject IS the query's identity: a forward or a reply with the same reference joins the same query
-            same = conn.execute("SELECT id FROM technical_queries WHERE ref_key=? ORDER BY created_at LIMIT 1", (ref["reference"],)).fetchone()
+        if ref and ref["prefixed"]:  # the full number in the subject IS the query's identity: a forward or a reply with the same reference joins the same query, in the same mailbox only
+            same = conn.execute(
+                "SELECT q.id FROM technical_queries q WHERE q.ref_key=? AND EXISTS (SELECT 1 FROM query_messages m WHERE m.query_id=q.id AND m.mailbox_id IS ?) "
+                "ORDER BY q.created_at LIMIT 1",
+                (ref["reference"], mailbox_id),
+            ).fetchone()
             if same:
                 threaded = {"query_id": same["id"], "from_address": data["from_address"]}
         if thread and not threaded:
@@ -566,12 +570,12 @@ def import_message(
                 received,
                 now(),
                 now(),
-                ref["reference"] if ref else None,
+                ref["reference"] if ref and ref["prefixed"] else None,  # a bare number is not an identity: no key, so nothing can join it
                 ref["type"] if ref else None,
                 ref["number"] if ref else None,
                 ref["discipline"] if ref else None,
                 ref["title"] if ref else None,
-                0 if ref else 1,  # no number in the subject: kept, and flagged for a person; never dropped
+                0 if ref and ref["prefixed"] else 1,  # no number, or a bare one, in the subject: kept, and flagged for a person; never dropped
             ),
         )
         conn.execute(

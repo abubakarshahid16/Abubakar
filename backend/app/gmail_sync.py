@@ -37,6 +37,8 @@ def run_once() -> int:
             busy = gmail_import_jobs.active(conn, mailbox["id"])
         if busy:  # its import (or a "Check now") is running: the poller leaves it alone
             continue
+        if gmail_import_jobs.resume_due(mailbox["id"]):  # a failed import, or failed messages due for another try: queued as "Check now" would; the job polls too
+            continue
         try:
             token = gmail_auth.access_token(mailbox["id"])
             processed += len(

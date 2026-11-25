@@ -339,6 +339,7 @@ def test_the_subject_is_read_by_code_type_number_discipline_title():
     got = S.parse("Re: PRJ-CON-CO-TQ-0042 - PIPING_rev A_Hydrotest of line L-1")
     assert got == {
         "reference": "PRJ-CON-CO-TQ-42",
+        "prefixed": True,
         "type": "TQ",
         "number": "42",
         "discipline": "PIPING",
@@ -480,3 +481,174 @@ def test_a_subject_with_no_number_is_kept_and_flagged_for_a_person_and_the_list_
         and "discipline_code" in rows[0]
         and "title_short" in rows[0]
     )
+
+
+# ---------------------------------------------------------------- 6. a job is never lost (review L1)
+
+
+def _job(job_id):
+    with db.connect() as conn:
+        return dict(conn.execute("SELECT * FROM gmail_import_jobs WHERE id=?", (job_id,)).fetchone())
+
+
+def _down():
+    return httpx.ConnectError("down", request=httpx.Request("GET", "https://gmail.googleapis.com/x"))
+
+
+def test_a_server_stop_in_the_middle_of_an_import_leaves_the_job_queued_and_the_rest_is_imported_after_(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    client = FakeClient(["one", "two", "three"])
+    real = client.message
+
+    def message(message_id):
+        if message_id == "m1":  # the stop arrives after the first message
+            gmail_import_jobs._stop.set()
+        return real(message_id)
+
+    client.message = message
+    try:
+        gmail_import_jobs.run_job(job, client=client)
+    finally:
+        gmail_import_jobs._stop.clear()
+    row = _job(job)
+    assert row["state"] == "queued" and row["attempts"] == 0 and row["retry_at"] is None  # not failed, no try counted
+    assert {q["subject"] for q in tq.list_queries("u1", True, False)} == {"one", "two"}  # what was imported is kept
+    gmail_import_jobs.run_job(job, client=FakeClient(["one", "two", "three"]))  # the server is back: the job goes on
+    assert _job(job)["state"] == "done"
+    assert {q["subject"] for q in tq.list_queries("u1", True, False)} == {"one", "two", "three"}
+
+
+def test_gmail_down_at_the_start_puts_the_job_back_to_the_queue_with_a_wait_then_fails_it_after_the_last_try(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+
+    class Down(FakeClient):
+        def list_message_ids(self, label):
+            raise _down()
+
+    gmail_import_jobs.run_job(job, client=Down([]))
+    row = _job(job)
+    assert row["state"] == "queued" and row["attempts"] == 1 and row["retry_at"] and "try again by itself" in row["error"]
+    with db.connect() as conn:  # the job thread does not pick it before its time
+        ready = conn.execute(
+            "SELECT id FROM gmail_import_jobs WHERE state='queued' AND (retry_at IS NULL OR retry_at<=?)", (gmail_import_jobs._later_than(0),)
+        ).fetchall()
+        assert ready == []
+        conn.execute("UPDATE gmail_import_jobs SET attempts=? WHERE id=?", (gmail_import_jobs.MAX_ATTEMPTS - 1, job))
+    gmail_import_jobs.run_job(job, client=Down([]))
+    row = _job(job)
+    assert row["state"] == "failed" and row["error"] == gmail_import_jobs.FAILED_SENTENCE and row["retry_at"] is None
+
+
+def test_an_outage_in_the_middle_makes_the_rest_wait_and_none_of_them_is_marked_failed(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    client = FakeClient(["one", "two", "three", "four"])
+    real = client.message
+
+    def message(message_id):
+        if message_id == "m1":
+            raise _down()
+        return real(message_id)
+
+    client.message = message
+    gmail_import_jobs.run_job(job, client=client)
+    row = _job(job)
+    assert row["state"] == "queued" and row["retry_at"]
+    with db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) c FROM gmail_import_failures").fetchone()["c"] == 0  # waiting, not failed
+    assert {q["subject"] for q in tq.list_queries("u1", True, False)} == {"one"}
+    gmail_import_jobs.run_job(job, client=FakeClient(["one", "two", "three", "four"]))
+    assert _job(job)["state"] == "done"
+    assert len(tq.list_queries("u1", True, False)) == 4
+
+
+def test_a_message_that_cannot_be_read_is_still_a_named_failure_not_an_outage(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs.run_job(job, client=FakeClient(["good", "bad"], broken={"bad"}))
+    row = _job(job)
+    assert row["state"] == "done" and row["failed"] == 1 and row["retry_at"] is None
+
+
+def test_check_now_runs_a_waiting_job_at_once_and_queues_the_import_again_when_the_last_import_failed(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+
+    class Down(FakeClient):
+        def list_message_ids(self, label):
+            raise _down()
+
+    gmail_import_jobs.run_job(job, client=Down([]))
+    assert _job(job)["retry_at"]
+    same = api.check_gmail_mailbox_now("mb", OWNER)["import_job"]
+    assert same == job and _job(job)["retry_at"] is None and _job(job)["state"] == "queued"  # the waiting job is ready now
+    with db.connect() as conn:  # the job ended failed (every try used): Check now starts the IMPORT again, not a poll
+        conn.execute("UPDATE gmail_import_jobs SET state='failed', error=? WHERE id=?", ("x", job))
+    again = api.check_gmail_mailbox_now("mb", OWNER)["import_job"]
+    row = _job(again)
+    assert again != job and row["kind"] == "import" and row["label_id"] == "L1" and row["state"] == "queued"
+    gmail_import_jobs.run_job(again, client=FakeClient(["one", "two"]))
+    assert {q["subject"] for q in tq.list_queries("u1", True, False)} == {"one", "two"}  # the label mail is imported after all
+
+
+def test_the_poller_queues_a_failed_import_and_retries_failed_messages_every_fifteen_minutes_on_its_own(monkeypatch):
+    on(monkeypatch)
+    mailbox(state="active", label="L1")
+    job = gmail_import_jobs.enqueue("mb", "import", "L1")
+    with db.connect() as conn:
+        conn.execute("UPDATE gmail_import_jobs SET state='failed' WHERE id=?", (job,))
+    assert gmail_import_jobs.resume_due("mb") is True
+    with db.connect() as conn:
+        queued = conn.execute("SELECT kind FROM gmail_import_jobs WHERE state='queued'").fetchall()
+    assert [r["kind"] for r in queued] == ["import"]
+    # a failed message: tried again by the poller, but not more often than every 15 minutes
+    with db.connect() as conn:
+        conn.execute("DELETE FROM gmail_import_jobs")
+        conn.execute("DELETE FROM gmail_import_failures")
+    first = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs.run_job(first, client=FakeClient(["good", "bad"], broken={"bad"}))
+    assert gmail_import_jobs.resume_due("mb") is False  # the job ended a moment ago
+    with db.connect() as conn:
+        conn.execute("UPDATE gmail_import_jobs SET updated_at='2000-01-01T00:00:00Z'")
+    assert gmail_import_jobs.resume_due("mb") is True
+    with db.connect() as conn:
+        assert [r["kind"] for r in conn.execute("SELECT kind FROM gmail_import_jobs WHERE state='queued'")] == ["poll"]
+
+
+# ---------------------------------------------------------------- 7. one reference, one mailbox, with its prefix (review L2)
+
+
+def _msg(mailbox_id, subject, sender, n):
+    return {
+        "provider": "gmail", "mailbox_id": mailbox_id, "provider_message_id": f"{mailbox_id}-{n}", "provider_thread_id": f"t-{mailbox_id}-{n}",
+        "from_address": sender, "subject": subject, "body": "body", "to_addresses": [], "cc_addresses": [],
+    }  # fmt: skip
+
+
+def test_a_bare_number_never_joins_and_is_flagged_for_a_person(monkeypatch):
+    on(monkeypatch)
+    one, _ = tq.import_message(_msg("mb", "TQ-12 - PIPING_Gasket type", "a@one.example", 1), "u1", True, True)
+    two, dup = tq.import_message(_msg("mb", "Re: TQ-12 - PIPING_Other thing", "b@two.example", 2), "u1", True, True)
+    assert dup is False and one["id"] != two["id"]  # two senders' "TQ-12" are two queries
+    rows = {q["id"]: q for q in tq.list_queries("u1", True, False)}
+    assert rows[one["id"]]["needs_person"] and rows[two["id"]]["needs_person"]
+    assert rows[one["id"]]["ref_type"] == "TQ" and rows[one["id"]]["ref_number"] == "12"  # still shown as TQ-12
+
+
+def test_a_full_reference_joins_only_inside_the_same_mailbox(monkeypatch):
+    on(monkeypatch)
+    full = "PRJ-CON-CO-TQ-0012 - PIPING_Rev A_Gasket type"
+    first, _ = tq.import_message(_msg("mb1", full, "a@one.example", 1), "u1", True, True)
+    reply, _ = tq.import_message(_msg("mb1", "Re: " + full, "other@two.example", 2), "u1", True, True)
+    assert reply["id"] == first["id"]  # same mailbox, same full reference: one query, whoever sends it
+    other_box, _ = tq.import_message(_msg("mb2", full, "a@one.example", 3), "u1", True, True)
+    assert other_box["id"] != first["id"]  # another mailbox: its own query, not a refusal and not a join
+    rows = {q["id"]: q for q in tq.list_queries("u1", True, False)}
+    assert not rows[first["id"]]["needs_person"] and not rows[other_box["id"]]["needs_person"]

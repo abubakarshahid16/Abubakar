@@ -23,6 +23,7 @@ _DISCIPLINE = re.compile(r"^\s*[-–—]?\s*(?P<disc>[A-Za-z]{2,8})(?=[_\s]|$)")
 def parse(subject: str | None) -> dict | None:
     """`{"reference", "type", "number", "discipline", "title"}` from a subject, or None when it carries no TQ/CFC reference.
 
+    `prefixed` is False for a bare number ("TQ-12"): two senders or projects can send the same bare number, so it never joins a query.
     `reference` is the identity: the part before the type (project, contractor, company), the type and the running number, upper case, with the
     number's leading zeros removed so "TQ-007" and "TQ-7" are one. Re:/Fwd: prefixes are ignored. `discipline` is the code after the number (None
     when there is none); `title` is the last part after the underscores (or the rest of the subject), at most 200 characters."""
@@ -41,6 +42,7 @@ def parse(subject: str | None) -> dict | None:
     ).strip(" -–—_:")[:200]
     return {
         "reference": f"{prefix}{kind}-{number}",
+        "prefixed": bool(prefix),  # only a number with its project-contractor-company prefix is a query's identity; a bare "TQ-12" is not
         "type": kind,
         "number": number,
         "discipline": disc.group("disc").upper() if disc else None,

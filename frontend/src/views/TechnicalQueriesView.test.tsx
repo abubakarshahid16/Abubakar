@@ -178,13 +178,25 @@ describe("Technical Queries screen", () => {
     await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
   });
 
+  it("says a waiting import will try again by itself and keeps Check now usable", async () => {
+    const waiting = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null,
+      import_job: { id: "j", kind: "import", state: "queued", total: 0, done: 0, failed: 0, error: "Gmail could not be read just now. It will try again by itself, or use Check now.", failures: [] } };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [waiting] } });
+    api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j" } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByRole("alert")).textContent).toContain("try again by itself");
+    expect(screen.queryByTestId("import-progress")).toBeNull();
+    fireEvent.click(await screen.findByText("Check now"));
+    await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
+  });
+
   it("lists type, discipline, number and title, flags a subject with no number, and filters by them", async () => {
     const withRef = { ...query, id: "q1", subject: "PRJ-CON-CO-TQ-12 - PIPING_a_Coating question", ref_type: "TQ", ref_number: "12", discipline_code: "PIPING", title_short: "Coating question", needs_person: 0 };
     const noRef = { ...query, id: "q2", subject: "Please advise", needs_person: 1 };
     api.list.mockResolvedValue({ ok: true, data: { items: [withRef, noRef] } });
     render(<TechnicalQueriesView />);
     expect(await screen.findByText("TQ-12 · PIPING · Coating question")).toBeTruthy();
-    expect((await screen.findByTestId("needs-person")).textContent).toContain("no TQ or CFC number");
+    expect((await screen.findByTestId("needs-person")).textContent).toContain("no full TQ or CFC number");
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "CFC" } });
     fireEvent.change(screen.getByLabelText("Discipline code"), { target: { value: "civil" } });
     fireEvent.change(screen.getByLabelText("Running number"), { target: { value: "7" } });

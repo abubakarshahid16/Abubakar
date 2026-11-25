@@ -459,7 +459,7 @@ def activate_gmail_mailbox(
 
 @router.post("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/check-now", response_model=CheckNowOut)
 def check_gmail_mailbox_now(mailbox_id: str, scope: access.AccessScope = Depends(access.current_scope)):
-    """"Check now": queue ONE poll (the failed messages of the last import are tried once more, then the new mail). Answers at once."""
+    """"Check now": a waiting job runs at once; if the last import ended failed it is queued again; else ONE poll is queued (the failed messages of the last import are tried once more, then the new mail). Answers at once."""
     _require_identity_to_write(scope)
     if not scope.is_admin or not scope.user_id:
         raise HTTPException(status_code=403, detail="an administrator is required")
@@ -469,7 +469,7 @@ def check_gmail_mailbox_now(mailbox_id: str, scope: access.AccessScope = Depends
         ).fetchone()
     if mailbox is None:
         raise HTTPException(status_code=404, detail="mailbox is not active")
-    return {"import_job": gmail_import_jobs.enqueue(mailbox_id, "poll")}
+    return {"import_job": gmail_import_jobs.check_now(mailbox_id)}
 
 
 class OauthCompleteIn(BaseModel):

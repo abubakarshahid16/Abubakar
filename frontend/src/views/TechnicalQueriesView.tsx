@@ -143,7 +143,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     });
   };
 
-  const importing = mailboxes.some((mailbox) => mailbox.import_job && (mailbox.import_job.state === "queued" || mailbox.import_job.state === "running"));
+  const importing = mailboxes.some((mailbox) => mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)));
   useEffect(() => {
     // The mailbox import is a background job: ask again every few seconds while it is queued or running ("imported N of M", "last checked at").
     if (!importing) return;
@@ -235,7 +235,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           <input id="query-discipline-filter" value={disciplineFilter} onChange={(event) => setDisciplineFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
           <label className="block text-xs text-slateish-300" htmlFor="query-number-filter">Running number</label>
           <input id="query-number-filter" value={numberFilter} onChange={(event) => setNumberFilter(event.target.value)} inputMode="numeric" className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          <label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={needsPersonFilter} onChange={(event) => setNeedsPersonFilter(event.target.checked)} />Needs a person (no number in the subject)</label>
+          <label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={needsPersonFilter} onChange={(event) => setNeedsPersonFilter(event.target.checked)} />Needs a person (no full number in the subject)</label>
           <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Refresh and apply filters</button>
           {rules !== null && <details className="mt-4 rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Routing rules ({rules.length})</summary>
             <p className="mt-2 text-slateish-400">A match fills a blank contractor or department when an email arrives. A public mail domain cannot be routed; an exact address can.</p>
@@ -264,9 +264,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         </div>}
         {mailboxes.filter((mailbox) => mailbox.connection_state === "active").map((mailbox) => <div key={mailbox.id} className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200" data-testid="mailbox-status">
           <p>Mailbox {mailbox.email} is active. {mailbox.last_checked_at ? <>Last checked at <span data-testid="last-checked">{formatWhen(mailbox.last_checked_at)}</span>.</> : "Not checked yet."}</p>
-          {mailbox.import_job && (mailbox.import_job.state === "queued" || mailbox.import_job.state === "running") && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: imported {mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}. You can leave this page; it carries on.</p>}
+          {mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)) && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: imported {mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}. You can leave this page; it carries on.</p>}
           {mailbox.import_job?.state === "done" && mailbox.import_job.kind === "import" && <p data-testid="import-done">Import finished: imported {mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}.</p>}
-          {mailbox.import_job?.state === "failed" && <p role="alert" className="text-warn-500">{mailbox.import_job.error}</p>}
+          {(mailbox.import_job?.state === "failed" || (mailbox.import_job?.state === "queued" && mailbox.import_job.error)) && <p role="alert" className="text-warn-500">{mailbox.import_job?.error}</p>}
           {mailbox.import_job && mailbox.import_job.failures.length > 0 && <ul className="mt-1 list-disc pl-5 text-warn-500" data-testid="import-failures">{mailbox.import_job.failures.map((failure, index) => <li key={index}>{failure.subject}: {failure.reason}</li>)}</ul>}
           <button type="button" disabled={busy || importing} onClick={() => { setError(null); void technicalQueriesApi.checkNow(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }} className="mt-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Check now</button>
         </div>)}
@@ -290,7 +290,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
-              {item.needs_person ? <span className="mt-1 inline-block rounded border border-warn-500 px-1 text-xs text-warn-500" data-testid="needs-person">Needs a person: no TQ or CFC number in the subject</span> : null}
+              {item.needs_person ? <span className="mt-1 inline-block rounded border border-warn-500 px-1 text-xs text-warn-500" data-testid="needs-person">Needs a person: no full TQ or CFC number in the subject</span> : null}
               <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "Unknown contractor"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
             </button>
           ))}

@@ -3,9 +3,12 @@ the request and only then set the mailbox active, so a long import, a timeout or
 
 Activation now saves the label and sets the mailbox ACTIVE first, in one short request, and queues an import job. One job runs at a time on its own thread: it
 lists the label's messages and imports them ONE AT A TIME, each in its own transaction, saving progress ("imported N of M") as it goes. A message that fails
-is counted and named by its subject and NEVER stops the rest. A job left running by a stopped server goes back to the queue (the import is safe to run
-again: a message already imported is a duplicate and counts as done). "Check now" queues one poll (the failed messages of the last import are tried once more,
-then the history since the last check). The poller skips a mailbox while its import runs. Everything is written under the data folder; nothing is written
+is counted and named by its subject and NEVER stops the rest. A job is never lost: a server stop (every live update restarts the server) leaves it QUEUED,
+a job left running by a killed server goes back to the queue, and when Gmail cannot be reached (at the start or in the middle) the job goes back to the queue with
+a growing wait and the messages it did not reach wait for it (they are never all marked failed); the import is safe to run again: a message already imported
+is a duplicate and counts as done. "Check now" runs a waiting job at once, queues the import again when the last import ended failed, else queues one poll
+(the failed messages of the last import are tried once more, then the history since the last check). The poller does the same on its own (a failed import
+is queued again; failed messages are tried again every 15 minutes) and skips a mailbox while its job runs. Everything is written under the data folder; nothing is written
 into the code folder, so a development server that reloads on file changes is not triggered.
 """
 
@@ -28,6 +31,26 @@ _stop = threading.Event()
 _thread: threading.Thread | None = None
 _lock = threading.Lock()
 MAX_NAMED = 50
+#: Seconds a job waits after Gmail could not be reached, by attempt (the last one repeats); after MAX_ATTEMPTS the job is failed and "Check now" starts it again.
+BACKOFF_SECONDS = (60, 120, 300, 600, 900)
+MAX_ATTEMPTS = 8
+RETRY_FAILED_MESSAGES_SECONDS = 900
+WAITING_SENTENCE = "Gmail could not be read just now. It will try again by itself, or use Check now."
+FAILED_SENTENCE = "Gmail could not be read just now. Use Check now to try again."
+
+
+class Interrupted(Exception):
+    """The server is stopping: the job stays queued and goes on when the server is back."""
+
+
+def _outage(exc: Exception) -> bool:
+    """Gmail or the network could not answer (a transport fault, a timeout, a server error, a refused token, a rate limit): not the message's fault."""
+    if isinstance(exc, httpx.TransportError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code in (401, 403, 429) or code >= 500
+    return False
 
 
 def create_tables(conn) -> None:
@@ -43,10 +66,16 @@ def create_tables(conn) -> None:
     columns = {r["name"] for r in conn.execute("PRAGMA table_info(gmail_mailboxes)")}
     if columns and "last_checked_at" not in columns:
         conn.execute("ALTER TABLE gmail_mailboxes ADD COLUMN last_checked_at TEXT")
+    job_columns = {r["name"] for r in conn.execute("PRAGMA table_info(gmail_import_jobs)")}
+    if "retry_at" not in job_columns:
+        conn.execute("ALTER TABLE gmail_import_jobs ADD COLUMN retry_at TEXT")
+    if "attempts" not in job_columns:
+        conn.execute("ALTER TABLE gmail_import_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
 
 
-def enqueue(mailbox_id: str, kind: str, label_id: str | None = None) -> str:
-    """Queue a job ("import" of the label, or one "poll"); the active job of the mailbox is returned instead of a second one."""
+def enqueue(mailbox_id: str, kind: str, label_id: str | None = None, *, run_now: bool = False) -> str:
+    """Queue a job ("import" of the label, or one "poll"); the active job of the mailbox is returned instead of a second one
+    (`run_now`: a job waiting for its next try is made ready at once)."""
     with connect() as conn:
         create_tables(conn)
         active = conn.execute(
@@ -54,6 +83,11 @@ def enqueue(mailbox_id: str, kind: str, label_id: str | None = None) -> str:
             (mailbox_id,),
         ).fetchone()
         if active:
+            if run_now:
+                conn.execute("UPDATE gmail_import_jobs SET retry_at=NULL WHERE id=? AND state='queued'", (active["id"],))
+                _wake.set()
+                if AUTO_START:
+                    start()
             return active["id"]
         job_id, at = str(uuid.uuid4()), technical_queries.now()
         conn.execute(
@@ -108,6 +142,51 @@ def latest(conn, mailbox_id: str) -> dict | None:
         )
     ]
     return job
+
+
+def check_now(mailbox_id: str) -> str:
+    """"Check now": a job waiting for its next try runs at once; else, when the last IMPORT of the mailbox ended failed, the import is queued again (the label
+    mail it never reached is not lost); else one poll is queued. Returns the job id."""
+    with connect() as conn:
+        create_tables(conn)
+        box = conn.execute("SELECT label_id FROM gmail_mailboxes WHERE id=?", (mailbox_id,)).fetchone()
+        last = conn.execute(
+            "SELECT state FROM gmail_import_jobs WHERE mailbox_id=? AND kind='import' ORDER BY created_at DESC, rowid DESC LIMIT 1", (mailbox_id,)
+        ).fetchone()
+    if last is not None and last["state"] == "failed" and box is not None and box["label_id"]:
+        return enqueue(mailbox_id, "import", box["label_id"], run_now=True)
+    return enqueue(mailbox_id, "poll", run_now=True)
+
+
+def resume_due(mailbox_id: str) -> bool:
+    """For the poller, on its own: queue what a person would press "Check now" for. True when a job was queued (the poller then leaves the mailbox to it)."""
+    with connect() as conn:
+        create_tables(conn)
+        box = conn.execute("SELECT label_id FROM gmail_mailboxes WHERE id=?", (mailbox_id,)).fetchone()
+        last = conn.execute(
+            "SELECT state FROM gmail_import_jobs WHERE mailbox_id=? AND kind='import' ORDER BY created_at DESC, rowid DESC LIMIT 1", (mailbox_id,)
+        ).fetchone()
+        stale = conn.execute(
+            "SELECT 1 FROM gmail_import_failures f JOIN gmail_import_jobs j ON j.id=f.job_id WHERE j.mailbox_id=? LIMIT 1", (mailbox_id,)
+        ).fetchone()
+        newest = conn.execute("SELECT MAX(updated_at) m FROM gmail_import_jobs WHERE mailbox_id=?", (mailbox_id,)).fetchone()["m"]
+    if last is not None and last["state"] == "failed" and box is not None and box["label_id"]:
+        enqueue(mailbox_id, "import", box["label_id"])
+        return True
+    if stale is not None and (newest is None or newest <= _ago(RETRY_FAILED_MESSAGES_SECONDS)):
+        enqueue(mailbox_id, "poll")
+        return True
+    return False
+
+
+def _ago(seconds: int) -> str:
+    return _later_than(-seconds)
+
+
+def _later_than(seconds: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _set(job_id: str, **fields) -> None:
@@ -166,30 +245,41 @@ def run_job(job_id: str, *, client=None) -> None:
         )
     if job is None or box is None:
         return
-    _set(job_id, state="running")
+    _set(job_id, state="running", retry_at=None, error=None)
     try:
         client = client or _client(box["id"])
         admin_role = None
         if settings.auth_mode != access.AUTH_DISABLED:
             admin_role, held = access.upload_admin_role(box["owner_user_id"])
             if not held:
-                raise PermissionError(
-                    "the mailbox owner must hold the administrator role"
-                )
+                raise PermissionError("the mailbox owner must hold the administrator role")
         if job["kind"] == "poll":
             _poll(job_id, client, box, admin_role)
         else:
             _import(job_id, client, box, job["label_id"] or box["label_id"], admin_role)
-    except Exception as exc:  # noqa: BLE001 - the job says it failed (by type, never the text); the mailbox stays active
-        log.warning("gmail import job failed (%s)", type(exc).__name__)
-        _set(
-            job_id,
-            state="failed",
-            error="Gmail could not be read just now. Use Check now to try again.",
-        )
+    except Interrupted:  # the server is stopping: the job stays queued, nothing is lost, no try is counted
+        _set(job_id, state="queued")
+        return
+    except PermissionError:  # not a Gmail fault: waiting would not help
+        log.warning("gmail import job failed (PermissionError)")
+        _set(job_id, state="failed", error=FAILED_SENTENCE)
+        return
+    except Exception as exc:  # noqa: BLE001 - Gmail could not be reached, at the start or in the middle: back to the queue with a growing wait (by type, never the text)
+        log.warning("gmail import job will be tried again (%s)", type(exc).__name__)
+        _try_again_later(job_id, int(job["attempts"] or 0))
         return
     _checked(box["id"])
     _set(job_id, state="done")
+
+
+def _try_again_later(job_id: str, tried: int) -> None:
+    """Back to the queue after the wait for this attempt; after MAX_ATTEMPTS it is failed and "Check now" starts it again."""
+    attempts = tried + 1
+    if attempts >= MAX_ATTEMPTS:
+        _set(job_id, state="failed", error=FAILED_SENTENCE, attempts=attempts, retry_at=None)
+        return
+    wait = BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)]
+    _set(job_id, state="queued", error=WAITING_SENTENCE, attempts=attempts, retry_at=_later_than(wait))
 
 
 def _import_one(
@@ -208,6 +298,8 @@ def _import_one(
         )  # fmt: skip
         return True
     except Exception as exc:  # noqa: BLE001 - counted, named by subject, and never stops the rest
+        if _outage(exc):  # Gmail, not the message: the job waits and goes on with the messages it did not reach
+            raise
         log.warning("gmail import: a message failed (%s)", type(exc).__name__)
         _fail(job_id, message_id, subject, exc)
         progress_failed()
@@ -220,7 +312,7 @@ def _import(job_id, client, box, label_id, admin_role) -> None:
     done = failed = 0
     for message_id in ids:
         if _stop.is_set():
-            raise RuntimeError("stopped")
+            raise Interrupted()
         ok = _import_one(
             job_id, client, box, label_id, admin_role, message_id, lambda: None
         )
@@ -242,6 +334,8 @@ def _poll(job_id, client, box, admin_role) -> None:
     _set(job_id, total=len(again))
     done = failed = 0
     for message_id, known_subject in again.items():
+        if _stop.is_set():
+            raise Interrupted()
         ok = _import_one(
             job_id, client, box, box["label_id"], admin_role, message_id, lambda: None, known_subject
         )
@@ -252,10 +346,7 @@ def _poll(job_id, client, box, admin_role) -> None:
             with connect() as conn:  # imported now: no longer a failure to retry
                 conn.execute("DELETE FROM gmail_import_failures WHERE provider_message_id=? AND job_id IN (SELECT id FROM gmail_import_jobs WHERE mailbox_id=?)", (message_id, box["id"]))  # fmt: skip
     if box["label_id"] and box["connection_state"] == "active":
-        try:
-            gmail_worker.poll_mailbox(client, box["id"], box["owner_user_id"])
-        except httpx.HTTPError:
-            raise
+        gmail_worker.poll_mailbox(client, box["id"], box["owner_user_id"])
 
 
 def _loop() -> None:
@@ -263,10 +354,11 @@ def _loop() -> None:
         with connect() as conn:
             create_tables(conn)
             nxt = conn.execute(
-                "SELECT id FROM gmail_import_jobs WHERE state='queued' ORDER BY created_at LIMIT 1"
+                "SELECT id FROM gmail_import_jobs WHERE state='queued' AND (retry_at IS NULL OR retry_at<=?) ORDER BY created_at LIMIT 1",
+                (_later_than(0),),
             ).fetchone()
         if nxt is None:
-            _wake.wait(30)
+            _wake.wait(15)
             _wake.clear()
             continue
         run_job(nxt["id"])
