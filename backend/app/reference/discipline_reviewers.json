@@ -1,0 +1,68 @@
+{
+  "version": "2026-11-26.1",
+  "note": "Discipline reviewers of the general review's judge (S4), owner order 25 Nov 2026 (planner note 23:35 b, item 4). Each is the same judge with its own section of what a senior engineer of that discipline checks and worked examples. Every example is INVENTED (invented books, clauses, values); no client paper, no real rule book. Routed by the paper's kind and its equipment family (equipment_taxonomy.json), in code: no AI manager.",
+  "reviewers": {
+    "mechanical": {
+      "title": "senior mechanical engineer",
+      "kinds": ["datasheet", "calculation", "drawing", "test record"],
+      "families": ["rotating", "static", "heat_transfer", "valves", "pressure_relief", "piping", "lifting", "packages"],
+      "checks": [
+        "Design pressure and design temperature of EACH pressure part (casing, shell, head, nozzle, flange, seal chamber) against the stated operating and upset cases and the rule's margin; a limit for one part never judges another part.",
+        "Flange rating and facing against the design pressure at the design temperature; the rating class the paper states is a value: give numbers when the rule sets the limit.",
+        "Material of each wetted and pressure part against the stated service (sour, chloride, caustic, low or high temperature) and the rule's restrictions; impact testing where the minimum design temperature is low.",
+        "Corrosion allowance, wall or plate thickness and their basis, where a rule sets a minimum.",
+        "Test pressure (hydrostatic or pneumatic) and its basis, and the test medium where a rule restricts it.",
+        "Driver power against the rated duty and the rule's margin; speed, vibration and noise limits; allowable nozzle loads, where the rule sets them.",
+        "Relief and protection: set pressure, accumulation and back pressure as stated, the kind of back pressure (constant, variable, built-up) kept apart.",
+        "A value the vendor left open (TBA, TBD, later, by vendor, blank) is a Question, never Met or Not met; a value the paper fills in beside such a note is a stated value."
+      ],
+      "examples": [
+        {
+          "item": {"id": "X1", "topic": "corrosion allowance", "what_to_check": "corrosion allowance of the pressure parts at least the rule's minimum", "standard": "Invented Rule Book M", "clause": "6.4", "rule_quote": "The corrosion allowance of pressure parts shall be not less than 3 mm.", "applies_when": "always", "source": "held standard"},
+          "paper": {"page": 2, "quote": "Corrosion allowance (pressure parts): 1.5 mm"},
+          "answer": {"id": "X1", "label": "Not met", "field": "Corrosion allowance", "page": 2, "quote": "Corrosion allowance (pressure parts): 1.5 mm", "numbers": {"paper_value": "1.5", "paper_unit": "mm", "operator": ">=", "rule_value": "3", "rule_unit": "mm"}, "comment": "The corrosion allowance of the pressure parts is 1.5 mm; the rule asks for at least 3 mm. Please revise the allowance or state the approved deviation."}
+        },
+        {
+          "item": {"id": "X2", "topic": "material for sour service", "what_to_check": "wetted material suitable for the stated sour service", "standard": "Invented Rule Book M", "clause": "8.1", "rule_quote": "Wetted parts in sour service shall be of a material qualified for that service.", "applies_when": "the service is sour", "source": "held standard"},
+          "paper": {"page": 3, "quote": "Wetted parts material: by vendor   Service: sour water"},
+          "answer": {"id": "X2", "label": "Question", "field": "Wetted parts material", "page": 3, "quote": "Wetted parts material: by vendor   Service: sour water", "deferred": true, "ask": "confirm", "numbers": null, "comment": "The wetted parts material is left to the vendor for a sour service. Please state the material and its qualification for sour service."}
+        },
+        {
+          "item": {"id": "X3", "topic": "impact testing", "what_to_check": "impact testing of pressure parts when the minimum design temperature is below the rule's limit", "standard": "Invented Rule Book M", "clause": "9.2", "rule_quote": "Pressure parts for a minimum design temperature below -29 C shall be impact tested.", "applies_when": "the minimum design temperature is below -29 C", "source": "held standard"},
+          "paper": {"page": 2, "quote": "Minimum design metal temperature: 0 C"},
+          "answer": {"id": "X3", "label": "Does not apply", "field": "Minimum design metal temperature", "page": 2, "quote": "Minimum design metal temperature: 0 C", "numbers": null, "comment": ""}
+        }
+      ]
+    },
+    "contract": {
+      "title": "senior contracts engineer",
+      "kinds": ["contract"],
+      "families": [],
+      "checks": [
+        "Scope boundaries and the parties' obligations against the contract rule book: what is in, what is out, who supplies what.",
+        "Periods and amounts are values: warranty and defects periods and their start (delivery, acceptance), payment terms, liability caps, liquidated damages rates and caps, insurance limits, retention; give numbers whenever the clause sets a limit.",
+        "The order of precedence of the contract documents, and conflicts between two clauses of the SAME contract: name both places (the second as \"other\").",
+        "Termination, suspension, change and variation, force majeure, governing law and dispute resolution, as the rule book requires them.",
+        "Required schedules and attachments named by the rule book: present, referenced and consistent.",
+        "A term the contract leaves open (to be agreed, TBA, blank) is a Question, never Met or Not met; a figure stated beside such a note is a stated value."
+      ],
+      "examples": [
+        {
+          "item": {"id": "Y1", "topic": "warranty period", "what_to_check": "warranty period at least the rule's minimum, from acceptance", "standard": "Invented Contract Rule Book", "clause": "12.1", "rule_quote": "The warranty period shall be not less than 24 months from acceptance.", "applies_when": "always", "source": "held standard"},
+          "paper": {"page": 7, "quote": "The Warranty Period shall be twelve (12) months from the date of delivery."},
+          "answer": {"id": "Y1", "label": "Not met", "field": "Warranty period", "page": 7, "quote": "The Warranty Period shall be twelve (12) months from the date of delivery.", "numbers": {"paper_value": "12", "paper_unit": "months", "operator": ">=", "rule_value": "24", "rule_unit": "months"}, "comment": "The warranty is 12 months from delivery; the rule asks for at least 24 months from acceptance. Please revise both the period and its start."}
+        },
+        {
+          "item": {"id": "Y2", "topic": "liquidated damages", "what_to_check": "a liquidated damages rate and cap are stated", "standard": "Invented Contract Rule Book", "clause": "15.3", "rule_quote": "The contract shall state the rate of liquidated damages for delay and their cap.", "applies_when": "always", "source": "held standard"},
+          "paper": {"page": 11, "quote": "Liquidated damages for delay: rate and cap to be agreed between the Parties."},
+          "answer": {"id": "Y2", "label": "Question", "field": "Liquidated damages", "page": 11, "quote": "Liquidated damages for delay: rate and cap to be agreed between the Parties.", "deferred": true, "ask": "confirm", "numbers": null, "comment": "The delay damages rate and cap are left to be agreed. Please state both figures."}
+        },
+        {
+          "item": {"id": "Y3", "topic": "payment terms", "what_to_check": "one payment period stated throughout the contract", "standard": "Invented Contract Rule Book", "clause": "9.2", "rule_quote": "Payment shall be made within the period stated in the contract.", "applies_when": "always", "source": "held standard"},
+          "paper": {"page": 5, "quote": "Payment shall be made within thirty (30) days of receipt of a valid invoice."},
+          "answer": {"id": "Y3", "label": "AI opinion", "field": "Payment period", "page": 5, "quote": "Payment shall be made within thirty (30) days of receipt of a valid invoice.", "other": {"page": 14, "quote": "invoices shall be paid within sixty (60) days of their receipt"}, "items": ["the Contract, clause on payment", "Schedule of payment"], "numbers": null, "comment": "The payment period is 30 days on page 5 and 60 days on page 14. Please state which period governs and correct the other."}
+        }
+      ]
+    }
+  }
+}
