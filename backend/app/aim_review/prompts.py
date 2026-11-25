@@ -195,12 +195,12 @@ answered true when the paper states what the comment says is missing or asks for
 for ANY ONE of its claims (a comment with one false claim is wrong as written, even when another part of it is right): give that
 claim in at most 12 words, the page, and the exact paper words that show it (5 to 30 words from that one page, character for
 character, no "..."); answered false when the paper covers none of its claims. Code checks every quote on its page.
-For an answered comment also give "main": true when the answered claim IS the comment's main point (what its field is about, or
-its main request), false when it is a side remark beside another point the paper does not answer; and "comment_words": the
-comment's OWN words that make the answered claim (a whole sentence or clause, character for character), so code can cut them.
-Reply COMPACT, with ONE JSON object only and no other words; repeat a comment's words only in "comment_words":
-{"verdicts": [{"n": n, "answered": true, "claim": "...", "main": true, "comment_words": "...", "page": p, "quote": "..."},
- {"n": n, "answered": false}]}
+For an answered comment also give "claims": EVERY claim and request of that comment, each with "words" (the comment's OWN words
+for it, a whole sentence or clause, character for character, so code can cut it) and "answered": true with its own "page" and
+"quote" (as above) when the paper states it, or false when the paper does not.
+Reply COMPACT, with ONE JSON object only and no other words; repeat a comment's words only in "words":
+{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "...", "claims": [{"words": "...", "answered": true,
+ "page": p, "quote": "..."}, {"words": "...", "answered": false}]}, {"n": n, "answered": false}]}
 THE COMMENTS:
 %(comments)s"""
 

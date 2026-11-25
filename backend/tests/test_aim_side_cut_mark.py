@@ -5,6 +5,8 @@ comment only. Invented words only."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app import (
     aim_review_card,
     aim_review_contractor,
@@ -20,9 +22,14 @@ FULL = "The test is set to NO for a pressure part. The team record is not named.
 
 def _cut_point():
     d = {"comment": FULL, "code": "", "ask": "concern", "label": "Question"}
-    answer = {"n": 1, "page": 2, "quote": "the team record is named here", "claim": "record named", "main": False,
-              "comment_words": "The team record is not named."}  # fmt: skip
-    assert A._outcome(answer, d) == "cut"
+    answer = {"n": 1, "page": 2, "quote": "the team record is named here", "claim": "record named",
+              "claims": [{"words": "The team record is not named.", "answered": True, "page": 2, "quote": "the team record is named here"},
+                         {"words": "The test is set to NO for a pressure part.", "answered": False}]}  # fmt: skip
+
+    paper = SimpleNamespace(
+        pages={2: "Invented: the team record is named here, on this page."}
+    )
+    assert A._outcome(answer, d, paper) == "cut"
     p = point(1, comment=d["comment"], ask="concern")
     p.update(
         aim_review_view.line_view(
@@ -36,7 +43,7 @@ def test_a_cut_rows_team_note_on_the_comments_sheet_has_the_mark_and_the_full_te
     p = _cut_point()
     comments, _ = aim_review_view.comments_and_confirmations([p])
     card = aim_review_card.card(comments[0], [p])
-    assert card["cut"] == [{"page": 2, "before": FULL}]
+    assert card["cut"] == [{"page": 2, "pages": [2], "before": FULL}]
     assert (
         card["we_ask"] == "The test is set to NO for a pressure part. State the test."
     )
