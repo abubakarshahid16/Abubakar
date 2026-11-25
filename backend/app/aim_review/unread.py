@@ -2,9 +2,9 @@
 
 A page counts as read only when text came back for it: the PDF's text layer, or a picture reading (the app's local recognition,
 `ocr`, of a scan or of a page that is a picture). A page with neither is NOT read, and the review says so on the results page and
-on the team file; it is never silently left out. A page whose picture reading has not run yet is read first, locally, a few at a
-time (`MAX_RECOGNISE`), through the app's own recognition path: nothing new leaves the computer. A Word file's pictures count the
-same way: a picture with no stored reading is a picture not read.
+on the team file; it is never silently left out. A page whose picture reading has not run yet is only NAMED as waiting (the upload's
+own recognition reads it; the review never runs recognition itself). A Word file's pictures count the same way: a picture with no
+stored reading is a picture not read.
 
 The record is ids and codes only ("page 7: no_text"), never document text. No model, no network.
 """
@@ -44,7 +44,7 @@ NONE, NOT_CHECKED = "none", "not_checked"
 LISTED, ALL_READ, NOT_RECORDED = "listed", "all_read", "not_recorded"
 
 
-def with_unread(conn, paper_id: str, paper, reload):
+def with_unread(conn, paper_id: str, paper, reload):  # noqa: ARG001 - kept for the caller; 7b gives it back its use
     """The paper with its `unread` list filled: a PDF's pages with no usable text (waiting pages are named, not read here), or a Word
     file's pictures with no reading. `reload` is kept for the caller's signature. Never raises."""
     try:
