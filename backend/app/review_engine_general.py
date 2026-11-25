@@ -192,7 +192,9 @@ def _recent_account_refusal(conn) -> str | None:
 
     if not aim_review_store.has_tables(conn):
         return None
-    since = (datetime.now(UTC) - timedelta(hours=ACCOUNT_REFUSAL_HOURS)).isoformat(timespec="seconds")
+    since = (datetime.now(UTC) - timedelta(hours=ACCOUNT_REFUSAL_HOURS)).isoformat(
+        timespec="seconds"
+    )
     row = conn.execute(
         f"SELECT stop_reason FROM {aim_review_store.RUNS} WHERE status = 'stopped' AND created_at >= ? AND ("
         + " OR ".join("stop_reason LIKE ?" for _ in aim_review_gate.ACCOUNT_WORDS)
@@ -231,7 +233,9 @@ def general_plan(
         "exact": False,
     }
     out["notes"] = _notes(plan, settings)
-    if refusal := _recent_account_refusal(conn):  # the last Claude call was refused by the account: say it before the start
+    if refusal := _recent_account_refusal(
+        conn
+    ):  # the last Claude call was refused by the account: say it before the start
         out["notes"] = [*out["notes"], refusal]
     if plan.refused:
         out["sentence"] = (
