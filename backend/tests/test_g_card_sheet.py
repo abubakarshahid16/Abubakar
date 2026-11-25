@@ -59,7 +59,7 @@ def test_each_comment_row_is_a_card(workbook):
             r[at["Severity"]] in CARD.SEVERITIES[:3]
         )  # a comment is never "Please confirm" (its own sheet)
         assert r[at["Title"]] and len(str(r[at["Title"]]).split()) <= CARD.TITLE_WORDS
-        assert r[at["We ask"]] and r[at["Paper says"]]
+        assert r[at["We ask"]]  # PAPER SAYS is a code-verified quote or nothing (planner 19 Nov, item 2): this fixture's quotes are not on its pages, so it is empty
         assert r[
             at["Applies to"]
         ]  # one line per place: "p4 · field", or the field alone when the place has no page (never "p0")

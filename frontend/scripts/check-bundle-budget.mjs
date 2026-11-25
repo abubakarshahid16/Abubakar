@@ -20,7 +20,9 @@ const root = join(process.cwd(), "dist", "assets");
 // screens still ship as the way back; retiring them is on the after-proof list.
 // Update 7 (25 Nov 2026): 325000 -> 325100 bytes: the "points decided by code" sentence in the results counts (A; the base
 // had 4 bytes left; lead 4 to confirm); same way-back reason.
-const max = 325100;
+// Update 7 (25 Nov 2026): 325100 -> 327000 bytes: a reason for every book, one chip per field with its pages, "Review this paper again",
+// the AI's equipment in the header, "Choose Claude" for a held-back paper and the busy/stopped words (about 0.5 KB gzip; owner's deadline order).
+const max = 327000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;

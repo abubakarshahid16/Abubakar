@@ -2720,6 +2720,8 @@ export interface ClassificationCoverage {
   by_discipline: CoverageByDiscipline[];
   by_subject: CoverageBySubject[];
   needs_classification: number;
+  /** The one "awaiting a type" count (no register type, no role): the Documents page and the Dashboard say this same number. */
+  awaiting_type?: number;
   /** True only for a caller holding the admin capability. When true the
    *  counts cover every document; when false they cover this caller's
    *  grants. A count with no stated boundary reads as total, so the screen

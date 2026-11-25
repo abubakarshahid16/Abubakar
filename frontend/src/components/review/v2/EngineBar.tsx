@@ -12,6 +12,9 @@ import { LeavingList } from "../panels/LeavingList";
 import { ENGINE_LABELS, NEEDS_YES, costWords, engineWords, wontRunWords } from "./words";
 import { usePlan } from "./usePoints";
 
+/** The plan's refusal codes that choosing Claude explicitly lifts (the same list the server's `LIFTED_BY_CLAUDE` holds). */
+const LIFTED_BY_CLAUDE = ["NEEDS_YES", "NOT_APPROVED", "BOOKS_NOT_APPROVED", "UNSCORED"];
+
 export function EngineBar({ documentId, isAdmin, onStarted }: {
   documentId: string | null; isAdmin: boolean | undefined; onStarted: (runId: string) => void;
 }) {
@@ -77,6 +80,16 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
         ) : <span className="text-xs text-slateish-400">Only an administrator can start a review.</span>}
       </div>
       {plan.state === "loading" && documentId && <p className="text-right text-xs text-slateish-400">Checking what this would do…</p>}
+      {/* Automatic held this paper back for a reason the explicit choice of Claude lifts (not scored for Automatic, a contract, not approved):
+          the way forward is ONE click, never a greyed-out button with no way out (first-time user, 19 Nov: the HAZOP plan) */}
+      {engine === "automatic" && ready?.refused && ready.refused_code != null && LIFTED_BY_CLAUDE.includes(ready.refused_code) && (
+        <p className="text-right text-xs">
+          <button type="button" data-testid="v2-choose-claude" onClick={() => choose("claude")}
+            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1 text-signal-300 hover:bg-ink-700">
+            Choose Claude to review this paper
+          </button>
+        </p>
+      )}
       {plan.state === "error" && <p role="alert" className="text-right text-xs text-warn-500">{plan.message}</p>}
       {failedClosed && (
         <p role="alert" data-testid="v2-failed-closed" className="text-right text-xs text-warn-500">
