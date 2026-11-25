@@ -257,3 +257,35 @@ def unique_not_held(not_held: list[dict]) -> list[dict]:
             seen.add(key)
             out.append(n)
     return out
+
+
+def fallback_reasons(
+    conn, paper_id: str, ident: dict, allowed_books, cited
+) -> dict[str, str]:
+    """{book id: the table's reason} (governs the equipment type, method book of the kind, cited by the paper) for the books the type
+    requires: the words stored beside a book the scope step gave none for (planner 19 Nov, item 1). Held tables only; no model."""
+    from . import checklist as CL
+
+    try:
+        want = CL.wanted(conn, paper_id, CL.type_identity(ident), allowed_books, cited)
+    except Exception as exc:  # noqa: BLE001 - a reason is never worth a failed review
+        log.info(
+            "general review: the table reasons were not read (%s)", type(exc).__name__
+        )
+        return {}
+    return {str(d): str(w) for d, w in (want.get("listed") or {}).items() if w}
+
+
+def every_reason(
+    why: dict[str, str], fallback: dict[str, str], books, reused: bool
+) -> dict[str, str]:
+    """A reason for EVERY book the run carried: the scope step's words, else the table's reason, else where the book came from (the saved
+    checklist, or the rules of this kind). Nothing is stored as "not recorded" for a book the review used."""
+    from . import WHY_RULES, WHY_SAVED
+
+    last = WHY_SAVED if reused else WHY_RULES
+    out = dict(why)
+    for book in books:
+        if not str(out.get(book) or "").strip():
+            out[book] = fallback.get(book) or last
+    return out
