@@ -266,17 +266,21 @@ def test_every_verdict_is_recorded_with_what_code_did_with_it():
             "n": 1,
             "answered": True,
             "claim": "no team named",
+            "main": None,
             "page": 2,
             "quote": TEAM,
             "taken_off": True,
+            "outcome": "taken off",
         },
         {
             "n": 2,
             "answered": True,
             "claim": "",
+            "main": None,
             "page": 3,
             "quote": "words not on that page at all",
             "taken_off": False,
+            "outcome": "kept",
         },
     ]
     failed: list = []
@@ -311,21 +315,99 @@ def test_the_verdicts_are_stored_with_the_run_and_read_back(tmp_path, monkeypatc
     assert ST.run(conn, "run_rec")["answered"] == verdicts
 
 
-def test_a_concern_or_a_line_both_readers_agree_on_is_never_offered():
-    """A datasheet copy of 19 Nov: a line on a test set to NO (both readers agreed) and a line on a hardness above the limit (the
-    judge's concern) were taken off because the paper covered a side claim of each (the test standard, the H2S content); the
-    copy lost two planted mistakes. A side claim never answers a suspected stated value or a find both readers made."""
-    lines = [
-        _line("C01", ask="confirm"),  # offered
-        _line("C02", ask="concern"),  # the judge suspects a stated value: never
-        _line("C03", label="AI opinion", code=aim_review.TWO_READERS_AGREE),  # never
-        _line("C04", label="AI opinion"),  # one reader: offered
-        _line(
-            "C05", ask="open"
-        ),  # not deferred here: offered (a deferred value is never offered, as before)
-    ]
-    assert sorted(A.offered(lines)) == [1, 4, 5]
-    model = _Checker(
-        [{"n": 2, "page": 2, "quote": TEAM}, {"n": 3, "page": 2, "quote": TEAM}]
+MAIN = "The test is set to NO for a pressure part."
+SIDE = "The team record is not named."
+
+
+def _protected(**over):
+    return _line("C01", ask="concern", comment=f"{MAIN} {SIDE} State the test.", **over)
+
+
+def _answer(**over):
+    return {
+        "n": 1,
+        "page": 2,
+        "quote": TEAM,
+        "claim": "team record named",
+        "comment_words": SIDE,
+        **over,
+    }
+
+
+def test_a_protected_line_is_offered_and_taken_off_only_on_its_main_point():
+    """Update 6, after the judges read the 14 lines the first guard kept: two were WRONG because the paper did answer their
+    main point. A concern or a line both readers agree on is offered again; it is taken off only when the answer is its main point."""
+    agreed = _line("C02", label="AI opinion", code=aim_review.TWO_READERS_AGREE)
+    assert sorted(A.offered([_protected(), agreed])) == [1, 2]
+    lines = [_protected()]
+    assert A.s4b_answered(_Checker([_answer(main=True)]), PAPER, lines, MODEL) == 1
+    assert not aim_review.sendable(to_line(1, lines[0]))
+    plain = [
+        _line("C01", comment=f"{MAIN} {SIDE}")
+    ]  # not protected: any answered claim takes it off, as before
+    assert A.s4b_answered(_Checker([_answer(main=False)]), PAPER, plain, MODEL) == 1
+
+
+def test_a_side_claim_the_paper_answers_is_cut_and_the_full_text_stays_in_the_team_note():
+    """The datasheet copy of 19 Nov: the test set to NO stays a comment; only the side claim the paper answers is cut."""
+    for line in (_protected(), _line("C01", label="AI opinion", code=aim_review.TWO_READERS_AGREE,
+                                     comment=f"{MAIN} {SIDE} State the test.")):  # fmt: skip
+        record: list = []
+        assert (
+            A.s4b_answered(
+                _Checker([_answer(main=False)]), PAPER, [line], MODEL, record
+            )
+            == 0
+        )
+        assert line["comment"] == f"{MAIN} State the test." and aim_review.sendable(
+            to_line(1, line)
+        )
+        assert (
+            A.SIDE_CLAIM in line["code"]
+            and f'read before the cut: "{MAIN} {SIDE} State the test."' in line["code"]
+        )
+        assert 'on page 2: "the chair' in line["code"] and record[0]["outcome"] == "cut"
+
+
+def test_a_protected_line_is_never_taken_off_on_an_unclear_answer():
+    """An older answer (no "main", no comment words) or words code cannot find in the comment: nothing is cut, the line is sent whole and
+    its team note says the paper covers the claim. Words that are the whole comment are its main point: taken off."""
+    for answer in (
+        _answer(comment_words=""),
+        _answer(main=False, comment_words="words the comment never had"),
+    ):
+        line = _protected()
+        assert A.s4b_answered(_Checker([answer]), PAPER, [line], MODEL) == 0
+        assert line[
+            "comment"
+        ] == f"{MAIN} {SIDE} State the test." and aim_review.sendable(to_line(1, line))
+        assert (
+            f"{A.SIDE_CLAIM}: the paper covers" in line["code"]
+            and "nothing was cut" in line["code"]
+        )
+    whole = _line("C01", ask="concern", comment=SIDE)
+    assert A.s4b_answered(_Checker([_answer(main=False)]), PAPER, [whole], MODEL) == 1
+    short = _protected()  # fewer than three words is no claim code can cut
+    assert (
+        A.s4b_answered(
+            _Checker([_answer(main=False, comment_words="State")]),
+            PAPER,
+            [short],
+            MODEL,
+        )
+        == 0
     )
-    assert A.s4b_answered(model, PAPER, lines[1:3], MODEL) == 0 and model.asked == []
+    assert short["comment"] == f"{MAIN} {SIDE} State the test."
+
+
+def test_the_check_asks_whether_the_claim_is_the_main_point_and_for_the_comments_own_words():
+    from app.aim_review import prompts
+
+    assert (
+        '"main": true' in prompts.ANSWERED_TASK
+        and '"comment_words"' in prompts.ANSWERED_TASK
+    )
+    assert (
+        "vendor to advise" in prompts.S4_TASK
+        and "revision and approval block" in prompts.S4_TASK
+    )
