@@ -39,7 +39,7 @@ from . import (
     review_jobs,
     review_shown,
 )
-from .config import config_version
+from .config import config_version, settings
 from .db import connect
 
 log = logging.getLogger(__name__)
@@ -301,6 +301,8 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
         "points": len(result.get("lines") or []),
         # a run that stopped early (run cap, lane closed, a fault) keeps its lines and says so; it is never a finished review
         "partial": result.get("status") == "stopped",
+        # the RESOLVED local default (ANSWER_MODEL after backend/.env), a model name only: live can be checked without that file
+        "answer_model": str(settings.answer_model),
     }
     with conn:
         conn.execute(
