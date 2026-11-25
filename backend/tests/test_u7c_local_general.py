@@ -27,13 +27,29 @@ from app import (
     reasoning_provider,
     review_engine,
 )
-from app.aim_review import budget, local_model, material, paper
+from app.aim_review import budget, local_model, material, paper, prompts
 from app.aim_review import engine as method_engine
+from app.config import settings
 from app.main import app
 from tests.test_aim_dry_run import PAPERS, _ledger_lines, dry  # noqa: F401 - fixture
 from tests.test_p3_review_jobs import temp_storage  # noqa: F401 - fixture
 
 REPORTED = "invented-local:1b"
+#: An answer that holds every step's answer key (the parse of the answer is the method's, not under test here).
+ANY_ANSWER = json.dumps(
+    {k: [] for k in sorted(set().union(*prompts.ANSWER_KEYS.values()))}
+)
+
+
+@pytest.fixture(autouse=True)
+def unloaded(monkeypatch) -> list[str]:
+    """The engine's model description (a model that does not think) and the unloads, without any engine."""
+    gone: list[str] = []
+    monkeypatch.setattr(
+        local_model, "_show", lambda name: {"capabilities": ["completion"]}
+    )
+    monkeypatch.setattr(local_model, "_unload", gone.append)
+    return gone
 
 
 @pytest.fixture
@@ -68,9 +84,8 @@ def _stand_in_engine(monkeypatch, kind: str) -> list[dict]:
             reasoning_provider._lane_unavailable()[0]
             == reasoning_provider.UNAVAILABLE_RUN_LOCAL
         )
-        assert (
-            path == "/api/chat" and body["format"] == "json" and body["think"] is False
-        )
+        # a model that does not think is not sent the thinking switch
+        assert path == "/api/chat" and body["format"] == "json" and "think" not in body
         bodies.append(body)
         kw = asked.kw
         out = fake.fake_answer(kw["step"], kw.get("cached") or "", kw["prompt"])
@@ -117,7 +132,7 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
 ):
     _no_claude(monkeypatch)
     bodies = _stand_in_engine(monkeypatch, "datasheet")
-    monkeypatch.setattr(aim_review_jobs, "local_ready", lambda: None)
+    monkeypatch.setattr(aim_review_jobs, "local_ready", lambda _model: None)
     paper_id = PAPERS["datasheet"][0]
     before = _ledger_lines()
     run_id = _start_local(world, paper_id)
@@ -127,8 +142,10 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         aim_review_jobs.run(job_id, worker) == job_queue.DONE
     )  # the shipped path: the job builds the local model itself
     assert bodies, "no call reached the local engine"
+    # the window is sized to hold the whole paper (no blind chunking), the same for every call of the run
+    window = budget.for_paper(aim_review_jobs.paper_tokens(db.connect(), paper_id))
     assert all(
-        b["options"]["num_ctx"] == budget.LOCAL.num_ctx
+        b["options"]["num_ctx"] == window.num_ctx
         and b["options"]["num_predict"] <= budget.LOCAL.max_tokens
         for b in bodies
     )
@@ -176,6 +193,12 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         if v
     ]
     assert any(REPORTED in c and aim_review_gate.LOCAL_NOT_SCORED in c for c in cells)
+    assert any(
+        c.startswith("name: " + REPORTED) for c in cells
+    )  # the model of each step
+    judge = [c for c in model_calls if c["step"] == "aim_judge"]
+    assert judge and all(c["note"].endswith("the whole paper") for c in judge)
+    assert "The judge saw the whole paper" in page["measured"]["sentence"]
 
 
 def test_a_local_run_that_is_not_ready_stops_with_the_sentence_and_loads_nothing(
@@ -189,7 +212,9 @@ def test_a_local_run_that_is_not_ready_stops_with_the_sentence_and_loads_nothing
         )
 
     monkeypatch.setattr(model_transport, "post_json", no_load)
-    monkeypatch.setattr(aim_review_jobs, "local_ready", lambda: "an invented reason")
+    monkeypatch.setattr(
+        aim_review_jobs, "local_ready", lambda _model: "an invented reason"
+    )
     paper_id = PAPERS["datasheet"][0]
     run_id = _start_local(world, paper_id)
     worker = job_queue.worker_id()
@@ -228,10 +253,18 @@ def test_the_local_class_never_imports_the_claude_lane():
     assert "model_transport" in names
 
 
-def _engine(monkeypatch, *, installed, loaded, free=40_000_000_000, holder=None):
+def _engine(
+    monkeypatch,
+    *,
+    installed,
+    loaded,
+    free=60_000_000_000,
+    holder=None,
+    size=9_000_000_000,
+):
     def get_json(path, *, timeout, required=True):
         return {
-            "/api/tags": {"models": [{"name": n} for n in installed]},
+            "/api/tags": {"models": [{"name": n, "size": size} for n in installed]},
             "/api/ps": {"models": loaded},
         }[path]
 
@@ -240,45 +273,52 @@ def _engine(monkeypatch, *, installed, loaded, free=40_000_000_000, holder=None)
     monkeypatch.setattr(local_model, "_free_bytes", lambda: free)
 
 
-def test_readiness_one_large_model_at_a_time_and_enough_memory_to_load(monkeypatch):
-    ours, other = "invented-big:35b", "invented-other:30b"
+def test_readiness_one_model_in_memory_never_the_35b_and_its_need_plus_6_gb(
+    monkeypatch,
+):
+    ours, other = "invented-mid:14b", "invented-other:12b"
     _engine(monkeypatch, installed=[ours], loaded=[])
-    assert local_model.readiness(ours) is None
+    assert local_model.readiness([ours], 32_768) is None
     _engine(
         monkeypatch,
         installed=[ours],
-        loaded=[{"name": ours, "size": 24_000_000_000}],
+        loaded=[{"name": ours, "size": 9_000_000_000}],
         free=1,
     )
     assert (
-        local_model.readiness(ours) is None
+        local_model.readiness([ours], 32_768) is None
     )  # already in memory: nothing new is loaded
     _engine(
         monkeypatch,
         installed=[ours, other],
-        loaded=[{"name": other, "size": 20_000_000_000}],
+        loaded=[{"name": other, "size": 8_000_000_000}],
     )
-    assert local_model.readiness(ours) == local_model.OTHER_LARGE.format(name=other)
+    assert local_model.readiness([ours], 32_768) == local_model.OTHER_LOADED.format(
+        name=other
+    )
     _engine(
         monkeypatch,
         installed=[ours],
         loaded=[{"name": "invented-small:1b", "size": 1_000_000_000}],
     )
-    assert local_model.readiness(ours) is None  # a small model is not a large one
-    _engine(monkeypatch, installed=[ours], loaded=[], free=8_000_000_000)
-    assert local_model.readiness(ours).startswith(
-        "this computer has 8.0 GB of memory free"
+    assert (
+        local_model.readiness([ours], 32_768) is None
+    )  # a small helper model may stay
+    # need = the 9 GB file + the window's cache (163,840 bytes x 32,768 tokens = 5.4 GB); plus 6 GB to spare = 20.4 GB
+    _engine(monkeypatch, installed=[ours], loaded=[], free=20_000_000_000)
+    words = local_model.readiness([ours], 32_768)
+    assert (
+        words.startswith("this computer has 20.0 GB of memory free")
+        and "needs 14.4 GB" in words
     )
-    # a smaller model needs half its own file size and a margin free (here 8 GB in all: 4 GB to start)
-    tags = {"models": [{"name": "invented-mid:9b", "size": 6_000_000_000}]}
-    answers = {"/api/tags": tags, "/api/ps": {"models": []}}
-    monkeypatch.setattr(model_transport, "get_json", lambda p, **_k: answers[p])
-    monkeypatch.setattr(local_model, "_free_bytes", lambda: 5_000_000_000)
-    assert local_model.readiness("invented-mid:9b") is None
-    monkeypatch.setattr(local_model, "_free_bytes", lambda: 3_000_000_000)
-    assert "at least 4.0 GB" in local_model.readiness("invented-mid:9b")
+    _engine(monkeypatch, installed=[ours], loaded=[], free=20_500_000_000)
+    assert local_model.readiness([ours], 32_768) is None
+    _engine(monkeypatch, installed=["invented-big:35b"], loaded=[], size=23_000_000_000)
+    assert local_model.readiness(["invented-big:35b"]) == local_model.TOO_LARGE.format(
+        name="invented-big:35b"
+    )
     _engine(monkeypatch, installed=[other], loaded=[])
-    assert local_model.readiness(ours) == local_model.NOT_INSTALLED.format(name=ours)
+    assert local_model.readiness([ours]) == local_model.NOT_INSTALLED.format(name=ours)
     _engine(
         monkeypatch,
         installed=[ours],
@@ -286,14 +326,167 @@ def test_readiness_one_large_model_at_a_time_and_enough_memory_to_load(monkeypat
         holder={"kind": "tests", "started": 9e12},
     )
     monkeypatch.setattr(heavy_lock, "is_stale", lambda r, now=None: False)
-    assert local_model.readiness(ours) == local_model.LOCK_HELD.format(who="tests")
+    assert local_model.readiness([ours]) == local_model.LOCK_HELD.format(who="tests")
 
     def down(*_a, **_k):
         raise model_transport.httpx.ConnectError("invented")
 
     monkeypatch.setattr(heavy_lock, "read", lambda path=None: None)
     monkeypatch.setattr(model_transport, "get_json", down)
-    assert local_model.readiness(ours) == local_model.ENGINE_DOWN
+    assert local_model.readiness([ours]) == local_model.ENGINE_DOWN
+
+
+def test_the_cache_per_token_is_read_from_the_engines_own_model_description():
+    info = {
+        "model_info": {
+            "x.block_count": 40,
+            "x.attention.head_count_kv": 8,
+            "x.attention.key_length": 128,
+        }
+    }
+    assert local_model.kv_bytes_per_token(info) == 40 * 8 * 128 * 4
+    assert local_model.kv_bytes_per_token({}) == local_model.DEFAULT_KV_BYTES_PER_TOKEN
+
+
+def test_the_window_holds_the_whole_paper_and_is_raised_never_cut():
+    """Owner's standing lesson (25 Nov 2026): no blind chunking. An ordinary datasheet fits whole; a long paper gets the largest
+    window, and only above it is it judged in page windows (each judge call says so)."""
+    small, sheet, long = (
+        budget.for_paper(6_000),
+        budget.for_paper(14_000),
+        budget.for_paper(90_000),
+    )
+    assert small.num_ctx == 24_576 and small.window_tokens >= 6_000
+    assert sheet.num_ctx == 32_768 and sheet.window_tokens >= 14_000
+    assert long.num_ctx == budget.MAX_CTX and long.window_tokens < 90_000
+    pages = dict.fromkeys(
+        range(1, 8), "word " * 2400
+    )  # 7 pages, about 3,000 tokens each by the window count
+    with budget.using(budget.for_paper(sum(len(t) // 4 for t in pages.values()) + 200)):
+        assert len(paper.windows(paper.Paper(paper_id="p", pages=pages), None)) == 1
+
+
+def test_each_step_may_name_its_own_local_model_and_one_model_is_in_memory_at_a_time(
+    monkeypatch, unloaded
+):
+    monkeypatch.setattr(
+        settings,
+        "general_review_local_step_models",
+        "judge = invented-small:9b, nonsense=x, editor=",
+    )
+    assert local_model.step_models() == {
+        "aim_judge": "invented-small:9b",
+        "aim_reference": "invented-small:9b",
+        "aim_answered": "invented-small:9b",
+    }
+    asked = []
+    monkeypatch.setattr(
+        model_transport,
+        "post_json",
+        lambda path, body, *, timeout: (
+            asked.append(body["model"])
+            or {
+                "model": body["model"],
+                "message": {"content": ANY_ANSWER},
+                "prompt_eval_count": 5,
+                "done_reason": "stop",
+            }
+        ),
+    )
+    m = local_model.LocalModel("invented-mid:14b")
+    assert m.names() == ["invented-mid:14b", "invented-small:9b"]
+    kw = {
+        "model": "x",
+        "system": "s",
+        "cached": "c",
+        "prompt": "p",
+        "carries": set(),
+        "max_tokens": 8,
+    }
+    m.ask(step="aim_identify", **kw)
+    m.ask(step="aim_judge", **kw)
+    m.ask(step="aim_edit", **kw)
+    assert asked == ["invented-mid:14b", "invented-small:9b", "invented-mid:14b"]
+    assert unloaded == [
+        "invented-mid:14b",
+        "invented-small:9b",
+    ]  # the one loaded leaves before the next is asked
+    m.unload()
+    assert unloaded[-1] == "invented-mid:14b" and m.loaded is None
+
+
+def test_a_thinking_model_is_told_not_to_think(monkeypatch):
+    monkeypatch.setattr(
+        local_model, "_show", lambda name: {"capabilities": ["completion", "thinking"]}
+    )
+    sent = []
+    monkeypatch.setattr(
+        model_transport,
+        "post_json",
+        lambda path, body, *, timeout: (
+            sent.append(body)
+            or {
+                "model": "m",
+                "message": {"content": '{"kind": "x"}'},
+                "prompt_eval_count": 5,
+                "done_reason": "stop",
+            }
+        ),
+    )
+    local_model.LocalModel("invented-small:9b").ask(
+        step="aim_identify",
+        model="x",
+        system="s",
+        cached="c",
+        prompt="p",
+        carries=set(),
+        max_tokens=8,
+    )
+    assert sent[0]["think"] is False
+
+
+def test_the_model_socket_offers_claude_and_local_and_refuses_an_unapproved_vendor_without_any_network(
+    monkeypatch,
+):
+    from app.aim_review import model_socket as MS
+
+    assert MS.selectable("claude")[0] and MS.selectable("local")[0]
+    assert MS.selectable("openai_compatible") == (False, MS.NOT_APPROVED)
+    assert MS.selectable("anything else")[0] is False
+
+    def no_network(*_a, **_k):
+        raise AssertionError("the unapproved slot reached the network")
+
+    monkeypatch.setattr(model_transport, "post_json", no_network)
+    monkeypatch.setattr(reader_transport, "transport", no_network)
+    slot = MS.model_for_run("openai_compatible")
+    with pytest.raises(method_engine.StepFailed) as got:
+        slot.ask(
+            step="aim_identify",
+            model="x",
+            system="s",
+            cached="c",
+            prompt="p",
+            carries=set(),
+            max_tokens=8,
+        )
+    assert got.value.stops_run and MS.NOT_APPROVED in str(got.value)
+    local = MS.model_for_run("local", paper_tokens=14_000)
+    assert local.engine == "local" and local.budget.num_ctx == 32_768
+    imported = set()
+    for node in ast.walk(ast.parse(Path(MS.__file__).read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom):
+            imported |= {node.module or "", *(a.name for a in node.names)}
+        elif isinstance(node, ast.Import):
+            imported |= {a.name for a in node.names}
+    assert not imported & {
+        "httpx",
+        "socket",
+        "requests",
+        "urllib",
+        "model_transport",
+        "reader_transport",
+    }
 
 
 def test_a_prompt_that_does_not_fit_is_never_sent_and_a_cut_prompt_is_never_used(

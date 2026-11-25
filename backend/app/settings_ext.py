@@ -674,3 +674,7 @@ class SettingsExt(BaseModel):
     general_review_lead_model: str = "claude-sonnet-5-5"
     #: The model of the attack on a new checklist. Env: GENERAL_REVIEW_STRONG_MODEL.
     general_review_strong_model: str = "claude-opus-5-5"
+    #: Local only: the local model of a step, when it is not the one local default (ANSWER_MODEL). "step=model" pairs, comma
+    #: separated; steps: name, choose, checklist, attack, judge, second reader, editor (e.g. "judge=qwen3.5:9b"). Empty: every step
+    #: on the default. The run record names the model the engine reported for each call. Env: GENERAL_REVIEW_LOCAL_STEP_MODELS.
+    general_review_local_step_models: str = ""

@@ -27,6 +27,7 @@ import dataclasses
 import json
 import logging
 import uuid
+from contextlib import contextmanager
 
 from . import (
     aim_review,
@@ -353,11 +354,23 @@ def local_books(conn, paper_id: str, scope: frozenset[str]) -> frozenset[str]:
     )
 
 
-def local_ready() -> str | None:
-    """None when a local run may load the local model now, else the plain sentence why not (`local_model.readiness`)."""
+def local_ready(model) -> str | None:
+    """None when a local run may load its models now, else the plain sentence why not (`local_model.readiness`: one model in
+    memory at a time, never the 35B, free memory at least the model's need with its window plus 6 GB)."""
     from .aim_review import local_model
 
-    return local_model.readiness()
+    return local_model.readiness(model.names(), model.budget.num_ctx)
+
+
+def paper_tokens(conn, paper_id: str) -> int:
+    """The paper's stored text in tokens (an upper bound, `context_budget.estimate_tokens`): a local run's window is sized to
+    hold all of it (owner, 25 Nov 2026: no blind chunking)."""
+    from . import context_budget
+
+    rows = conn.execute(
+        "SELECT text FROM pages WHERE document_id = ?", (paper_id,)
+    ).fetchall()
+    return sum(context_budget.estimate_tokens(str(r["text"] or "")) + 20 for r in rows)
 
 
 def _local_not_ready(words: str) -> dict:
@@ -375,18 +388,21 @@ def _prepare(conn, run_id: str, paper_id: str, scope, model):
     """(local, the rule books the method may read, the model, why a local run may not start or None). A Claude run: the books on
     the list the screen showed (#1584 route 3: they join the approved list just before the reviewer asks, only when the paper
     qualifies and only inside the starter's scope; the send gate still decides). A local run: one large local model at a time,
-    and only with the memory to load it (`local_ready`; a test passes its own model and loads nothing), the books the plan would
-    list, and no book joins the approved list (nothing is sent)."""
-    from .aim_review.local_model import LocalModel
+    and only with the memory to load it (`local_ready`; a test passes its own model and loads nothing), the model from the
+    socket with its window sized to the paper, the books the plan would list, and no book joins the approved list."""
+    from .aim_review import model_socket
 
     if not on_local(conn, run_id):
         books = allowed_books(conn, run_id, paper_id, scope)
         claude_auto_approve.on_agent_standards(paper_id, sorted(books), run_id)
         return False, books, model, None
-    words = local_ready() if model is None else None
-    if words:
-        return True, frozenset(), model, words
-    return True, local_books(conn, paper_id, scope), model or LocalModel(), None
+    if model is None:
+        tokens = paper_tokens(conn, paper_id)
+        model = model_socket.model_for_run(model_socket.LOCAL, paper_tokens=tokens)
+        words = local_ready(model)
+        if words:
+            return True, frozenset(), None, words
+    return True, local_books(conn, paper_id, scope), model, None
 
 
 class _ReadOnlyChecklists:
@@ -416,7 +432,7 @@ def _method(conn, job_id, run_id, paper_id, books, progress, model, local: bool)
     from . import review_engine
 
     store = aim_review_store.DbChecklistStore(conn)
-    with review_engine.barring() if local else nullcontext():
+    with review_engine.barring() if local else nullcontext(), _unloading(model):
         return aim_review.run(
             conn,
             run_id=run_id,
@@ -428,6 +444,17 @@ def _method(conn, job_id, run_id, paper_id, books, progress, model, local: bool)
             cancelled=lambda: _cancel_requested(conn, job_id),
             model=model,
         )
+
+
+@contextmanager
+def _unloading(model):
+    """After a local run (done, stopped or failed) its model leaves memory, so the next heavy job finds the memory free."""
+    try:
+        yield
+    finally:
+        unload = getattr(model, "unload", None)
+        if callable(unload):
+            unload()
 
 
 def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
