@@ -196,3 +196,49 @@ def test_reviews_use_a_second_model_approval_only_behind_the_open_gate(
                     retry_base=0), rules={r.ref: r for r in rules})  # fmt: skip
     RS.measure(conn, sample2)
     assert pool() == set()  # the latest measure: 1 wrong of 1 -> closed again
+
+
+def _script():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "run_rule_second.py"
+    spec = importlib.util.spec_from_file_location("A_run_rule_second", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_run_refuses_more_than_the_first_batch_or_all_rules_before_a_measure(copy, monkeypatch, capsys):
+    """Owner, 25 Nov 2026 (#1584 comment 7169525003): start with 2,000 rules and report the error rate before the rest."""
+    from app import rule_label_job as job
+
+    script = _script()
+    sent = []
+    monkeypatch.setattr(job, "Lane", lambda *a, **k: sent.append(1))  # any lane built would be a paid start
+    for limit in (0, RS.FIRST_BATCH + 1):
+        assert script.main(["run", "--db", str(copy), "--max-usd", "1", "--limit", str(limit)]) == 2
+        assert "first batch is 2,000 rules; judge a sample and report the error rate first" in capsys.readouterr().out
+    assert sent == []
+    conn = job.open_copy(copy)
+    RS.create(conn)  # a measure below the minimum does not open the rest either
+    conn.execute("INSERT INTO rule_second_measure (sample_id, measured_at, covers_until, judged, wrong, judge_model)"
+                 " VALUES ('s1', '2026-11-25', '2026-11-25', ?, 0, ?)", (RS.GATE_MIN_JUDGED - 1, JUDGE))  # fmt: skip
+    conn.commit()
+    assert RS.batch_refusal(conn, 0) and RS.batch_refusal(conn, RS.FIRST_BATCH + 1)
+    assert RS.batch_refusal(conn, RS.FIRST_BATCH) is None and RS.batch_refusal(conn, 1) is None
+
+
+def test_the_rest_may_run_once_a_measure_judged_enough_approvals(copy):
+    from app import rule_label_job as job
+
+    conn, _c, rules = _second(copy, s.FakeModel())
+    sample = RS.draw_sample(conn, n=5, seed=7)
+    RS.judge_sample(conn, sample, judge_model=JUDGE, lane=job.Lane(job.CapLedger(5.0), send=_judge("right"), env=s.ENV,
+                    retry_base=0), rules={r.ref: r for r in rules})  # fmt: skip
+    RS.measure(conn, sample)
+    assert RS.batch_refusal(conn, 0)  # 1 judged: still the first batch only
+    conn.execute("INSERT INTO rule_second_measure (sample_id, measured_at, covers_until, judged, wrong, judge_model)"
+                 " VALUES (?, '2026-11-25', '2026-11-25', ?, 3, ?)", (sample, RS.GATE_MIN_JUDGED, JUDGE))  # fmt: skip
+    conn.commit()
+    assert RS.batch_refusal(conn, 0) is None and RS.batch_refusal(conn, RS.FIRST_BATCH + 1) is None
