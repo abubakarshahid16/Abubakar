@@ -61,6 +61,23 @@ def counts_of(conn, run_id: str) -> dict | None:
     return out
 
 
+def _equipment(row) -> list[str]:
+    """The equipment the AI named for the paper ("relief valve"), for the Equipment column: a general review has no valve tags of its own
+    (planner 19 Nov, item 8: the column was empty on every recent review). [] when the run named none."""
+    import json
+
+    try:
+        ident = json.loads(row["identity_json"] or "{}")
+    except (TypeError, ValueError, KeyError, IndexError):
+        return []
+    word = (
+        str((ident or {}).get("equipment_type") or "").replace("_", " ").strip()
+        if isinstance(ident, dict)
+        else ""
+    )
+    return [word] if word else []
+
+
 def total(conn, allowed: frozenset[str]) -> int:
     """How many general runs of papers the caller may read there are (every run, not only the newest of a paper)."""
     return len(_rows(conn, allowed))
@@ -104,6 +121,7 @@ def entries(
                 "created_at": r["created_at"],
                 "completed_at": r["finished_at"],
                 "method": GENERAL,
+                "equipment_tags": _equipment(r),
                 "general_counts": counts_of(conn, run_id)
                 if status in ENDED_WITH_LINES
                 else None,
