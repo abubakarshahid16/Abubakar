@@ -51,12 +51,45 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [sendKey, setSendKey] = useState(() => crypto.randomUUID());
   const [labels, setLabels] = useState<GmailLabel[]>([]);
   const [labelId, setLabelId] = useState("");
+  const [engine, setEngine] = useState<"local" | "claude">("local");
+  const [ticked, setTicked] = useState<number[]>([]);
+  const [handOpen, setHandOpen] = useState(false);
+  const [handSubject, setHandSubject] = useState("");
+  const [handContractor, setHandContractor] = useState("");
+  const [handBody, setHandBody] = useState("");
+  const [handFiles, setHandFiles] = useState<File[]>([]);
   const activeMailboxes = mailboxes.filter((mailbox) => mailbox.connection_state === "active");
   const pendingMailbox = mailboxes.find((mailbox) => mailbox.connection_state === "needs_label");
 
   useEffect(() => {
-    setQuestionDraft(selected?.confirmed_question || selected?.proposed_question || selected?.extracted_question || "");
-  }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.extracted_question]);
+    // With model proposals the text starts as the email's own question; the engineer ticks the proposals that are real.
+    const proposed = selected?.proposed_questions?.length ? selected?.extracted_question : selected?.proposed_question;
+    setQuestionDraft(selected?.confirmed_question || proposed || selected?.extracted_question || "");
+    setTicked([]);
+  }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.proposed_questions, selected?.extracted_question]);
+
+  const addTicked = () => {
+    const picked = (selected?.proposed_questions ?? []).filter((_, index) => ticked.includes(index)).map((part) => part.question);
+    if (picked.length) setQuestionDraft((current) => [current.trim(), ...picked].filter(Boolean).join("\n"));
+    setTicked([]);
+  };
+
+  const createByHand = () => {
+    const form = new FormData();
+    form.append("subject", handSubject.trim());
+    form.append("body", handBody.trim());
+    if (handContractor.trim()) form.append("contractor_name", handContractor.trim());
+    handFiles.forEach((file) => form.append("files", file));
+    setBusy(true);
+    setError(null);
+    void technicalQueriesApi.createByHand(form).then((result) => {
+      setBusy(false);
+      if (!result.ok) { setError(result.error.message); return; }
+      setItems((current) => [result.data.item, ...current]);
+      setSelected(result.data.item);
+      setHandOpen(false); setHandSubject(""); setHandContractor(""); setHandBody(""); setHandFiles([]);
+    });
+  };
 
   const confirmQuestion = () => act(async () => {
     const confirmed = await technicalQueriesApi.confirmQuestion(selected!.id, questionDraft.trim());
@@ -182,6 +215,17 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           <button type="button" onClick={() => void technicalQueriesApi.gmailLabels(pendingMailbox.id).then((result) => { if (result.ok) { setLabels(result.data.items); setLabelId(result.data.items[0]?.id || ""); } else setError(result.error.message); })} className="mt-2 rounded bg-ink-700 px-2 py-1">Choose label</button>
           {labels.length > 0 && <div className="mt-2"><label htmlFor="gmail-query-label">Gmail label</label><select id="gmail-query-label" value={labelId} onChange={(event) => setLabelId(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2">{labels.map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}</select><button type="button" disabled={busy || !labelId} onClick={() => { if (!window.confirm("Import existing messages under this label and begin automatic sync?")) return; setBusy(true); void technicalQueriesApi.activateGmailLabel(pendingMailbox.id, labelId).then((result) => { setBusy(false); if (!result.ok) { setError(result.error.message); return; } setMailboxes((current) => current.map((mailbox) => mailbox.id === pendingMailbox.id ? { ...mailbox, connection_state: "active", label_id: labelId } : mailbox)); setMailboxId(pendingMailbox.id); setLabels([]); void technicalQueriesApi.list().then((listed) => { if (listed.ok) setItems(listed.data.items); }); }); }} className="mt-2 rounded bg-signal-700 px-2 py-1 text-white disabled:opacity-50">Activate selected label</button></div>}
         </div>}
+        <div className="mt-4">
+          <button type="button" onClick={() => setHandOpen((open) => !open)} aria-expanded={handOpen} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">New query by hand / upload</button>
+          {handOpen && <div className="mt-2 space-y-1 rounded border border-ink-700 p-3 text-xs text-slateish-300" aria-label="New query by hand">
+            <p className="text-slateish-400">For a query that did not come by email. Papers you upload are checked for active content like any emailed attachment.</p>
+            <label className="block">Subject<input value={handSubject} onChange={(event) => setHandSubject(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
+            <label className="block">Contractor<input value={handContractor} onChange={(event) => setHandContractor(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
+            <label className="block">The question, as asked<textarea value={handBody} onChange={(event) => setHandBody(event.target.value)} rows={4} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
+            <label className="block">Papers (optional)<input type="file" multiple onChange={(event) => setHandFiles(Array.from(event.target.files ?? []))} className="mt-1 w-full" /></label>
+            <button type="button" disabled={busy || !handSubject.trim() || !handBody.trim()} onClick={createByHand} className="rounded bg-signal-700 px-2 py-1 text-white disabled:opacity-50">Create query</button>
+          </div>}
+        </div>
         {error && <p role="alert" className="mt-4 text-sm text-danger-400">{error}</p>}
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
           {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}
@@ -211,10 +255,12 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.can_review === false && <p className="mt-3 text-xs text-slateish-500">You can prepare evidence and write drafts. Confirming the question, deciding on evidence, approving and sending need the technical-query reviewer role.</p>}
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Prepare evidence</button>
-            <button type="button" disabled={busy || !selected.confirmed_question} title={selected.confirmed_question ? undefined : "Confirm the question first"} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id))} className="rounded bg-signal-700 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
+            <label className="flex items-center gap-1 text-xs text-slateish-300">Written by
+              <select value={engine} onChange={(event) => setEngine(event.target.value as "local" | "claude")} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100"><option value="local">Local model</option><option value="claude">Claude (not approved by the owner)</option></select></label>
+            <button type="button" disabled={busy || !selected.confirmed_question} title={selected.confirmed_question ? undefined : "Confirm the question first"} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine))} className="rounded bg-signal-700 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
-            {selected.status === "approved" && selected.can_review && activeMailboxes.length > 0 && <div className="flex items-center gap-2"><label htmlFor="query-send-mailbox" className="text-xs text-slateish-300">Send from</label><select id="query-send-mailbox" value={mailboxId} onChange={(event) => setMailboxId(event.target.value)} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100">{activeMailboxes.map((mailbox) => <option key={mailbox.id} value={mailbox.id}>{mailbox.email}</option>)}</select><button type="button" disabled={busy} onClick={sendApproved} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Send approved response</button></div>}
+            {selected.status === "approved" && selected.can_review && activeMailboxes.length > 0 && <div className="flex items-center gap-2"><label htmlFor="query-send-mailbox" className="text-xs text-slateish-300">Send from</label><select id="query-send-mailbox" value={mailboxId} onChange={(event) => setMailboxId(event.target.value)} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100">{activeMailboxes.map((mailbox) => <option key={mailbox.id} value={mailbox.id}>{mailbox.email}</option>)}</select><button type="button" disabled={busy} onClick={sendApproved} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Send approved response</button><span className="text-xs text-warn-400">Sending is not approved by the owner yet: download the Word response instead.</span></div>}
             {(selected.status === "sent" || selected.status === "awaiting_confirmation") && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
             {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
           </div>
@@ -228,6 +274,12 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.confirmed_question
             ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${selected.confirmed_question_at}` : ""}. The draft answers exactly this wording.</p>
             : <p className="mt-1 text-xs text-warn-400">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
+          {selected.proposal_note === "model_unavailable" && <p className="mt-1 text-xs text-warn-400">The local model was not available, so no questions were proposed from the attachment. Read the attachment text above and write the question.</p>}
+          {!selected.confirmed_question && selected.proposed_questions?.length ? <div className="mt-2 rounded border border-ink-700 p-2" aria-label="Questions found in the attachment">
+            <p className="text-xs text-slateish-400">Questions the model found in the attachment, each as printed. Tick the ones that are real questions, then add them.</p>
+            {selected.proposed_questions.map((part, index) => <label key={`${part.filename}-${part.page}-${index}`} className="mt-1 flex items-start gap-2 text-sm text-slateish-300"><input type="checkbox" checked={ticked.includes(index)} onChange={(event) => setTicked((current) => event.target.checked ? [...current, index] : current.filter((i) => i !== index))} className="mt-1" /><span>{part.question}<span className="block text-xs text-slateish-500">{part.filename}, page {part.page}</span></span></label>)}
+            <button type="button" disabled={!ticked.length} onClick={addTicked} className="mt-2 rounded bg-ink-700 px-2 py-1 text-xs text-slateish-100 disabled:opacity-50">Add ticked questions to the text</button>
+          </div> : null}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-2">
             <label htmlFor="technical-query-question" className="block text-xs text-slateish-300">Question the draft will answer</label>
             <textarea id="technical-query-question" value={questionDraft} onChange={(event) => setQuestionDraft(event.target.value)} rows={4} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
@@ -244,8 +296,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/documents/${encodeURIComponent(attachment.document_id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · {SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
           </article>)}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Evidence</h3>
-          {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, page {evidence.page_start ?? "unknown"}</a> · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state} · {evidence.supersession_state}</footer>
-            {evidence.evidence_state === "needs_review" && <div className="mt-2 text-xs text-warn-400"><p>This passage comes from a contractor's attachment. A reviewer must decide before the response is approved or sent.</p>
+          {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
+          {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, page {evidence.page_start ?? "unknown"}</a> · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state === "proposed" ? "found by the system, not yet kept" : evidence.evidence_state} · {evidence.supersession_state}</footer>
+            {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-400"><p>{evidence.evidence_state === "proposed" ? "Found by the system; the words are checked to stand on that page, but nobody has judged that they answer the question. A reviewer keeps it as evidence or rejects it before a draft uses it or the response is approved." : "This passage comes from a contractor's attachment. A reviewer must decide before the response is approved or sent."}</p>
               {selected.can_review ? <div className="mt-1 flex gap-2"><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "verified", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Keep as evidence</button><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "rejected", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Reject</button></div> : <p className="mt-1">Only a qualified reviewer can decide.</p>}</div>}
           </blockquote>) : <p className="mt-2 text-sm text-warn-400">No verified evidence attached.</p>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed response</h3>

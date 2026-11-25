@@ -1,0 +1,86 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { TechnicalQueriesView } from "./TechnicalQueriesView";
+
+const query = {
+  id: "q1",
+  subject: "Coating question",
+  contractor_name: null,
+  department: null,
+  assignee_user_id: null,
+  extracted_question: "See attached.",
+  proposed_question: "See attached.\n1. What is the minimum coating thickness?",
+  proposed_questions: [{ question: "What is the minimum coating thickness?", filename: "query.pdf", page: 2 }],
+  evidence_coverage: { searched: 19, of: 20, hits_in: 6, failed: 1, line: "Searched 19 of 20 contracts, hits in 6. 1 could not be searched." },
+  status: "drafting",
+  priority: "normal",
+  received_at: "2026-01-01T00:00:00Z",
+  due_at: null,
+  can_review: true,
+  messages: [],
+  evidence: [],
+};
+
+const api = vi.hoisted(() => ({
+  list: vi.fn(),
+  get: vi.fn(),
+  metrics: vi.fn(),
+  mailboxes: vi.fn(),
+  assignees: vi.fn(),
+  routingRules: vi.fn(),
+  generateDraft: vi.fn(),
+  createByHand: vi.fn(),
+}));
+
+vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
+
+describe("Technical Queries screen", () => {
+  beforeEach(() => {
+    api.list.mockResolvedValue({ ok: true, data: { items: [query] } });
+    api.get.mockResolvedValue({ ok: true, data: query });
+    api.metrics.mockResolvedValue({ ok: true, data: { total: 1 } });
+    api.mailboxes.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.assignees.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.routingRules.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.generateDraft.mockResolvedValue({ ok: false, error: { message: "Claude for the draft is not approved by the owner." } });
+  });
+
+  it("states how many contracts the evidence search covered", async () => {
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("evidence-coverage")).textContent).toBe("Searched 19 of 20 contracts, hits in 6. 1 could not be searched.");
+  });
+
+  it("offers each question the model found with its page, and adds only the ticked ones", async () => {
+    render(<TechnicalQueriesView />);
+    const box = await screen.findByRole("checkbox");
+    expect(screen.getByText("query.pdf, page 2")).toBeTruthy();
+    fireEvent.click(box);
+    fireEvent.click(screen.getByText("Add ticked questions to the text"));
+    const text = screen.getByLabelText("Question the draft will answer") as HTMLTextAreaElement;
+    expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
+  });
+
+  it("shows the server's refusal when Claude is chosen for the draft", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, confirmed_question: "What applies?" } });
+    render(<TechnicalQueriesView />);
+    await screen.findByText("Coating question", { selector: "h2" });
+    fireEvent.change(screen.getByLabelText("Written by"), { target: { value: "claude" } });
+    fireEvent.click(screen.getByText("Generate draft"));
+    await waitFor(() => expect(api.generateDraft).toHaveBeenCalledWith("q1", "claude"));
+    expect((await screen.findByRole("alert")).textContent).toContain("not approved by the owner");
+  });
+
+  it("creates a query by hand with its papers, with no mailbox", async () => {
+    api.createByHand.mockResolvedValue({ ok: true, data: { item: { ...query, id: "q2", subject: "By hand" }, uploaded: 1 } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("New query by hand / upload"));
+    fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "By hand" } });
+    fireEvent.change(screen.getByLabelText("The question, as asked"), { target: { value: "Is it allowed?" } });
+    fireEvent.click(screen.getByText("Create query"));
+    await waitFor(() => expect(api.createByHand).toHaveBeenCalledTimes(1));
+    const form = api.createByHand.mock.calls[0][0] as FormData;
+    expect(form.get("subject")).toBe("By hand");
+    expect(form.get("body")).toBe("Is it allowed?");
+  });
+});

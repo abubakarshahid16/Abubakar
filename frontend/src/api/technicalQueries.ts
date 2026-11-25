@@ -12,6 +12,12 @@ export interface TechnicalQuery {
   attachment_context?: Array<{ filename: string; page: number; text: string }>;
   /** A clean question the system proposes; a guess until an engineer confirms it. */
   proposed_question?: string | null;
+  /** The questions the local model found in the attachment, one by one with their page. Proposals only: the engineer ticks and confirms. */
+  proposed_questions?: Array<{ question: string; filename: string | null; page: number | null }>;
+  /** "model_unavailable" when the local model could not propose any. */
+  proposal_note?: string | null;
+  /** How many contracts the evidence search covered: "Searched N of N contracts, hits in M." */
+  evidence_coverage?: { searched: number; of: number; hits_in: number; failed: number; line: string } | null;
   confirmed_question?: string | null;
   confirmed_question_by?: string | null;
   confirmed_question_at?: string | null;
@@ -86,7 +92,12 @@ export const technicalQueriesApi = {
   deleteRoutingRule: (id: string): Promise<Result<{ items: RoutingRule[] }>> =>
     request(`/technical-queries/routing-rules/${encodeURIComponent(id)}`, { method: "DELETE" }),
   prepareEvidence: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/prepare-evidence`, { method: "POST" }),
-  generateDraft: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/generate-draft`, { method: "POST" }),
+  /** `engine: "claude"` is refused by the server ("not approved by the owner") unless its own switch is on. */
+  generateDraft: (id: string, engine: "local" | "claude" = "local"): Promise<Result<TechnicalQuery>> =>
+    request(`/technical-queries/${encodeURIComponent(id)}/generate-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine }) }),
+  /** A query entered by hand with its papers, so the feature works with no mailbox. */
+  createByHand: (form: FormData): Promise<Result<{ item: TechnicalQuery; uploaded: number }>> =>
+    request("/technical-queries/manual", { method: "POST", body: form }),
   createDraft: (id: string, answer: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer }) }),
   send: (id: string, draftId: string, mailboxId: string, idempotencyKey: string): Promise<Result<{ item: TechnicalQuery; sent: boolean; provider_message_id: string }>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft_id: draftId, mailbox_id: mailboxId, idempotency_key: idempotencyKey }) }),

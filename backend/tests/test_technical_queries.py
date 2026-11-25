@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from app import db, gmail_auth, gmail_sync
+from app import technical_queries as technical_queries_mod
 from app.access import AccessScope
 from app.api.technical_queries import (
     ImportIn,
@@ -57,6 +58,8 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "queries.sqlite")
+    monkeypatch.setattr(settings, "technical_queries_enabled", True)  # the feature is switched off by default
+    monkeypatch.setattr(technical_queries_mod, "SENDING_APPROVED", True)  # the send lock has its own tests
     db.reset_connection()
     db.init_db()
     with db.connect() as conn:
@@ -71,6 +74,19 @@ def temp_storage(tmp_path, monkeypatch):
     ensure_schema()
     yield
     db.reset_connection()
+
+
+def hold_contract(document_id: str, filename: str = "contract.pdf") -> None:
+    """A held contract document (role CONTRACT_DOCUMENT) the queries' evidence search looks in."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            (document_id, filename, document_id.encode().hex().ljust(64, "0")[:64], 1, filename, "ready", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO document_classification(document_id,document_role,suggested_by) VALUES (?,?,?)",
+            (document_id, "CONTRACT_DOCUMENT", "rules"),
+        )
 
 
 def envelope(message_id: str = "message-1") -> dict:
@@ -182,22 +198,21 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
     )
     captured = {}
 
-    def fake_search(question, **_kwargs):
+    hold_contract("contract-1")
+    monkeypatch.setattr(
+        "app.technical_query_questions._ask",
+        lambda page_text: ["What is the permitted coating thickness?"],
+    )
+
+    def fake_search(question, **kwargs):
         captured["question"] = question
-        return {
-            "hits": [
-                {
-                    "document_id": "query-pdf",
-                    "page_start": 1,
-                    "page_end": 1,
-                    "text": "What is the permitted coating thickness?",
-                }
-            ]
-        }
+        # the query's own attachment is never searched; only the held contract is
+        assert kwargs["document_id"] == "contract-1"
+        return {"hits": []}
 
     monkeypatch.setattr("app.search.search", fake_search)
     result = prepare_evidence(
-        item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
+        item["id"], frozenset({"query-pdf", "contract-1"}), "u1", True, False, "u1"
     )
     assert "What is the permitted coating thickness?" in captured["question"]
     assert "[Attachment" not in captured["question"]
@@ -212,10 +227,15 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
     ]
     assert "What is the permitted coating thickness?" in result["proposed_question"]
     assert "[Attachment" not in result["proposed_question"]
+    # each question is proposed on its own, with its file and page, for the engineer to confirm
+    assert result["proposed_questions"] == [
+        {"question": "What is the permitted coating thickness?", "filename": "query.pdf", "page": 1}
+    ]
     assert result["confirmed_question"] is None
     assert result["evidence"] == []
+    assert result["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 0."
     repeated = prepare_evidence(
-        item["id"], frozenset({"query-pdf"}), "u1", True, False, "u1"
+        item["id"], frozenset({"query-pdf", "contract-1"}), "u1", True, False, "u1"
     )
     assert repeated["extracted_question"] == result["extracted_question"]
     assert repeated["proposed_question"] == result["proposed_question"]
@@ -248,6 +268,7 @@ def test_preparing_evidence_twice_does_not_duplicate_a_passage(monkeypatch):
             "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
             ("lib-doc", 1, "The limit is 12 bar.", 20, 0, 1),
         )
+    hold_contract("lib-doc")
     item, _ = import_message(envelope("twice"), "u1", False, False)
     monkeypatch.setattr(
         "app.search.search",
@@ -260,10 +281,7 @@ def test_preparing_evidence_twice_does_not_duplicate_a_passage(monkeypatch):
     assert len(result["evidence"]) == 1
     assert result["evidence"][0]["supersession_state"] == "unknown"
     with db.connect() as conn:
-        conn.execute(
-            "INSERT INTO document_classification(document_id,suggested_by,confirmed_by) VALUES (?,?,?)",
-            ("lib-doc", "rules", "u1"),
-        )
+        conn.execute("UPDATE document_classification SET confirmed_by='u1' WHERE document_id='lib-doc'")
     result = prepare_evidence(item["id"], frozenset({"lib-doc"}), "u1", True, False, "u1")
     assert len(result["evidence"]) == 1
     assert result["evidence"][0]["supersession_state"] == "current"
@@ -286,8 +304,11 @@ def test_prepare_evidence_does_not_search_the_querys_own_attachment(monkeypatch)
     )
     seen = {}
 
+    hold_contract("library-doc")
+    hold_contract("own-attachment")  # even a contract-role attachment is never searched: it is the contractor's own paper
+
     def fake_search(question, **kwargs):
-        seen["scope"] = kwargs["allowed_document_ids"]
+        seen.setdefault("scopes", []).append(kwargs["allowed_document_ids"])
         return {"hits": []}
 
     monkeypatch.setattr("app.search.search", fake_search)
@@ -304,12 +325,13 @@ def test_prepare_evidence_does_not_search_the_querys_own_attachment(monkeypatch)
         other["id"], other["messages"][0]["attachments"][0]["id"],
         "other-attachment", "u1", "u1", True, False,
     )
+    hold_contract("other-attachment")
     prepare_evidence(
         item["id"],
         frozenset({"own-attachment", "other-attachment", "library-doc"}),
         "u1", True, False, "u1",
     )
-    assert seen["scope"] == frozenset({"library-doc"})
+    assert seen["scopes"] == [frozenset({"library-doc"})]
 
 
 def test_quote_matches_a_clause_the_pdf_wrapped_across_lines_but_not_a_changed_number():
@@ -647,13 +669,14 @@ def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch)
     assert "QX-1 does not appear anywhere" in refused.value.detail["message"]
 
 
-def test_proposed_question_drops_labels_and_repeated_lines():
+def test_a_proposed_question_is_the_emails_own_or_the_models_numbered_questions_never_a_copy_of_the_pages():
     from app.technical_queries import original_email_question, propose_question
 
-    context = [{"filename": "q.pdf", "page": 1, "text": "Contractor query\nPlease confirm the thickness.\nAlso state the standard."}]
-    proposal = propose_question("Please confirm the thickness.", context)
-    assert proposal == "Please confirm the thickness.\nContractor query\nAlso state the standard."
-    assert "[Attachment" not in proposal and "q.pdf" not in proposal
+    proposals = [{"question": "Confirm the thickness.", "filename": "q.pdf", "page": 1},
+                 {"question": "State the standard.", "filename": "q.pdf", "page": 2}]
+    assert propose_question("Please confirm the thickness.", proposals) == "Please confirm the thickness.\n1. State the standard."  # what the email already says is not said twice
+    assert propose_question("", proposals) == "1. Confirm the thickness.\n2. State the standard."
+    assert propose_question("", []) == ""
     legacy = "Email part.\n\n[Attachment q.pdf, page 1]\nPDF text"
     assert original_email_question(legacy) == "Email part."
     assert original_email_question("[Attachment q.pdf, page 1]\nPDF text") == ""
@@ -1024,7 +1047,7 @@ def test_gmail_oauth_state_is_one_time_and_never_stores_a_secret(monkeypatch):
     monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:8792/oauth/callback")
     url = gmail_auth.start("u1")
     assert "gmail.readonly" in url
-    assert "gmail.send" in url
+    assert "gmail.send" not in url
     state = url.split("state=", 1)[1].split("&", 1)[0]
     assert gmail_auth.validate_state(state) == "u1"
     assert gmail_auth.consume_state(state) == "u1"
@@ -1955,8 +1978,8 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
             ("att-e2e", 1, "What coating does carbon steel need?", 36, 0, 1),
         )
         conn.execute(
-            "INSERT INTO document_classification(document_id,suggested_by,confirmed_by) VALUES (?,?,?)",
-            ("lib-e2e", "rules", "owner"),
+            "INSERT INTO document_classification(document_id,document_role,suggested_by,confirmed_by) VALUES (?,?,?,?)",
+            ("lib-e2e", "CONTRACT_DOCUMENT", "rules", "owner"),
         )
         conn.execute(
             "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
@@ -1980,6 +2003,7 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
     assert linked["messages"][0]["attachments"][0]["scan_status"] == "static_check_clean"
 
     # 2. evidence is found in the library, never in the attachment
+    monkeypatch.setattr("app.technical_query_questions._ask", lambda page_text: ["What coating does carbon steel need?"])
     monkeypatch.setattr(
         "app.search.search",
         lambda question, **kw: {
@@ -1990,10 +2014,16 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
         },
     )
     prepared = prepare_query_evidence(item["id"], reviewer)
+    # a passage the search found is only PROPOSED: no person has judged that it answers the question
     assert [(e["document_id"], e["evidence_state"], e["supersession_state"]) for e in prepared["evidence"]] == [
-        ("lib-e2e", "verified", "current")
+        ("lib-e2e", "proposed", "current")
     ]
-    assert prepared["proposed_question"] == "See attached.\nWhat coating does carbon steel need?"
+    # a reviewer reads the passage and keeps it as evidence; only then can a draft rest on it
+    update_evidence(
+        item["id"], prepared["evidence"][0]["id"], "verified", "current", None, "owner", "owner", True, False, reviewer=True
+    )
+    assert prepared["proposed_question"] == "See attached.\n1. What coating does carbon steel need?"
+    assert prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1."
 
     # 3. nothing is drafted until a reviewer confirms the question
     with pytest.raises(HTTPException) as early:

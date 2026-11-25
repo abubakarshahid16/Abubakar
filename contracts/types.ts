@@ -1474,6 +1474,8 @@ export interface Me {
 export interface AuthStatus {
   required: boolean;
   user: Me | null;
+  /** Whether the technical-query feature is switched on on the server (default off); the menu entry shows only when true. */
+  technical_queries?: boolean;
 }
 
 export interface LoginRequest {

@@ -42,14 +42,18 @@ REVIEWER_CAPABILITY = "technical_query_reviewer"
 REVIEWER_DESCRIPTION = "Confirm questions, review evidence, approve and send technical query responses"
 #: Evidence states. `needs_review` is set by the system on a source it no longer
 #: trusts; only a reviewer can move a row out of it.
-EVIDENCE_STATES = ("verified", "missing", "conflicting", "ambiguous", "needs_review", "rejected")
+#: `proposed` is a passage the SEARCH found: its quote is checked by code to stand on the page, but no person has judged that it answers the
+#: question. Only a reviewer moves it to `verified` (or rejects it); until then it blocks approval and send (reviewer's blocker B5).
+EVIDENCE_STATES = ("verified", "missing", "conflicting", "ambiguous", "needs_review", "proposed", "rejected")
 
 
 #: Evidence in these states is unresolved: a response resting on it is neither approved nor sent.
-UNRESOLVED_EVIDENCE_STATES = ("needs_review", "conflicting", "ambiguous")
+UNRESOLVED_EVIDENCE_STATES = ("needs_review", "proposed", "conflicting", "ambiguous")
 
 
 def unresolved_evidence_message(state: str, action: str) -> str:
+    if state == "proposed":
+        return f"a passage found by the system is not yet kept as evidence by a reviewer, which must happen before {action}"
     if state == "needs_review":
         return f"evidence from a contractor attachment needs a reviewer's decision before {action}"
     return f"evidence marked {state} must be resolved by a reviewer before {action}"
@@ -66,12 +70,47 @@ def _require_reviewer(reviewer: bool, unrestricted: bool, what: str) -> None:
 
 _READY_FOR: str | None = None
 
+OFF_WORDS = "Technical queries are switched off on this server."
 
-def ensure_ready() -> None:
-    """Create the tables once per database. The app does it at start; this makes every route
-    safe on a database the start-up step never saw (a test, a restored copy, a new data folder)."""
+
+#: Sending an answer by email is NOT approved by the owner (25 Nov 2026): it waits for the words "sending approved" and a second Google consent.
+#: Every send path asks `require_sending_approved` first. A code change, not a setting, turns it on.
+SENDING_APPROVED = False
+CLAUDE_DRAFT_OFF_WORDS = "Claude for the draft is not approved by the owner: the draft is written by the local model."
+SEND_OFF_WORDS = "Sending is not approved by the owner: the answer is prepared as a Word file, never emailed."
+
+
+class FeatureOff(RuntimeError):
+    """The technical-query feature is switched off (`TECHNICAL_QUERIES_ENABLED`); nothing was done."""
+
+
+def enabled() -> bool:
+    """The ONE way-back switch of the whole feature (routes, mailbox poller, Gmail sockets, menu entry). Default off."""
     from .config import settings
 
+    return bool(settings.technical_queries_enabled)
+
+
+def require_enabled() -> None:
+    """Raise `FeatureOff` when the switch is off. Every Gmail call that would open a socket asks this first."""
+    if not enabled():
+        raise FeatureOff(OFF_WORDS)
+
+
+def require_sending_approved() -> None:
+    if not SENDING_APPROVED:
+        raise PermissionError(SEND_OFF_WORDS)
+
+
+def ensure_ready() -> None:
+    """Switch off: 404, nothing done (not even the tables). On: create the tables once per database. The app does it at start; this
+    makes every route safe on a database the start-up step never saw (a test, a restored copy, a new data folder)."""
+    from fastapi import HTTPException
+
+    from .config import settings
+
+    if not enabled():
+        raise HTTPException(status_code=404, detail=OFF_WORDS)
     if str(settings.db_path) != _READY_FOR:
         ensure_schema()
 
@@ -176,6 +215,9 @@ def _ensure_schema() -> None:
             "routing_source",
             "attachment_context",
             "proposed_question",
+            "proposed_questions",
+            "proposal_note",
+            "evidence_coverage",
             "confirmed_question",
             "confirmed_question_by",
             "confirmed_question_at",
@@ -406,7 +448,7 @@ def import_message(
     is_admin: bool = False,
     unrestricted: bool = False,
 ) -> tuple[dict[str, Any], bool]:
-    if data.get("provider") not in {"synthetic", "gmail", "microsoft_graph"}:
+    if data.get("provider") not in {"synthetic", "gmail", "microsoft_graph", "manual"}:
         raise ValueError("unknown message provider")
     received = data.get("received_at") or now()
     mailbox_id = data.get("mailbox_id") or ""
@@ -704,6 +746,11 @@ def get(
             )
         except ValueError:
             result["attachment_context"] = []
+        for name, empty in (("proposed_questions", []), ("evidence_coverage", None)):
+            try:
+                result[name] = json.loads(result.get(name) or "null") or empty
+            except ValueError:
+                result[name] = empty
         result["messages"] = [
             dict(r)
             for r in conn.execute(
@@ -965,20 +1012,16 @@ def original_email_question(saved: str | None) -> str:
     return text
 
 
-def propose_question(email_question: str, context: list[dict[str, Any]]) -> str:
-    """A clean question for an engineer to confirm: the email's question, then any
-    attachment lines it does not already say. No labels and no file names; the
-    attachments stay available, with their pages, beside it. It is a proposal, not
-    an answer to anything."""
-    lines = [email_question.strip()] if email_question.strip() else []
-    seen = {_squash(email_question)}
-    for part in context:
-        for line in (part.get("text") or "").splitlines():
-            key = _squash(line)
-            if key and key not in seen and key not in _squash(email_question):
-                seen.add(key)
-                lines.append(line.strip())
-    text = "\n".join(lines).strip()
+def propose_question(email_question: str, proposals: list[dict[str, Any]] | None = None) -> str:
+    """The wording evidence is searched for until an engineer confirms one: the email's own question, then the questions the model found in
+    the attachment that the email does not already say, each numbered on its own line. No attachment page is copied in bulk (F4), and no
+    label or file name. It is a proposal, not an answer to anything."""
+    own = (email_question or "").strip()
+    lines = [own] if own else []
+    said = _squash(own).casefold()
+    extra = [p["question"] for p in proposals or [] if _squash(p["question"]).casefold() not in said]
+    lines += [f"{n}. {q}" for n, q in enumerate(extra, 1)]
+    text = "\n".join(lines)
     if len(text) > MAX_PROPOSED_QUESTION:
         text = text[:MAX_PROPOSED_QUESTION].rstrip()
     return text
@@ -1068,43 +1111,49 @@ def prepare_evidence(
                             "text": text,
                         }
                     )
-    proposal = propose_question(email_question, context)
-    if not proposal:
+    from . import technical_query_questions
+
+    proposals, proposal_note = technical_query_questions.from_pages(context)
+    proposal = propose_question(email_question, proposals)
+    # An engineer's confirmed wording, when there is one, is what evidence is found for.
+    question = current.get("confirmed_question") or proposal
+    if not question:
+        if proposal_note == technical_query_questions.MODEL_UNAVAILABLE:
+            raise ValueError(
+                "no question could be proposed because the local model is not available; write the question and confirm it"
+            )
         if message.get("attachments"):
             raise ValueError(
                 "the attached question is not readable yet; wait for PDF processing or OCR"
             )
         raise ValueError("the query contains no extractable question")
-    # An engineer's confirmed wording, when there is one, is what evidence is found for.
-    question = current.get("confirmed_question") or proposal
-    from . import search
+    from . import technical_query_contracts
 
-    # The query's own attachments are context, never an authority, so they must not
-    # take a place among the few results: search everything else the caller may read.
+    # The query's own attachments are context, never an authority, so they are never searched: every CONTRACT the caller may read is
+    # searched on its own (dense + rerank), and the coverage is stored beside the passages.
     with connect() as conn:
         attachment_documents = query_attachment_document_ids(conn)
-    field = search.search(
-        question,
-        limit=5,
-        rerank=False,
-        dense=False,
-        allowed_document_ids=frozenset(allowed_document_ids) - attachment_documents,
+    field = technical_query_contracts.search_all(
+        question[:MAX_PROPOSED_QUESTION], frozenset(allowed_document_ids) - attachment_documents
     )
-    # `search.search` returns its results under "hits" (answer.answer uses "passages").
+    coverage = field["coverage"]
     hits = field.get("hits") or []
     with connect() as conn:
         conn.execute(
             "UPDATE technical_queries SET extracted_question=?,attachment_context=?,"
-            "proposed_question=?,status='drafting',updated_at=? WHERE id=?",
+            "proposed_question=?,proposed_questions=?,proposal_note=?,evidence_coverage=?,status='drafting',updated_at=? WHERE id=?",
             (
                 email_question or None,
                 json.dumps(context),
                 proposal,
+                json.dumps(proposals),
+                proposal_note or None,
+                json.dumps(coverage),
                 now(),
                 query_id,
             ),
         )
-        for passage in hits[:5]:
+        for passage in hits[: technical_query_contracts.MAX_PASSAGES]:
             quote = (passage.get("text") or "").strip()
             if not quote:
                 continue
@@ -1156,7 +1205,7 @@ def prepare_evidence(
                 continue
             evidence_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?)",
                 (
                     evidence_id,
                     query_id,
@@ -1175,7 +1224,7 @@ def prepare_evidence(
             query_id,
             "evidence_prepared",
             actor_user_id,
-            f"passages={len(hits)}",
+            f"passages={len(hits)}; {coverage['line']}",
         )
     return get(query_id, user_id, is_admin, unrestricted)
 

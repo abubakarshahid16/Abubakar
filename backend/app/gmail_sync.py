@@ -11,7 +11,7 @@ from . import gmail_auth
 from .db import connect
 from .gmail_client import GmailApiClient
 from .gmail_worker import poll_mailbox
-from .technical_queries import now
+from .technical_queries import enabled, now
 
 _stop = threading.Event()
 _thread: threading.Thread | None = None
@@ -20,6 +20,8 @@ _log = logging.getLogger(__name__)
 
 
 def run_once() -> int:
+    if not enabled():  # the way-back switch: no mailbox is polled, no socket opened
+        return 0
     with connect() as conn:
         mailboxes = conn.execute(
             "SELECT id,owner_user_id FROM gmail_mailboxes WHERE connection_state='active'"
@@ -57,6 +59,8 @@ def _loop() -> None:
 
 def start() -> None:
     global _thread
+    if not enabled():
+        return
     with _lock:
         if _thread is not None and _thread.is_alive():
             return

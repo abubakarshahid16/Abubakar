@@ -81,7 +81,9 @@ def main() -> None:
         port=settings.port,
         server_header=False,
         date_header=True,
-        access_log=False,
+        # The request log stays on exactly as before while the technical-query feature is off. With it on, the Gmail return address carries a
+        # one-time code in its query string, so the log is off then (reviewer's M4).
+        access_log=not settings.technical_queries_enabled,
         log_level="info",
         timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )

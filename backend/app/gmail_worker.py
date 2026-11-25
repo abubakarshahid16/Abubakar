@@ -245,8 +245,9 @@ def send_approved(
     The API invokes this only after an explicit authorised send action.
     Tests pass an in-memory fake client and never contact Gmail.
     """
-    from .technical_queries import is_reviewer
+    from .technical_queries import is_reviewer, require_sending_approved
 
+    require_sending_approved()  # first: nothing is stored or sent until the owner writes "sending approved"
     if not is_reviewer(scope.capabilities, scope.unrestricted) or not scope.user_id:
         raise PermissionError("a qualified technical-query reviewer is required to send")
     if len(idempotency_key) < 8:

@@ -162,7 +162,8 @@ async def lifespan(app: FastAPI):
             _fts["documents"], _fts["chunks"], _fts["seconds"])
     for _module in (review_mod, deliverables_mod, risks_mod, submittal_review_mod):
         _module.ensure_schema()
-    technical_queries_mod.ensure_schema()
+    if technical_queries_mod.enabled():  # the way-back switch (default off): no tables, no poller, no routes
+        technical_queries_mod.ensure_schema()
     aim_review_store_mod.ensure_schema()  # order 14: the general review's tables (additive only)
     crs_issue_mod.ensure_indexes()  # order 109: an index for the review runs list
     # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
@@ -719,8 +720,9 @@ def me(request: Request,
     same caller can already read every document; showing them a login form
     they cannot use would be the actual defect.
     """
+    features = {"technical_queries": technical_queries_mod.enabled()}
     if settings.auth_mode == access.AUTH_DISABLED:
-        return {"required": False, "user": None}
+        return {"required": False, "user": None, **features}
 
     user_id = scope.user_id or auth_mod.resolve_user_id(request)
     described = auth_mod.describe(user_id) if user_id else None
@@ -730,7 +732,7 @@ def me(request: Request,
             detail=errors.safe_error(errors.UNAUTHENTICATED,
                                      "sign in to continue"),
         )
-    return {"required": True, "user": described}
+    return {"required": True, "user": described, **features}
 
 
 @app.post("/api/auth/revoke/{user_id}", response_model=schemas.TokenRevocationResult,

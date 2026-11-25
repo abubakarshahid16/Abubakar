@@ -64,3 +64,16 @@ It contains no client message text, document numbers, names or credentials.
 
 - Real Gmail connect, import, polling, thread reply and token expiry or revocation; they need an authorized test account.
 - Release gates on a live update: backup and rehearsal, and the owner's go.
+
+
+## Brought live as its own update (order 14, 25 Nov 2026): sending OFF
+
+- One way-back switch, `TECHNICAL_QUERIES_ENABLED`, default off. Off: every technical-query route answers 404 and does nothing, no tables are made at start,
+  no mailbox is polled, no Gmail call opens a socket, and the menu entry is absent (`/api/auth/me` says `technical_queries`).
+- Google is asked for `gmail.readonly` only. Sending is locked in code (`technical_queries.SENDING_APPROVED`) until the owner writes "sending approved";
+  it then also needs a second Google consent.
+- Evidence: every contract the caller may read is searched on its own; the coverage line is stored and shown. A passage the search found is `proposed`
+  until a reviewer keeps it as evidence.
+- Questions: the local model proposes each question from an attachment page with its page; the engineer ticks and confirms. No page text is copied in bulk.
+- Claude for the draft: built, refused behind its own switch (`TECHNICAL_QUERY_CLAUDE_DRAFT_ENABLED`, off): "not approved by the owner".
+- A query can be entered by hand with its papers (`POST /api/technical-queries/manual`); papers go through the guarded upload and the attachment safety check.

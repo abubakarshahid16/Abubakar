@@ -326,6 +326,12 @@ class Settings(SettingsExt, BaseSettings):
     gmail_client_id: str = ""
     gmail_client_secret: str = Field(default="", repr=False)
     gmail_redirect_uri: str = ""
+    #: THE WAY-BACK SWITCH FOR THE WHOLE TECHNICAL-QUERY FEATURE (order 14; owner, 25 Nov 2026). OFF (default): no technical-query route
+    #: does any work (404), no mailbox poller starts, no tables are made, no menu entry is shown, and no Gmail call opens a socket.
+    technical_queries_enabled: bool = False
+    #: Claude may write the draft answer of a technical query ONLY behind this second switch, OFF by default: the owner has NOT approved
+    #: this lane. Off, a request for it is refused with "not approved by the owner" and nothing leaves the machine.
+    technical_query_claude_draft_enabled: bool = False
 
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"

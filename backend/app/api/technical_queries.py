@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -130,6 +131,17 @@ class ImportIn(BaseModel):
     attachments: list[AttachmentIn] = Field(default_factory=list, max_length=20)
 
 
+class GenerateDraftIn(BaseModel):
+    """Which engine writes the draft answer. `claude` is refused unless its own switch is on (the owner has not approved that lane)."""
+
+    engine: Literal["local", "claude"] = "local"
+
+
+class ManualOut(_Open):
+    item: QueryOut
+    uploaded: int = 0
+
+
 class DraftIn(BaseModel):
     answer: str = Field(min_length=1, max_length=100_000)
     assumptions: list[str] = Field(default_factory=list, max_length=100)
@@ -156,7 +168,7 @@ class EvidenceIn(BaseModel):
 
 
 class EvidenceClassificationIn(BaseModel):
-    evidence_state: Literal["verified", "missing", "conflicting", "ambiguous", "rejected"]
+    evidence_state: Literal["verified", "missing", "conflicting", "ambiguous", "rejected"]  # a reviewer sets these; "proposed" is the system's own
     supersession_state: Literal["current", "superseded", "unknown"] = "unknown"
     conflict_group: str | None = Field(default=None, max_length=200)
 
@@ -610,6 +622,67 @@ def import_technical_query(
     return {"item": _safe_item(item, scope), "duplicate": duplicate}
 
 
+@router.post("/api/technical-queries/manual", response_model=ManualOut)
+async def new_query_by_hand(
+    subject: str = Form(..., min_length=1, max_length=500),
+    body: str = Form(..., min_length=1, max_length=500_000),
+    contractor_name: str | None = Form(default=None, max_length=300),
+    from_address: str = Form(default="entered by hand", min_length=3, max_length=320),
+    question: str | None = Form(default=None, max_length=50_000),
+    files: list[UploadFile] = File(default_factory=list),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """A query entered by hand, with its papers uploaded, so the feature works with no mailbox. A qualified reviewer or an administrator
+    makes it; the files (administrator only, as for any query attachment) go through the guarded document pipeline and the attachment
+    safety check, exactly like an emailed attachment."""
+    _require_identity_to_write(scope)
+    if not (_reviewer(scope) or scope.is_admin or scope.unrestricted):
+        raise _refuse(403, "a qualified technical-query reviewer or an administrator is required to enter a query")
+    if files and not (scope.unrestricted or scope.is_admin):
+        raise _refuse(403, "uploading the papers of a query requires administrator access")
+    attachments = []
+    for upload in files:
+        digest, size = hashlib.sha256(), 0
+        while block := upload.file.read(1024 * 1024):
+            size += len(block)
+            if size > 100_000_000:
+                raise HTTPException(status_code=413, detail="attachment is too large")
+            digest.update(block)
+        upload.file.seek(0)
+        attachments.append(
+            {
+                "filename": upload.filename or "",
+                "media_type": upload.content_type or "application/octet-stream",
+                "size_bytes": size,
+                "sha256": digest.hexdigest(),
+            }
+        )
+    envelope = {
+        "provider": "manual",
+        "mailbox_id": None,
+        "provider_message_id": f"manual-{uuid.uuid4()}",
+        "from_address": from_address,
+        "to_addresses": [],
+        "cc_addresses": [],
+        "subject": subject,
+        "body": body,
+        "question": question,
+        "contractor_name": contractor_name,
+        "attachments": attachments,
+    }
+    try:
+        item, _dup = technical_queries.import_message(envelope, scope.user_id, scope.is_admin, scope.unrestricted)
+    except (PermissionError, ValueError) as exc:
+        raise HTTPException(status_code=403 if isinstance(exc, PermissionError) else 422, detail=str(exc)) from exc
+    rows = [a for m in item.get("messages", []) for a in m.get("attachments", [])]
+    uploaded = 0
+    for upload, row in zip(files, rows, strict=False):
+        _ingest_query_attachment(item["id"], row, upload, scope)
+        uploaded += 1
+    refreshed = technical_queries.get(item["id"], *_visible(scope)) or item
+    return {"item": _safe_item(refreshed, scope), "uploaded": uploaded}
+
+
 @router.post("/api/technical-queries/{query_id}/drafts", response_model=QueryOut)
 def create_query_draft(
     query_id: str,
@@ -659,9 +732,15 @@ def confirm_query_question(
 def generate_query_draft(
     query_id: str,
     scope: access.AccessScope = Depends(access.current_scope),
+    body: GenerateDraftIn | None = None,
 ):
-    """Generate a grounded draft through the existing citation-checked answer lane."""
+    """Generate a grounded draft through the existing citation-checked answer lane. The engine is the local model unless the request asks
+    for Claude, which is refused ("not approved by the owner") unless its own switch is on; the owner has not approved that lane, and the
+    chat's per-request consent is chat's lane only, never used here."""
     _require_identity_to_write(scope)
+    engine = body.engine if body else "local"
+    if engine == "claude" and not settings.technical_query_claude_draft_enabled:
+        raise _refuse(409, technical_queries.CLAUDE_DRAFT_OFF_WORDS)
     current = technical_queries.get(query_id, *_visible(scope))
     if current is None:
         raise HTTPException(status_code=404, detail="technical query not found")
@@ -689,7 +768,7 @@ def generate_query_draft(
             allowed_document_ids=frozenset(
                 item["document_id"] for item in usable_evidence
             ),
-            model="local",
+            model="local" if engine == "local" else None,  # None: the app's own engine, behind the approved list of documents
         )
     except (
         Exception
@@ -866,6 +945,12 @@ async def upload_query_attachment(
         "resolved",
     }:
         raise HTTPException(status_code=409, detail="sent query attachments are locked")
+    return _ingest_query_attachment(query_id, attachment, file, scope)
+
+
+def _ingest_query_attachment(query_id: str, attachment: dict, file: UploadFile, scope: access.AccessScope) -> dict:
+    """Check one uploaded file against its attachment row (name, size, digest) and ingest it through the guarded document pipeline; the
+    link then runs the static safety check (`attachment_safety`). Shared by the attachment route and the by-hand route."""
     if attachment["document_id"]:
         raise HTTPException(status_code=409, detail="query attachment already uploaded")
     if file.filename != attachment["filename"]:
@@ -909,7 +994,7 @@ async def upload_query_attachment(
     if duplicate_of is None and admin_role is not None and scope.user_id:
         access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
     item = technical_queries.link_attachment(
-        query_id, attachment_id, row["id"], scope.user_id, *_visible(scope)
+        query_id, attachment["id"], row["id"], scope.user_id, *_visible(scope)
     )
     if item is None:
         raise HTTPException(status_code=404, detail="query attachment not found")
@@ -981,6 +1066,8 @@ def prepare_query_send(
 ):
     """Send only after an authorised user explicitly requests this approved draft."""
     _require_identity_to_write(scope)
+    if not technical_queries.SENDING_APPROVED:
+        raise _refuse(409, technical_queries.SEND_OFF_WORDS)
     if not _reviewer(scope) or not scope.user_id:
         raise _refuse(403, "a qualified technical-query reviewer is required to send")
     item = technical_queries.get(query_id, *_visible(scope))

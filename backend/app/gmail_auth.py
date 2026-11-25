@@ -16,14 +16,12 @@ from . import gmail_credentials
 from .config import settings
 from .db import connect
 from .gmail_client import GmailApiClient
-from .technical_queries import now
+from .technical_queries import now, require_enabled
 
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
-SCOPES = (
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.send",
-)
+#: READ ONLY. Sending is a later, separate consent (owner, 25 Nov 2026): no send scope is asked until the owner writes "sending approved".
+SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
 
 
 def _config() -> tuple[str, str]:
@@ -112,6 +110,7 @@ def validate_state(state: str) -> str | None:
 
 
 def _exchange(data: dict[str, str]) -> dict[str, Any]:
+    require_enabled()  # a real call to Google only while the feature's switch is on
     response = httpx.post(
         TOKEN_ENDPOINT,
         data=data,

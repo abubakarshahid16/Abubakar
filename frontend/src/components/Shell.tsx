@@ -90,7 +90,9 @@ export function hasAdminCapability(auth: AuthStatus | null | undefined): boolean
  *  disabled and never hidden with a class - a non-admin's DOM does not
  *  contain it at all, so there is nothing to un-hide with a devtools edit. */
 export function navFor(auth: AuthStatus | null | undefined): NavItem[] {
-  return hasAdminCapability(auth) ? [...NAV, ADMIN_NAV] : NAV;
+  // Technical Queries is switched off by default on the server (`/api/auth/me` says `technical_queries`): no entry in the DOM then.
+  const base = auth?.technical_queries === true ? NAV : NAV.filter((item) => item.id !== "technicalQueries");
+  return hasAdminCapability(auth) ? [...base, ADMIN_NAV] : base;
 }
 
 export type Connection =

@@ -16,6 +16,8 @@ from typing import Any
 
 import httpx
 
+from .technical_queries import require_enabled, require_sending_approved
+
 BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 
@@ -42,6 +44,8 @@ class GmailApiClient:
 
     def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {self._token}"}
+        if self._transport is None:
+            require_enabled()  # a real Gmail call only while the feature's switch is on
         if self._transport:
             response = self._transport(method, BASE + path, headers=headers, **kwargs)
         else:
@@ -164,6 +168,7 @@ class GmailApiClient:
         )
 
     def send(self, raw_rfc822: str, *, thread_id: str | None = None) -> str:
+        require_sending_approved()  # no mail leaves until the owner writes "sending approved"
         encoded = base64.urlsafe_b64encode(raw_rfc822.encode()).decode().rstrip("=")
         outgoing = {"raw": encoded}
         if thread_id:

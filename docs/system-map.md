@@ -160,6 +160,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `technical_queries` | The technical-query records (queries, messages, attachments, evidence, drafts, decisions, sends, routing rules, events): import and follow-up linking, evidence with exact-quote and supersession checks, the reviewer capability and its gates, stale attachment evidence review |
 | `technical_query_docx` | The Word response for a technical query: the email's question, attachment text and confirmed question apart, the answer, cited passages and verified evidence only, with document names rather than ids |
 | `attachment_safety` | A static check of a contractor PDF for active content (scripts, launch actions, embedded files); not an antivirus scan, and labelled so |
+| `technical_query_questions` | The questions a query's attachment asks, proposed one by one with their page by the LOCAL model for an engineer to tick; a question whose words are not on the page is dropped; no page is copied in bulk |
+| `technical_query_contracts` | The evidence search of a technical query: every contract document the caller may read is searched on its own (dense + rerank), the best passages of each kept, and "Searched N of N contracts, hits in M" stored and shown |
 | `gmail_auth` | Gmail OAuth start and completion and short-lived access tokens; fixed Google hosts, no redirects, no ambient proxy |
 | `gmail_client` | The minimal Gmail API client: list, fetch, history, send; injectable so tests use a fake, never logs tokens or message bodies |
 | `gmail_credentials` | Gmail refresh tokens in the Mac Keychain, never in the application database |
