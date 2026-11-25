@@ -702,7 +702,7 @@ class FakeConsent:
         self.declared = []
         self.inside = False
 
-    def per_request_consent(self, ids):
+    def carrying(self, ids):
         import contextlib
 
         @contextlib.contextmanager
@@ -2143,3 +2143,23 @@ def test_a_foreign_fatal_code_never_chooses_the_problem_words(copy_db, run_dir):
         s["stopped"].startswith("budget stop")
         and "documents not declared" not in s["stopped"]
     )
+
+
+def test_a_claude_proof_run_keeps_the_owners_list_and_the_contract_check(monkeypatch, tmp_path):
+    """CLAUDE.md rule 1: per-request consent is the chat's own lane; every other Claude workflow keeps the owner's approved
+    list (and the contract check). The proof runner declares its documents through the normal gate (`carrying`), so a
+    declared document the owner's list does not hold is refused at the choke point."""
+    from app import claude_approved
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
+    monkeypatch.setattr(settings, "data_dir", tmp_path)  # an empty owner list
+    monkeypatch.setattr(claude_approved, "_block_stop", lambda ids: None)
+    monkeypatch.setattr(claude_approved, "_in_library", lambda ids: frozenset())
+    monkeypatch.setattr(claude_approved, "_hashes_of", lambda ids: dict.fromkeys(ids, "a" * 64))
+    monkeypatch.setattr(claude_approved, "approved_hashes", lambda: frozenset())
+    for name in ("_consented", "_lapsed_ids", "contracts_without_yes"):  # no consent record, no lapse, no contract here
+        monkeypatch.setattr(claude_approved, name, lambda ids: frozenset())
+    with ar._guard(False, True, None, frozenset({"D1", "S1"})):
+        assert claude_approved.carried() == frozenset({"D1", "S1"})
+        assert claude_approved.refusal()[0] == claude_approved.NOT_APPROVED
