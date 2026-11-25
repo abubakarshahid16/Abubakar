@@ -166,6 +166,12 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         for c in model_calls
     )
     assert run["usd"] == 0 and _ledger_lines() == before  # USD 0: not one spend line
+    outcome = json.loads(
+        db.connect()
+        .execute("SELECT outcome_json FROM review_runs WHERE id = ?", (run_id,))
+        .fetchone()[0]
+    )
+    assert outcome["answer_model"] == settings.answer_model  # the resolved setting, a name only
     assert aim_review_store.lines(db.connect(), run_id)  # the same method's points
     saved = (
         db.connect()

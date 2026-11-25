@@ -407,9 +407,10 @@ class Settings(SettingsExt, BaseSettings):
     #: installed and is loaded only when the owner asks (set ANSWER_MODEL to it).
     answer_model: str = "ministral-3:14b"
     answer_prompt_variant: str = "default"
-    #: Resident size of the answer model (the 14B: a 9.1 GB file, about 11 GB with Chat's window; the 35B was about
-    #: 24 GB). Warns BEFORE Explain is pressed. Set it with ANSWER_MODEL when pinning another model.
-    answer_model_ram_bytes: int = 11_000_000_000
+    #: Resident size of the answer model: the 14B MEASURED at 11.10 GB in the engine with a 28,672-token window (25 Nov
+    #: 2026; Chat's 8,192-token window needs less); the 35B was about 24 GB. Warns BEFORE Explain is pressed. Set it with
+    #: ANSWER_MODEL when pinning another model.
+    answer_model_ram_bytes: int = 11_100_000_000
 
     # ---------------------------------------------------------- AI task runner
     # (#644). Small strict model tasks run from a background queue by
