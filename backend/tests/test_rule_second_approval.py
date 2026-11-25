@@ -45,12 +45,6 @@ def copy(tmp_path):
     path = s.make_db(tmp_path / "copy.sqlite")
     with sqlite3.connect(str(path)) as c:  # the column the review's rule pool reads
         c.execute("ALTER TABLE standard_requirements ADD COLUMN requirement_text TEXT")
-        c.execute(
-            "CREATE TABLE document_classification (document_id TEXT PRIMARY KEY, document_role TEXT)"
-        )
-        c.execute(
-            "INSERT INTO document_classification VALUES ('d1', 'COMPANY_STANDARD')"
-        )  # the standards lane's check
     run(path, "a", s.MODEL_A, s.FakeModel())
     conn, _c, _l = run(path, "b", s.MODEL_B, s.FakeModel(_comparator_differs))
     assert states(conn) == {"r1": "needs_human", "r2": "ai_approved"}
