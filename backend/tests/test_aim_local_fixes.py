@@ -186,3 +186,51 @@ def test_on_the_local_model_a_label_and_its_value_on_two_lines_are_one_quote_and
     assert (
         asked["label"] == "Not met" and CN.NOTE in asked["code"]
     )  # code read the numbers from the joined quote
+
+
+class _Retry:
+    """A checklist answer whose 14 held items all quote the rule wrongly, then a retry answer per call."""
+
+    def __init__(self):
+        self.calls = []
+
+    def ask(self, **kw):
+        self.calls.append(kw)
+        if kw["step"] == "aim_checklist":
+            return {"items": [{"topic": f"t{k}", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
+                               "rule_quote": "words no rule holds", "applies_when": "always", "paper_fields": ["f"],
+                               "paper_pages": [1], "kind": "limit", "source": "held standard"} for k in range(14)]}  # fmt: skip
+        return {"items": []}
+
+
+class _Book:
+    def page(self, _doc, _n):
+        return "Invented rule page."
+
+    def pages(self, _doc):
+        return {1: "Invented rule page."}
+
+
+def test_the_checklist_retry_asks_in_small_groups_on_the_local_model_and_once_on_claude():
+    """The 14B run at 7522b5dd stopped: one retry answer for every item with an unfound quote passed its 8,000 tokens."""
+    sel = _sel(3)
+    sel["books"] = [
+        {**b, "committee": "", "why": "invented", "required": False}
+        for b in sel["books"]
+    ]
+    ident = {
+        "kind": "datasheet",
+        "equipment_type": None,
+        "subject": "invented",
+        "service": "",
+    }
+    claude = _Retry()
+    CL.s3_checklist(claude, ident, sel, _Book(), "claude-sonnet-5-5")
+    local = _Retry()
+    with budget.using(budget.LOCAL):
+        CL.s3_checklist(local, ident, sel, _Book(), "local")
+    retries = lambda m: [c for c in m.calls if c["step"] == "aim_checklist_retry"]  # noqa: E731
+    assert (
+        len(retries(claude)) == 1
+        and len(retries(local)) == -(-14 // CL.RETRY_LOCAL) > 1
+    )

@@ -50,6 +50,8 @@ KNOWLEDGE_NOT_HELD = "engineering knowledge (book not held)"
 MAX_KNOWLEDGE = 40
 #: At most this many knowledge items the attack step may add (code cuts the rest; light check e1c61001).
 MAX_ATTACK_KNOWLEDGE = 10
+#: Items per checklist retry call on the local model (its answer for every item at once could pass the 8,000-token limit).
+RETRY_LOCAL = 6
 #: The `source` of a not-held name that `wanted` found in the app's tables (the rebuild test reads these, never an AI's name).
 WANTED_GOVERNS, WANTED_METHOD = "governing table", "method table"
 WANTED_SOURCES = (WANTED_GOVERNS, WANTED_METHOD)
@@ -484,20 +486,25 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
         ]
         if bad:  # one retry: ask for the exact words of those items only
             retried += len(bad)
-            fix = model.ask(
-                step="aim_checklist_retry",
-                model=lead,
-                system="",
-                cached=None,
-                prompt=P.S3_RETRY
-                % {
-                    "items": _dumps(bad),
-                    "material": "\n".join(_material_line(r) for r in batch),
-                },
-                carries=carries,
-                max_tokens=8000,
-            )
-            fixed = _items_of(fix)
+            # on the local model in groups of RETRY_LOCAL (26 Nov 2026: one answer for every such item ran past its 8,000
+            # tokens and stopped the run); on Claude in one call, as before
+            size = RETRY_LOCAL if is_local() else len(bad)
+            fixed = []
+            for k in range(0, len(bad), size):
+                fix = model.ask(
+                    step="aim_checklist_retry",
+                    model=lead,
+                    system="",
+                    cached=None,
+                    prompt=P.S3_RETRY
+                    % {
+                        "items": _dumps(bad[k : k + size]),
+                        "material": "\n".join(_material_line(r) for r in batch),
+                    },
+                    carries=carries,
+                    max_tokens=8000,
+                )
+                fixed += _items_of(fix)
             ok_fixed = [
                 it
                 for it in fixed
