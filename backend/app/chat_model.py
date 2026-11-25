@@ -103,6 +103,46 @@ def _local_review_note() -> str | None:
         return None
 
 
+#: How long a credit refusal is remembered when nothing has succeeded since (the same day as the review plan's note, M4).
+CREDIT_REFUSAL_HOURS = 24
+
+
+def credit_refused_now(hours: int = CREDIT_REFUSAL_HOURS) -> bool:
+    """True when, within the last `hours`, the LATEST Claude call that reached the API was refused for no credit and no later
+    call succeeded (the review plan's rule, M4: a later success clears it at once; credit may have been added). Read from the
+    spend ledger's own lines: a refusal is a line whose reason or finish ends with `claude_spend.NO_CREDIT`, a success a settled
+    line not marked failed; a cache hit or a reservation is neither. Read only."""
+    from datetime import UTC, datetime, timedelta
+
+    since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    for line in reversed(claude_spend._raw_lines()):
+        if str(line.get("at") or "") < since:
+            return False
+        if line.get("cached"):
+            continue
+        said = str(line.get("reason") or line.get("finish_reason") or "")
+        if said.endswith(":" + claude_spend.NO_CREDIT):
+            return True
+        if line.get("settles") and not said.startswith("failed:"):
+            return False
+    return False
+
+
+def _credit_refused() -> bool:
+    """`credit_refused_now`; never raises: an unreadable ledger never hides Claude (the call itself still says why)."""
+    try:
+        return credit_refused_now()
+    except Exception as exc:  # noqa: BLE001 - the menu must still render
+        log.debug("chat_model: credit state unreadable (%s)", type(exc).__name__)
+        return False
+
+
+def _no_credit_words() -> str:
+    from . import aim_review_gate
+
+    return aim_review_gate.NO_CREDIT_WORDS
+
+
 def available_models() -> dict:
     """What the composer's Model menu may offer - only what can actually run.
 
@@ -120,10 +160,14 @@ def available_models() -> dict:
         log.debug("chat_model: Claude reason unreadable (%s)", type(exc).__name__)
         code = rp.UNAVAILABLE_PROVIDER_OFF
     ok = code is None
+    refused = ok and _credit_refused()
+    if refused:  # the last Claude call was refused for no credit and nothing has succeeded since: not offered until it does
+        ok = False
     models = [
         {"id": CLAUDE, "label": "Claude", "model": settings.claude_reasoning_model,
          "available": ok,
-         "reason": None if ok else _PICKER_WORDS.get(code, "Claude cannot be used on this computer right now.")},
+         "reason": None if ok else _no_credit_words() if refused
+         else _PICKER_WORDS.get(code, "Claude cannot be used on this computer right now.")},
         {"id": LOCAL, "label": "Local model", "model": settings.answer_model,
          "available": True, "reason": _local_review_note()},
     ]
