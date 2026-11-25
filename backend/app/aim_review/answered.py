@@ -233,7 +233,8 @@ def _outcome(a: dict, d: dict) -> str:
         d["comment"] = rest
         note = f'{SIDE_CLAIM}: {said} - cut from the comment, which read before the cut: "{full}"'
     else:
-        note = f"{SIDE_CLAIM}: {said} - the comment's words for it were not found, so nothing was cut"
+        why = "were not found in it" if words else "were not given"
+        note = f"{SIDE_CLAIM}: {said} - the comment's words for it {why}, so nothing was cut"
     d["code"] = "; ".join(x for x in (d.get("code"), note) if x)
     return "cut" if found else "kept whole"
 
