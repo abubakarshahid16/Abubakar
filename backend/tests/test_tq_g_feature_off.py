@@ -712,10 +712,10 @@ def test_the_gmail_return_needs_the_person_who_started_the_connection_and_then_r
     monkeypatch.setattr("app.api.technical_queries.gmail_sync.start", lambda: None)
     other = AccessScope("someone-else", frozenset(), capabilities=frozenset({"admin"}))
     with pytest.raises(HTTPException) as refused:
-        api.gmail_oauth_callback("code", state, other)
+        api.gmail_oauth_callback("code", state, scope=other)
     assert refused.value.status_code == 403 and completed == []
     owner = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
-    response = api.gmail_oauth_callback("code", state, owner)
+    response = api.gmail_oauth_callback("code", state, scope=owner)
     assert response.status_code == 303 and response.headers["location"] == "/technicalQueries" and completed == [("code", state)]
 
 
@@ -752,3 +752,43 @@ def test_a_draft_word_file_says_ai_to_be_checked_until_a_reviewer_approves(monke
     path = render(tq.get(item["id"], "u1", True, False), tmp_path / "d.docx")
     assert "AI, to be checked" in ZipFile(path).read("word/document.xml").decode()
     assert drafted["drafts"]
+
+
+def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(monkeypatch):
+    on(monkeypatch)
+    monkeypatch.setenv("GMAIL_CLIENT_ID", "invented-client")
+    monkeypatch.setenv("GMAIL_CLIENT_SECRET", "invented-secret")
+    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:8000/cb")
+    owner = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    # 1. Google sends the person back with the refusal in the address
+    refused = api.gmail_oauth_callback(None, None, "admin_policy_enforced", owner)
+    assert refused.status_code == 303 and refused.headers["location"].endswith("gmail=admin_must_allow")
+    # 2. Google refuses at the token step (a stubbed 400 answer)
+    state = gmail_auth.start("u1").split("state=")[1].split("&")[0]
+
+    class Answer:
+        status_code = 400
+
+        def json(self):
+            return {"error": "admin_policy_enforced", "error_description": "raw text that must not reach the screen"}
+
+        def raise_for_status(self):
+            raise AssertionError("must be said in words, not raised")
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: Answer())
+    with pytest.raises(gmail_auth.CompanyAdminMustAllow) as said:
+        gmail_auth.complete("code", state)
+    assert str(said.value) == "Your company's Google admin must allow this app." and "raw text" not in str(said.value)
+    state2 = gmail_auth.start("u1").split("state=")[1].split("&")[0]
+    redirected = api.gmail_oauth_callback("code", state2, None, owner)
+    assert redirected.status_code == 303 and redirected.headers["location"].endswith("gmail=admin_must_allow")
+
+
+def test_the_drafts_local_model_is_the_one_every_local_answer_uses(monkeypatch):
+    """Lead's note: the draft's local model must not be a model of its own: it follows `settings.answer_model`, the one local default."""
+    from app import chat_model
+
+    monkeypatch.setattr(settings, "answer_model", "invented-local-model")
+    assert chat_model.provider("local").requested_model == "invented-local-model"
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    assert chat_model.provider(chat_model.TQ_DRAFT).requested_model == "invented-local-model"

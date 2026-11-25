@@ -210,6 +210,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <button type="button" disabled={busy || !handSubject.trim() || !handBody.trim()} onClick={createByHand} className="rounded bg-signal-500 px-2 py-1 text-white disabled:opacity-50">Create query</button>
           </div>}
         </div>
+        {new URLSearchParams(window.location.search).get("gmail") === "admin_must_allow" && <p role="alert" className="mt-4 text-sm text-warn-500">Your company's Google admin must allow this app.</p>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-500">{error}</p>}
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
           {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}

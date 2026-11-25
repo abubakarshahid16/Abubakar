@@ -24,6 +24,15 @@ TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
 
 
+#: What Google says when a Workspace company's admin has not allowed this app (the token step's error, or the return address's `error`).
+ADMIN_BLOCKS = frozenset({"admin_policy_enforced", "org_internal", "access_blocked", "app_not_allowed"})
+ADMIN_WORDS = "Your company's Google admin must allow this app."
+
+
+class CompanyAdminMustAllow(ValueError):
+    """Google refused the connection because the company's Google admin has not allowed this app (said in one plain line, never a raw error)."""
+
+
 def _config() -> tuple[str, str]:
     client_id = (os.environ.get("GMAIL_CLIENT_ID") or settings.gmail_client_id).strip()
     redirect_uri = (
@@ -118,6 +127,13 @@ def _exchange(data: dict[str, str]) -> dict[str, Any]:
         follow_redirects=False,
         trust_env=False,
     )
+    if response.status_code >= 400:
+        try:
+            reason = str(response.json().get("error") or "")
+        except ValueError:
+            reason = ""
+        if reason in ADMIN_BLOCKS:
+            raise CompanyAdminMustAllow(ADMIN_WORDS)
     response.raise_for_status()
     return response.json()
 

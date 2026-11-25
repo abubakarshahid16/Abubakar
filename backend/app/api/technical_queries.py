@@ -428,12 +428,15 @@ def activate_gmail_mailbox(
 def gmail_oauth_callback(
     code: str | None = None,
     state: str | None = None,
+    error: str | None = None,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """The return from Google. The signed-in person must be the administrator who started the connection (the state names them), so a
     link started by one person cannot bind a mailbox from another person's browser; then the person is sent on to the screen with a
     303, so the one-time code does not stay in the address bar."""
     _require_identity_to_write(scope)
+    if error in gmail_auth.ADMIN_BLOCKS:  # the company's Google admin has not allowed the app: the screen says so in one line
+        return RedirectResponse("/technicalQueries?gmail=admin_must_allow", status_code=303)
     if not code or not state:
         raise HTTPException(status_code=400, detail="Gmail OAuth callback requires code and state")
     if not scope.is_admin or not scope.user_id or gmail_auth.validate_state(state) != scope.user_id:
@@ -441,6 +444,8 @@ def gmail_oauth_callback(
     try:
         gmail_auth.complete(code, state)
         gmail_sync.start()
+    except gmail_auth.CompanyAdminMustAllow:
+        return RedirectResponse("/technicalQueries?gmail=admin_must_allow", status_code=303)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
