@@ -1,6 +1,7 @@
 """Discipline reviewers of the judge (S4): the SAME judge, with a section of what a senior engineer of one discipline checks and
 worked examples (owner, 25 Nov 2026, planner note 23:35 b, item 4: start with two). Behind
-`settings.aim_discipline_reviewers_enabled` (OFF): off, the judge's prompt is exactly the general one.
+`settings.aim_discipline_reviewers_enabled` (OFF): off, the judge's prompt on Claude is exactly the general one; on the local
+model the reviewer's section and worked examples are always given (its judge needs the examples most).
 
 THE TABLE is data (`reference/discipline_reviewers.json`): each reviewer names the paper kinds and the equipment families it
 reviews; the routing is code (`reviewer_for`), never an AI manager. A paper no reviewer takes is judged by the general judge.
@@ -35,7 +36,13 @@ def _family(equipment_type) -> str | None:
 def reviewer_for(identity: dict | None) -> str | None:
     """The reviewer that judges this paper (its kind, and its equipment family when the reviewer names families), or None: the
     general judge. Switch off: None."""
-    if not settings.aim_discipline_reviewers_enabled or not isinstance(identity, dict):
+    from .budget import is_local
+
+    # on the local model the section and its worked examples are always given (26 Nov 2026: the 14B judged 58 of 61 points
+    # "Question" and gave numbers on 5); on Claude only behind the switch, until it is scored
+    if not (settings.aim_discipline_reviewers_enabled or is_local()) or not isinstance(
+        identity, dict
+    ):
         return None
     kind, family = identity.get("kind"), _family(identity.get("equipment_type"))
     for name, r in table()["reviewers"].items():

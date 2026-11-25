@@ -27,12 +27,10 @@ def material(sel: dict, text: L.BookText) -> tuple[list[dict], list[dict]]:
     for r in sel["_pool"]:
         pool_by_book[r["book"]].append(r)
     rows, stats, used, n = [], [], 0, 0
-    # the sizes of this run (`budget`: a local-model run is smaller; a Claude run uses the constants unchanged)
-    rule_chars, book_budget = RULE_CHARS, cap(BOOK_BUDGET, "book")
-    text_book_budget, material_budget = (
-        cap(TEXT_BOOK_BUDGET, "text_book"),
-        cap(MATERIAL_BUDGET, "material"),
-    )
+    # the SAME material on every model (26 Nov 2026: the local run's smaller book and total sizes cut its checklist to a tenth of
+    # the rules, 31 items against 93 on the valve copy): a local run reads it in more, smaller calls (`_batches`), never less of it
+    rule_chars, book_budget = RULE_CHARS, BOOK_BUDGET
+    text_book_budget, material_budget = TEXT_BOOK_BUDGET, MATERIAL_BUDGET
     for b in sel["books"]:
         mine = pool_by_book.get(b["book"], [])
         if b["chosen_subjects"] != "all":
