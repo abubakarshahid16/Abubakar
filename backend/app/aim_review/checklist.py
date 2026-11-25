@@ -337,9 +337,11 @@ def _chosen(out: dict, cat: list[dict], required: dict[str, str]) -> list[dict]:
         if not c or c["book"] in chosen:
             continue
         subj = row.get("subjects")
+        # on the local model every subject of a chosen book (26 Nov 2026: the 14B's narrow subject lists offered 40k of the
+        # material's characters against Claude's 150k, on the same 20 books); its smaller calls read it all (`_batches`)
         subj = (
             "all"
-            if subj == "all" or not isinstance(subj, list)
+            if subj == "all" or not isinstance(subj, list) or is_local()
             else [s for s in subj if s in c["subjects"]] or "all"
         )
         chosen[c["book"]] = {
