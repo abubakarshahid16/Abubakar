@@ -293,20 +293,16 @@ def wanted_not_held(not_held) -> frozenset[str]:
 FLOOR_ITEMS = 30
 
 
-def floor_for(kind: str | None) -> int:
-    """The coverage floor of a type's checklist: FLOOR_ITEMS for a kind with no main equipment (`kind_review_table`), else 0. The
-    table holds no expected size per kind; this is the method's own floor (the lead, 18 Nov 2026)."""
-    from app import kind_review_table
+def _route(kind: str | None):
+    """The route by kind (`kind_route`; off: the constants above and the kind table's floor, exactly as before)."""
+    from app import kind_route
 
-    table_kind = str(kind or "").strip().lower().replace(" ", "_")
-    try:
-        long_kinds = kind_review_table.no_main_equipment_kinds()
-    except Exception as exc:  # noqa: BLE001 - an unreadable table gives no floor, never a stop
-        log.info(
-            "general review: kind table not read for the floor (%s)", type(exc).__name__
-        )
-        return 0
-    return FLOOR_ITEMS if table_kind in long_kinds else 0
+    return kind_route.route(kind)
+
+
+def floor_for(kind: str | None) -> int:
+    """The coverage floor of a type's checklist (`kind_route.floor_today` when the route's switch is off)."""
+    return _route(kind).checklist_floor
 
 
 def _fold(s: str) -> str:
@@ -361,7 +357,7 @@ def committee_role(entry: dict) -> str | None:
 
 
 def role_applies(entry: dict, kind: str | None) -> bool:
-    rk = ROLE_KIND.get(kind or "")
+    rk = _route(kind).method_books_kind
     applies = (
         (_json("standard_roles.json").get("kinds_apply") or {}).get(rk) if rk else None
     )
@@ -395,7 +391,7 @@ def governing_books(
 def method_books(lib: list[dict], kind: str | None) -> list[tuple[dict | None, str]]:
     from app import applicability
 
-    rk = ROLE_KIND.get(kind or "")
+    rk = _route(kind).method_books_kind
     names = (
         (_json("standard_roles.json").get("method_standards") or {}).get(rk) or []
         if rk
@@ -433,7 +429,7 @@ def rule_pool(
     held = _tables(conn)
     if "standard_requirements" not in held or (within is not None and not within):
         return []
-    labels = KIND_LABELS.get(kind or "") or ("other",)
+    labels = _route(kind).rules_of_kind  # off: KIND_LABELS or ("other",), as before
     types, fam = type_set(type_id)
     has_kind = "rule_label" in held
     has_equip = "rule_equipment_label" in held

@@ -507,34 +507,32 @@ def _after_judge(
     """After the judge, in order: the contract's reference papers (G), the second reader (S4c: a finding the AI alone decided
     needs two readers), the whole-paper check (S4b, behind its switch: a line whose claim the paper contradicts is not sent), the
     editor (S5), and last the no-ask mark (code: a Question that asks nothing is kept on All points, not sent)."""
+    from app import aim_review_gate, kind_route
+
     from . import asks, contract_code
     from . import references as R
     from .answered import s4b_answered
     from .editor import s5_edit
     from .second_read import s4c_second_read
 
-    # a contract's open questions that name a held Schedule of its own package are checked against it (reference papers)
-    state.references, state.reference_ids = R.check(
-        conn, mdl, paper, state.decided, allowed_books, lead
-    )
+    # the route by kind (builder H; off: every step runs) only narrows; a contract's questions checked against its Schedules
+    runs = kind_route.route((state.identity or {}).get("kind")).runs
+    if runs("reference_papers"):
+        state.references, state.reference_ids = R.check(conn, mdl, paper, state.decided, allowed_books, lead)  # fmt: skip
     say(95, "whole-paper check and second reader")
-    from app import aim_review_gate
-
-    s4c_second_read(mdl, paper, state.decided, checklist, lead)
-    if (
-        aim_review_gate.answered_check_on()
-    ):  # off by default (a way-back switch): code proves the quote, not the answer
-        s4b_answered(
-            mdl, paper, state.decided, lead, state.answered
-        )  # after the second reader: its words are claims too
+    if runs("second_read"):
+        s4c_second_read(mdl, paper, state.decided, checklist, lead)
+    # the whole-paper check is off by default (a way-back switch): code proves the quote, not the answer; after the second reader
+    if aim_review_gate.answered_check_on() and runs("whole_paper_check"):
+        s4b_answered(mdl, paper, state.decided, lead, state.answered)
     say(96, "judge")
-    s5_edit(mdl, paper, state.decided, lead)
-    asks.mark(
-        state.decided
-    )  # last, after every AI step: a Question that asks nothing is kept on All points, not sent
-    contract_code.add_lines(
-        conn, state, paper, allowed_books
-    )  # a contract's code checks (builder C): after every AI step, so none rewrites a code line
+    if runs("editor"):
+        s5_edit(mdl, paper, state.decided, lead)
+    # last, after every AI step: a Question that asks nothing is kept on All points, not sent
+    asks.mark(state.decided)
+    # a contract's code checks (builder C): after every AI step, so none rewrites a code line
+    if runs("contract_code"):
+        contract_code.add_lines(conn, state, paper, allowed_books)
 
 
 def _fault_at(exc: BaseException) -> str:

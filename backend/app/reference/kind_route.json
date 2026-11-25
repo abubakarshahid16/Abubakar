@@ -1,0 +1,20 @@
+{
+  "_about": "ROUTE BY KIND (order 14, planner 25 Nov 2026 23:35 (b) item 3; builder H). ONE table: a paper's review FAMILY (from the one kind list, kind_list.json, builder G) -> what the general review does with it: the rule kind labels its rules are taken from (rules_of_kind), the kind whose method books and committee roles apply (method_books_kind), the checklist's coverage floor (checklist_floor), the after-judge steps it may skip (skip_steps; only those named in `skippable`), and the reviewers that may judge it (reviewers: `general` is the general judge; `mechanical` and `contract` are builder A's discipline reviewers, which still pick by their own table and switch). A row under `kinds` overrides its family's row for one method kind. Plain code reads it (kind_route.py), no model. Behind KIND_ROUTE_ENABLED (off): off, the review routes exactly as before this table, from the code's own constants. This table starts EQUAL to those constants for every kind (a test proves it), so switching it on changes nothing until a row is edited on purpose, and an edit is measured by a score before it goes live.",
+  "version": "1",
+  "skippable": ["reference_papers", "second_read", "whole_paper_check", "editor", "contract_code"],
+  "reviewers": ["general", "mechanical", "contract"],
+  "default": {"rules_of_kind": ["other"], "method_books_kind": null, "checklist_floor": 0, "skip_steps": [], "reviewers": ["general"]},
+  "families": {
+    "datasheet": {"rules_of_kind": ["datasheet"], "method_books_kind": "datasheet", "checklist_floor": 0, "skip_steps": [], "reviewers": ["general", "mechanical"]},
+    "written_document": {"rules_of_kind": ["other"], "method_books_kind": null, "checklist_floor": 30, "skip_steps": [], "reviewers": ["general"]},
+    "study_calculation": {"rules_of_kind": ["calculation"], "method_books_kind": "datasheet", "checklist_floor": 0, "skip_steps": [], "reviewers": ["general", "mechanical"]},
+    "drawing_diagram": {"rules_of_kind": ["drawing"], "method_books_kind": "drawing", "checklist_floor": 0, "skip_steps": [], "reviewers": ["general", "mechanical"]},
+    "list_register": {"rules_of_kind": ["other"], "method_books_kind": null, "checklist_floor": 0, "skip_steps": [], "reviewers": ["general"]},
+    "certificate_record": {"rules_of_kind": ["other", "datasheet"], "method_books_kind": "datasheet", "checklist_floor": 0, "skip_steps": [], "reviewers": ["general", "mechanical"]}
+  },
+  "kinds": {
+    "procedure": {"rules_of_kind": ["procedure"], "method_books_kind": "procedure"},
+    "contract": {"rules_of_kind": ["contract"], "method_books_kind": "contract", "reviewers": ["general", "contract"]},
+    "specification": {"rules_of_kind": ["contract"], "method_books_kind": "specification", "checklist_floor": 0}
+  }
+}
