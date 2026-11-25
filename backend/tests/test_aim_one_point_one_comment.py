@@ -47,3 +47,20 @@ def test_an_ordinary_items_lines_with_no_group_stay_one_comment_and_nothing_is_l
     comments, _ = V.comments_and_confirmations(pts)
     assert _lines(comments) == [[1, 2], [3]]
     assert sorted(n for c in comments for n in c["lines"]) == [1, 2, 3]
+
+
+def test_two_lines_at_one_place_the_editor_kept_apart_are_never_one_comment():
+    """The same field and page (same-place merge) or the same specific quote (same-finding merge) never joins two lines the
+    editor put in different groups; each joins its own group. With no editor marks, the place merge is as before."""
+    pts = [
+        point(1, field="Casing", page=4, item="C1", same_point_as=1),
+        point(2, field="Casing", page=4, item="C2", same_point_as=3),
+        point(3, field="Bolting", page=6, item="C3", same_point_as=3),
+    ]
+    comments, _ = V.comments_and_confirmations(pts)
+    assert _lines(comments) == [[1], [2, 3]]
+    plain = [
+        point(1, field="Casing", page=4, item="C1"),
+        point(2, field="Casing", page=4, item="C2"),
+    ]
+    assert _lines(V.comments_and_confirmations(plain)[0]) == [[1, 2]]
