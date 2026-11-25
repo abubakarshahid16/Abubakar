@@ -150,8 +150,12 @@ def _source_block(n: int, s: dict) -> str:
     return f'[S{n}] ({where})\n{s["text"]}'
 
 
-def _available_tools(*, web_enabled: bool) -> tuple[dict, ...]:
+def _available_tools(*, web_enabled: bool, database: bool = False) -> tuple[dict, ...]:
     tools = list(chat_tools.ALL_TOOLS)
+    if database:  # the owner's database lane (#1584, 25 Nov 2026), behind its switch (`chat_db_tools`)
+        from . import chat_db_tools
+
+        tools.extend(chat_db_tools.TOOLS)
     if web_enabled:
         from . import chat_web
         ok, _why = chat_web.available()
@@ -178,7 +182,7 @@ class _NothingVerified(Exception):
 def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
           web_enabled: bool, preference: str | None,
           on_fallback_cost=None, on_fallback_reason=None,
-          on_unverified=None) -> dict | None:
+          on_unverified=None, database_scope: frozenset[str] | None = None) -> dict | None:
     """One Claude-first turn, or None to fall back to the existing pipeline.
 
     `on_fallback_cost(usd)`: called once, before returning None, with what
@@ -209,9 +213,11 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
     if not isinstance(engine, rp.ClaudeProvider):
         return None  # narrowed to local by the caller's own preference
 
-    from . import chat_coverage
+    from . import chat_coverage, chat_db_tools
 
-    tools = _available_tools(web_enabled=web_enabled)
+    # `database_scope`: the caller's own read set for the database tools (#1584, 25 Nov 2026); None: not offered
+    database = database_scope is not None and chat_db_tools.enabled()
+    tools = _available_tools(web_enabled=web_enabled, database=database)
     # several selected papers: the first message names each, the tool budget covers one read each (`chat_coverage`)
     block = chat_coverage.selected_block(allowed_document_ids)
     first = _first_message(question, history)
@@ -327,13 +333,20 @@ def answer(question: str, *, history: str, allowed_document_ids: frozenset[str],
                     return _cancelled(turn, sources, steps, started, turn_cost)
                 tool_calls_made += 1
                 tool_input = block.get("input") if isinstance(block.get("input"), dict) else {}
-                carried_ids.update(str(d) for d in [tool_input.get("document_id"),
-                                                    *(tool_input.get("document_ids") or [])]
-                                   if isinstance(d, str) and d)
+                if block.get("name") not in chat_db_tools.NAMES:  # a database answer carries no document text
+                    carried_ids.update(str(d) for d in [tool_input.get("document_id"),
+                                                        *(tool_input.get("document_ids") or [])]
+                                       if isinstance(d, str) and d)
                 try:
-                    run, image = chat_tools.dispatch(
-                        block.get("name"), block.get("input") or {},
-                        allowed_document_ids=allowed_document_ids, pages_used=pages_used)
+                    if database and block.get("name") in chat_db_tools.NAMES:
+                        # titles, ids, counts and review comments of the caller's own documents: the owner's database lane,
+                        # no document text, so nothing is added to what the request is declared to carry
+                        run, image = chat_db_tools.run(block.get("name"), block.get("input") or {},
+                                                       allowed=database_scope), None
+                    else:
+                        run, image = chat_tools.dispatch(
+                            block.get("name"), block.get("input") or {},
+                            allowed_document_ids=allowed_document_ids, pages_used=pages_used)
                 except chat_tools.ConsentRequired as consent:
                     from . import chat_web
                     # The phrase is built from Claude's query and STORED with
