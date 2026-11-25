@@ -101,3 +101,28 @@ def test_a_run_queued_before_the_way_back_stops_without_loading_a_model(
 def test_the_way_back_is_read_in_one_place(monkeypatch, on):
     monkeypatch.setattr(settings, "general_review_local_enabled", on)
     assert aim_review_gate.local_on() is on
+
+
+def test_automatic_never_picks_the_local_route_for_the_general_review_by_itself():
+    """Lead-4, update 9: with GENERAL_REVIEW_LOCAL_ENABLED on, only an explicit Local only runs the general review on the local
+    model. Automatic, under every combination of the plan's yes/no facts and kinds, never plans the general review on the local
+    model: it runs on Claude or is refused with its reason. Pure plan decision: no model, no call."""
+    import dataclasses
+    import itertools
+
+    from app import review_engine_general as G
+    from app.review_engine import ON_LOCAL, Facts
+
+    flags = [f.name for f in dataclasses.fields(Facts) if f.type in (bool, "bool")]
+    assert "local_enabled" in flags and len(flags) >= 10
+    seen = 0
+    for kind in ("datasheet", "contract", None):
+        for values in itertools.product((False, True), repeat=len(flags)):
+            f = Facts(kind=kind, **dict(zip(flags, values)))
+            plan = G.decide_general(G.AUTOMATIC, G.narrowed(G.AUTOMATIC, f))
+            assert all(p.engine != ON_LOCAL for p in plan.parts), (
+                kind,
+                dict(zip(flags, values)),
+            )
+            seen += 1
+    assert seen == 3 * 2 ** len(flags)

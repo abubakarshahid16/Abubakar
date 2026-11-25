@@ -93,7 +93,8 @@ def engine_of(conn, run: dict) -> dict:
     return {
         "local": True,
         "models": models,
-        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}.{paper}",
+        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}. "
+        f"{aim_review_gate.LOCAL_TEST_NOTE}{paper}",
         "by_step": steps,
     }
 
