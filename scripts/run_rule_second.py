@@ -2,7 +2,8 @@
 """The second-model approval pass over needs_human rules, its blind sample judge and the gate (planner, 25 Nov 2026, item A),
 on a database COPY. Nothing is sent without an order cap (`--max-usd`, an in-process hard stop).
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py estimate --db <copy> [--model M] [--limit N]
-    AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py run --db <copy> --model M --max-usd 18 [--limit N]
+    AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py run --db <copy> --model M --max-usd 18 --limit 2000
+        (more than 2,000 rules, or all, only after a measure judged at least GATE_MIN_JUDGED approvals)
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py sample --db <copy> [--n 200] [--seed S]
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py judge --db <copy> --sample ID --model J --max-usd 3
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py measure --db <copy> --sample ID
@@ -67,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     elif a.cmd in ("run", "judge"):
         if a.max_usd <= 0:
             print("refused: a paid step needs --max-usd (the order cap)")
+            return 2
+        if a.cmd == "run" and (refused := RS.batch_refusal(conn, a.limit)):
+            print(refused)
             return 2
         lane = job.Lane(job.CapLedger(a.max_usd))
         if a.cmd == "run":
