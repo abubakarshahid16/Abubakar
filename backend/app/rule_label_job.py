@@ -21,7 +21,8 @@ existing tables, the rule book's approvals among them, are never written.
 MONEY. Every call goes through `agent_claude._call` (`reader_transport` + `claude_spend.metered`: the app's caps), and
 first through an INJECTED order ledger (`reserve` before the send, `settle` with the real usage after; see
 `CapLedger`): a paid pass without one is refused. Only standards of the families the owner opened to the Claude lane
-(SAES, ISO, API, ASME, NACE) are sent, each declared with `claude_approved.per_request_consent`.
+(SAES, ISO, API, ASME, NACE) are sent, and only of a document held as a company standard: each call declares its books
+by the standards converter lane (`standards_lane.open_for`), never by the chat's per-request consent.
 
 Run it with `scripts/run_rule_labels.py`. The switch `agent_review_enabled` must be on (the tables are created only
 then).
@@ -413,6 +414,7 @@ class _Pass:
         self.system = system_text(self.fields)
         self.stop_event = threading.Event()
         self.stopped = ""
+        self.checked: frozenset = frozenset()  # the books the standards lane verified (`run_pass`, the main thread)
 
     def _row(self, r: Rule):
         return self.conn.execute(
@@ -426,6 +428,8 @@ class _Pass:
         row = self._row(r)
         if family_of(r.standard) not in ALLOWED_FAMILIES:
             return "not_sent_family_not_allowed"
+        if r.sdid not in self.checked:
+            return "not_sent_not_a_held_standard"
         if self.pass_ == "a":
             if row is not None and row["a_model"] is not None:
                 return "already_done"
@@ -457,14 +461,14 @@ class _Pass:
 
     def ask(self, batch: list[list[Rule]], run_id: str):
         """(batch, the answer | the exception | None when the run has stopped). Runs in a worker thread: no database."""
-        from . import claude_approved
+        from . import standards_lane
 
         if self.stop_event.is_set():
             return batch, None
         reps = [g[0] for g in batch]
         try:
             with (
-                claude_approved.per_request_consent(sorted({r.sdid for r in reps})),
+                standards_lane.open_for(None, {r.sdid for r in reps}, checked=self.checked),
                 claude_spend.for_run(run_id),
             ):
                 parts = build_parts(reps, self.system)
@@ -545,6 +549,15 @@ class _Pass:
         self.counts["state:" + str(state)] += 1
 
 
+def _held_standards(conn: sqlite3.Connection, sdids: set[str]):
+    """The rule books the standards lane lets out (held company standards of an allowed family), checked once on the main
+    thread (`standards_lane.check`); a rule of any other book is never sent."""
+    from . import standards_lane
+
+    ok = set(sdids) - set(standards_lane.not_standards(conn, sdids))
+    return standards_lane.check(conn, ok) if ok else frozenset()
+
+
 def run_pass(
     conn: sqlite3.Connection,
     rules: Sequence[Rule],
@@ -570,6 +583,7 @@ def run_pass(
     create_tables(conn)
     check_models(model, _models_of(conn, "b" if pass_ == "a" else "a"))
     run = _Pass(conn, pass_, model, lane, pages or PageText(conn), out)
+    run.checked = _held_standards(conn, {r.sdid for r in rules})
     todo = run.todo(rules)
     questions = _same_question(todo)
     run.counts.update(rules=len(rules), sent=len(todo), unique_sent=len(questions))

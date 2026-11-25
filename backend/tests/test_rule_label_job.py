@@ -480,3 +480,19 @@ def test_a_field_not_on_the_list_is_needs_human_through_the_job(copy):
         "SELECT state, disagreement, field FROM rule_label WHERE rule_ref = 'r1'"
     ).fetchone()
     assert (row[0], row[1], row[2]) == ("needs_human", "field_not_listed", None)
+
+
+def test_a_rule_of_a_book_not_held_as_a_company_standard_is_never_sent(copy):
+    """The standards converter lane (CLAUDE.md rule 1), not the chat's per-request consent: a book the library does not hold
+    as a company standard is counted and never sent, whatever its family."""
+    with sqlite3.connect(str(copy)) as c:
+        c.execute("UPDATE document_classification SET document_role = 'CONTRACTOR_SUBMITTAL' WHERE document_id = 'd1'")
+    fake = s.FakeModel()
+    _conn, counts, _l = run(copy, "a", s.MODEL_A, fake)
+    assert fake.calls == 0 and counts["not_sent_not_a_held_standard"] == 2
+
+
+def test_the_label_job_never_uses_the_chats_per_request_consent():
+    import inspect
+
+    assert "per_request_consent(" not in inspect.getsource(job)
