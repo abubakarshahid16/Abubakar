@@ -71,14 +71,10 @@ MUTATIONS: tuple[Mutation, ...] = (
        "    table_lines = bool(settings.datasheet_office_input)",
        "    table_lines = True",
        "flag_off_ocr_table_lines"),
-    _m(1711, "a .docx is accepted with the flag OFF", APP / "upload.py",
-       # Re-anchored 2026-10-09 (W5b-01): the gate is `docx_accepted()`.
-       "        if (kind == KIND_XLSX and docx_accepted() and is_docx(temp_path)):",
-       "        if (kind == KIND_XLSX and is_docx(temp_path)):",
-       "flag_off_docx_upload_is_refused"),
+    # M1711 retired 25 Nov 2026 (update 7): a .docx is always accepted; there is no flag to bypass.
     _m(1712, "a workbook is indexed with the flag OFF", APP / "upload.py",
-       "    indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())\n"
-       "               or bool(settings.datasheet_office_input))",
+       # Re-anchored 2026-11-25 (update 7): Word input is the default, no switch.
+       "    indexed = kind in (KIND_PDF, KIND_DOCX) or bool(settings.datasheet_office_input)",
        "    indexed = True",
        "flag_off_xlsx_is_stored_not_indexed"),
     _m(1713, "office facts are recorded as 'extracted', not by their source",

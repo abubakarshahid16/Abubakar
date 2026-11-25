@@ -38,9 +38,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     _m(4109, "a Word document is not marked as flow", "extract.py",
        "UPDATE documents SET pagination = 'flow'", "UPDATE documents SET pagination = 'fixed'",
        "flow_format"),
-    _m(4110, "Word is accepted whatever the setting says", U,
-       "    return bool(settings.docx_input_enabled or settings.datasheet_office_input)\n",
-       "    return True\n", "refused_when_the_setting_is_off"),
+    # M4110 retired 25 Nov 2026 (update 7): Word input is the default, there is no setting to ignore.
     # Re-anchored 2026-11-01 (#525 slice 2): the check moved into `upload._refuse_unread_office`.
     _m(4111, "a PowerPoint file is not refused clearly", U, '    if office == "pptx":\n',
        "    if False:\n", "other_office_formats"),

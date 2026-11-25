@@ -5,10 +5,8 @@ TABLE path alone ON by default (owner decision 2026-09-25). The only caller is
 `datasheets.extract_facts`, and only when `settings.geometry_reader_enabled`
 (env GEOMETRY_READER_ENABLED) is on: it then writes `read_page_rows` as
 `extraction_method='geometry'` facts beside the rule readers' facts, which
-always win. `settings.geometry_table_reader_enabled` (env
-GEOMETRY_TABLE_READER_ENABLED) writes the TABLE rows alone - schedules such
-as a nozzle table - without the form path. With both off nothing calls this
-module.
+always win. The TABLE rows alone - schedules such as a nozzle table - are
+always written, without the form path (made the default 25 Nov 2026).
 
 Pure functions over one `pymupdf.Page`. No model, no network, no database.
 

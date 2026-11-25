@@ -48,7 +48,6 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "reading.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
-    monkeypatch.setattr(settings, "docx_input_enabled", True)
     monkeypatch.setattr(settings, "one_checked_definition_enabled", True)
     monkeypatch.setattr(settings, "word_page_markers_enabled", True)
     install_if_missing(monkeypatch)

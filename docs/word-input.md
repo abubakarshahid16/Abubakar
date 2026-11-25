@@ -4,7 +4,7 @@ A `.docx` goes through the same pipeline as a PDF: upload, extract, chunk, index
 
 | Piece | Where |
 |---|---|
-| Setting (ON by default) | `DOCX_INPUT_ENABLED` (`settings.docx_input_enabled`). OFF: a `.docx` is refused unless `DATASHEET_OFFICE_INPUT` is on |
+| Setting | None: Word input is the default since 25 Nov 2026 (update 7; it was `DOCX_INPUT_ENABLED`, on in live, 11 Word papers read) |
 | Reader | `backend/app/docx_reader.py` (heading levels from the style chain, list numbers computed from `numbering.xml`, tables as rows and cells, page and section breaks, headers/footers, tracked changes, comments, table of contents). No new dependency; same hostile-file limits as `datasheet_inputs` |
 | Chunks | `backend/app/docx_chunks.py`: a chunk never crosses a heading; tables are cut only on row boundaries with the header row repeated; same sizes and `chunker.Block` shape as a PDF chunk |
 | Citation | `chunks.locator`, for example `1 > 1.1 > para 3` or `1 > 1.1 > Flange ratings > table 1`. Shown instead of a page number (a Word file has no fixed pages). `documents.pagination = 'flow'` marks the document |

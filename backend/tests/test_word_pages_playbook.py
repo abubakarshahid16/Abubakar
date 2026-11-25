@@ -39,7 +39,6 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "playbook.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
-    monkeypatch.setattr(settings, "docx_input_enabled", True)
     monkeypatch.setattr(settings, "procedure_playbook_rows_enabled", True)
     install_if_missing(monkeypatch)
     db.reset_connection()

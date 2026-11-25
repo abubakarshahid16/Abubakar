@@ -323,8 +323,8 @@ def _non_pdf_rows(path: str, doc_id: str | None = None) -> tuple[list[tuple] | N
 
     ONE_INTAKE_ENABLED: `intake.read` decides, and refuses what it cannot read
     (IntakeRefused: the worker records the document as failed with that
-    reason). Off: the DATASHEET_OFFICE_INPUT / DOCX_INPUT_ENABLED seams as
-    before. With DATASHEET_OFFICE_INPUT on, a Word file keeps the datasheet
+    reason). Off: the DATASHEET_OFFICE_INPUT seam as before (Word input has no
+    switch since 25 Nov 2026). With DATASHEET_OFFICE_INPUT on, a Word file keeps the datasheet
     reader's own pages (its facts cite them); otherwise it is read with its
     structure. A PDF never takes this branch.
 
@@ -347,8 +347,7 @@ def _non_pdf_rows(path: str, doc_id: str | None = None) -> tuple[list[tuple] | N
         return intake.as_rows(result), result.flow
     docx_rows = (
         _docx_rows(path)
-        if settings.docx_input_enabled
-        and (settings.word_page_markers_enabled or not settings.datasheet_office_input)
+        if settings.word_page_markers_enabled or not settings.datasheet_office_input
         else None
     )
     if docx_rows is not None:

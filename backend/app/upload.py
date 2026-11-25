@@ -251,12 +251,6 @@ def validate_docx(temp_path: Path) -> None:
                           f"no {_DOCX_REQUIRED_ENTRY} entry")
 
 
-def docx_accepted() -> bool:
-    """Is a Word upload accepted? W5b-01: `DOCX_INPUT_ENABLED` (ON by default),
-    or the older datasheet seam `DATASHEET_OFFICE_INPUT`."""
-    return bool(settings.docx_input_enabled or settings.datasheet_office_input)
-
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -404,7 +398,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
         # `validate_xlsx` refuses it as `not_xlsx`, exactly as before.
         if kind == KIND_XLSX:
             _refuse_unread_office(temp_path)
-        if (kind == KIND_XLSX and docx_accepted() and is_docx(temp_path)):
+        if kind == KIND_XLSX and is_docx(temp_path):  # Word is always accepted (made the default 25 Nov 2026)
             kind = KIND_DOCX
             validate_docx(temp_path)
         if kind == KIND_XLSX:
@@ -475,8 +469,7 @@ def ingest(src: BinaryIO, raw_filename: str, *,
     # `datasheet_inputs` in the extract stage - so a datasheet sent as one can
     # be reviewed. #525 slice 2: an image is indexed; a workbook is stored and waits
     # for its role (`sheet_chunks.withhold`), never a CRS template. Off: as above.
-    indexed = (kind == KIND_PDF or (kind == KIND_DOCX and docx_accepted())
-               or bool(settings.datasheet_office_input))
+    indexed = kind in (KIND_PDF, KIND_DOCX) or bool(settings.datasheet_office_input)
     indexed = indexed or _slice2_indexed(kind)
     status = states.QUEUED if indexed else states.STORED_NOT_INDEXED
 
@@ -687,7 +680,7 @@ def _first_page_text(pdf_path: Path) -> str:
     single page parse and not a document.
     """
     try:
-        if settings.docx_input_enabled and is_docx(Path(pdf_path)):
+        if is_docx(Path(pdf_path)):
             # A Word document's first reading page, never MuPDF's flattening.
             from . import docx_reader
 
