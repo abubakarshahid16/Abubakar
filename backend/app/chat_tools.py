@@ -403,15 +403,31 @@ def run_look_at_page(input: dict, *, allowed_document_ids: frozenset[str],
     return ToolRun("look_at_page", input, f"Looked at page {page_no}", True, [source]), image
 
 
+#: The tools that read the reader's documents (`dispatch`): with NO documents in scope they say so, never "no results".
+DOCUMENT_TOOLS = frozenset({"search_documents", "read_document", "get_datasheet_fields", "list_cited_standards",
+                            "look_at_page"})
+#: The step shown, and what the model is told, when a document tool had no documents to read (planner 19 Nov 02:05: Claude
+#: mode with no document chosen answered "I searched your documents and found nothing" while the library held hundreds).
+NO_DOCUMENTS_LABEL = "No documents were given to search"
+NO_DOCUMENTS_NOTE = (
+    "No documents were given to search: the reader chose no documents for this question, so nothing was searched. "
+    "Do not say the documents hold nothing. Tell the reader that no documents were given to search, and that they can "
+    "choose documents with @, or use the local model to search the whole library."
+)
+
+
 def dispatch(name: str, input: dict, *, allowed_document_ids: frozenset[str],
              pages_used: list) -> tuple[ToolRun, object | None]:
     """One tool call, permission-checked, to (ToolRun, image|None).
 
     A malformed input (not an object, a wrong type inside it) comes back as a
-    failed ToolRun the model is told about - never an exception."""
+    failed ToolRun the model is told about - never an exception. A document
+    tool with no documents in scope reads nothing and says so (`NO_DOCUMENTS_NOTE`)."""
     if not isinstance(input, dict):
         return ToolRun(str(name), {}, "Used a tool", False,
                        note="invalid input: the tool input must be an object"), None
+    if name in DOCUMENT_TOOLS and not allowed_document_ids:
+        return ToolRun(str(name), input, NO_DOCUMENTS_LABEL, False, note=NO_DOCUMENTS_NOTE), None
     if name == "search_documents":
         return run_search_documents(input, allowed_document_ids=allowed_document_ids), None
     if name == "read_document":

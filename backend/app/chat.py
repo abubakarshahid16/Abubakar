@@ -40,6 +40,7 @@ from . import chat_comparison
 from . import family_search
 from . import chat_model
 from . import chat_presentation
+from . import chat_tools
 from . import corpus as corpus_mod
 from . import intent as intent_mod
 from . import fts_index
@@ -724,6 +725,18 @@ def _declaring_the_conversation(fn):
     return declared
 
 
+#: The notice of a Claude-mode turn whose document tools had no documents to read (planner 19 Nov 02:05).
+NO_DOCUMENTS_NOTICE = (
+    "No documents were given to search, so this answer does not come from your documents. Choose documents with @, "
+    "or use the local model to search the whole library."
+)
+#: The notice of a "check in my documents" follow-up asked in Claude mode with no document chosen: searched locally.
+LOCAL_LIBRARY_NOTICE = (
+    "No documents were chosen for Claude, so your whole library was searched on the local model on this computer; "
+    "nothing was sent."
+)
+
+
 @_declaring_the_conversation
 def ask(
     conversation_id: str,
@@ -806,11 +819,20 @@ def ask(
         # talk, general questions, rewrites, actions and record searches never
         # do - so none of them can produce a passage, a citation or a finding.
         previous = last_answer(conversation_id, allowed_document_ids=history_allowed)
+        in_scope = bool(selected_document or conversation["document_id"] or document_ids)
         routed = intent_mod.route(
             question, has_previous_answer=previous is not None,
-            document_in_scope=bool(selected_document or conversation["document_id"]
-                                   or document_ids),
-            web_enabled=web)
+            document_in_scope=in_scope, web_enabled=web)
+        if previous is None and model == chat_model.CLAUDE and not claude_document_selection:
+            # Claude mode hides the earlier answer from the model, not from the router: "check in database" re-asks the
+            # reader's own earlier QUESTION of the documents (on the local model, below; planner 19 Nov 02:00). Any other
+            # rewrite still has no previous answer to rewrite.
+            again = intent_mod.route(
+                question, has_previous_answer=last_answer(
+                    conversation_id, allowed_document_ids=allowed_document_ids) is not None,
+                document_in_scope=in_scope, web_enabled=web)
+            if again["kind"] == intent_mod.REWRITE and "check_documents" in again["styles"]:
+                routed = again
         route_kind = routed["kind"]
         tier = routed.get("tier") or tier
         carried: list[str] = []
@@ -1034,6 +1056,9 @@ def ask(
         result = spec_shaped_result
     elif claude_first_result is not None:
         result = claude_first_result
+        if any(st.get("label") == chat_tools.NO_DOCUMENTS_LABEL for st in result.get("steps") or []):
+            # code's words, whatever the model wrote: nothing was searched, the library was not found empty
+            result["notices"] = [*(result.get("notices") or []), NO_DOCUMENTS_NOTICE]
         if routed.get("small_talk") and result.get("answer_type") == "general" and not result.get("passages"):
             result["examples"] = intent_mod.example_questions(allowed_document_ids=retrieval_allowed)
     elif explain_of is not None or route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER):
@@ -1066,13 +1091,18 @@ def ask(
         # documents - a real retrieval, not a rewrite of an earlier answer.
         asked = _previous_user_question(conversation_id, before=user_message["ordinal"])
         route_kind = intent_mod.DOCUMENT
+        # Model=Claude with no document chosen: the library is searched on the LOCAL model, never sent (privacy rule 1;
+        # the same narrowing `document_model` makes for a document question), and the answer says so
+        local_only = model == chat_model.CLAUDE and not claude_document_selection
         result, resolved = _document_answer(
             conversation_id, asked or original, None, tier="generated", document_id=document_id,
             selected_document=selected_document, limit=limit,
             # the @-picked documents narrow this search too (intersection,
             # CLAUDE.md rule 5) - it used to search every readable document
             allowed_document_ids=retrieval_allowed, progress_id=progress_id,
-            model=document_model, history=memory(always=True))
+            model=chat_model.LOCAL if local_only else document_model, history=memory(always=True))
+        if local_only:
+            result["notices"] = [*(result.get("notices") or []), LOCAL_LIBRARY_NOTICE]
     elif route_kind == intent_mod.REWRITE:
         result = chat_answers.rewrite(previous, styles=routed["styles"], history=memory(always=True),
                                       preference=model, question=original)
