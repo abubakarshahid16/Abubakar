@@ -36,6 +36,8 @@ export interface GeneralLine {
   readers?: { first: string; second: string; reason: string } | null;
   /** The AI chose which two values of the paper to compare and code compared them: said as a small tag, never in the comment text. */
   paired?: boolean;
+  /** Parts the paper answers that were cut out of the comment (team only): the page and the full text before the cut. */
+  cut?: { page: number; pages?: number[]; before: string }[];
   /** The engineer's latest decision on this comment (append-only on the server); null when undecided. */
   decision?: CommentDecision | null;
 }

@@ -231,3 +231,17 @@ describe("paired values tag (A's 1664fa01)", () => {
   });
 });
 
+
+describe("side-claim cut mark (A, update 6)", () => {
+  it("shows the page and the full text before the cut, never inside We ask", () => {
+    const before = "The test is set to NO. The record is not named. State the test.";
+    mount(review([card(1, { we_ask: "The test is set to NO. State the test.", cut: [{ page: 2, pages: [2, 5], before }] })]));
+    expect(screen.getByTestId("card-cut")).toHaveTextContent(`Part answered on page 2, 5 taken out. Before: ${before}`);
+    expect(screen.getByText("The test is set to NO. State the test.")).not.toHaveTextContent("taken out");
+  });
+
+  it("shows no mark when nothing was cut", () => {
+    mount(review([card(1, { cut: [] }), card(2)]));
+    expect(screen.queryByTestId("card-cut")).toBeNull();
+  });
+});
