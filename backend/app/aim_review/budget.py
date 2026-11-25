@@ -63,6 +63,9 @@ RESERVE_TOKENS = 16_000
 #: run record says so on every judge call ("not the whole paper").
 MIN_CTX, MAX_CTX = 16_384, 65_536
 STEP_CTX = 4_096
+#: The app's token estimate is tuned on one tokenizer; another counts up to half more (the 14B counted 8,087 where the estimate
+#: allowed less): the window keeps that much room, so the whole paper still fits.
+TOKENIZER_SLACK = 1.5
 
 
 def for_paper(paper_tokens: int, base: Budget = LOCAL) -> Budget:
@@ -70,7 +73,7 @@ def for_paper(paper_tokens: int, base: Budget = LOCAL) -> Budget:
     the whole paper and `RESERVE_TOKENS` fit (never cut to fit a smaller window), up to `MAX_CTX`."""
     from dataclasses import replace
 
-    want = int(paper_tokens) + RESERVE_TOKENS
+    want = int(int(paper_tokens) * TOKENIZER_SLACK) + RESERVE_TOKENS
     num_ctx = min(MAX_CTX, max(MIN_CTX, -(-want // STEP_CTX) * STEP_CTX))
     room = num_ctx - RESERVE_TOKENS
     return replace(base, num_ctx=num_ctx, window_tokens=room, window_chars=room * 3)
