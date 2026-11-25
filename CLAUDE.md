@@ -53,6 +53,11 @@ contractor copy issued only after that sign-off. Until then every file is the te
    17 Nov 2026, #1584 comment 6930244442; `standards_web_search.py`, `STANDARDS_WEB_SEARCH_ENABLED`, off by default) sends
    only a public standard's name taken from the app's own tables of public standards (never the paper's words), through
    `reader_transport.py` under the same caps; a stored answer is reused for 90 days and says when it was searched.
+   THE RULE APPROVAL LANE (owner, 25 Nov 2026, #1584 comment 7169525003; `rule_second_approval.py`,
+   `scripts/run_rule_second.py`): the second-model rule approval step and its blind sample judge send rule-book text of
+   the SAES, ISO, API, ASME and NACE families only, through `standards_lane` and `reader_transport.py` under the
+   `claude_spend` caps; nothing else uses this lane; the first batch is 2,000 rules, and its error rate is reported before
+   the rest is run.
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only four modules may open a
    socket, each behind a gate:
