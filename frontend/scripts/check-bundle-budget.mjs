@@ -24,7 +24,8 @@ const root = join(process.cwd(), "dist", "assets");
 // the AI's equipment in the header, "Choose Claude" for a held-back paper and the busy/stopped words (about 0.5 KB gzip; owner's deadline order).
 // Technical queries (26 Nov 2026): 327000 -> 334000 bytes: technical queries screen, 26 Nov, lead decision (build 333496).
 // Technical queries label fix (26 Nov 2026): 334000 -> 335000 bytes: technical queries label fix, 26 Nov, lead decision (build 334455).
-const max = 335000;
+// Update 9 (26 Nov 2026): 335000 -> 336000 bytes: update 9: zone-named times, in-page questions, score banner, 26 Nov, lead decision (build 335038).
+const max = 336000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;
