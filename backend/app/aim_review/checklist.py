@@ -23,6 +23,7 @@ from . import book_names as BN
 from . import library as L
 from . import prompts as P
 from . import scope_books as SB
+from .budget import is_local
 from .carried import knowledge_rows, say_none, set_aside
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
@@ -39,6 +40,7 @@ from .material import (  # noqa: F401 - the clause material S3 and the attack re
     _material_line,
     material,
 )
+from .updates import checklist_method
 
 log = logging.getLogger(__name__)
 HELD = "held standard"
@@ -49,6 +51,8 @@ KNOWLEDGE_NOT_HELD = "engineering knowledge (book not held)"
 MAX_KNOWLEDGE = 40
 #: At most this many knowledge items the attack step may add (code cuts the rest; light check e1c61001).
 MAX_ATTACK_KNOWLEDGE = 10
+#: Items per checklist retry call on the local model (its answer for every item at once could pass the 8,000-token limit).
+RETRY_LOCAL = 6
 #: The `source` of a not-held name that `wanted` found in the app's tables (the rebuild test reads these, never an AI's name).
 WANTED_GOVERNS, WANTED_METHOD = "governing table", "method table"
 WANTED_SOURCES = (WANTED_GOVERNS, WANTED_METHOD)
@@ -68,12 +72,6 @@ SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the require
 CHECKLIST_METHOD = "2026-11-25.1"
 #: The method main 475adb91 builds with (`updates.u7b` off): its saved checklists are reused as on main.
 CHECKLIST_METHOD_MAIN = "2026-11-19.1"
-
-
-def checklist_method() -> str:
-    from .updates import u7b
-
-    return CHECKLIST_METHOD if u7b() else CHECKLIST_METHOD_MAIN
 
 
 def _dumps(o) -> str:
@@ -344,9 +342,11 @@ def _chosen(out: dict, cat: list[dict], required: dict[str, str]) -> list[dict]:
         if not c or c["book"] in chosen:
             continue
         subj = row.get("subjects")
+        # on the local model every subject of a chosen book (26 Nov 2026: the 14B's narrow subject lists offered 40k of the
+        # material's characters against Claude's 150k, on the same 20 books); its smaller calls read it all (`_batches`)
         subj = (
             "all"
-            if subj == "all" or not isinstance(subj, list)
+            if subj == "all" or not isinstance(subj, list) or is_local()
             else [s for s in subj if s in c["subjects"]] or "all"
         )
         chosen[c["book"]] = {
@@ -467,6 +467,30 @@ def _answers(
     return [(out, batch)]
 
 
+def _retried(
+    model, bad: list[dict], batch, carries, lead, depth: int = 0
+) -> list[dict]:
+    """The retry's items for `bad` (one call). On the local model a cut answer is never used: the items are asked again in two
+    halves, and one item whose answer is still cut is dropped (its quote stays not found); on Claude a cut is raised, as before."""
+    prompt = P.S3_RETRY % {
+        "items": _dumps(bad),
+        "material": "\n".join(_material_line(r) for r in batch),
+    }
+    try:
+        fix = model.ask(step="aim_checklist_retry", model=lead, system="", cached=None, prompt=prompt, carries=carries,
+                        max_tokens=8000)  # fmt: skip
+    except StepFailed as exc:
+        if not is_local() or "max_tokens" not in str(exc) or depth >= SPLIT_DEPTH:
+            raise
+        if len(bad) < 2:
+            return []
+        h = len(bad) // 2
+        return _retried(model, bad[:h], batch, carries, lead, depth + 1) + _retried(
+            model, bad[h:], batch, carries, lead, depth + 1
+        )
+    return _items_of(fix)
+
+
 def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> dict:
     rows, stats = material(sel, text)
     alias_to_book = {b["alias"]: b["book"] for b in sel["books"]}
@@ -489,20 +513,12 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
         ]
         if bad:  # one retry: ask for the exact words of those items only
             retried += len(bad)
-            fix = model.ask(
-                step="aim_checklist_retry",
-                model=lead,
-                system="",
-                cached=None,
-                prompt=P.S3_RETRY
-                % {
-                    "items": _dumps(bad),
-                    "material": "\n".join(_material_line(r) for r in batch),
-                },
-                carries=carries,
-                max_tokens=8000,
-            )
-            fixed = _items_of(fix)
+            # on the local model in groups of RETRY_LOCAL (26 Nov 2026: one answer for every such item ran past its 8,000
+            # tokens and stopped the run); on Claude in one call, as before
+            size = RETRY_LOCAL if is_local() else len(bad)
+            fixed = []
+            for k in range(0, len(bad), size):
+                fixed += _retried(model, bad[k : k + size], batch, carries, lead)
             ok_fixed = [
                 it
                 for it in fixed
@@ -557,7 +573,13 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
     the kind's floor: items from the model's knowledge of each not-held public standard's requirements (and of engineering
     practice up to the floor), source KNOWLEDGE_NOT_HELD, the standard's public name in `stands_in_for`, no clause quote, no
     clause number. The items so far are named by topic only (the listed books are declared). A failed call adds nothing."""
-    names = _not_held_line(sel)
+    names = sel.get("_not_held_only") or _not_held_line(sel)
+    # the local model: one not-held standard per call (26 Nov 2026: the 9B's answer for all at once ran past its limit)
+    if is_local() and names and "; " in names:
+        for one in names.split("; "):
+            one_sel = {**sel, "_not_held_only": one}
+            made = s3_knowledge(model, ident, one_sel, made, lead)
+        return made
     floor = floor_for(ident.get("kind"))
     have = len(made["items"])
     if not names and have >= floor:
@@ -648,24 +670,36 @@ def s3_attack(
         }
         for it in made["items"]
     ]
-    out = model.ask(
-        step="aim_attack",
-        model=strong,
-        system="",
-        cached=None,
-        prompt=_for_type(P.ATTACK_TASK)
-        % {
-            "identity": _identity(ident),
-            "kinds": _dumps(list(ITEM_KINDS)),
-            "items": "\n".join(_dumps(s) for s in shown),
-            "not_held": _not_held_line(sel) or "none",
-            "books": _books_line(sel),
-            "material": "\n".join(_material_line(r) for r in rows),
-        },
-        carries=set(alias_to_book.values()),
-        max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
-    )
-    out = out if isinstance(out, dict) else {}
+    # one call with all the material on Claude; on the local model one per material batch, the answers joined (26 Nov 2026)
+    out: dict = {"remove": [], "fix": [], "add": []}
+    for part in _batches(rows) if is_local() else [rows]:
+        try:
+            got = model.ask(
+                step="aim_attack",
+                model=strong,
+                system="",
+                cached=None,
+                prompt=_for_type(P.ATTACK_TASK)
+                % {
+                    "identity": _identity(ident),
+                    "kinds": _dumps(list(ITEM_KINDS)),
+                    "items": "\n".join(_dumps(s) for s in shown),
+                    "not_held": _not_held_line(sel) or "none",
+                    "books": _books_line(sel),
+                    "material": "\n".join(_material_line(r) for r in part),
+                },
+                carries=set(alias_to_book.values()),
+                max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
+            )
+        except StepFailed as exc:  # a cut answer is never used: on the local model that batch's attack is set aside
+            if not is_local() or "max_tokens" not in str(exc):
+                raise
+            logging.getLogger(__name__).info(
+                "general review: a cut attack answer of one batch is not used"
+            )
+            continue
+        for k in out:
+            out[k] += (got.get(k) or []) if isinstance(got, dict) else []
     by_id = {it["id"]: it for it in made["items"]}
     log = {"removed": [], "fixed": [], "added": [], "rejected": []}
     for r in out.get("remove") or []:

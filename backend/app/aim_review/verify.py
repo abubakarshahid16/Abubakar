@@ -48,9 +48,10 @@ def _hay(text: str) -> tuple[str, str]:
     return h, _squeeze(h)
 
 
-def quote_in(quote: str, text: str) -> bool:
+def quote_in(quote: str, text: str, loose: bool | None = None) -> bool:
     """True when `quote` (whitespace/case/typography folded; '...' allowed between parts, each part found in order) appears in
-    `text`. A part shorter than MIN_QUOTE characters proves nothing and fails."""
+    `text`. A part shorter than MIN_QUOTE characters proves nothing and fails. On the local model (`loose` None) a quote not found
+    so is found by its words and numbers in order (`_loose`); `loose=False` asks the word-for-word check alone."""
     q = norm(quote)
     if len(q) < MIN_QUOTE:
         return False
@@ -68,9 +69,38 @@ def quote_in(quote: str, text: str) -> bool:
             continue
         j = hay_sq.find(_squeeze(p), pos_sq)
         if j < 0:
-            return False
+            return (
+                _loose(q, hay)
+                if loose is None
+                else bool(loose) and _bare(hay).find(_bare(q)) >= 0
+            )
         pos_sq = j + len(_squeeze(p))
     return True
+
+
+#: The local model's note on a quote code found only with spacing, line breaks and punctuation ignored (`quote_in`).
+LOOSE_NOTE = "paper quote found by its words and numbers in order (spacing, line breaks and punctuation ignored)"
+
+
+def _bare(s: str) -> str:
+    """Only the words and numbers, in order: a field's label and its value on two lines read as one ("Invented field" /
+    "7.25 units" against "Invented field: 7.25 units"). The decimal point, "/", "%" and a sign stay (they change a value)."""
+    return re.sub(r"[^\w./%+\u00b1-]|_|-(?!\d)", "", s)
+
+
+def _loose(q: str, hay: str) -> bool:
+    """On the local model only (26 Nov 2026: the 14B joins a label and its value with a colon, and 17 of 52 quotes failed, so
+    no value was ever compared): the quote's words and numbers in order on the page."""
+    from .budget import is_local
+
+    return is_local() and len(_bare(q)) >= MIN_QUOTE and _bare(hay).find(_bare(q)) >= 0
+
+
+def loose_note(quote: str, page_text: str | None) -> list[str]:
+    """[LOOSE_NOTE] when the quote stands on the page only by its words and numbers in order; [] when word for word."""
+    if not quote or page_text is None or quote_in(quote, page_text, loose=False):
+        return []
+    return [LOOSE_NOTE] if quote_in(quote, page_text) else []
 
 
 def find_page(quote: str, pages: dict[int, str], hint: int | None = None) -> int | None:
@@ -446,10 +476,11 @@ def met_unproven(said, label: str, nums, deferred: bool, code_cmp) -> list[str]:
     by code: Pass" only when code compared), kept on All points, never sent as a concern. Decided by the judge's own label and
     code's result, never by the comment's words. A value left open, or anything else: []."""
     from . import AI_MET_UNPROVEN
+    from .budget import is_local
     from .updates import u7b
 
     if (
-        not u7b()
+        not (u7b() or is_local())
         or said != "Met"
         or label != "Question"
         or deferred

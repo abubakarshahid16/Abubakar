@@ -482,10 +482,21 @@ def knowledge_ask() -> str:
     return KNOWLEDGE_ASK.replace(CONDITIONS_ASK, conditions_ask())
 
 
+#: The local model's judge line on values (26 Nov 2026: the 14B did its own unit conversions and sums, so code could not find its
+#: figures in the quotes). Part of update 7b's text; on the local route it is given with main's text too.
+PRINTED_LINE = "             each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),\n"
+_NUMBERS_ANCHOR = '"rule_value": "...", "rule_unit": "...",\n'
+
+
 def s4_task() -> str:
+    """The judge's task: update 7b's text when AIM_U7B_ENABLED is on, main's otherwise; on the local model with PRINTED_LINE."""
+    from .budget import is_local
     from .updates import u7b
 
-    return S4_TASK if u7b() else S4_TASK_MAIN
+    text = S4_TASK if u7b() else S4_TASK_MAIN
+    if is_local() and PRINTED_LINE.strip() not in text:
+        text = text.replace(_NUMBERS_ANCHOR, _NUMBERS_ANCHOR + PRINTED_LINE, 1)
+    return text
 
 
 def answered_task() -> str:

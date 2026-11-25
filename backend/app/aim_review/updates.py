@@ -61,3 +61,10 @@ def formula_lines(conn, paper, state) -> None:
         from .formulas import add_lines
 
         add_lines(conn, paper, state)
+
+
+def checklist_method() -> str:
+    """The checklist method version a run builds and reuses with: 7b's, or main's (`checklist.CHECKLIST_METHOD_MAIN`)."""
+    from . import checklist
+
+    return checklist.CHECKLIST_METHOD if u7b() else checklist.CHECKLIST_METHOD_MAIN

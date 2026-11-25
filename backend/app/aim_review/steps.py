@@ -16,6 +16,8 @@ from . import (
     PAPER_COMPARE_PASSED,
     PROVISIONAL,
 )
+from . import code_numbers as CN
+from . import disciplines as D
 from . import items as I
 from . import library as L
 from . import prompts as P
@@ -31,6 +33,7 @@ from .fail_words import (  # noqa: F401 - one home: fail_words
 from .verify import (
     compare,
     find_page,
+    loose_note,
     met_unproven,
     norm,
     paper_relation,
@@ -192,6 +195,8 @@ def _compare(
     is never compared."""
     held = it["source"] == HELD
     rule_quote = str(it.get("rule_quote") or "")
+    if got := CN.decided(it, label, quote, notes, paper, deferred, _compare, nums):
+        return got  # the local model gives few numbers: code reads them
     if nums and quote and label in ("Met", "Not met") and (held or it.get("always_on")):
         return _numbers(
             nums, quote, rule_quote, notes, paper, it.get("what_to_check") or ""
@@ -371,6 +376,7 @@ def s4_judge(
     jobs: list[
         tuple[list[dict], dict]
     ] = []  # (batch, request) in window, then batch order: the one-at-a-time order
+    discipline = D.judge_head(scope)  # "" = the general judge
     for win in windows or [sorted(paper.pages)]:
         cached = paper_block(paper, win if windowed else None)
         head = (
@@ -379,6 +385,7 @@ def s4_judge(
             if windowed
             else ""
         ) + _scope_line(scope)
+        head += discipline
         jobs += [
             (b, _batch_request(paper, b, books, text, cached, head, lead))
             for b in batches
@@ -662,7 +669,7 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     quote = str(j.get("quote") or "")
     hint = j.get("page") if isinstance(j.get("page"), int) else None
     page = find_page(quote, paper.pages, hint) if quote else None
-    notes = []
+    notes = [] if page is None else loose_note(quote, paper.pages.get(page))
     if quote and page is None:
         notes.append("paper quote not found by code")
         if label in ("Met", "Not met"):
@@ -690,7 +697,6 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     ):  # any knowledge item (not held, or not from a held standard)
         label = "AI opinion" if label == "Not met" else "Does not apply"
         notes.append("not from a held standard: never Met or Not met")
-    # the judge said Met and code could not prove it: internal only, never sent
     notes += met_unproven(j.get("label"), label, nums, deferred, code_cmp)
     code_note = _code_note(notes, code_cmp, j.get("label"))
     return {

@@ -465,6 +465,9 @@ class Settings(SettingsExt, BaseSettings):
     #: The formula checks (`aim_review/formulas.py`), their own switch since update 9 (lead-4: proven by the free code-only replay,
     #: found unchanged, 3 new Not met lines all true, no comment duplicated). Off: no formula lines, as main 475adb91.
     aim_formula_checks_enabled: bool = True
+    #: Discipline reviewers (owner 25 Nov 2026): the judge with a mechanical or contract section and worked examples
+    #: (`aim_review/disciplines.py`, `reference/discipline_reviewers.json`). OFF until scored against the general judge.
+    aim_discipline_reviewers_enabled: bool = False
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment
