@@ -18,7 +18,17 @@ def _sel(n_rules: int) -> dict:
     pool = [{"book": "b1", "subject": "s", "tagged": True, "page": 1 + k // 10, "clause": f"4.{k}", "id": f"r{k}",
              "source_text": f"Invented rule {k}: the invented value shall be not less than {k} mm. " + "x" * 400,
              "requirement_text": ""} for k in range(n_rules)]  # fmt: skip
-    return {"_pool": pool, "books": [{"book": "b1", "alias": "B1", "identifier": "Invented Book", "chosen_subjects": "all"}]}
+    return {
+        "_pool": pool,
+        "books": [
+            {
+                "book": "b1",
+                "alias": "B1",
+                "identifier": "Invented Book",
+                "chosen_subjects": "all",
+            }
+        ],
+    }
 
 
 def test_the_local_model_reads_the_same_rule_material_as_claude_in_smaller_calls():
@@ -27,9 +37,17 @@ def test_the_local_model_reads_the_same_rule_material_as_claude_in_smaller_calls
     with budget.using(budget.LOCAL):
         local_rows, local_stats = MT.material(sel, None)
         local_batches = MT._batches(local_rows)
-    assert [r["req_id"] for r in local_rows] == [r["req_id"] for r in claude_rows]  # nothing cut
-    assert local_stats == claude_stats and len(local_batches) > len(MT._batches(claude_rows)) > 0
-    assert all(sum(len(MT._material_line(r)) for r in b) <= budget.LOCAL.batch_chars for b in local_batches)
+    assert [r["req_id"] for r in local_rows] == [
+        r["req_id"] for r in claude_rows
+    ]  # nothing cut
+    assert (
+        local_stats == claude_stats
+        and len(local_batches) > len(MT._batches(claude_rows)) > 0
+    )
+    assert all(
+        sum(len(MT._material_line(r)) for r in b) <= budget.LOCAL.batch_chars
+        for b in local_batches
+    )
 
 
 class _Attack:
@@ -38,7 +56,11 @@ class _Attack:
 
     def ask(self, **kw):
         self.calls.append(kw)
-        return {"remove": [{"id": f"C{len(self.calls):03d}", "why": "invented"}], "fix": [], "add": []}
+        return {
+            "remove": [{"id": f"C{len(self.calls):03d}", "why": "invented"}],
+            "fix": [],
+            "add": [],
+        }
 
 
 def test_the_attack_reads_every_batch_on_the_local_model_and_once_on_claude():
@@ -46,7 +68,12 @@ def test_the_attack_reads_every_batch_on_the_local_model_and_once_on_claude():
     made = {"items": [{"id": f"C{k:03d}", "topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
                        "rule_quote": "q", "applies_when": "always", "paper_fields": [], "kind": "limit",
                        "source": "held standard"} for k in range(1, 9)]}  # fmt: skip
-    ident = {"kind": "datasheet", "equipment_type": None, "subject": "invented", "service": ""}
+    ident = {
+        "kind": "datasheet",
+        "equipment_type": None,
+        "subject": "invented",
+        "service": "",
+    }
     claude = _Attack()
     CL.s3_attack(claude, ident, sel, made, None, "claude-sonnet-5-5")
     local = _Attack()
@@ -60,12 +87,20 @@ def test_the_attack_reads_every_batch_on_the_local_model_and_once_on_claude():
 def test_code_reads_the_numbers_only_when_the_rule_and_the_quote_hold_one_each():
     assert CN.numbers(RULE, "Corrosion allowance (pressure parts): 1.5 mm") == {
         "paper_value": "1.5", "paper_unit": "mm", "operator": ">=", "rule_value": "3", "rule_unit": "mm"}  # fmt: skip
-    assert CN.numbers(RULE, "Corrosion allowance: 1.5 mm shell, 3 mm head") is None  # two values: the judge pairs them
-    assert CN.numbers("Values shall be between 3 mm and 6 mm.", "Allowance: 1.5 mm") is None  # no single limit
+    assert (
+        CN.numbers(RULE, "Corrosion allowance: 1.5 mm shell, 3 mm head") is None
+    )  # two values: the judge pairs them
+    assert (
+        CN.numbers("Values shall be between 3 mm and 6 mm.", "Allowance: 1.5 mm")
+        is None
+    )  # no single limit
     assert CN.numbers(RULE, "Design pressure: 20 barg") is None  # another quantity
 
 
-PAPER = Paper(paper_id="doc_inv_sheet", pages={2: "Invented sheet.\nCorrosion allowance (pressure parts): 1.5 mm\n"})
+PAPER = Paper(
+    paper_id="doc_inv_sheet",
+    pages={2: "Invented sheet.\nCorrosion allowance (pressure parts): 1.5 mm\n"},
+)
 ITEM = {"id": "C001", "book": "B1", "book_id": "b1", "clause": "6.4", "source": S.HELD, "topic": "corrosion allowance",
         "what_to_check": "corrosion allowance at least the rule's minimum", "rule_quote": RULE, "applies_when": "always",
         "paper_fields": ["Corrosion allowance"], "paper_pages": [2], "kind": "limit"}  # fmt: skip
@@ -78,12 +113,40 @@ def test_on_the_local_model_a_question_on_a_stated_value_that_breaks_the_rule_is
         line = S._decide(ITEM, dict(ANSWER), PAPER, {}, "")
     assert line["label"] == "Not met" and CN.NOTE in line["code"]
     on_claude = S._decide(ITEM, dict(ANSWER), PAPER, {}, "")
-    assert on_claude["label"] == "Question" and CN.NOTE not in (on_claude.get("code") or "")  # Claude: unchanged until scored
+    assert on_claude["label"] == "Question" and CN.NOTE not in (
+        on_claude.get("code") or ""
+    )  # Claude: unchanged until scored
 
 
 def test_a_value_left_open_or_an_unverified_quote_is_never_compared_by_code():
     with budget.using(budget.LOCAL):
         open_ = S._decide(ITEM, {**ANSWER, "deferred": True}, PAPER, {}, "")
-        unfound = S._decide(ITEM, {**ANSWER, "quote": "Corrosion allowance: 1.0 mm"}, PAPER, {}, "")
+        unfound = S._decide(
+            ITEM, {**ANSWER, "quote": "Corrosion allowance: 1.0 mm"}, PAPER, {}, ""
+        )
     assert open_["label"] == "Question" and unfound["label"] == "Question"
     assert CN.NOTE not in (open_.get("code") or "") + (unfound.get("code") or "")
+
+
+def test_on_the_local_model_a_chosen_book_offers_every_subject():
+    """The rerun of 26 Nov: the same 20 books as Claude, but the 14B chose narrow subjects (40k characters of material)."""
+    cat = [{"alias": "B1", "book": "b1", "subjects": ["s1", "s2", "s3"], "required": True},
+           {"alias": "B2", "book": "b2", "subjects": ["s1", "s2"], "required": False}]  # fmt: skip
+    out = {
+        "books": [
+            {"alias": "B1", "subjects": ["s1"]},
+            {"alias": "B2", "subjects": ["s2"]},
+        ]
+    }
+    on_claude = {
+        b["book"]: b["chosen_subjects"] for b in CL._chosen(out, cat, {"b1": "governs"})
+    }
+    with budget.using(budget.LOCAL):
+        local = {
+            b["book"]: b["chosen_subjects"]
+            for b in CL._chosen(out, cat, {"b1": "governs"})
+        }
+    assert on_claude == {"b1": ["s1"], "b2": ["s2"]} and local == {
+        "b1": "all",
+        "b2": "all",
+    }
