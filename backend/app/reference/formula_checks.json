@@ -1,0 +1,89 @@
+{
+ "_about": "The formula checks (order 14, planner 25 Nov 2026, item 3): each limit a HELD standard states in numbers, with the clause's own sentence (`probe`, a regex found on a page of a rule book the review carried), the label keys of the two paper values it compares (the best first), and the rule that proves Met / Not met: [operator, k] means `left <op> k * right`; k may be \"factor\" (the number the clause sentence states) or \"percent\" (that number / 100). The standard's name is read from the carried book, never written here. Edit here, not in code.",
+ "version": "1",
+ "checks": [
+  {
+   "id": "design_pressure",
+   "title": "Design pressure covers the operating pressure",
+   "ref": "UG-21",
+   "probe": "each element of a pressure vessel shall be designed for at least the most severe condition of coincident pressure",
+   "left": [
+    "design_pressure"
+   ],
+   "right": [
+    "max_operating_pressure",
+    "operating_pressure"
+   ],
+   "met": [
+    ">=",
+    1.0
+   ],
+   "not_met": [
+    "<",
+    1.0
+   ],
+   "words": "the stated design pressure {a} is {rel} the operating pressure {b}"
+  },
+  {
+   "id": "design_temperature",
+   "title": "Design temperature covers the operating temperature",
+   "ref": "UG-20(a)",
+   "probe": "the maximum temperature used in design shall be not less than the mean metal temperature",
+   "left": [
+    "design_temperature"
+   ],
+   "right": [
+    "max_operating_temperature",
+    "operating_temperature"
+   ],
+   "met": [
+    ">=",
+    1.0
+   ],
+   "not_met": [
+    "<",
+    1.0
+   ],
+   "words": "the stated maximum design temperature {a} is {rel} the operating temperature {b}"
+  },
+  {
+   "id": "set_pressure",
+   "title": "Relief set pressure against the MAWP",
+   "ref": "UG-134",
+   "probe": "set to open at higher pressures but in no case at a pressure higher than (?:105|110)\\s*% of the maximum allowable working pressure.{0,400}?marked set pressure shall not exceed (?P<factor>110)\\s*% of the maximum allowable working pressure",
+   "left": [
+    "set_pressure"
+   ],
+   "right": [
+    "mawp"
+   ],
+   "met": [
+    "<=",
+    1.0
+   ],
+   "not_met": [
+    ">",
+    "percent"
+   ],
+   "words": "the stated set pressure {a} is {rel} the maximum allowable working pressure {b}"
+  },
+  {
+   "id": "hydrotest",
+   "title": "Hydrostatic test pressure against the MAWP",
+   "ref": "UG-99(b)",
+   "probe": "hydrostatic test pressure that at every point in the vessel is at least equal to (?P<factor>1\\.3|1\\.5) times the maximum allowable working pressure",
+   "left": [
+    "test_pressure"
+   ],
+   "right": [
+    "mawp"
+   ],
+   "met": null,
+   "not_met": [
+    "<",
+    "factor"
+   ],
+   "words": "the stated test pressure {a} is {rel} the minimum test pressure of {f} times the maximum allowable working pressure {b}"
+  }
+ ]
+}
