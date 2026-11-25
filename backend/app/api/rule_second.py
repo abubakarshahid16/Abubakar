@@ -46,8 +46,5 @@ def import_rule_second(
         raise HTTPException(status_code=422, detail=str(exc)) from None
     try:
         return rule_second_import.import_second(connect(), data, dry_run=body.dry_run)
-    except rule_second_import.ReviewRunning:
-        raise HTTPException(
-            status_code=409,
-            detail="a review is queued or running; import after it ends",
-        ) from None
+    except rule_second_import.ImportBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
