@@ -387,7 +387,13 @@ def judge_sample(
         )
     rows = [r for r in rows if r[7] is None]
     counts: Counter = Counter()
-    for batch in _batches([r for r in rows if r[0] in rules], JUDGE_BATCH):
+    # standards text only: a sampled rule outside the families open to the Claude lane is never shown to the judge
+    rows = [
+        r
+        for r in rows
+        if r[0] in rules and family_of(rules[r[0]].standard) in ALLOWED_FAMILIES
+    ]
+    for batch in _batches(rows, JUDGE_BATCH):
         items = [{"n": i, "clause": rules[r[0]].clause, "quote": rules[r[0]].quote, "paper_kind": r[2], "field": r[3],
                   **json.loads(r[4])} for i, r in enumerate(batch, 1)]  # fmt: skip
         with (
@@ -474,3 +480,37 @@ def review_sql(conn, held: set[str], labels: Sequence[str]) -> dict | None:
         "where": f" OR (rl.state = '{NEEDS_HUMAN}' AND sa.paper_kind IN ({marks}))",
         "where_args": list(labels),
     }
+
+
+# ------------------------------------------------------------------------------------------------ the file to the server
+
+EXPORT_FORMAT = "rule-second-v1"
+APPROVAL_COLUMNS = ("source", "rule_ref", "state", "approver", "model", "prompt", "answer_sha256", "answer_json",
+                    "agrees_with", "paper_kind", "field", "reading_json", "refused_because", "quote_sha256", "quote_page",
+                    "approved_at")  # fmt: skip
+SAMPLE_COLUMNS = ("sample_id", "source", "rule_ref", "drawn_at", "seed", "judge_model", "judge_prompt", "verdict", "reason",
+                  "judged_at")  # fmt: skip
+MEASURE_COLUMNS = (
+    "sample_id",
+    "measured_at",
+    "covers_until",
+    "judged",
+    "wrong",
+    "judge_model",
+)
+
+
+def export(conn: sqlite3.Connection) -> dict:
+    """The copy's approvals, samples and measures as one file for the server's import (`rule_second_import`): ids, hashes,
+    pages, models, dates, readings; no quote text."""
+
+    def rows(table, cols):
+        return [
+            dict(zip(cols, r, strict=True))
+            for r in conn.execute(
+                f"SELECT {', '.join(cols)} FROM {table} ORDER BY 1, 2"
+            )
+        ]
+
+    return {"format": EXPORT_FORMAT, "approvals": rows("rule_second_approval", APPROVAL_COLUMNS),
+            "samples": rows("rule_second_sample", SAMPLE_COLUMNS), "measures": rows("rule_second_measure", MEASURE_COLUMNS)}  # fmt: skip

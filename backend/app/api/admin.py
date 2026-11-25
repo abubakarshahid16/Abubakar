@@ -3,6 +3,7 @@ database explorer and the document-kind routing run.
 
 Moved out of main.py with no logic change (planner order 79a, #692; system map target structure).
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -20,15 +21,20 @@ from ..paging import limit_param, offset_param, page_body
 from . import ocr_boxes as ocr_boxes_api
 from . import rule_equipment as rule_equipment_api
 from . import rule_labels as rule_labels_api
+from . import rule_second as rule_second_api
 
 router = APIRouter()
 router.include_router(rule_labels_api.router)  # rule-labels import
+router.include_router(rule_second_api.router)  # second-model approvals import
 router.include_router(rule_equipment_api.router)  # equipment-labels import
 router.include_router(ocr_boxes_api.router)  # OCR boxes import
 
 
-@router.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,
-             responses={**schemas.ERRORS_404})
+@router.post(
+    "/api/admin/document-kinds/route",
+    response_model=schemas.DocumentKindRouted,
+    responses={**schemas.ERRORS_404},
+)
 def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):
     """Route every document that has no routing yet (or an older router's).
     Documents already in the library when the router arrived need this once.
@@ -52,10 +58,14 @@ def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin))
 # all.
 
 
-@router.post("/api/admin/models/unload", response_model=schemas.AdminModelsFreed,
-             responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_free_model_memory(request: Request,
-                            actor: dict | None = Depends(admin_mod.current_admin)):
+@router.post(
+    "/api/admin/models/unload",
+    response_model=schemas.AdminModelsFreed,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def admin_free_model_memory(
+    request: Request, actor: dict | None = Depends(admin_mod.current_admin)
+):
     """Give back the memory the local models hold (#666): ask Ollama to unload
     every resident model (keep_alive 0). A non-admin gets the same 404 as every
     other route here. Nothing is sent but model names; the next question pays a
@@ -93,8 +103,11 @@ def admin_database_shape(request: Request):
     return {"live_shaped": _database_is_live_shaped()}
 
 
-@router.get("/api/admin/users", response_model=schemas.AdminUserList,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/admin/users",
+    response_model=schemas.AdminUserList,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def admin_list_users(
     request: Request,
     limit: int | None = limit_param(),
@@ -110,12 +123,16 @@ def admin_list_users(
     return page_body("users", admin_mod.list_users()["users"], limit, offset)
 
 
-@router.post("/api/admin/users", response_model=schemas.AdminUserCreated,
-             status_code=201,
-             responses={**schemas.ERRORS_404, **schemas.ERRORS_409,
-                        **schemas.ERRORS_422})
-def admin_create_user(body: admin_mod.CreateUserRequest,
-                      actor: dict | None = Depends(admin_mod.current_admin)):
+@router.post(
+    "/api/admin/users",
+    response_model=schemas.AdminUserCreated,
+    status_code=201,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_409, **schemas.ERRORS_422},
+)
+def admin_create_user(
+    body: admin_mod.CreateUserRequest,
+    actor: dict | None = Depends(admin_mod.current_admin),
+):
     """Create a user and return a one-time setup token.
 
     NO PASSWORD IS ACCEPTED OR RETURNED, and there is no parameter for one.
@@ -128,11 +145,14 @@ def admin_create_user(body: admin_mod.CreateUserRequest,
     return admin_mod.create_user(body, actor)
 
 
-@router.delete("/api/admin/users/{user_id}",
-               response_model=schemas.AdminUserDeactivated,
-               responses={**schemas.ERRORS_404, **schemas.ERRORS_409})
-def admin_deactivate_user(user_id: str,
-                          actor: dict | None = Depends(admin_mod.current_admin)):
+@router.delete(
+    "/api/admin/users/{user_id}",
+    response_model=schemas.AdminUserDeactivated,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_409},
+)
+def admin_deactivate_user(
+    user_id: str, actor: dict | None = Depends(admin_mod.current_admin)
+):
     """Deactivate a user. Idempotent, and never a delete.
 
     An admin cannot deactivate themselves: without that rule the last admin
@@ -141,18 +161,23 @@ def admin_deactivate_user(user_id: str,
     return admin_mod.deactivate_user(user_id, actor)
 
 
-@router.post("/api/admin/users/{user_id}/password-reset",
-             response_model=schemas.AdminUserCreated,
-             responses={**schemas.ERRORS_404})
+@router.post(
+    "/api/admin/users/{user_id}/password-reset",
+    response_model=schemas.AdminUserCreated,
+    responses={**schemas.ERRORS_404},
+)
 def admin_issue_password_reset(
-        user_id: str,
-        actor: dict | None = Depends(admin_mod.current_admin)):
+    user_id: str, actor: dict | None = Depends(admin_mod.current_admin)
+):
     """Issue a replacement shown-once token; never accept a password here."""
     return admin_mod.issue_password_reset(user_id, actor)
 
 
-@router.get("/api/admin/disciplines", response_model=schemas.AdminDisciplineList,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/admin/disciplines",
+    response_model=schemas.AdminDisciplineList,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def admin_list_disciplines(
     request: Request,
     limit: int | None = limit_param(),
@@ -170,8 +195,11 @@ def admin_list_disciplines(
     return page_body("disciplines", disciplines, limit, offset)
 
 
-@router.get("/api/admin/grants", response_model=schemas.AdminGrantList,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/admin/grants",
+    response_model=schemas.AdminGrantList,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def admin_list_grants(
     request: Request,
     limit: int | None = limit_param(),
@@ -187,19 +215,27 @@ def admin_list_grants(
     return page_body("documents", admin_mod.list_grants()["documents"], limit, offset)
 
 
-@router.put("/api/admin/grants", response_model=schemas.AdminGrantResult,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_grant(body: admin_mod.GrantRequest,
-                actor: dict | None = Depends(admin_mod.current_admin)):
+@router.put(
+    "/api/admin/grants",
+    response_model=schemas.AdminGrantResult,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def admin_grant(
+    body: admin_mod.GrantRequest, actor: dict | None = Depends(admin_mod.current_admin)
+):
     """Grant a document to a discipline. Idempotent - a retried click cannot
     double-grant and cannot fail."""
     return admin_mod.grant(body, actor)
 
 
-@router.delete("/api/admin/grants", response_model=schemas.AdminGrantResult,
-               responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_revoke_grant(body: admin_mod.GrantRequest,
-                       actor: dict | None = Depends(admin_mod.current_admin)):
+@router.delete(
+    "/api/admin/grants",
+    response_model=schemas.AdminGrantResult,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def admin_revoke_grant(
+    body: admin_mod.GrantRequest, actor: dict | None = Depends(admin_mod.current_admin)
+):
     """Revoke a document from a discipline. 200 whether or not it was granted.
 
     The document leaves that discipline's members' search results on their NEXT
@@ -315,12 +351,17 @@ def admin_confirm_company_standard(
 # fine, so masking on the client would be decoration over a disclosure.
 
 
-@router.get("/api/admin/audit-log", response_model=schemas.AuditLogPage,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/admin/audit-log",
+    response_model=schemas.AuditLogPage,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def admin_audit_log(
     request: Request,
     action: str | None = Query(None, max_length=100, description="only this action"),
-    actor: str | None = Query(None, max_length=200, description="only this actor (user name as recorded)"),
+    actor: str | None = Query(
+        None, max_length=200, description="only this actor (user name as recorded)"
+    ),
     limit: int = Query(100, ge=1, le=500, description="page size (default 100)"),
     offset: int = Query(0, ge=0),
     admin: dict | None = Depends(admin_mod.current_admin),
@@ -338,16 +379,23 @@ def admin_audit_log(
         args.append(actor)
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     conn = connect()
-    total = conn.execute("SELECT COUNT(*) FROM audit_events" + clause, args).fetchone()[0]
+    total = conn.execute("SELECT COUNT(*) FROM audit_events" + clause, args).fetchone()[
+        0
+    ]
     rows = conn.execute(
         "SELECT id, at, actor_user_id, actor_username, action, resource_type, resource_id, outcome, detail"
-        " FROM audit_events" + clause + " ORDER BY id DESC LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
+        " FROM audit_events" + clause + " ORDER BY id DESC LIMIT ? OFFSET ?",
+        [*args, limit, offset],
+    ).fetchall()
     events = [{**dict(r), "detail": (r["detail"] or "")[:1000] or None} for r in rows]
     return {"events": events, "total": total, "limit": limit, "offset": offset}
 
 
-@router.get("/api/admin/db/tables", response_model=schemas.AdminDbTableList,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/admin/db/tables",
+    response_model=schemas.AdminDbTableList,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def admin_db_tables(
     request: Request,
     limit: int | None = limit_param(),
@@ -359,10 +407,14 @@ def admin_db_tables(
     return page_body("tables", explorer_mod.list_tables(connect()), limit, offset)
 
 
-@router.get("/api/admin/db/tables/{name}", response_model=schemas.AdminDbTableInfo,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
-def admin_db_table(name: str, request: Request,
-                   actor: dict | None = Depends(admin_mod.current_admin)):
+@router.get(
+    "/api/admin/db/tables/{name}",
+    response_model=schemas.AdminDbTableInfo,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
+def admin_db_table(
+    name: str, request: Request, actor: dict | None = Depends(admin_mod.current_admin)
+):
     """One table's columns, with type, nullability and whether its values are
     masked.
 
@@ -373,13 +425,17 @@ def admin_db_table(name: str, request: Request,
     reject_unknown_params(request, set())
     info = explorer_mod.table_info(connect(), name)
     if info is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such table"))
+        raise HTTPException(
+            status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no such table")
+        )
     return info
 
 
-@router.get("/api/admin/db/tables/{name}/rows", response_model=schemas.AdminDbRows,
-            responses={**schemas.ERRORS_404, **schemas.ERRORS_422})
+@router.get(
+    "/api/admin/db/tables/{name}/rows",
+    response_model=schemas.AdminDbRows,
+    responses={**schemas.ERRORS_404, **schemas.ERRORS_422},
+)
 def admin_db_rows(
     name: str,
     request: Request,
@@ -396,6 +452,7 @@ def admin_db_rows(
     reject_unknown_params(request, {"limit", "offset"})
     page = explorer_mod.read_rows(connect(), name, limit=limit, offset=offset)
     if page is None:
-        raise HTTPException(status_code=404, detail=errors.safe_error(
-            errors.NOT_FOUND, "no such table"))
+        raise HTTPException(
+            status_code=404, detail=errors.safe_error(errors.NOT_FOUND, "no such table")
+        )
     return page

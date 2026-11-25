@@ -7,6 +7,8 @@ on a database COPY. Nothing is sent without an order cap (`--max-usd`, an in-pro
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py judge --db <copy> --sample ID --model J --max-usd 3
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py measure --db <copy> --sample ID
     AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py gate --db <copy>
+    AGENT_REVIEW_ENABLED=1 python scripts/run_rule_second.py export --db <copy> --out <data dir>/labels/second.json
+The live app takes the file through POST /api/admin/rule-second/import (dry_run first; refused while a review runs).
 Refuses a live-shaped database path. Printed lines hold counts, ids and cause words only; never a quote.
 """
 
@@ -40,7 +42,8 @@ def _needs_human(conn, limit: int) -> list:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument(
-        "cmd", choices=("estimate", "run", "sample", "judge", "measure", "gate")
+        "cmd",
+        choices=("estimate", "run", "sample", "judge", "measure", "gate", "export"),
     )
     ap.add_argument("--db", required=True)
     ap.add_argument("--model", default=DEFAULT_MODEL)
@@ -49,13 +52,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--n", type=int, default=RS.SAMPLE_N)
     ap.add_argument("--seed", type=int)
     ap.add_argument("--sample")
+    ap.add_argument("--out")
     a = ap.parse_args(argv)
     require_on()
-    conn = job.open_copy(a.db, read_only=a.cmd in ("estimate", "gate"))
+    conn = job.open_copy(a.db, read_only=a.cmd in ("estimate", "gate", "export"))
     if a.cmd == "estimate":
         out = RS.estimate(_needs_human(conn, a.limit), a.model)
     elif a.cmd == "gate":
         out = RS.gate(conn)
+    elif a.cmd == "export":
+        data = RS.export(conn)
+        Path(a.out).write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+        out = {k: len(v) for k, v in data.items() if isinstance(v, list)}
     elif a.cmd in ("run", "judge"):
         if a.max_usd <= 0:
             print("refused: a paid step needs --max-usd (the order cap)")
