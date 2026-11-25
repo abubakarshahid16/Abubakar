@@ -609,6 +609,12 @@ def refusal() -> tuple[str, str] | None:
         stopped = _block_stop(ids)
         if stopped is not None:
             return stopped
+    from . import (
+        standards_lane,  # the standards converter lane: verified held standards only, after the blocks
+    )
+
+    if ids and standards_lane.allows(ids):
+        return None
     # The list the screen showed is a cap of its own, whether or not the owner's list is enforced.
     held = frozenset() if _REQUEST_CONSENT.get() else _unshown_specifications(ids)
     if held:
