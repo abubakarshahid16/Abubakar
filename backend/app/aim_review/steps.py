@@ -30,10 +30,11 @@ from .fail_words import (  # noqa: F401 - one home: fail_words
 from .verify import (
     compare,
     find_page,
+    met_unproven,
     norm,
     paper_relation,
-    quoted_value,
     rule_operator,
+    value_in,
 )
 
 log = logging.getLogger(__name__)
@@ -237,13 +238,14 @@ def _paper_limit(
     """The limit when the PAPER states it (a value and its limit both on the paper): read by code from the judged quote itself (a
     number other than the paper value), else from the judge's `limit_quote`, which must be found on a page of the paper first."""
     wanted = nums.get("rule_value")
-    here = quoted_value(wanted, quote)
+    here = value_in(wanted, nums.get("rule_unit"), quote)
     if here is not None and here["value"] != paper["value"]:
         return here, None
     second = str(nums.get("limit_quote") or "")
     hint = nums.get("limit_page") if isinstance(nums.get("limit_page"), int) else None
     page = find_page(second, paper_doc.pages, hint) if second else None
-    return (quoted_value(wanted, second), page) if page is not None else (None, None)
+    found = value_in(wanted, nums.get("rule_unit"), second)
+    return (found, page) if page is not None else (None, None)
 
 
 def _paper_numbers(
@@ -681,6 +683,8 @@ def _decide(it: dict, j: dict | None, paper, books: dict, err: str) -> dict:
     ):  # any knowledge item (not held, or not from a held standard)
         label = "AI opinion" if label == "Not met" else "Does not apply"
         notes.append("not from a held standard: never Met or Not met")
+    # the judge said Met and code could not prove it: internal only, never sent
+    notes += met_unproven(j.get("label"), label, nums, deferred, code_cmp)
     code_note = _code_note(notes, code_cmp, j.get("label"))
     return {
         **base,
@@ -747,11 +751,14 @@ def _numbers(
     by code from the verified paper quote, the rule value, its unit and the operator from the item's verified rule quote
     (`verify.quoted_value`); the model's numbers only say WHICH value is meant. Then code compares (`verify.compare`, the app's
     unit code) and its result decides the label. Anything code cannot read from the quotes is a Question. (label, comparison)."""
-    paper = quoted_value(nums.get("paper_value"), quote)
+    # the judge may give a figure it converted: code then finds the quote's own printed figure and converts it itself
+    paper = value_in(nums.get("paper_value"), nums.get("paper_unit"), quote)
+    if paper and paper.get("converted"):
+        notes.append("code read the printed figure: " + paper["converted"])
     if paper is None:
         notes.append("the paper value is not in the verified quote")
         return "Question", None
-    rule = quoted_value(nums.get("rule_value"), rule_quote)
+    rule = value_in(nums.get("rule_value"), nums.get("rule_unit"), rule_quote)
     if rule is None and paper_doc is not None:
         return _paper_numbers(nums, paper, quote, rule_quote, notes, paper_doc, check)
     if rule is None:
