@@ -51,7 +51,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `agent_review_decide` | The AI reviewer's per-item decision (mixin of the runner): evidence, gate, holds, absence proof, the context check; every guard only lowers confidence |
 | `agent_review_run` | The AI reviewer's runner: one Claude call per page batch through the app's lane and caps, one exit that caps every line by its rule's CURRENT tier, split batches, resume without paying twice, a partial run on a stop |
 | `agent_review_job_facts` | Small pure helpers of the AI reviewer job (the run's stop sentence, the equipment facts of the rule block), moved unchanged out of `agent_review_jobs` for file size |
-| `startup_repairs` | One-time guarded repair of retained indexes and legacy history before maintenance workers run |
+| `startup_repairs` | Guarded repair of retained indexes (run by the ingestion worker); the legacy-history repair is a maintenance step started by hand after a verified backup, not run at start-up |
 | `review_engine_ran` | What a review run really did, saved at its end (Claude steps from the ledger, the saved fact, the web-check note), moved unchanged out of `review_engine` for file size |
 | `agent_review_excerpt` | Pure functions that fit an item's question to the local window: the label excerpt of a page (the label line, the lines around it, the notes block), coverage windows that between them hold every line of every page, the one clause around a requirement |
 | `agent_review_local_run` | The runner's local first-reader step: one item a request, the windows of the excerpt module asked in turn, decided at the first that holds an answer; "not found" only when every window was asked |

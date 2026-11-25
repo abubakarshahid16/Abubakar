@@ -571,9 +571,18 @@ def citation_evidence(conn, paper_id: str) -> list[dict]:
     from app import agent_review_standards, standard_ids
 
     pages = agent_review_standards.read_book(conn, str(paper_id)).pages
+    # a company standard number counts only for a family the library holds (review of update 6a, B1; never a name shape)
+    families = frozenset(
+        f
+        for e in library(conn, exclude=frozenset({str(paper_id)}))
+        if is_rule_book(e) and (f := standard_ids.company_family(identifier_of(e)))
+    )
     found = []
     for page, text in sorted(pages.items()):
-        for name, start, end in standard_ids.find_citations(text):
+        cited = standard_ids.find_citations(text) + standard_ids.company_citations(
+            text, families
+        )
+        for name, start, end in sorted(cited, key=lambda c: c[1]):
             line_start = text.rfind("\n", 0, start) + 1
             line_end = text.find("\n", end)
             quote = text[line_start : line_end if line_end >= 0 else len(text)]

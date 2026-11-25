@@ -367,10 +367,51 @@ def _short_api_is_a_quantity(text: str, m: re.Match) -> bool:
 _FOUR_DIGIT_YEAR_AFTER = re.compile(r"-\d{4}(?![\dA-Za-z])")
 #: One more level of part after a part: the "-1" of "IEC 60534-2-1".
 _SUB_PART = re.compile(r"-\d{1,2}(?![\dA-Za-z])")
+#: A company standard number on ONE line: FAMILY [one or two words] STD number ("XY STD 104", "XY-MECH-STD-104"). Read ONLY by
+#: `company_citations`, and only for a FAMILY the app's own library holds (review of update 6a, B1: datasheets are written in
+#: upper case, where "STD" means a standard size, weight or a maker's own standard; "PIPE SCH STD 40" is a schedule).
 _COMPANY_STD = re.compile(
-    r"\b[A-Z][A-Z0-9]{1,11}(?:[-\s]+[A-Z][A-Z0-9]{0,11}){0,3}"
-    r"[-\s]+STD[-\s]+\d{1,8}\b"
+    r"(?P<family>[A-Z][A-Z0-9]{1,11})(?P<mid>(?:[- \t]+[A-Z][A-Z0-9]{0,11}){0,2})"
+    r"[- \t]+STD[- \t]+(?P<num>\d{2,8}(?:-\d{1,3})?)(?![\dA-Za-z]|-[A-Za-z0-9])"
 )
+#: Words that make "STD" a size, a schedule, a material or a maker's own standard, never a company standard: they stand
+#: between the family and "STD", or right after the number. The paper's own words, read as words.
+_NOT_A_STANDARD_WORDS = frozenset({
+    "SCH", "SCHED", "SCHEDULE", "PIPE", "TUBE", "WT", "WALL", "WEIGHT", "SIZE", "NPS", "DN", "BORE", "CLASS", "RATING",
+    "MFR", "MFG", "MAKER", "MAKERS", "MANUFACTURER", "MANUFACTURERS", "VENDOR", "VENDORS", "SUPPLIER", "SUPPLIERS",
+    "OEM", "IS", "AS", "ARE", "PER", "TO", "AND", "OR", "OF", "THE",
+    "SS", "CS", "MM", "IN", "INCH", "COAT", "COATS", "POLE", "POLES", "KW", "HP", "RPM", "BAR", "PSI", "PSIG", "LB",
+})  # fmt: skip
+
+
+def company_family(identifier: str | None) -> str | None:
+    """The family of a held company standard's identifier: its first word when the identifier is a FAMILY ... STD number
+    ("XY-MECH-STD-102" -> "XY"); None for any other identifier."""
+    m = _COMPANY_STD.fullmatch(" ".join(_DASHES.sub("-", str(identifier or "")).upper().split()))
+    return m.group("family") if m else None
+
+
+def company_citations(text: str, families: frozenset[str]) -> list[tuple[str, int, int]]:
+    """(name, start, end) of each company standard number the text cites whose FAMILY is in `families` (the families of the
+    company standards the library holds, `company_family`), in reading order. A bare "STD" next to a size, schedule, material
+    or maker word is never one; an unknown family is never one (it stays with the AI-read, quote-verified route)."""
+    text = text or ""
+    folded = _DASHES.sub("-", text)
+    out: list[tuple[str, int, int]] = []
+    pos = 0
+    for start in re.finditer(r"(?<![A-Za-z0-9-])[A-Z]", folded):  # never inside a dash-joined tag ("21-XY-STD-104-X")
+        if start.start() < pos:
+            continue
+        m = _COMPANY_STD.match(folded, start.start())
+        if m is None or m.group("family") not in families:
+            continue
+        mid = set(re.findall(r"[A-Z0-9]+", m.group("mid")))
+        after = re.match(r"[- \t]+([A-Za-z]+)", folded[m.end():])  # the next word on the SAME line
+        if mid & _NOT_A_STANDARD_WORDS or (after and after.group(1).upper() in _NOT_A_STANDARD_WORDS):
+            continue
+        out.append((" ".join(text[m.start():m.end()].split()), m.start(), m.end()))
+        pos = m.end()
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -450,8 +491,6 @@ def find_citations(text: str, *, typed_question: bool = False) -> list[tuple[str
     for pattern in [general, *classes]:
         for m in pattern.finditer(folded):
             found.append((m.start(), m.end()))
-    for m in _COMPANY_STD.finditer(folded):
-        found.append((m.start(), m.end()))
     out: list[tuple[str, int, int]] = []
     taken_until = -1
     # Reading order; at one start the longer reading wins ("BS EN 13445-3", not "BS").
