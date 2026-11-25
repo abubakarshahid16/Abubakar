@@ -34,7 +34,12 @@ def place_key(p: dict) -> tuple | None:
     from . import aim_review_view as V
 
     field, page = V._field_key(p.get("field")), p.get("page")
-    return _key_of(p, (field, page) if field and isinstance(page, int) else None)
+    extra = (
+        (field, page, V.editor_group(p)) if field and isinstance(page, int) else None
+    )
+    return _key_of(
+        p, extra
+    )  # the editor's group too: two points it kept apart never join at one place
 
 
 def group_key(p: dict) -> tuple | None:
