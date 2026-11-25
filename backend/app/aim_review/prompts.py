@@ -446,6 +446,15 @@ _7B_ADDED = (
 S4_TASK_MAIN = S4_TASK
 for _added in _7B_ADDED:
     S4_TASK_MAIN = S4_TASK_MAIN.replace(_added, "", 1)
+#: Update 7b's judge task gives an INVENTED example of a figure filled in beside a who-supplies note (lead-4, 26 Nov 2026: main's
+#: example is a real paper's figure). Main's text above keeps its own until the paid quick score; built by pattern, so no added
+#: line repeats the real figure.
+S4_TASK = re.sub(
+    r'such as "[^"]+\(By Contractor\)"',
+    'such as "150 psig (By Contractor)"',
+    S4_TASK,
+    count=1,
+)
 
 ANSWERED_TASK_MAIN = """TASK S4B - CHECK EACH COMMENT'S CLAIMS AGAINST THE WHOLE PAPER. Below are comments a reviewer would send about
 the paper above (one per line: n, field, page, comment). Read EVERY page of the paper. A comment often CLAIMS that the paper
