@@ -38,6 +38,13 @@ def record(conn, query_id: str, document_ids, user_id: str | None) -> str:
 def entries(conn, query_id: str) -> list[dict]:
     ensure_schema(conn)
     return [
-        {"id": r["id"], "document_ids": json.loads(r["document_ids_json"]), "user_id": r["user_id"], "at": r["created_at"]}
-        for r in conn.execute(f"SELECT * FROM {TABLE} WHERE query_id = ? ORDER BY created_at", (query_id,))
+        {
+            "id": r["id"],
+            "document_ids": json.loads(r["document_ids_json"]),
+            "user_id": r["user_id"],
+            "at": r["created_at"],
+        }
+        for r in conn.execute(
+            f"SELECT * FROM {TABLE} WHERE query_id = ? ORDER BY created_at", (query_id,)
+        )
     ]

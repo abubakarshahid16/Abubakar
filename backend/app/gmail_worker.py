@@ -59,8 +59,7 @@ def _process_message(
         return None
     if (
         mailbox_address
-        and parseaddr(message.from_address)[1].casefold()
-        == mailbox_address.casefold()
+        and parseaddr(message.from_address)[1].casefold() == mailbox_address.casefold()
     ):
         return None
     raw_hash, raw_ref = _store_raw_email(client.raw_message(message_id))
@@ -106,16 +105,20 @@ def _process_message(
         if source["size_bytes"] and len(content) != source["size_bytes"]:
             raise ValueError("the Gmail attachment size did not match its metadata")
         checked = attachment_safety.check_before_library(content)
-        if checked["status"] != attachment_safety.CLEAN:  # flagged or unreadable: it never enters the library
+        if (
+            checked["status"] != attachment_safety.CLEAN
+        ):  # flagged or unreadable: it never enters the library
             with connect() as conn:
                 conn.execute(
                     "UPDATE query_attachments SET scan_status=?,scan_detail=? WHERE id=?",
-                    (checked["status"], ", ".join(checked["findings"]) or None, stored["id"]),
+                    (
+                        checked["status"],
+                        ", ".join(checked["findings"]) or None,
+                        stored["id"],
+                    ),
                 )
             continue
-        row, _, duplicate_of = upload_mod.ingest(
-            BytesIO(content), source["filename"]
-        )
+        row, _, duplicate_of = upload_mod.ingest(BytesIO(content), source["filename"])
         if duplicate_of is not None and settings.auth_mode != access.AUTH_DISABLED:
             if not access.scope_for_user(actor_user_id).may_read(row["id"]):
                 raise PermissionError(
@@ -151,13 +154,21 @@ def _note_failure(mailbox_id: str, message_id: str, exc: Exception) -> int:
             "reason TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(mailbox_id, provider_message_id))"
         )
         row = conn.execute(
-            "SELECT tries FROM gmail_failed_messages WHERE mailbox_id=? AND provider_message_id=?", (mailbox_id, message_id)
+            "SELECT tries FROM gmail_failed_messages WHERE mailbox_id=? AND provider_message_id=?",
+            (mailbox_id, message_id),
         ).fetchone()
         tries = (row["tries"] if row else 0) + 1
         state = "failed" if tries >= MAX_TRIES else "retrying"
         conn.execute(
             "INSERT OR REPLACE INTO gmail_failed_messages(mailbox_id,provider_message_id,tries,reason,state,updated_at) VALUES (?,?,?,?,?,?)",
-            (mailbox_id, message_id, tries, f"the message could not be imported ({type(exc).__name__})", state, now()),
+            (
+                mailbox_id,
+                message_id,
+                tries,
+                f"the message could not be imported ({type(exc).__name__})",
+                state,
+                now(),
+            ),
         )
     return tries
 
@@ -185,8 +196,13 @@ def process_history(
     ):
         try:
             result = _process_message(
-                client, message_id, mailbox_id=mailbox_id, actor_user_id=actor_user_id,
-                admin_role=admin_role, label_id=label_id, mailbox_address=mailbox_address,
+                client,
+                message_id,
+                mailbox_id=mailbox_id,
+                actor_user_id=actor_user_id,
+                admin_role=admin_role,
+                label_id=label_id,
+                mailbox_address=mailbox_address,
             )
         except Exception as exc:  # noqa: BLE001 - one bad message is counted, marked and, after MAX_TRIES, stepped over; never logged by text
             log.warning("gmail import: a message failed (%s)", type(exc).__name__)

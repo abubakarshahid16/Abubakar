@@ -99,7 +99,9 @@ _CARRIED: ContextVar[frozenset[str] | None] = ContextVar("claude_carried_documen
 _REQUEST_CONSENT: ContextVar[bool] = ContextVar("claude_request_consent", default=False)
 #: The documents an engineer chose for ONE technical query's Claude draft (its own lane, never chat's `_REQUEST_CONSENT`). Set only by
 #: `technical_query_lane`, after the consent record is stored. The block list is asked first and wins.
-_QUERY_CONSENT: ContextVar[frozenset[str]] = ContextVar("claude_technical_query_consent", default=frozenset())
+_QUERY_CONSENT: ContextVar[frozenset[str]] = ContextVar(
+    "claude_technical_query_consent", default=frozenset()
+)
 #: The review run whose documents the calls inside `reviewing()` carry. With `claude_spend.current_run()` it is how the gate
 #: knows a prompt belongs to a review run (so which document is the paper under review). None = not a review run.
 _CALLER: ContextVar = ContextVar("claude_caller", default=_NO_CALLER)
@@ -540,7 +542,8 @@ def _consented(ids) -> frozenset[str]:
     """The declared documents the run in force may send because its start was an EXPLICIT choice of Claude with these documents
     on the list the screen showed (`review_shown.consented_ids`; owner, 12 Nov 2026, #1584: "button is enough"). Never the block
     list (asked first, whatever this says), never a document the stored list does not name, never another run's consent."""
-    chosen = _QUERY_CONSENT.get() & frozenset(ids or ())  # a technical query's own lane: the engineer's chosen documents only
+    # a technical query's own lane: the engineer's chosen documents only
+    chosen = _QUERY_CONSENT.get() & frozenset(ids or ())
     run = review_run()
     if not run or not ids:
         return chosen
