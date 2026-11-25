@@ -44,6 +44,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [triageDue, setTriageDue] = useState("");
   const [visibleTotal, setVisibleTotal] = useState<number | null>(null);
   const [mailboxes, setMailboxes] = useState<TechnicalQueryMailbox[]>([]);
+  const [canManageGmail, setCanManageGmail] = useState(false);
   const [assignees, setAssignees] = useState<TechnicalQueryAssignee[]>([]);
   const [chosenAssignee, setChosenAssignee] = useState("");
   const [mailboxId, setMailboxId] = useState("");
@@ -124,6 +125,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     });
     void technicalQueriesApi.mailboxes().then((result) => {
       if (!alive || !result.ok) return;
+      setCanManageGmail(true);
       setMailboxes(result.data.items);
       setMailboxId(result.data.items.find((mailbox) => mailbox.connection_state === "active")?.id || "");
     });
@@ -171,6 +173,10 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
               <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>
             </div></details>}
         </div>
+        {canManageGmail && mailboxes.length === 0 && <div className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200">
+          <p>No Gmail mailbox is connected. Connect one to import technical queries from a selected label.</p>
+          <button type="button" disabled={busy} onClick={() => void technicalQueriesApi.startGmail().then((result) => { if (result.ok) window.location.assign(result.data.authorization_url); else setError(result.error.message); })} className="mt-2 rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Connect Gmail</button>
+        </div>}
         {pendingMailbox && <div className="mt-4 rounded border border-warn-600 p-3 text-xs text-slateish-200">
           <p>Gmail account {pendingMailbox.email} is connected but waiting for a dedicated technical-query label. Only messages under that label will be imported.</p>
           <button type="button" onClick={() => void technicalQueriesApi.gmailLabels(pendingMailbox.id).then((result) => { if (result.ok) { setLabels(result.data.items); setLabelId(result.data.items[0]?.id || ""); } else setError(result.error.message); })} className="mt-2 rounded bg-ink-700 px-2 py-1">Choose label</button>
@@ -209,7 +215,6 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
             {selected.status === "approved" && selected.can_review && activeMailboxes.length > 0 && <div className="flex items-center gap-2"><label htmlFor="query-send-mailbox" className="text-xs text-slateish-300">Send from</label><select id="query-send-mailbox" value={mailboxId} onChange={(event) => setMailboxId(event.target.value)} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100">{activeMailboxes.map((mailbox) => <option key={mailbox.id} value={mailbox.id}>{mailbox.email}</option>)}</select><button type="button" disabled={busy} onClick={sendApproved} className="rounded bg-signal-600 px-3 py-1.5 text-xs text-white disabled:opacity-50">Send approved response</button></div>}
-            {selected.status === "approved" && mailboxes.length === 0 && <button type="button" disabled={busy} onClick={() => void technicalQueriesApi.startGmail().then((result) => { if (result.ok) window.location.assign(result.data.authorization_url); else setError(result.error.message); })} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Connect Gmail to send</button>}
             {(selected.status === "sent" || selected.status === "awaiting_confirmation") && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
             {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
           </div>
