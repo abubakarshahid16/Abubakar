@@ -53,6 +53,13 @@ contractor copy issued only after that sign-off. Until then every file is the te
    17 Nov 2026, #1584 comment 6930244442; `standards_web_search.py`, `STANDARDS_WEB_SEARCH_ENABLED`, off by default) sends
    only a public standard's name taken from the app's own tables of public standards (never the paper's words), through
    `reader_transport.py` under the same caps; a stored answer is reused for 90 days and says when it was searched.
+   CHAT DATABASE TOOLS (owner, 25 Nov 2026, #1584 comment 7171320073: "Yes, allow it"): Chat in Claude mode may call
+   the database tools (`chat_db_tools.py`: documents by kind or role, a paper's latest review with its counts and top
+   comments with page, the open items of a technical query) behind `CHAT_DATABASE_TOOLS_ENABLED` (off by default); their
+   answers go to Claude only through `reader_transport.py` under the `claude_spend` caps, hold only documents the caller
+   may read (one outside the caller's grants is counted, never named), never name or give the client's register or any
+   blocked file, and never carry document text; each call is logged with ids only; Local only and the local Chat engine
+   send nothing.
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only four modules may open a
    socket, each behind a gate:
