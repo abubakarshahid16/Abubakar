@@ -292,3 +292,86 @@ def test_on_the_local_model_a_met_code_could_not_prove_is_never_sent():
     assert line["label"] == "Question" and aim_review.AI_MET_UNPROVEN in line["code"]
     assert not aim_review.sendable(to_line(1, line))
     assert "exactly as PRINTED (never converted or worked out" in P.S4_TASK
+
+
+class _Cuts(_Retry):
+    """The retry answer is cut whenever it is asked about more than 2 items; the attack answer is cut on its first call."""
+
+    def ask(self, **kw):
+        from app.aim_review.engine import StepFailed
+
+        self.calls.append(kw)
+        if kw["step"] == "aim_checklist":
+            self.calls.pop()
+            return super().ask(**kw)
+        if kw["step"] == "aim_checklist_retry" and kw["prompt"].count('"topic"') > 2:
+            raise StepFailed("aim_checklist_retry: stop_max_tokens")
+        return {"items": []}
+
+
+def test_on_the_local_model_a_cut_retry_answer_is_never_used_its_group_is_asked_again_in_halves():
+    """Lead-4 (26 Nov 2026): a cut answer must never be used; it is retried smaller. Claude: a cut is raised, as before."""
+    import pytest
+
+    from app.aim_review.engine import StepFailed
+
+    sel = _sel(3)
+    sel["books"] = [
+        {**b, "committee": "", "why": "invented", "required": False}
+        for b in sel["books"]
+    ]
+    ident = {
+        "kind": "datasheet",
+        "equipment_type": None,
+        "subject": "invented",
+        "service": "",
+    }
+    local = _Cuts()
+    with budget.using(budget.LOCAL):
+        CL.s3_checklist(
+            local, ident, sel, _Book(), "local"
+        )  # completes: every cut group was split until it fit
+    sizes = [
+        c["prompt"].count('"topic"')
+        for c in local.calls
+        if c["step"] == "aim_checklist_retry"
+    ]
+    assert (
+        max(sizes) > 2 and sum(s for s in sizes if s <= 2) == 14
+    )  # every item asked once in an answer that was not cut
+    with pytest.raises(StepFailed):
+        CL.s3_checklist(_Cuts(), ident, sel, _Book(), "claude-sonnet-5-5")
+
+
+class _AttackCut(_Attack):
+    def ask(self, **kw):
+        from app.aim_review.engine import StepFailed
+
+        self.calls.append(kw)
+        if len(self.calls) == 1:
+            raise StepFailed("aim_attack: stop_max_tokens")
+        return {
+            "remove": [{"id": f"C{len(self.calls):03d}", "why": "invented"}],
+            "fix": [],
+            "add": [],
+        }
+
+
+def test_on_the_local_model_a_cut_attack_answer_of_one_batch_is_set_aside_and_the_others_count():
+    sel = _sel(120)
+    made = {"items": [{"id": f"C{k:03d}", "topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
+                       "rule_quote": "q", "applies_when": "always", "paper_fields": [], "kind": "limit",
+                       "source": "held standard"} for k in range(1, 9)]}  # fmt: skip
+    ident = {
+        "kind": "datasheet",
+        "equipment_type": None,
+        "subject": "invented",
+        "service": "",
+    }
+    local = _AttackCut()
+    with budget.using(budget.LOCAL):
+        got = CL.s3_attack(local, ident, sel, made, None, "local")
+        n = len(MT._batches(MT.material(sel, None)[0]))
+    assert (
+        len(local.calls) == n and len(got["attack"]["removed"]) == n - 1
+    )  # the cut one is not used
