@@ -36,8 +36,8 @@ ENGINE = "local"
 CALL_TIMEOUT_SECONDS = 20 * 60
 #: A model loaded in the local engine at or above this size is a LARGE model: two never run at once.
 LARGE_MODEL_BYTES = 10_000_000_000
-#: Free memory needed besides the model itself before it is loaded (the app, the server, the window's cache).
-MEMORY_MARGIN_BYTES = 3_000_000_000
+#: Free memory needed for a model other than the answer model, besides its file size (its window's cache).
+MEMORY_MARGIN_BYTES = 2_000_000_000
 
 #: Codes after which no later call can succeed: the run stops (`StepFailed.stops_run` reads the word "stop").
 LOCAL_DOWN = "local_down"
@@ -248,7 +248,7 @@ def readiness(name: str | None = None) -> str | None:
         log.info("local readiness: engine not asked (%s)", type(exc).__name__)
         return ENGINE_DOWN
     installed = {
-        str(m.get("name") or m.get("model") or "")
+        str(m.get("name") or m.get("model") or ""): _count(m.get("size"))
         for m in tags.get("models") or []
         if isinstance(m, dict)
     }
@@ -265,7 +265,11 @@ def readiness(name: str | None = None) -> str | None:
             return OTHER_LARGE.format(name=loaded_name)
     if ours:
         return None  # already in memory: nothing new is loaded
-    need = int(settings.answer_model_ram_bytes) + MEMORY_MARGIN_BYTES
+    # the app's own rule for the answer model (`answer_model_ram_bytes`, the Explain warning); another model: its file + margin
+    if name == str(settings.answer_model).strip() or not installed[name]:
+        need = int(settings.answer_model_ram_bytes)
+    else:
+        need = installed[name] + MEMORY_MARGIN_BYTES
     free = _free_bytes()
     if free is not None and free < need:
         return LOW_MEMORY.format(free=round(free / 1e9, 1), need=round(need / 1e9, 1))

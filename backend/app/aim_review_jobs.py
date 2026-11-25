@@ -389,6 +389,25 @@ def _prepare(conn, run_id: str, paper_id: str, scope, model):
     return True, local_books(conn, paper_id, scope), model or LocalModel(), None
 
 
+class _ReadOnlyChecklists:
+    """The checklist store of a LOCAL run: a saved checklist of the paper's type is reused as on Claude, but a checklist the local
+    model writes is used for this run only and never saved (a later Claude review of the same type would reuse it)."""
+
+    def __init__(self, store) -> None:
+        self._store = store
+
+    def get(self, key: str):
+        return self._store.get(key)
+
+    def keys(self):
+        return self._store.keys()
+
+    def put(self, key: str, checklist: dict, *, run_id: str, usd: float) -> str:
+        del key, checklist, usd  # nothing is written
+        log.info("general review %s: a local-model checklist is not saved", run_id)
+        return ""
+
+
 def _method(conn, job_id, run_id, paper_id, books, progress, model, local: bool):
     """The method on the run's model. A local run is barred from Claude here too, whatever the stored bar says: no step of it
     can open the Claude lane."""
@@ -396,13 +415,14 @@ def _method(conn, job_id, run_id, paper_id, books, progress, model, local: bool)
 
     from . import review_engine
 
+    store = aim_review_store.DbChecklistStore(conn)
     with review_engine.barring() if local else nullcontext():
         return aim_review.run(
             conn,
             run_id=run_id,
             paper_id=paper_id,
             allowed_books=books,
-            store=aim_review_store.DbChecklistStore(conn),
+            store=_ReadOnlyChecklists(store) if local else store,
             max_usd=aim_review_gate.max_usd(),
             progress=progress,
             cancelled=lambda: _cancel_requested(conn, job_id),

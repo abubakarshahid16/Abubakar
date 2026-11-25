@@ -36,6 +36,11 @@ from tests.test_p3_review_jobs import temp_storage  # noqa: F401 - fixture
 REPORTED = "invented-local:1b"
 
 
+@pytest.fixture
+def world(dry):  # noqa: F811 - the dry-run library and its signed-in admin
+    return dry
+
+
 def _no_claude(monkeypatch) -> None:
     def opened(*_a, **_k):
         raise AssertionError("a Local only run reached the Claude lane")
@@ -108,14 +113,14 @@ def _start_local(w, paper_id: str) -> str:
 
 
 def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude_path(
-    dry, monkeypatch
-):  # noqa: F811
+    world, monkeypatch
+):
     _no_claude(monkeypatch)
     bodies = _stand_in_engine(monkeypatch, "datasheet")
     monkeypatch.setattr(aim_review_jobs, "local_ready", lambda: None)
     paper_id = PAPERS["datasheet"][0]
     before = _ledger_lines()
-    run_id = _start_local(dry, paper_id)
+    run_id = _start_local(world, paper_id)
     worker = job_queue.worker_id()
     job_id = aim_review_jobs.claim_next(worker)
     assert (
@@ -140,9 +145,17 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
     )
     assert run["usd"] == 0 and _ledger_lines() == before  # USD 0: not one spend line
     assert aim_review_store.lines(db.connect(), run_id)  # the same method's points
+    saved = (
+        db.connect()
+        .execute(f"SELECT COUNT(*) FROM {aim_review_store.CHECKLISTS}")
+        .fetchone()[0]
+    )
+    assert (
+        saved == 0
+    )  # a checklist the local model wrote is used for this run only, never saved for later Claude runs
     client = TestClient(app)
     page = client.get(
-        f"/api/reviews/papers/{paper_id}/general", headers=dry["headers"]
+        f"/api/reviews/papers/{paper_id}/general", headers=world["headers"]
     ).json()
     assert page["engine"]["local"] is True and page["engine"]["models"] == [
         REPORTED
@@ -152,7 +165,7 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         and page["measured"]["found"] is None
     )
     sheet = client.get(
-        f"/api/reviews/papers/{paper_id}/general/sheet", headers=dry["headers"]
+        f"/api/reviews/papers/{paper_id}/general/sheet", headers=world["headers"]
     )
     wb = load_workbook(io.BytesIO(sheet.content), read_only=True)
     cells = [
@@ -166,8 +179,8 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
 
 
 def test_a_local_run_that_is_not_ready_stops_with_the_sentence_and_loads_nothing(
-    dry, monkeypatch
-):  # noqa: F811
+    world, monkeypatch
+):
     _no_claude(monkeypatch)
 
     def no_load(*_a, **_k):
@@ -178,7 +191,7 @@ def test_a_local_run_that_is_not_ready_stops_with_the_sentence_and_loads_nothing
     monkeypatch.setattr(model_transport, "post_json", no_load)
     monkeypatch.setattr(aim_review_jobs, "local_ready", lambda: "an invented reason")
     paper_id = PAPERS["datasheet"][0]
-    run_id = _start_local(dry, paper_id)
+    run_id = _start_local(world, paper_id)
     worker = job_queue.worker_id()
     assert (
         aim_review_jobs.run(aim_review_jobs.claim_next(worker), worker)
@@ -191,7 +204,7 @@ def test_a_local_run_that_is_not_ready_stops_with_the_sentence_and_loads_nothing
     )
     page = (
         TestClient(app)
-        .get(f"/api/reviews/papers/{paper_id}/general", headers=dry["headers"])
+        .get(f"/api/reviews/papers/{paper_id}/general", headers=world["headers"])
         .json()
     )
     assert page["engine"]["local"] is True and page["engine"]["models"] == []
@@ -256,6 +269,14 @@ def test_readiness_one_large_model_at_a_time_and_enough_memory_to_load(monkeypat
     assert local_model.readiness(ours).startswith(
         "this computer has 8.0 GB of memory free"
     )
+    # a smaller model needs its own file size and a margin, not the answer model's
+    tags = {"models": [{"name": "invented-mid:9b", "size": 6_000_000_000}]}
+    answers = {"/api/tags": tags, "/api/ps": {"models": []}}
+    monkeypatch.setattr(model_transport, "get_json", lambda p, **_k: answers[p])
+    monkeypatch.setattr(local_model, "_free_bytes", lambda: 9_000_000_000)
+    assert local_model.readiness("invented-mid:9b") is None
+    monkeypatch.setattr(local_model, "_free_bytes", lambda: 7_000_000_000)
+    assert "about 8.0 GB" in local_model.readiness("invented-mid:9b")
     _engine(monkeypatch, installed=[other], loaded=[])
     assert local_model.readiness(ours) == local_model.NOT_INSTALLED.format(name=ours)
     _engine(
