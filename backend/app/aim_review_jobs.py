@@ -342,12 +342,15 @@ def _cross_document(conn, paper_id: str, scope, start: int) -> list[dict]:
     out: list[dict] = []
     try:
         # lane 1 (builder H, switch CROSS_DOC_FACTS_ENABLED) replaces C's check by tag; off, C's check runs exactly as before
-        out = (cross_doc if cross_doc.lane_on() else tag_cross).lines(conn, paper_id, frozenset(scope), start)
+        lane = cross_doc if cross_doc.lane_on() else tag_cross
+        out = lane.lines(conn, paper_id, frozenset(scope), start)
     except Exception as exc:  # noqa: BLE001 - the check is an addition: the review stands without it
         log.warning("cross-document check skipped: %s", type(exc).__name__)
-    if cross_doc_meaning.lane_on():  # lane 2 (switch CROSS_DOC_MEANING_ENABLED): questions to the engineer only
+    # lane 2 (switch CROSS_DOC_MEANING_ENABLED): questions to the engineer only
+    if cross_doc_meaning.lane_on():
         try:
-            out += cross_doc_meaning.lines(conn, paper_id, frozenset(scope), start + len(out))
+            n = start + len(out)
+            out += cross_doc_meaning.lines(conn, paper_id, frozenset(scope), n)
         except Exception as exc:  # noqa: BLE001 - the same: an addition
             log.warning("cross-document meaning check skipped: %s", type(exc).__name__)
     return out
