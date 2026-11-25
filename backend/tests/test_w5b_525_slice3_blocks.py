@@ -59,6 +59,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "w5b525s3.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
     monkeypatch.setattr(settings, "datasheet_office_input", False)
+    monkeypatch.setattr(settings, "docx_input_enabled", True)
     monkeypatch.setattr(settings, "one_intake_enabled", True)
     monkeypatch.setattr(settings, "intake_images_xlsx_enabled", True)
     monkeypatch.setattr(settings, "intake_blocks_enabled", True)

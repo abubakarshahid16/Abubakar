@@ -33,6 +33,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "c11473.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    monkeypatch.setattr(settings, "docx_input_enabled", True)
     monkeypatch.setattr(settings, "datasheet_office_input", False)
     monkeypatch.setattr(settings, "datasheet_ai_reader", "off")
     install_if_missing(monkeypatch)

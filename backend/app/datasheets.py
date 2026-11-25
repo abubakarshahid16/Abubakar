@@ -3563,10 +3563,10 @@ def _extract_facts(
     # cannot give one datasheet two different extractions.
     geometry_on = bool(settings.geometry_reader_enabled)
     # B4 nozzle schedules: the geometry reader's TABLE path on its own (see
-    # the 25 Nov 2026 default, no switch). Everything below that reads or
+    # config.geometry_table_reader_enabled). Everything below that reads or
     # writes geometry rows keys off this; the vision reader stays on the full
     # flag.
-    geometry_tables = True  # the TABLE path is always read (made the default 25 Nov 2026, update 7)
+    geometry_tables = geometry_on or bool(settings.geometry_table_reader_enabled)
     geometry_by_page: dict[int, list[dict]] = {}
     # This project's OWN pipeline (`ocr.route_page`, recorded in
     # `pages.needs_ocr`) has already judged some pages' native text layer too

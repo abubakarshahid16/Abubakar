@@ -26,6 +26,7 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
     monkeypatch.setattr(settings, "db_path", tmp_path / "w5b525intake.sqlite")
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_DISABLED)
+    monkeypatch.setattr(settings, "docx_input_enabled", True)
     monkeypatch.setattr(settings, "datasheet_office_input", False)
     monkeypatch.setattr(settings, "one_intake_enabled", False)
     db.reset_connection()
@@ -469,6 +470,13 @@ def test_pptx_and_unknown_zips_are_refused(tmp_path):
         with pytest.raises(intake.IntakeRefused) as err:
             intake.read(f)
         assert err.value.code == code
+
+
+def test_word_is_refused_with_a_reason_when_word_input_is_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "docx_input_enabled", False)
+    with pytest.raises(intake.IntakeRefused) as err:
+        intake.read(_word(tmp_path / "j.docx"))
+    assert err.value.code == "word_not_enabled"
 
 
 def test_extraction_with_the_switch_on_raises_the_refusal_not_an_empty_document(

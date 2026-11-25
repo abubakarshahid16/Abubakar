@@ -456,7 +456,7 @@ def test_agreement_with_a_proven_unit_writes_the_unit_on_the_rule_fact(tmp_path,
     "75 kW" and the AI quotes it. ONE fact, carrying kW, agreed."""
     monkeypatch.setattr(datasheets, "_pairs_from_pdf_page",
                         lambda path, page: [("Rated power", "75")])
-    monkeypatch.setattr(datasheets, "_geometry_rows_from_pdf_page", lambda *a, **k: [])  # no table rows (no switch since update 7)
+    monkeypatch.setattr(settings, "geometry_table_reader_enabled", False)
     _use(monkeypatch, FakeModel([_fact("Rated power", "75", "kW", "Rated power 75 kW")]))
     result, facts = _extract(tmp_path, [("Rated power", "75 kW")])
     [fact] = _by(facts, "rated power")
