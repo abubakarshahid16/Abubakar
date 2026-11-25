@@ -44,4 +44,19 @@ describe("GeneralResults header", () => {
     expect(t).toHaveTextContent("1 not met (the AI's view)");
     expect(t).not.toHaveTextContent(/AI opinion:/i);
   });
+
+  it("names the pages that were not read, and says nothing when every page was", () => {
+    const { unmount } = mount(review({ pages_not_read: [
+      { where: "page 7", why: "no_text", sentence: "Page 7 was not read: it has no text and no picture reading came back." },
+      { where: "picture 2", why: "picture_not_read", sentence: "Picture 2 was not read: no picture reading came back." },
+    ] }));
+    const note = screen.getByTestId("general-pages-not-read");
+    expect(note).toHaveTextContent("2 parts of this paper were not read.");
+    expect(note).toHaveTextContent("Page 7 was not read");
+    expect(note).toHaveTextContent("Picture 2 was not read");
+    unmount();
+    mount(review({ pages_not_read: [] }));
+    expect(screen.queryByTestId("general-pages-not-read")).toBeNull();
+  });
 });
+

@@ -439,20 +439,15 @@ def _steps(
 ) -> None:
     from . import library as L
     from . import steps as S
+    from . import unread as U
     from .paper import load_paper, windows
 
     lead, strong = _models()
     say(0, "read the paper")
     paper = load_paper(conn, state.paper_id)
     # The trace says where each page's text came from (counts only, no text): a row of the run's calls, no model, no cost.
-    mdl.meter.calls.append(
-        CallRecord(
-            step="aim_read_pages",
-            model="code",
-            prompt_chars=0,
-            code=paper.source_note(),
-        )
-    )
+    paper = U.with_unread(conn, state.paper_id, paper, load_paper)
+    mdl.meter.calls.extend(U.read_calls(paper))
     if not paper.pages:
         raise StepFailed("no_pages: the paper has no stored page text")
     say(5, "name the paper")
