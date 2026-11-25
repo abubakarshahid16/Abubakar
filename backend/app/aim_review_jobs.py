@@ -480,13 +480,20 @@ def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
 def _cross_document(conn, paper_id: str, scope, start: int) -> list[dict]:
     """The cross-document check by tag (`tag_cross`; code only, Questions only), inside the starter's read set. A fault of the
     check adds no line and never stops the review (logged, class only)."""
-    from . import tag_cross
+    from . import cross_doc, cross_doc_meaning, tag_cross
 
+    out: list[dict] = []
     try:
-        return tag_cross.lines(conn, paper_id, frozenset(scope), start)
+        # lane 1 (builder H, switch CROSS_DOC_FACTS_ENABLED) replaces C's check by tag; off, C's check runs exactly as before
+        out = (cross_doc if cross_doc.lane_on() else tag_cross).lines(conn, paper_id, frozenset(scope), start)
     except Exception as exc:  # noqa: BLE001 - the check is an addition: the review stands without it
         log.warning("cross-document check skipped: %s", type(exc).__name__)
-        return []
+    if cross_doc_meaning.lane_on():  # lane 2 (switch CROSS_DOC_MEANING_ENABLED): questions to the engineer only
+        try:
+            out += cross_doc_meaning.lines(conn, paper_id, frozenset(scope), start + len(out))
+        except Exception as exc:  # noqa: BLE001 - the same: an addition
+            log.warning("cross-document meaning check skipped: %s", type(exc).__name__)
+    return out
 
 
 @review_jobs._review_scope  # the run's spend lines carry its id; its spend goes in its record
