@@ -10,7 +10,6 @@
     "contract": {"label": "Contract document", "cues": []},
     "drawing": {"label": "Drawing", "cues": []},
     "datasheet": {
-      "label": "Datasheet",
       "cues": [
         {"where": "filename", "pattern": "data[ _-]?sheet|\\bds[-_ ]?\\d", "weight": 2},
         {"where": "title", "pattern": "data[ _-]?sheet", "weight": 3},
@@ -20,7 +19,6 @@
       ]
     },
     "procedure": {
-      "label": "Procedure",
       "cues": [
         {"where": "filename", "pattern": "procedure|method[ _-]statement|work[ _-]instruction|\\bsop\\b", "weight": 2},
         {"where": "title", "pattern": "procedure|method statement|work instruction", "weight": 3},
@@ -33,7 +31,6 @@
       ]
     },
     "study": {
-      "label": "Study",
       "cues": [
         {"where": "filename", "pattern": "study|assessment|evaluation|analysis|feasibility", "weight": 2},
         {"where": "title", "pattern": "\\bstudy\\b|assessment|evaluation|\\banalysis\\b|feasibility", "weight": 3},
@@ -44,7 +41,6 @@
       ]
     },
     "report": {
-      "label": "Report",
       "cues": [
         {"where": "filename", "pattern": "report", "weight": 2},
         {"where": "title", "pattern": "\\breport\\b", "weight": 3},
@@ -55,7 +51,6 @@
       ]
     },
     "feed": {
-      "label": "FEED",
       "cues": [
         {"where": "filename", "pattern": "front[ _-]end[ _-]engineering|\\bfeed\\b|basis[ _-]of[ _-]design", "weight": 2},
         {"where": "title", "pattern": "front[- ]end engineering design|\\bfeed\\b|basis of design", "weight": 3},
@@ -65,7 +60,6 @@
       ]
     },
     "standard": {
-      "label": "Standard",
       "cues": [
         {"where": "classification", "role": "COMPANY_STANDARD", "weight": 6},
         {"where": "filename", "pattern": "standard|specification|\\bspec\\b|code[ _-]of[ _-]practice", "weight": 2},
@@ -76,7 +70,6 @@
       ]
     },
     "letter": {
-      "label": "Letter",
       "cues": [
         {"where": "filename", "pattern": "letter|correspondence|\\bltr\\b", "weight": 2},
         {"where": "feature", "feature": "salutation", "min": 1, "weight": 3},

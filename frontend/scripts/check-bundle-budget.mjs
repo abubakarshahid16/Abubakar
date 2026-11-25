@@ -19,7 +19,7 @@ const root = join(process.cwd(), "dist", "assets");
 // banner wording, the card chips, the plan-check timeout and the dashboard's general reviews (G; lead 4 allowed it); the earlier
 // screens still ship as the way back; retiring them is on the after-proof list.
 // Update 7 (25 Nov 2026): 325000 -> 325100 bytes: the "points decided by code" sentence in the results counts (A; the base
-// had 4 bytes left; lead 4 to confirm); same way-back reason.
+// had 4 bytes left; lead 4 to confirm); same way-back reason. The side-claim cut mark on the card (A, update 6) fits inside it.
 // Update 7 (25 Nov 2026): 325100 -> 327000 bytes: a reason for every book, one chip per field with its pages, "Review this paper again",
 // the AI's equipment in the header, "Choose Claude" for a held-back paper and the busy/stopped words (about 0.5 KB gzip; owner's deadline order).
 // Technical queries (26 Nov 2026): 327000 -> 334000 bytes: technical queries screen, 26 Nov, lead decision (build 333496).

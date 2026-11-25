@@ -1,0 +1,27 @@
+{
+  "_about": "THE ONE LIST of document kinds (order 14, planner 25 Nov 19:15 item 1). Every place that names a kind reads it through app/kind_list.py: the router that sorts uploads (document_kinds.json holds only its cues), the engine's table (kind_review_table.json holds only what each kind is reviewed with), the paper-kind reading, the sentence nouns and the kind picker. Each kind belongs to ONE review FAMILY. A kind that is not scored keeps its unscored behaviour (Automatic does not send it): the family says how a kind is laid out and read, never that it is scored. `routed`: the sorter has cues for it. `code_decided`: the paper-kind reading may decide it by itself. `cover_decided`: the title-block reader (document_kind) may name it from a document's number, title or cover. `picker_needs_switch`: the picker offers it only with PAPER_KIND_FIRST_ENABLED (as before). Names are the app's own; no outside list is imported (CFIHOS names are used only where the code already had them: none yet). Equipment types (relief valve, pump ...) are a different dimension: they sub-divide the datasheet family and live in equipment_taxonomy.json. Upload ROLES (contractor submittal, company standard ...) are another: what part a file plays, never what kind it is.",
+  "version": "1",
+  "families": {
+    "written_document": "Written document",
+    "study_calculation": "Study or calculation",
+    "drawing_diagram": "Drawing or diagram",
+    "list_register": "List, register or schedule",
+    "certificate_record": "Certificate or record",
+    "datasheet": "Datasheet"
+  },
+  "kinds": {
+    "specification": {"label": "Specification", "noun": "specification", "family": "written_document", "routed": true, "code_decided": true, "cover_decided": true, "picker_needs_switch": false},
+    "transmittal": {"label": "Transmittal", "noun": "transmittal", "family": "list_register", "routed": true, "code_decided": true, "cover_decided": true, "picker_needs_switch": false},
+    "contract": {"label": "Contract document", "noun": "contract", "family": "written_document", "routed": true, "code_decided": true, "cover_decided": true, "picker_needs_switch": false},
+    "drawing": {"label": "Drawing", "noun": "drawing", "family": "drawing_diagram", "routed": true, "code_decided": true, "cover_decided": true, "picker_needs_switch": false},
+    "datasheet": {"label": "Datasheet", "noun": "datasheet", "family": "datasheet", "routed": true, "code_decided": true, "cover_decided": true, "picker_needs_switch": false},
+    "procedure": {"label": "Procedure", "noun": "procedure", "family": "written_document", "routed": true, "code_decided": true, "cover_decided": true, "picker_needs_switch": false},
+    "study": {"label": "Study", "noun": "study", "family": "study_calculation", "routed": true, "code_decided": false, "cover_decided": false, "picker_needs_switch": false},
+    "report": {"label": "Report", "noun": "report", "family": "written_document", "routed": true, "code_decided": false, "cover_decided": false, "picker_needs_switch": false},
+    "feed": {"label": "FEED", "noun": "FEED document", "family": "written_document", "routed": true, "code_decided": false, "cover_decided": true, "picker_needs_switch": false},
+    "standard": {"label": "Standard", "noun": "standard", "family": "written_document", "routed": true, "code_decided": false, "cover_decided": true, "picker_needs_switch": false},
+    "letter": {"label": "Letter", "noun": "letter", "family": "written_document", "routed": true, "code_decided": false, "cover_decided": false, "picker_needs_switch": false},
+    "test_record": {"label": "Test record", "noun": "test record", "family": "certificate_record", "routed": false, "code_decided": true, "cover_decided": false, "picker_needs_switch": true},
+    "calculation": {"label": "Calculation", "noun": "calculation", "family": "study_calculation", "routed": false, "code_decided": true, "cover_decided": false, "picker_needs_switch": true}
+  }
+}

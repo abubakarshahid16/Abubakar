@@ -64,7 +64,16 @@ SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the require
 #: "2026-11-18.3": one item per stated operating or service condition that checks the values the same paper chooses for it.
 #: "2026-11-19.1": carried_by names the package: what a schedule, annex or attachment of the same package normally carries
 #: is set aside for a Form of Agreement (and its S3 knowledge items too, not only S3K's).
-CHECKLIST_METHOD = "2026-11-19.1"
+#: "2026-11-25.1": a stated hazardous-area classification gets one item over every gas or vapour the same paper names.
+CHECKLIST_METHOD = "2026-11-25.1"
+#: The method main 475adb91 builds with (`updates.u7b` off): its saved checklists are reused as on main.
+CHECKLIST_METHOD_MAIN = "2026-11-19.1"
+
+
+def checklist_method() -> str:
+    from .updates import u7b
+
+    return CHECKLIST_METHOD if u7b() else CHECKLIST_METHOD_MAIN
 
 
 def _dumps(o) -> str:
@@ -439,7 +448,7 @@ def _answers(
         "identity": _identity(ident),
         "books": _books_line(sel),
         "kinds": _dumps(list(ITEM_KINDS)),
-        "knowledge": P.KNOWLEDGE_ASK if first else "",
+        "knowledge": P.knowledge_ask() if first else "",
         "material": "\n".join(_material_line(r) for r in batch),
     }
     try:
@@ -571,7 +580,7 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
         "most": most,
         "kinds": _dumps(list(ITEM_KINDS)),
         "table_rows": P.TABLE_ROWS_ASK,
-        "conditions": P.CONDITIONS_ASK,
+        "conditions": P.conditions_ask(),
     }
     try:
         out = model.ask(
@@ -740,7 +749,7 @@ def build(
     cl.update(
         {
             "key": key,
-            "method": CHECKLIST_METHOD,
+            "method": checklist_method(),
             "built_from": BUILT_FROM_KNOWLEDGE if knows else BUILT_FROM,
             "made_at": made_at,
             "identity": {

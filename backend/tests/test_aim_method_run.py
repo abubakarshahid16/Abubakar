@@ -613,9 +613,12 @@ def test_a_fault_names_its_file_and_line_in_the_run_record(aim_db, monkeypatch):
     )
 
 
-def test_a_checklist_saved_by_another_checklist_method_is_built_again_once(aim_db):
+def test_a_checklist_saved_by_another_checklist_method_is_built_again_once(aim_db, monkeypatch):
     """A saved checklist from an older checklist method (or with none recorded) is not reused: the first run after the change
     builds it again and saves it; the next run reuses the new one. The old one stays in the store (history)."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_u7b_enabled", True)  # its update's switch (`aim_review.updates`)
     from app.aim_review import checklist as CL
 
     store = MemoryStore()

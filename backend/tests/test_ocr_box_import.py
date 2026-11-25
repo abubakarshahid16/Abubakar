@@ -39,7 +39,7 @@ def _world(monkeypatch):
 
 
 def _server(tmp_path, *, role="COMPANY_STANDARD", sha=SHA):
-    path = s.make_db(tmp_path / "server.sqlite", with_book=True)
+    path = s.make_db(tmp_path / "server.sqlite", with_book=True, classified=False)
     conn = sqlite3.connect(str(path))
     conn.execute("ALTER TABLE documents ADD COLUMN sha256 TEXT")
     conn.execute("UPDATE documents SET sha256 = ? WHERE id = 'd1'", (sha,))

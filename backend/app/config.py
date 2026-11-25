@@ -457,6 +457,14 @@ class Settings(SettingsExt, BaseSettings):
     #: passes as a DRAFT for the engineer, never a verdict. ON by default
     #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
+    #: The way back per live update (owner via the planner, 26 Nov 2026): each update's review-changing parts, OFF until a quick
+    #: score switches them on (`aim_review/updates.py`). All three off: a review runs exactly as main 475adb91.
+    aim_u6b_enabled: bool = False
+    aim_u7b_enabled: bool = False
+    aim_u8_enabled: bool = False
+    #: The formula checks (`aim_review/formulas.py`), their own switch since update 9 (lead-4: proven by the free code-only replay,
+    #: found unchanged, 3 new Not met lines all true, no comment duplicated). Off: no formula lines, as main 475adb91.
+    aim_formula_checks_enabled: bool = True
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment

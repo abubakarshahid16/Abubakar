@@ -27,7 +27,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from . import document_kind, kind_review_table
+from . import document_kind, kind_list, kind_review_table
 from .classification import _now, suggest_equipment_type_from_title, title_block_lines
 from .db import connect, schema_once
 
@@ -36,17 +36,7 @@ _log = logging.getLogger(__name__)
 PAPER_KIND_VERSION = "paper-kind-v1"
 
 #: The closed list. `other` is a real answer, never a hidden default.
-PAPER_KINDS: tuple[str, ...] = (
-    "datasheet",
-    "procedure",
-    "contract",
-    "calculation",
-    "specification",
-    "transmittal",
-    "drawing",
-    "test_record",
-    "other",
-)
+PAPER_KINDS: tuple[str, ...] = kind_list.paper_kinds()  # from THE ONE LIST: the kinds the reading may decide, then `other`
 
 
 def __getattr__(name: str):

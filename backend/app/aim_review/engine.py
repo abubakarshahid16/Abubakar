@@ -497,6 +497,13 @@ def _steps(
     )
     if not state.stop_reason:
         _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
+        from .formulas import (
+            add_lines,
+        )  # the formula checks: points the paper decides by code, after every AI stage
+        from .updates import formula_checks
+
+        if formula_checks():  # its own switch, on; off: none, as main
+            add_lines(conn, paper, state)
     state.decided += BN.cited_points(
         state.not_held
     )  # a cited book not held: one point each, on All points, never sent
@@ -510,7 +517,9 @@ def _after_judge(
     editor (S5), and last the no-ask mark (code: a Question that asks nothing is kept on All points, not sent)."""
     from . import asks, contract_code
     from . import references as R
-    from .answered import s4b_answered
+    from .updates import s4b
+
+    s4b_answered = s4b()  # 6b's guard v3, else main's check
     from .editor import s5_edit
     from .second_read import s4c_second_read
 
@@ -585,7 +594,7 @@ def _saved_current(store, state: _RunState) -> dict | None:
     from . import checklist as CL
 
     saved = store.get(state.key) if store is not None else None
-    if isinstance(saved, dict) and saved.get("method") != CL.CHECKLIST_METHOD:
+    if isinstance(saved, dict) and saved.get("method") != CL.checklist_method():
         log.info(
             "general review %s: the saved checklist is from another checklist method: built again",
             state.run_id,

@@ -134,7 +134,8 @@ def test_kind_from_the_papers_own_title(lines, want):
 
 
 def test_the_list_is_closed():
-    assert paper_kind.PAPER_KINDS == (
+    # the closed list now comes from THE ONE LIST (`kind_list`): the same nine answers; only their order follows that list's
+    assert set(paper_kind.PAPER_KINDS) == {
         "datasheet",
         "procedure",
         "contract",
@@ -144,7 +145,8 @@ def test_the_list_is_closed():
         "drawing",
         "test_record",
         "other",
-    )
+    }
+    assert len(paper_kind.PAPER_KINDS) == 9 and paper_kind.PAPER_KINDS[-1] == "other"
     for kind in (
         "feed",
         "standard",

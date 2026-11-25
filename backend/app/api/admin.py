@@ -20,9 +20,11 @@ from ..paging import limit_param, offset_param, page_body
 from . import ocr_boxes as ocr_boxes_api
 from . import rule_equipment as rule_equipment_api
 from . import rule_labels as rule_labels_api
+from . import rule_second as rule_second_api
 
 router = APIRouter()
 router.include_router(rule_labels_api.router)  # rule-labels import
+router.include_router(rule_second_api.router)  # second-model approvals import
 router.include_router(rule_equipment_api.router)  # equipment-labels import
 router.include_router(ocr_boxes_api.router)  # OCR boxes import
 

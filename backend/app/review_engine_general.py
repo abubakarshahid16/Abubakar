@@ -7,6 +7,7 @@ the general review does with them. Pure resolver; the plan reads and writes noth
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import replace
 
@@ -189,6 +190,8 @@ def _unscored_note(facts) -> str:
 
 
 ACCOUNT_REFUSAL_HOURS = 24
+
+log = logging.getLogger(__name__)
 
 
 def _recent_account_refusal(conn) -> str | None:

@@ -59,6 +59,11 @@ contractor copy issued only after that sign-off. Until then every file is the te
    the engineer chooses for that one query, and the query's own text, to Claude through `reader_transport.py` under the
    `claude_spend` caps (per-request consent for those files only, its own lane, not chat's); sending mail stays off
    (`gmail.send` is not asked for) until the owner writes "sending approved".
+   THE RULE APPROVAL LANE (owner, 25 Nov 2026, #1584 comment 7169525003; `rule_second_approval.py`,
+   `scripts/run_rule_second.py`): the second-model rule approval step and its blind sample judge send rule-book text of
+   the SAES, ISO, API, ASME and NACE families only, through `standards_lane` and `reader_transport.py` under the
+   `claude_spend` caps; nothing else uses this lane; the first batch is 2,000 rules, and its error rate is reported before
+   the rest is run.
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only six modules may open a
    socket, each behind a gate (the two Gmail modules, `gmail_auth.py` and `gmail_client.py`, read-only behind
