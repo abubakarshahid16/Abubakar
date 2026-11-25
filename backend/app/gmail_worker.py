@@ -245,8 +245,10 @@ def send_approved(
     The API invokes this only after an explicit authorised send action.
     Tests pass an in-memory fake client and never contact Gmail.
     """
-    if not scope.is_admin or not scope.user_id:
-        raise PermissionError("an authorised sender is required")
+    from .technical_queries import is_reviewer
+
+    if not is_reviewer(scope.capabilities, scope.unrestricted) or not scope.user_id:
+        raise PermissionError("a qualified technical-query reviewer is required to send")
     if len(idempotency_key) < 8:
         raise ValueError("an idempotency key is required")
     with connect() as conn:

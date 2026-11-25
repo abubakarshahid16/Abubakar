@@ -32,6 +32,7 @@ from app.gmail_worker import (
     send_approved,
 )
 from app.technical_queries import (
+    REVIEWER_CAPABILITY,
     add_draft,
     add_evidence,
     assign_query,
@@ -46,6 +47,7 @@ from app.technical_queries import (
     prepare_evidence,
     reconcile_send,
     update_evidence,
+    validate_send_evidence,
 )
 from app.technical_query_docx import render as render_query_docx
 
@@ -120,7 +122,7 @@ def test_triage_requires_admin_and_updates_filtered_metrics():
     result = triage_technical_query(
         item["id"],
         body,
-        AccessScope("u1", frozenset(), capabilities=frozenset({"admin"})),
+        AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})),
     )
     assert result["status"] == "triage"
     assert result["contractor_name"] == "Synthetic Contractor"
@@ -404,17 +406,18 @@ def test_approval_requires_latest_draft_id():
             "owner",
             True,
             False,
+        reviewer=True,
         )
     with pytest.raises(ValueError, match="latest draft"):
-        decide(item["id"], "approve", "owner", None, None, "owner", True, False)
+        decide(item["id"], "approve", "owner", None, None, "owner", True, False, reviewer=True)
     approved = decide(
         item["id"], "approve", "owner", None, latest_id, "owner", True, False
-    )
+    , reviewer=True)
     assert approved["status"] == "approved"
 
 
 def test_unverified_provider_claim_and_unconnected_send_are_refused():
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
     claimed_gmail = envelope("claimed-gmail")
     claimed_gmail["provider"] = "gmail"
     with pytest.raises(HTTPException) as blocked_import:
@@ -452,7 +455,7 @@ def test_invalid_attachment_id_is_rejected_before_document_ingestion(monkeypatch
     monkeypatch.setattr(
         "app.api.technical_queries.upload_mod.ingest", ingest_never_called
     )
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
     with pytest.raises(HTTPException) as rejected:
         asyncio.run(
             upload_query_attachment(
@@ -531,6 +534,7 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         "u1",
         False,
         False,
+        reviewer=True,
     )
     scope = AccessScope("u1", frozenset({"doc-2"}))
     monkeypatch.setattr(
@@ -561,7 +565,7 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         generate_query_draft(item["id"], scope)
     assert unconfirmed.value.status_code == 409
     assert "confirm the question" in unconfirmed.value.detail["message"]
-    confirm_question(item["id"], "What is the approved limit?", "u1", False, False, "u1")
+    confirm_question(item["id"], "What is the approved limit?", "u1", False, False, "u1", reviewer=True)
     monkeypatch.setattr("app.api.technical_queries.answer.answer", spying_answer)
     with pytest.raises(HTTPException) as blocked:
         generate_query_draft(item["id"], scope)
@@ -596,19 +600,19 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
 def test_confirming_a_question_keeps_the_email_and_rejects_empty_or_late_changes():
     item, _ = import_message(envelope("confirm-q"), "u1", False, False)
     assert item["confirmed_question"] is None
-    confirmed = confirm_question(item["id"], "  What coating applies?  ", "u1", False, False, "u1")
+    confirmed = confirm_question(item["id"], "  What coating applies?  ", "u1", False, False, "u1", reviewer=True)
     assert confirmed["confirmed_question"] == "What coating applies?"
     assert confirmed["confirmed_question_by"] == "u1"
     assert confirmed["extracted_question"] == "Please confirm the applicable coating schedule."
     assert confirmed["messages"][0]["body"] == "Please confirm the applicable coating schedule."
     with pytest.raises(ValueError):
-        confirm_question(item["id"], "   ", "u1", False, False, "u1")
+        confirm_question(item["id"], "   ", "u1", False, False, "u1", reviewer=True)
     with pytest.raises(ValueError):
-        confirm_question(item["id"], "x" * 5001, "u1", False, False, "u1")
+        confirm_question(item["id"], "x" * 5001, "u1", False, False, "u1", reviewer=True)
     drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False)
-    decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False)
+    decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False, reviewer=True)
     with pytest.raises(ValueError):
-        confirm_question(item["id"], "Changed after approval", "u1", False, False, "u1")
+        confirm_question(item["id"], "Changed after approval", "u1", False, False, "u1", reviewer=True)
 
 
 def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch):
@@ -627,8 +631,8 @@ def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch)
         frozenset({"doc-r"}), "u1", True, False, "u1",
     )
     update_evidence(item["id"], get(item["id"], "u1", True, False)["evidence"][0]["id"],
-                    "verified", "current", None, "u1", "u1", True, False)
-    confirm_question(item["id"], "What is QX-1?", "u1", True, False, "u1")
+                    "verified", "current", None, "u1", "u1", True, False, reviewer=True)
+    confirm_question(item["id"], "What is QX-1?", "u1", True, False, "u1", reviewer=True)
     monkeypatch.setattr(
         "app.api.technical_queries.answer.answer",
         lambda *_a, **_k: {
@@ -638,7 +642,7 @@ def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch)
         },
     )
     with pytest.raises(HTTPException) as refused:
-        generate_query_draft(item["id"], AccessScope("u1", frozenset({"doc-r"}), capabilities=frozenset({"admin"})))
+        generate_query_draft(item["id"], AccessScope("u1", frozenset({"doc-r"}), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})))
     assert refused.value.status_code == 409
     assert "QX-1 does not appear anywhere" in refused.value.detail["message"]
 
@@ -653,6 +657,120 @@ def test_proposed_question_drops_labels_and_repeated_lines():
     legacy = "Email part.\n\n[Attachment q.pdf, page 1]\nPDF text"
     assert original_email_question(legacy) == "Email part."
     assert original_email_question("[Attachment q.pdf, page 1]\nPDF text") == ""
+
+
+def _attachment_evidence(item_id_suffix: str):
+    """A query whose attachment document also holds a stored 'verified' evidence row,
+    as older code saved it."""
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            (f"att-{item_id_suffix}", "att.pdf", item_id_suffix.ljust(64, "9")[:64], 1, "att.pdf", "ready", "2026-01-01T00:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            (f"att-{item_id_suffix}", 1, "Contractor wrote 99 bar.", 24, 0, 1),
+        )
+    item, _ = import_message(envelope(f"stale-{item_id_suffix}"), "u1", False, False)
+    link_attachment(
+        item["id"], item["messages"][0]["attachments"][0]["id"],
+        f"att-{item_id_suffix}", "u1", "u1", True, False,
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (f"ev-{item_id_suffix}", item["id"], f"att-{item_id_suffix}", 1, 1,
+             "Contractor wrote 99 bar.", "h", "current", "2026-01-01T00:00:00Z"),
+        )
+    return item
+
+
+def test_old_evidence_from_a_contractor_attachment_needs_review_and_blocks_approval_and_send():
+    item = _attachment_evidence("a1")
+    ensure_schema()  # the startup sweep
+    row = get(item["id"], "owner", True, False)["evidence"][0]
+    assert row["evidence_state"] == "needs_review"
+    drafted = add_draft(item["id"], "Answer", [], [], "owner", "owner", True, False)
+    with pytest.raises(ValueError, match="needs a reviewer's decision before approval"):
+        decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False, reviewer=True)
+    with pytest.raises(ValueError, match="before sending"):
+        validate_send_evidence(get(item["id"], "owner", True, False), frozenset({"att-a1"}), False)
+    # The contractor-facing file does not carry it.
+    from pathlib import Path
+    path = render_query_docx(get(item["id"], "owner", True, False), Path(settings.data_dir) / "stale.docx")
+    with ZipFile(path) as package:
+        assert "Contractor wrote 99 bar" not in package.read("word/document.xml").decode()
+    # A reviewer's decision stands: a later sweep does not undo it.
+    update_evidence(item["id"], "ev-a1", "rejected", "current", None, "owner", "owner", True, False, reviewer=True)
+    ensure_schema()
+    assert get(item["id"], "owner", True, False)["evidence"][0]["evidence_state"] == "rejected"
+    validate_send_evidence(get(item["id"], "owner", True, False), frozenset({"att-a1"}), False)
+    decide(item["id"], "approve", "owner", None, drafted["drafts"][-1]["id"], "owner", True, False, reviewer=True)
+
+
+def test_an_attachment_row_a_person_added_by_hand_is_not_swept():
+    item = _attachment_evidence("a2")
+    with db.connect() as conn:
+        conn.execute("DELETE FROM query_evidence")
+    added = add_evidence(
+        item["id"], "att-a2", "Contractor wrote 99 bar.", 1, 1, None,
+        frozenset({"att-a2"}), "owner", True, False, "owner",
+    )
+    ensure_schema()
+    assert get(item["id"], "owner", True, False)["evidence"][0]["evidence_state"] == "verified"
+    assert added["evidence"][0]["evidence_state"] == "verified"
+
+
+def test_only_a_qualified_reviewer_may_confirm_decide_classify_or_send():
+    item, _ = import_message(envelope("reviewer-gate"), "owner", True, False)
+    with pytest.raises(PermissionError, match="qualified technical-query reviewer"):
+        confirm_question(item["id"], "A question?", "owner", True, False, "owner")
+    with pytest.raises(PermissionError, match="qualified technical-query reviewer"):
+        update_evidence(item["id"], "x", "verified", "current", None, "owner", "owner", True, False)
+    with pytest.raises(PermissionError, match="qualified technical-query reviewer"):
+        decide(item["id"], "approve", "owner", None, "d", "owner", True, False)
+    admin_only = AccessScope("owner", frozenset(), capabilities=frozenset({"admin"}))
+    from app.api.technical_queries import (
+        DecisionIn,
+        QuestionIn,
+        confirm_query_question,
+        decide_query,
+    )
+
+    with pytest.raises(HTTPException) as denied:
+        confirm_query_question(item["id"], QuestionIn(question="A question?"), admin_only)
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException) as denied:
+        decide_query(item["id"], DecisionIn(decision="approve", draft_id="d"), admin_only)
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException) as denied:
+        prepare_query_send(item["id"], SendIn(draft_id="d", mailbox_id="m", idempotency_key="k" * 16), admin_only)
+    assert denied.value.status_code == 403
+    reviewer = AccessScope("owner", frozenset(), capabilities=frozenset({REVIEWER_CAPABILITY}))
+    confirmed = confirm_query_question(item["id"], QuestionIn(question="A question?"), reviewer)
+    assert confirmed["confirmed_question"] == "A question?"
+    assert confirmed["can_review"] is True
+
+
+def test_admin_grants_and_revokes_the_reviewer_role_but_not_to_themselves():
+    from app.technical_queries import list_reviewers, set_reviewer
+
+    admin = {"id": "owner", "email": "owner@example.test"}
+    assert list_reviewers() == []
+    with pytest.raises(PermissionError, match="themselves"):
+        set_reviewer("owner", True, admin)
+    assert set_reviewer("u1", True, admin) is True
+    assert [row["id"] for row in list_reviewers()] == ["u1"]
+    assert set_reviewer("nobody", True, admin) is False
+    from app import access as access_mod
+
+    assert REVIEWER_CAPABILITY in access_mod.scope_for_user("u1").capabilities
+    assert set_reviewer("u1", False, admin) is True
+    assert REVIEWER_CAPABILITY not in access_mod.scope_for_user("u1").capabilities
+    assert list_reviewers() == []
+    with db.connect() as conn:
+        actions = [r["action"] for r in conn.execute("SELECT action FROM audit_events ORDER BY id")]
+    assert actions[-2:] == ["technical_query_reviewer_granted", "technical_query_reviewer_revoked"]
 
 
 def test_word_preview_marks_unapproved_response_and_missing_evidence(tmp_path):
@@ -759,7 +877,7 @@ def test_admin_assignment_grants_assignee_visibility():
     assert {
         person["id"]
         for person in technical_query_assignees(
-            AccessScope("owner", frozenset(), capabilities=frozenset({"admin"}))
+            AccessScope("owner", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
         )["items"]
     } == {"u1", "owner"}
     with db.connect() as conn:
@@ -865,6 +983,7 @@ def test_evidence_requires_exact_quote_and_can_be_classified():
         "u1",
         False,
         False,
+        reviewer=True,
     )
     assert item["evidence"][0]["evidence_state"] == "conflicting"
     safe = _safe_item(item, AccessScope("u1", frozenset()))
@@ -1438,12 +1557,12 @@ def test_send_worker_uses_approved_content_and_original_recipient_only():
             return "provider-send-1"
 
     client = FakeClient()
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
     drafted = add_draft(
         item["id"], "Approved technical answer", [], [], "u1", "u1", True, False
     )
     draft_id = drafted["drafts"][0]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
     with pytest.raises(ValueError, match="not been approved"):
         send_approved(
             client,
@@ -1490,10 +1609,10 @@ def test_send_worker_uses_approved_content_and_original_recipient_only():
 
 def test_second_send_key_cannot_send_while_first_request_is_in_flight():
     item, _ = import_message(envelope("send-race"), "u1", False, False)
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
     drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
     draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
 
     class ReentrantClient:
         calls = 0
@@ -1562,7 +1681,7 @@ def test_send_stops_if_approved_source_is_later_superseded():
     )
     drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
     draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO document_classification(document_id,suggested_by,superseded_by) VALUES (?,?,?)",
@@ -1578,7 +1697,7 @@ def test_send_stops_if_approved_source_is_later_superseded():
 
     client = FakeClient()
     scope = AccessScope(
-        "u1", frozenset({"source-old"}), capabilities=frozenset({"admin"})
+        "u1", frozenset({"source-old"}), capabilities=frozenset({"admin", REVIEWER_CAPABILITY})
     )
     with pytest.raises(ValueError, match="superseded"):
         send_approved(
@@ -1596,7 +1715,7 @@ def test_explicit_send_endpoint_uses_connected_mailbox_and_fake_provider(monkeyp
     item, _ = import_message(envelope("endpoint-send"), "u1", False, False)
     drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
     draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
     with db.connect() as conn:
         conn.execute(
             "INSERT INTO gmail_mailboxes(id,owner_user_id,email,last_history_id,label_id,connection_state,connected_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
@@ -1627,7 +1746,7 @@ def test_explicit_send_endpoint_uses_connected_mailbox_and_fake_provider(monkeyp
     monkeypatch.setattr(
         "app.api.technical_queries.GmailApiClient", lambda _token: client
     )
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
     result = prepare_query_send(
         item["id"],
         SendIn(
@@ -1644,10 +1763,10 @@ def test_explicit_send_endpoint_uses_connected_mailbox_and_fake_provider(monkeyp
 
 def test_uncertain_provider_send_is_not_retried_automatically():
     item, _ = import_message(envelope("send-uncertain"), "u1", False, False)
-    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
+    scope = AccessScope("u1", frozenset(), capabilities=frozenset({"admin", REVIEWER_CAPABILITY}))
     drafted = add_draft(item["id"], "Reviewed answer", [], [], "u1", "u1", True, False)
     draft_id = drafted["drafts"][-1]["id"]
-    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False)
+    decide(item["id"], "approve", "u1", None, draft_id, "u1", True, False, reviewer=True)
 
     class UncertainClient:
         calls = 0

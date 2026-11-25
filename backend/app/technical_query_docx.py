@@ -102,7 +102,8 @@ def render(query: dict, output: Path | None = None) -> Path:
             for c in citations
         ]
     paragraphs += [_p("Evidence", True)]
-    if not query.get("evidence"):
+    listed = [e for e in query.get("evidence") or [] if e.get("evidence_state", "verified") == "verified"]
+    if not listed:
         paragraphs.append(
             _p(
                 "No verified source evidence is recorded. The engineer must resolve this before issue."
@@ -115,7 +116,7 @@ def render(query: dict, output: Path | None = None) -> Path:
                 f"[{e.get('evidence_state', 'unknown')}; {e.get('supersession_state', 'unknown')}]: "
                 f"{e['exact_quote']}"
             )
-            for e in query["evidence"]
+            for e in listed
         ]
     body = "".join(paragraphs)
     document = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

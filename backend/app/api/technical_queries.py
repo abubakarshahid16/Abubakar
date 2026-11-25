@@ -76,7 +76,7 @@ class EvidenceIn(BaseModel):
 
 
 class EvidenceClassificationIn(BaseModel):
-    evidence_state: Literal["verified", "missing", "conflicting", "ambiguous"]
+    evidence_state: Literal["verified", "missing", "conflicting", "ambiguous", "rejected"]
     supersession_state: Literal["current", "superseded", "unknown"] = "unknown"
     conflict_group: str | None = Field(default=None, max_length=200)
 
@@ -120,6 +120,10 @@ def _refuse(status_code: int, message: str, code: str = errors.INVALID_PARAMETER
     return HTTPException(status_code=status_code, detail=errors.safe_error(code, message))
 
 
+def _reviewer(scope: access.AccessScope) -> bool:
+    return technical_queries.is_reviewer(scope.capabilities, scope.unrestricted)
+
+
 def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
     return scope.user_id, scope.is_admin, scope.unrestricted
 
@@ -128,6 +132,7 @@ def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     """Hide source material retained after a document grant is revoked."""
     item = {
         **item,
+        "can_review": _reviewer(scope),
         "messages": [
             {key: value for key, value in message.items() if key != "raw_storage_ref"}
             for message in item.get("messages", [])
@@ -328,6 +333,42 @@ def gmail_webhook(_payload: dict):
     raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
+@router.get("/api/technical-queries/reviewers")
+def list_technical_query_reviewers(scope: access.AccessScope = Depends(access.current_scope)):
+    if not scope.is_admin or not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    return {"items": technical_queries.list_reviewers()}
+
+
+@router.put("/api/technical-queries/reviewers/{user_id}")
+def grant_technical_query_reviewer(
+    user_id: str, scope: access.AccessScope = Depends(access.current_scope)
+):
+    return _change_reviewer(user_id, True, scope)
+
+
+@router.delete("/api/technical-queries/reviewers/{user_id}")
+def revoke_technical_query_reviewer(
+    user_id: str, scope: access.AccessScope = Depends(access.current_scope)
+):
+    return _change_reviewer(user_id, False, scope)
+
+
+def _change_reviewer(user_id: str, granted: bool, scope: access.AccessScope):
+    if not scope.is_admin or not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    actor = {"id": scope.user_id, "email": None}
+    try:
+        found = technical_queries.set_reviewer(user_id, granted, actor)
+    except PermissionError as exc:
+        raise _refuse(403, str(exc)) from exc
+    except ValueError as exc:
+        raise _refuse(409, str(exc)) from exc
+    if not found:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {"items": technical_queries.list_reviewers()}
+
+
 @router.get("/api/technical-queries/assignees")
 def technical_query_assignees(
     scope: access.AccessScope = Depends(access.current_scope),
@@ -486,8 +527,10 @@ def confirm_query_question(
     _require_identity_to_write(scope)
     try:
         item = technical_queries.confirm_question(
-            query_id, body.question, *_visible(scope), scope.user_id
+            query_id, body.question, *_visible(scope), scope.user_id, reviewer=_reviewer(scope)
         )
+    except PermissionError as exc:
+        raise _refuse(403, str(exc)) from exc
     except ValueError as exc:
         raise _refuse(409, str(exc)) from exc
     if item is None:
@@ -664,9 +707,12 @@ def classify_query_evidence(
             body.conflict_group,
             scope.user_id,
             *_visible(scope),
+            reviewer=_reviewer(scope),
         )
+    except PermissionError as exc:
+        raise _refuse(403, str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise _refuse(409, str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="query or evidence not found")
     return _safe_item(item, scope)
@@ -765,10 +811,8 @@ def decide_query(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     _require_identity_to_write(scope)
-    if not scope.is_admin:
-        raise HTTPException(
-            status_code=403, detail="an authorised reviewer is required"
-        )
+    if not _reviewer(scope):
+        raise _refuse(403, "a qualified technical-query reviewer is required")
     try:
         item = technical_queries.decide(
             query_id,
@@ -777,9 +821,10 @@ def decide_query(
             body.comment,
             body.draft_id,
             *_visible(scope),
+            reviewer=_reviewer(scope),
         )
     except (PermissionError, ValueError) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise _refuse(409, str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return _safe_item(item, scope)
@@ -819,8 +864,8 @@ def prepare_query_send(
 ):
     """Send only after an authorised user explicitly requests this approved draft."""
     _require_identity_to_write(scope)
-    if not scope.is_admin or not scope.user_id:
-        raise HTTPException(status_code=403, detail="an authorised sender is required")
+    if not _reviewer(scope) or not scope.user_id:
+        raise _refuse(403, "a qualified technical-query reviewer is required to send")
     item = technical_queries.get(query_id, *_visible(scope))
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
@@ -892,10 +937,8 @@ def confirm_query_resolution(
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     _require_identity_to_write(scope)
-    if not scope.is_admin:
-        raise HTTPException(
-            status_code=403, detail="an authorised reviewer is required"
-        )
+    if not _reviewer(scope):
+        raise _refuse(403, "a qualified technical-query reviewer is required")
     try:
         item = technical_queries.decide(
             query_id,
@@ -904,9 +947,10 @@ def confirm_query_resolution(
             "contractor or authorised internal confirmation",
             None,
             *_visible(scope),
+            reviewer=_reviewer(scope),
         )
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise _refuse(409, str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
     return _safe_item(item, scope)

@@ -35,6 +35,25 @@ def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+#: The capability that makes a person a qualified technical-query reviewer. It is
+#: NOT implied by `admin`: an administrator runs the system, and an administrator's
+#: account alone proves nothing about engineering qualification.
+REVIEWER_CAPABILITY = "technical_query_reviewer"
+REVIEWER_DESCRIPTION = "Confirm questions, review evidence, approve and send technical query responses"
+#: Evidence states. `needs_review` is set by the system on a source it no longer
+#: trusts; only a reviewer can move a row out of it.
+EVIDENCE_STATES = ("verified", "missing", "conflicting", "ambiguous", "needs_review", "rejected")
+
+
+def is_reviewer(capabilities: frozenset[str] | set[str], unrestricted: bool = False) -> bool:
+    return unrestricted or REVIEWER_CAPABILITY in capabilities
+
+
+def _require_reviewer(reviewer: bool, unrestricted: bool, what: str) -> None:
+    if not (reviewer or unrestricted):
+        raise PermissionError(f"a qualified technical-query reviewer is required to {what}")
+
+
 def ensure_schema() -> None:
     with connect() as conn:
         conn.executescript("""
@@ -124,6 +143,26 @@ def ensure_schema() -> None:
         ):
             if column not in columns:
                 conn.execute(f"ALTER TABLE technical_queries ADD COLUMN {column} TEXT")
+        evidence_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(query_evidence)")
+        }
+        if "attachment_checked_at" not in evidence_columns:
+            conn.execute("ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT")
+        try:
+            if conn.execute("SELECT 1 FROM roles WHERE name=?", (REVIEWER_CAPABILITY,)).fetchone() is None:
+                conn.execute(
+                    "INSERT INTO roles(id,name,description,kind,created_at) VALUES (?,?,?,?,?)",
+                    (
+                        f"role_{REVIEWER_CAPABILITY}",
+                        REVIEWER_CAPABILITY,
+                        REVIEWER_DESCRIPTION,
+                        "capability",
+                        now(),
+                    ),
+                )
+        except Exception:  # noqa: BLE001 - a database without the roles table has no users to grant
+            pass
+        invalidate_attachment_evidence(conn)
         message_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(query_messages)")
         }
@@ -144,6 +183,24 @@ def ensure_schema() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tq_assignee_status ON technical_queries(assignee_user_id,status,updated_at DESC)"
         )
+
+
+def invalidate_attachment_evidence(conn, query_id: str | None = None) -> int:
+    """Evidence taken from a contractor's own attachment is not an authority. Rows
+    saved before that rule existed are moved to `needs_review` once; a reviewer then
+    keeps or rejects each one. The row is stamped so a deliberate decision is never
+    undone by a later sweep, and a row an engineer added from an attachment by hand
+    is stamped when it is made."""
+    marks = "SELECT DISTINCT document_id FROM query_attachments WHERE document_id IS NOT NULL"
+    where = "evidence_state='verified' AND attachment_checked_at IS NULL AND document_id IN (" + marks + ")"
+    args: list[Any] = [now()]
+    if query_id is not None:
+        where += " AND query_id=?"
+        args.append(query_id)
+    return conn.execute(
+        "UPDATE query_evidence SET evidence_state='needs_review',attachment_checked_at=? WHERE " + where,
+        args,
+    ).rowcount
 
 
 def _event(
@@ -202,6 +259,10 @@ def validate_send_evidence(
     with connect() as conn:
         for evidence in item.get("evidence", []):
             document_id = evidence["document_id"]
+            if evidence.get("evidence_state") == "needs_review":
+                raise ValueError(
+                    "evidence from a contractor attachment needs a reviewer's decision before sending"
+                )
             if not unrestricted and document_id not in allowed_document_ids:
                 raise PermissionError("source document access changed after approval")
             if (
@@ -681,7 +742,7 @@ def add_evidence(
         import hashlib
 
         conn.execute(
-            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,supersession_state,created_at,attachment_checked_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 evidence_id,
                 query_id,
@@ -693,6 +754,7 @@ def add_evidence(
                 hashlib.sha256(quote.encode()).hexdigest(),
                 _source_supersession(conn, document_id),
                 now(),
+                now(),  # chosen by a person, so it is not swept as an automatic find
             ),
         )
         conn.execute(
@@ -766,8 +828,11 @@ def update_evidence(
     user_id: str | None,
     is_admin: bool,
     unrestricted: bool,
+    *,
+    reviewer: bool = False,
 ) -> dict[str, Any] | None:
-    if evidence_state not in {"verified", "missing", "conflicting", "ambiguous"}:
+    _require_reviewer(reviewer, unrestricted, "change evidence")
+    if evidence_state not in EVIDENCE_STATES:
         raise ValueError("unknown evidence state")
     if supersession_state not in {"current", "superseded", "unknown"}:
         raise ValueError("unknown supersession state")
@@ -862,7 +927,10 @@ def confirm_question(
     is_admin: bool,
     unrestricted: bool,
     actor_user_id: str | None,
+    *,
+    reviewer: bool = False,
 ) -> dict[str, Any] | None:
+    _require_reviewer(reviewer, unrestricted, "confirm a question")
     current = get(query_id, user_id, is_admin, unrestricted)
     if current is None:
         return None
@@ -899,6 +967,8 @@ def prepare_evidence(
         return None
     if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
         raise ValueError("evidence cannot be prepared in the current query state")
+    with connect() as conn:
+        invalidate_attachment_evidence(conn, query_id)
     message = (current.get("messages") or [{}])[0]
     body = (message.get("body") or "").strip()
     saved_question = original_email_question(current.get("extracted_question"))
@@ -1172,14 +1242,21 @@ def decide(
     user_id: str | None,
     is_admin: bool,
     unrestricted: bool,
+    *,
+    reviewer: bool = False,
 ) -> dict[str, Any] | None:
     if decision not in {"request_changes", "approve", "reject", "close"}:
         raise ValueError("unknown technical-query decision")
-    if not (is_admin or unrestricted):
-        raise PermissionError("an authorised reviewer is required")
+    _require_reviewer(reviewer, unrestricted, "decide on a response")
     if get(query_id, user_id, is_admin, unrestricted) is None:
         return None
     current = get(query_id, user_id, is_admin, unrestricted)
+    if decision == "approve" and current is not None and any(
+        row["evidence_state"] == "needs_review" for row in current.get("evidence", [])
+    ):
+        raise ValueError(
+            "evidence from a contractor attachment needs a reviewer's decision before approval"
+        )
     allowed = {
         "request_changes": {"awaiting_review", "changes_requested"},
         "approve": {"awaiting_review"},
@@ -1225,3 +1302,47 @@ def decide(
         )
         _event(conn, query_id, "decision", actor_user_id, f"decision={decision}")
     return get(query_id, user_id, is_admin, unrestricted)
+
+
+def list_reviewers() -> list[dict[str, Any]]:
+    with connect() as conn:
+        return [
+            dict(row)
+            for row in conn.execute(
+                "SELECT u.id,u.display_name,u.email FROM users u "
+                "JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id "
+                "WHERE r.name=? AND r.kind='capability' ORDER BY u.display_name",
+                (REVIEWER_CAPABILITY,),
+            )
+        ]
+
+
+def set_reviewer(user_id: str, granted: bool, actor: dict[str, Any]) -> bool:
+    """Grant or revoke the reviewer capability. Recorded in the admin audit log. An
+    administrator cannot grant it to themselves: qualification is another person's call."""
+    from .admin import _audit
+
+    if granted and actor.get("id") == user_id:
+        raise PermissionError("an administrator cannot grant themselves the reviewer role")
+    with connect() as conn:
+        role = conn.execute(
+            "SELECT id FROM roles WHERE name=? AND kind='capability'", (REVIEWER_CAPABILITY,)
+        ).fetchone()
+        if role is None:
+            raise ValueError("the reviewer role is not configured")
+        if conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone() is None:
+            return False
+        if granted:
+            conn.execute(
+                "INSERT OR IGNORE INTO user_roles(user_id,role_id,granted_at) VALUES (?,?,?)",
+                (user_id, role["id"], now()),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM user_roles WHERE user_id=? AND role_id=?", (user_id, role["id"])
+            )
+        _audit(
+            "technical_query_reviewer_granted" if granted else "technical_query_reviewer_revoked",
+            actor, "user", user_id, "ok", f"role={REVIEWER_CAPABILITY}", conn=conn,
+        )
+    return True
