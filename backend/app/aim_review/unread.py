@@ -55,7 +55,9 @@ def with_unread(conn, paper_id: str, paper, reload):
             return paper
         if ref["word"]:
             paper.unread = _word_unread(conn, ref["path"])
-            paper.unread_checked = ref["path"] is not None  # a Word file that was not found was not checked
+            paper.unread_checked = (
+                ref["path"] is not None
+            )  # a Word file that was not found was not checked
             return paper
         try:
             if _recognise_pending(paper_id):
@@ -261,6 +263,10 @@ def read_calls(paper):
         )
     ]
     # ALWAYS written: "none" only when the check really ran and found every page read; "not_checked" when it did not run or failed
-    code = note(paper.unread) if getattr(paper, "unread", None) else (NONE if getattr(paper, "unread_checked", False) else NOT_CHECKED)
+    code = (
+        note(paper.unread)
+        if getattr(paper, "unread", None)
+        else (NONE if getattr(paper, "unread_checked", False) else NOT_CHECKED)
+    )
     calls.append(CallRecord(step=STEP, model="code", prompt_chars=0, code=code))
     return calls
