@@ -23,6 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 
 # The six reasons a book is on the plan's list, and the list's size: one home, the package (`app.aim_review`).
+from .. import rule_second_approval as _second
 from . import MAX_BOOKS as MAX_CANDIDATES
 from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED
 from .citations import (  # noqa: F401 - one home of citation matching: citations
@@ -414,17 +415,6 @@ def _tables(conn) -> set[str]:
     }
 
 
-def _second_until(conn, held: set[str]) -> str | None:
-    """The time up to which second-model approvals may be used (the latest measure's), or None when the gate is closed or
-    there is no such table: the planner's gate of 25 Nov 2026 (`rule_second_approval.gate`)."""
-    if "rule_second_approval" not in held:
-        return None
-    from .. import rule_second_approval
-
-    g = rule_second_approval.gate(conn)
-    return g["covers_until"] if g["open"] else None
-
-
 def rule_pool(
     conn,
     kind: str | None,
@@ -447,7 +437,7 @@ def rule_pool(
     types, fam = type_set(type_id)
     has_kind = "rule_label" in held
     has_equip = "rule_equipment_label" in held
-    until = _second_until(conn, held) if has_kind else None
+    second = _second.review_sql(conn, held, labels) if has_kind else None
     cols = [
         "sr.id AS id",
         "sr.standard_document_id AS book",
@@ -455,11 +445,7 @@ def rule_pool(
         "sr.page AS page",
         "sr.source_text AS source_text",
         "sr.requirement_text AS requirement_text",
-        (
-            "CASE WHEN rl.state = 'ai_approved' THEN rl.reading_json ELSE sa.reading_json END AS reading_json"
-            if until
-            else "rl.reading_json AS reading_json"
-        )
+        (second["reading"] if second else "rl.reading_json AS reading_json")
         if has_kind
         else "NULL AS reading_json",
         "el.equip_state AS equip_state" if has_equip else "NULL AS equip_state",
@@ -473,21 +459,16 @@ def rule_pool(
     if has_equip:
         sql += " LEFT JOIN rule_equipment_label el ON el.source = 'requirement' AND el.rule_ref = sr.id"
     where, args = [], []
-    if until:  # second-model approvals, behind the measured gate (`rule_second_approval.gate`), up to the measure's time
-        sql += (" LEFT JOIN rule_second_approval sa ON sa.source = 'requirement' AND sa.rule_ref = sr.id"
-                " AND sa.state = 'second_approved' AND sa.approved_at <= ?")  # fmt: skip
-        args.append(until)
+    if second:  # second-model approvals, behind the measured gate (`rule_second_approval.review_sql`)
+        sql += second["join"]
+        args += second["join_args"]
     if has_kind:
         marks = ",".join("?" for _ in labels)
-        second = (
-            f" OR (rl.state = 'needs_human' AND sa.paper_kind IN ({marks}))"
-            if until
-            else ""
-        )
+        more = second["where"] if second else ""
         where.append(
-            f"((rl.paper_kind IN ({marks}) AND rl.state = 'ai_approved'){second})"
+            f"((rl.paper_kind IN ({marks}) AND rl.state = 'ai_approved'){more})"
         )
-        args += list(labels) * (2 if until else 1)
+        args += list(labels) + (second["where_args"] if second else [])
     if books:
         where.append(f"sr.standard_document_id IN ({','.join('?' for _ in books)})")
         args += sorted(books)
@@ -509,16 +490,19 @@ def rule_pool(
             else:
                 continue  # agreed to be about other equipment
         r["tagged"] = tagged
-        r["subject"] = ""
-        if subjects:
-            try:
-                r["subject"] = str(
-                    (json.loads(r["reading_json"] or "{}") or {}).get("subject") or ""
-                ).strip()[:60]
-            except (ValueError, AttributeError):
-                r["subject"] = ""
+        r["subject"] = _subject(r["reading_json"]) if subjects else ""
         out.append(r)
     return out
+
+
+def _subject(reading_json) -> str:
+    """A rule's subject from its approved reading (a library label), or ""."""
+    try:
+        return str(
+            (json.loads(reading_json or "{}") or {}).get("subject") or ""
+        ).strip()[:60]
+    except (ValueError, AttributeError):
+        return ""
 
 
 def catalog(
