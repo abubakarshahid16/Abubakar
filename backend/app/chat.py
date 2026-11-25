@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from . import answer as answer_mod
 from . import analysis as analysis_mod
 from . import chat_answers
+from . import chat_db_tools
 from . import chat_comparison
 from . import family_search
 from . import chat_model
@@ -974,9 +975,12 @@ def ask(
                       and route_kind == intent_mod.DOCUMENT else model)
     claude_preference = model
     if (model == chat_model.CLAUDE and not claude_document_selection
-            and route_kind == intent_mod.DOCUMENT):
+            and route_kind == intent_mod.DOCUMENT
+            and not chat_db_tools.asks_the_records(original)):
         # A document question with no explicit file selection stays on the
         # local path; Claude may still answer a document-free general question.
+        # A question about the library's RECORDS (which papers, their latest review) goes to Claude with the database tools
+        # when their switch is on (`chat_db_tools.asks_the_records`): its document tools still read nothing unselected.
         claude_preference = chat_model.LOCAL
     if (collection_result is None and inventory_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
@@ -1035,7 +1039,9 @@ def ask(
                 if model != chat_model.CLAUDE or claude_document_selection
                 else frozenset()),
             web_enabled=web, preference=claude_preference, on_fallback_cost=fallback_spent.append,
-            on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append)
+            on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append,
+            # the owner's database lane (#1584, 25 Nov 2026): the caller's OWN read set, never wider; off: not offered
+            database_scope=allowed_document_ids if model == chat_model.CLAUDE else None)
 
     if collection_result is not None:
         result = collection_result
