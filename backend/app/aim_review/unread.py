@@ -113,7 +113,9 @@ def _pdf_unread(conn, paper_id: str, paper, total: int) -> list[dict]:
         }
     from app import picture_stage
 
-    looked_at = picture_stage.recorded(conn, paper_id)  # the upload's own picture reading (never run inside a review)
+    looked_at = picture_stage.recorded(
+        conn, paper_id
+    )  # the upload's own picture reading (never run inside a review)
     out = []
     for n in range(1, last + 1):
         if len(str(paper.pages.get(n) or "").strip()) >= MIN_PAGE_CHARS:

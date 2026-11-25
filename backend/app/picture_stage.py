@@ -38,7 +38,13 @@ PROMPT_VERSION = "aim-picture-v1"
 MAX_OUTPUT_TOKENS = 4000
 TIMEOUT_S = 300.0
 EMPTY = "[no text]"
-READ, NO_TEXT, FAILED, REFUSED, CAPPED = "read", "no_text", "failed", "refused", "capped"
+READ, NO_TEXT, FAILED, REFUSED, CAPPED = (
+    "read",
+    "no_text",
+    "failed",
+    "refused",
+    "capped",
+)
 SYSTEM = (
     "You transcribe ONE page image. Return the text exactly as printed, in reading order, one line per printed line; write a table row as "
     "one line with its cells separated by two spaces. Do not interpret, summarise, correct, translate or add anything. Write [illegible] "
@@ -55,9 +61,19 @@ def create_table(conn) -> None:
 
 def recorded(conn, document_id: str) -> dict[int, str]:
     """page -> state for the pages the stage has looked at. Reads only (a missing table is nothing recorded)."""
-    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TABLE,)).fetchone() is None:
+    if (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (TABLE,)
+        ).fetchone()
+        is None
+    ):
         return {}
-    return {int(r["page_no"]): r["state"] for r in conn.execute(f"SELECT page_no, state FROM {TABLE} WHERE document_id = ?", (document_id,))}
+    return {
+        int(r["page_no"]): r["state"]
+        for r in conn.execute(
+            f"SELECT page_no, state FROM {TABLE} WHERE document_id = ?", (document_id,)
+        )
+    }
 
 
 def targets(conn, document_id: str) -> list[int]:
@@ -65,11 +81,15 @@ def targets(conn, document_id: str) -> list[int]:
     scan it would take) and that the stage has not looked at yet. A page still waiting for recognition is not a target."""
     done = recorded(conn, document_id)
     rows = conn.execute(
-        "SELECT page_no, char_count, needs_ocr FROM pages WHERE document_id = ? ORDER BY page_no", (document_id,)
+        "SELECT page_no, char_count, needs_ocr FROM pages WHERE document_id = ? ORDER BY page_no",
+        (document_id,),
     ).fetchall()
     ocr = {
         int(r["page_no"]): (r["error"], int(r["char_count"] or 0))
-        for r in conn.execute("SELECT page_no, error, char_count FROM page_ocr WHERE document_id = ?", (document_id,))
+        for r in conn.execute(
+            "SELECT page_no, error, char_count FROM page_ocr WHERE document_id = ?",
+            (document_id,),
+        )
     }
     out = []
     for r in rows:
@@ -125,7 +145,16 @@ def _store(conn, document_id: str, page_no: int, text: str, model: str) -> None:
         """INSERT OR REPLACE INTO page_ocr (document_id, page_no, text, char_count, engine, model, dpi, mean_conf, min_conf, box_count,
                low_conf_boxes, alphabet_violations, alphabet_sample, seconds, recognised_at, batch_no, error)
            VALUES (?,?,?,?,?,?,?,NULL,NULL,0,0,0,'',0,?,0,NULL)""",
-        (document_id, page_no, text, len(text.strip()), ENGINE, model, settings.ocr_dpi, _now()),
+        (
+            document_id,
+            page_no,
+            text,
+            len(text.strip()),
+            ENGINE,
+            model,
+            settings.ocr_dpi,
+            _now(),
+        ),
     )
 
 
@@ -150,14 +179,23 @@ def run(document_id: str, provider=None) -> dict:
     todo = targets(conn, document_id)
     if provider is None or not todo:
         return counts
-    row = conn.execute("SELECT stored_path FROM documents WHERE id = ?", (document_id,)).fetchone()
+    row = conn.execute(
+        "SELECT stored_path FROM documents WHERE id = ?", (document_id,)
+    ).fetchone()
     try:
-        path = agent_review_pages.pdf_path({"stored_path": row["stored_path"] if row else None}, settings.data_dir)
+        path = agent_review_pages.pdf_path(
+            {"stored_path": row["stored_path"] if row else None}, settings.data_dir
+        )
     except agent_review_pages.PageImageUnavailable:
         path = None
     with conn:
         create_table(conn)
-    picked, model = todo[:MAX_PAGES], str(getattr(provider, "requested_model", "") or settings.claude_reasoning_model)
+    picked, model = (
+        todo[:MAX_PAGES],
+        str(
+            getattr(provider, "requested_model", "") or settings.claude_reasoning_model
+        ),
+    )
     stopped_why = None
     with claude_approved.carrying([document_id]):
         for n in picked:
@@ -173,7 +211,11 @@ def run(document_id: str, provider=None) -> dict:
                     stopped_why = "refused: a spending cap, the lane or the approval"
                     state, reason = REFUSED, stopped_why
                 else:
-                    state, reason = (READ, "") if text else (NO_TEXT, "the picture reading came back with no text")
+                    state, reason = (
+                        (READ, "")
+                        if text
+                        else (NO_TEXT, "the picture reading came back with no text")
+                    )
                     if text:
                         with conn:
                             _store(conn, document_id, n, text, model)
@@ -182,10 +224,22 @@ def run(document_id: str, provider=None) -> dict:
             counts[state] += 1
     for n in todo[MAX_PAGES:]:
         with conn:
-            _mark(conn, document_id, n, CAPPED, f"past the limit of {MAX_PAGES} pages read as pictures in one pass")
+            _mark(
+                conn,
+                document_id,
+                n,
+                CAPPED,
+                f"past the limit of {MAX_PAGES} pages read as pictures in one pass",
+            )
         counts[CAPPED] += 1
     if counts[READ]:
         with conn:
-            total = conn.execute("SELECT COUNT(*) c FROM page_ocr WHERE document_id = ? AND char_count > 0", (document_id,)).fetchone()["c"]
-            conn.execute("UPDATE documents SET recognised_pages = ? WHERE id = ?", (total, document_id))
+            total = conn.execute(
+                "SELECT COUNT(*) c FROM page_ocr WHERE document_id = ? AND char_count > 0",
+                (document_id,),
+            ).fetchone()["c"]
+            conn.execute(
+                "UPDATE documents SET recognised_pages = ? WHERE id = ?",
+                (total, document_id),
+            )
     return counts
