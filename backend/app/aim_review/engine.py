@@ -496,6 +496,11 @@ def _steps(
     )
     if not state.stop_reason:
         _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
+        from .formulas import (
+            add_lines,
+        )  # the formula checks: points the paper decides by code, after every AI stage
+
+        add_lines(conn, paper, state)
     state.decided += BN.cited_points(
         state.not_held
     )  # a cited book not held: one point each, on All points, never sent
