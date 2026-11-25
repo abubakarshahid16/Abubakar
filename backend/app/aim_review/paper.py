@@ -26,6 +26,8 @@ DEFAULT_OVERLAP_PAGES = 1
 
 #: Where a page's text came from (`Paper.sources`): the stored PDF in visual order, the stored text, the recognised text.
 FROM_PDF, FROM_STORED, FROM_OCR = "pdf_visual_order", "stored_text", "recognised_text"
+#: A page Claude transcribed from its picture (`picture_pages`): the page held no text and local recognition found none.
+FROM_PICTURE = "claude_picture_reading"
 
 
 @dataclass
@@ -48,7 +50,9 @@ class Paper:
         for src in self.sources.values():
             counts[src] = counts.get(src, 0) + 1
         note = "pages: " + ", ".join(
-            f"{counts[k]} {k}" for k in (FROM_PDF, FROM_STORED, FROM_OCR) if k in counts
+            f"{counts[k]} {k}"
+            for k in (FROM_PDF, FROM_STORED, FROM_OCR, FROM_PICTURE)
+            if k in counts
         )
         return note + (f"; file not read: {self.file_note}" if self.file_note else "")
 
