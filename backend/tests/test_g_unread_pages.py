@@ -41,9 +41,6 @@ def test_a_page_with_no_text_is_not_read_and_one_with_text_is(aim_db):
 def test_the_reason_says_whether_the_picture_reading_is_waiting_failed_or_came_back_empty(
     aim_db, monkeypatch
 ):
-    monkeypatch.setattr(
-        ocr, "recognise_document", lambda *a, **k: {}
-    )  # the recognition is not what this test is about
     doc = _paper(aim_db, {1: LONG, 2: "", 3: "", 4: "", 5: ""})
     with aim_db:
         aim_db.execute(
@@ -62,42 +59,10 @@ def test_the_reason_says_whether_the_picture_reading_is_waiting_failed_or_came_b
     }  # fmt: skip
 
 
-def test_pages_waiting_for_picture_reading_are_read_first_and_then_count_as_read(
+def test_pages_waiting_for_picture_reading_are_only_named_and_the_review_never_runs_recognition(
     aim_db, monkeypatch
 ):
-    doc = _paper(aim_db, {1: LONG, 2: ""})
-    with aim_db:
-        aim_db.execute(
-            "UPDATE pages SET needs_ocr = 1 WHERE document_id = ? AND page_no = 2",
-            (doc,),
-        )
-    asked = []
-
-    def recognise(document_id, progress=None, max_pages=None):
-        asked.append((document_id, max_pages))
-        with db.connect() as c:
-            c.execute(
-                "INSERT INTO page_ocr (document_id, page_no, text, char_count, engine, model, dpi, box_count, seconds, recognised_at, batch_no)"
-                " VALUES (?, 2, ?, ?, 'e', 'm', 150, 1, 0, 'x', 0)",
-                (document_id, LONG, len(LONG)),
-            )
-        return {}
-
-    monkeypatch.setattr(ocr, "recognise_document", recognise)
-    paper = U.with_unread(aim_db, doc, load_paper(aim_db, doc), load_paper)
-    assert asked == [
-        (doc, U.MAX_RECOGNISE)
-    ]  # the app's own local recognition, a few pages at a time
-    assert (
-        paper.unread == []
-        and paper.pages[2] == LONG
-        and paper.sources[2] == "recognised_text"
-    )
-
-
-def test_a_failed_recognition_never_fails_the_review_the_pages_stay_unread(
-    aim_db, monkeypatch
-):
+    """7a (reviewer's M2): the review does not change its own input: the waiting page is named, nothing is recognised or reloaded."""
     doc = _paper(aim_db, {1: LONG, 2: ""})
     with aim_db:
         aim_db.execute(
@@ -107,10 +72,19 @@ def test_a_failed_recognition_never_fails_the_review_the_pages_stay_unread(
     monkeypatch.setattr(
         ocr,
         "recognise_document",
-        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("engine gone")),
+        lambda *a, **k: pytest.fail("a review must not run recognition"),
     )
-    paper = U.with_unread(aim_db, doc, load_paper(aim_db, doc), load_paper)
+    monkeypatch.setattr(
+        ocr, "pending_pages", lambda *a, **k: pytest.fail("a review must not look for pages to recognise")
+    )
+    before = load_paper(aim_db, doc)
+
+    def no_reload(*a, **k):
+        pytest.fail("the paper is not loaded again")
+
+    paper = U.with_unread(aim_db, doc, before, no_reload)
     assert [(i["where"], i["why"]) for i in paper.unread] == [("page 2", U.WAITING)]
+    assert paper.pages == before.pages and "its picture reading has not run yet" in U.sentence("page 2", U.WAITING)
 
 
 def test_a_word_file_picture_with_no_reading_is_a_picture_not_read(aim_db, monkeypatch):
@@ -153,7 +127,7 @@ def test_the_record_round_trips_into_plain_sentences():
     assert [g["where"] for g in got] == ["page 7", "picture 3"]
     assert (
         got[0]["sentence"]
-        == "Page 7 was not read: it has no text and no picture reading came back."
+        == "Page 7 was not read: it has no text, or almost none (fewer than 20 characters), and no picture reading came back."
     )
     assert U.summary(got).endswith("page 7; picture 3.")
     assert (
