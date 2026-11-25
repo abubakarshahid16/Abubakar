@@ -71,6 +71,16 @@ describe("Technical Queries screen", () => {
     expect(screen.getByTestId("attachment-reading").textContent).toBe("query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read.");
   });
 
+  it("shows the clause locator and the key-term match on a passage, and says when the question is likely not covered", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query,
+      evidence_coverage: { searched: 20, of: 20, hits_in: 5, failed: 0, line: "Searched 20 of 20 contracts, hits in 5.", likely_not_covered: true, not_covered_line: "No passage matches the question's key terms: likely not covered." },
+      evidence: [{ id: "e1", document_id: "c1", page_start: 4, locator: "6.1 Painting", match_count: 1, match_terms: 5, match_ok: 0, exact_quote: "x", evidence_state: "proposed", supersession_state: "current" }] } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("evidence-not-covered")).textContent).toBe("No passage matches the question's key terms: likely not covered.");
+    expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
+    expect(screen.getByTestId("evidence-match").textContent).toBe("weak match: 1 of 5 key terms");
+  });
+
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, status: "approved", confirmed_question: "What applies?", evidence: [{ id: "e1", document_id: "contract-1", page_start: 1, exact_quote: "x", evidence_state: "verified", supersession_state: "current" }] } });
     api.generateDraft.mockResolvedValue({ ok: true, data: query });

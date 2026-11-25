@@ -237,7 +237,8 @@ def test_each_readable_contract_is_searched_on_its_own_with_dense_and_rerank_and
         and c["allowed_document_ids"] == frozenset({c["document_id"]})
         for c in calls
     )
-    assert result["evidence_coverage"] == {
+    got = result["evidence_coverage"]
+    assert {k: got[k] for k in ("searched", "of", "hits_in", "failed", "line")} == {
         "searched": 2,
         "of": 3,
         "hits_in": 1,

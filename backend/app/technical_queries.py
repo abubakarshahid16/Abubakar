@@ -236,6 +236,9 @@ def _ensure_schema() -> None:
         }
         if "attachment_checked_at" not in evidence_columns:
             conn.execute("ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT")
+        for column in ("match_count", "match_terms", "match_ok"):  # how many of the question's key terms the passage holds (technical_query_match)
+            if column not in evidence_columns:
+                conn.execute(f"ALTER TABLE query_evidence ADD COLUMN {column} INTEGER")
         # A database without the roles table has no users to grant the role to.
         has_roles = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roles'"
@@ -1121,6 +1124,20 @@ def confirm_question(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
+def _locator_of(conn, passage: dict, quote: str) -> str | None:
+    """The clause heading a passage stands under ("6.1 Painting"), from the search's own heading or the stored page text; None when none is found."""
+    from . import technical_query_match
+
+    start = passage.get("page_start")
+    document_id = passage.get("document_id")
+    if not start or not document_id:
+        return None
+    rows = {r["page_no"]: _page_text(r) for r in _source_pages(conn, document_id, max(1, start - 1), start)}
+    return technical_query_match.locator_for(
+        rows.get(start, ""), rows.get(start - 1) if start > 1 else None, quote, passage.get("context") or passage.get("section")
+    )
+
+
 def prepare_evidence(
     query_id: str,
     allowed_document_ids: frozenset[str],
@@ -1206,7 +1223,7 @@ def prepare_evidence(
                 "the attached question is not readable yet; wait for PDF processing or OCR"
             )
         raise ValueError("the query contains no extractable question")
-    from . import technical_query_contracts
+    from . import technical_query_contracts, technical_query_match
 
     # The query's own attachments are context, never an authority, so they are never searched: every CONTRACT the caller may read is
     # searched on its own (dense + rerank), and the coverage is stored beside the passages.
@@ -1217,6 +1234,8 @@ def prepare_evidence(
     )
     coverage = field["coverage"]
     hits = field.get("hits") or []
+    terms = technical_query_match.key_terms(question)
+    scores: list[dict] = []
     with connect() as conn:
         conn.execute(
             "UPDATE technical_queries SET extracted_question=?,attachment_context=?,"
@@ -1257,6 +1276,9 @@ def prepare_evidence(
                 continue
             import hashlib
 
+            sc = technical_query_match.score(terms, quote)
+            scores.append(sc)
+            locator = passage.get("locator") or _locator_of(conn, passage, quote)
             quote_hash = hashlib.sha256(quote.encode()).hexdigest()
             known = conn.execute(
                 "SELECT id,supersession_state FROM query_evidence WHERE query_id=? "
@@ -1282,29 +1304,38 @@ def prepare_evidence(
                         "UPDATE query_evidence SET supersession_state=? WHERE id=?",
                         (standing, known["id"]),
                     )
+                conn.execute(  # the match for THIS question and a locator when there was none; never an overwrite of a locator
+                    "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,locator=COALESCE(locator,?) WHERE id=?",
+                    (sc["count"], sc["terms"], int(sc["matches"]), locator, known["id"]),
+                )
                 continue
             evidence_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?)",
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at,match_count,match_terms,match_ok) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?,?,?,?)",
                 (
                     evidence_id,
                     query_id,
                     passage["document_id"],
                     passage.get("page_start"),
                     passage.get("page_end"),
-                    passage.get("locator"),
+                    locator,
                     quote,
                     quote_hash,
                     _source_supersession(conn, passage["document_id"]),
                     now(),
+                    sc["count"],
+                    sc["terms"],
+                    int(sc["matches"]),
                 ),
             )
+        coverage.update(technical_query_match.coverage_of(terms, scores))  # decided by code: no passage holds the question's key terms
+        conn.execute("UPDATE technical_queries SET evidence_coverage=? WHERE id=?", (json.dumps(coverage), query_id))
         _event(
             conn,
             query_id,
             "evidence_prepared",
             actor_user_id,
-            f"passages={len(hits)}; {coverage['line']}",
+            f"passages={len(hits)}; {coverage['line']}" + (f" {coverage['not_covered_line']}" if coverage.get("likely_not_covered") else ""),
         )
     return get(query_id, user_id, is_admin, unrestricted)
 

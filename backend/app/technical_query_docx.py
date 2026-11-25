@@ -107,6 +107,11 @@ def render(query: dict, output: Path | None = None) -> Path:
             for c in citations
         ]
     paragraphs += [_p("Evidence", True)]
+    coverage = query.get("evidence_coverage") or {}
+    if coverage.get("line"):
+        paragraphs.append(_p(str(coverage["line"])))
+    if coverage.get("likely_not_covered"):
+        paragraphs.append(_p(str(coverage.get("not_covered_line") or "")))
     listed = [e for e in query.get("evidence") or [] if e.get("evidence_state", "verified") == "verified"]
     if not listed:
         paragraphs.append(
@@ -117,8 +122,11 @@ def render(query: dict, output: Path | None = None) -> Path:
     else:
         paragraphs += [
             _p(
-                f"{names.get(e['document_id'], e['document_id'])} p{e.get('page_start') or '?'} "
-                f"[{e.get('evidence_state', 'unknown')}; {e.get('supersession_state', 'unknown')}]: "
+                f"{names.get(e['document_id'], e['document_id'])}"
+                + (f", {e['locator']}" if e.get("locator") else "")
+                + f", p{e.get('page_start') or '?'} "
+                + (f"({e['match_count']} of {e['match_terms']} key terms) " if e.get("match_terms") else "")
+                + f"[{e.get('evidence_state', 'unknown')}; {e.get('supersession_state', 'unknown')}]: "
                 f"{e['exact_quote']}"
             )
             for e in listed
