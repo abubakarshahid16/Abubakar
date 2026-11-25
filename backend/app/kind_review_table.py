@@ -19,7 +19,7 @@ TABLE_PATH = Path(__file__).parent / "reference" / "kind_review_table.json"
 REVIEWS = ("rule", "rule_and_general", "general", "completeness", "none")
 ROW_KEYS = (
     "review", "rules_of_kind", "ask_rules", "checklist_skill_ending", "checklist_slot", "no_main_equipment",
-    "window_tokens", "overlap_pages", "crs_discipline", "label", "scored", "contractor_copy_ai_verdict",
+    "window_tokens", "overlap_pages", "crs_discipline", "scored", "contractor_copy_ai_verdict",
 )  # fmt: skip
 UNKNOWN = "unknown"
 
@@ -32,6 +32,11 @@ def _check(data: dict) -> dict:
     kinds = data.get("kinds")
     if not isinstance(kinds, dict) or UNKNOWN not in kinds:
         raise TableError("the table needs a `kinds` object with a row for unknown")
+    from . import kind_list
+
+    for name in kinds:  # a kind is named in ONE list (`kind_list`): the table holds only what each kind is reviewed with
+        if name != UNKNOWN and name != kind_list.OTHER and not kind_list.has(name):
+            raise TableError(f"kind {name}: it is not on the kind list")
     for name, row in kinds.items():
         missing = [k for k in ROW_KEYS if k not in row]
         if missing:
@@ -93,7 +98,7 @@ def problem() -> str | None:
 NO_REVIEW = {
     "review": "none", "rules_of_kind": [], "ask_rules": False, "checklist_skill_ending": None,
     "checklist_slot": "none: the kind has no row in the table (or the table is unusable)", "no_main_equipment": False,
-    "window_tokens": 0, "overlap_pages": 0, "crs_discipline": "", "label": "Unknown", "scored": False,
+    "window_tokens": 0, "overlap_pages": 0, "crs_discipline": "", "scored": False,
     "contractor_copy_ai_verdict": False,
 }  # fmt: skip
 
