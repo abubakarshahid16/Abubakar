@@ -7,7 +7,8 @@ Code-only and screen-only parts stay on.
   * AIM_U7B_ENABLED: the gas-group checklist item and its method version, a specification's scope rule, the judge's
     component and vendor-field rules, the pass-as-Question fix (converted figures, an unproven Met), one point one comment
     (the editor's groups in the merge keys) and the upload-time picture stage.
-  * AIM_U8_ENABLED: the formula checks, the second-model rule approvals in the rule pool, the cross-document check."""
+  * AIM_U8_ENABLED: the second-model rule approvals in the rule pool, the cross-document check.
+  * AIM_FORMULA_CHECKS_ENABLED (update 9, ON by default): the formula checks, out of AIM_U8_ENABLED."""
 
 from __future__ import annotations
 
@@ -24,6 +25,12 @@ def u7b() -> bool:
 
 def u8() -> bool:
     return bool(settings.aim_u8_enabled)
+
+
+def formula_checks() -> bool:
+    """The formula checks (`formulas.add_lines`), their own switch, ON (lead-4, update 9: proven by the free code-only replay);
+    off: no formula lines, as main."""
+    return bool(settings.aim_formula_checks_enabled)
 
 
 def group_mark(p: dict) -> int | None:

@@ -494,9 +494,9 @@ def _steps(
         from .formulas import (
             add_lines,
         )  # the formula checks: points the paper decides by code, after every AI stage
-        from .updates import u8
+        from .updates import formula_checks
 
-        if u8():  # update 8 switched off: no formula lines, as main
+        if formula_checks():  # its own switch, on; off: none, as main
             add_lines(conn, paper, state)
     state.decided += BN.cited_points(
         state.not_held
