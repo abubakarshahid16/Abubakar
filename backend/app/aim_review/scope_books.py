@@ -15,6 +15,15 @@ from . import library as L
 #: code books on a job specification, #1903), and a procedure or study (a HAZOP got coating, insulation and welding books and
 #: used none). The METHOD books of the kind always stay; a book the paper cites always stays.
 SCOPE_NAMED_KINDS = frozenset({"contract", "specification", "procedure", "study"})
+
+
+def scope_named() -> frozenset[str]:
+    """SCOPE_NAMED_KINDS; 7b switched off (`updates.u7b`): without "specification", as main."""
+    from .updates import u7b
+
+    return SCOPE_NAMED_KINDS if u7b() else SCOPE_NAMED_KINDS - {"specification"}
+
+
 #: Words that name no subject by themselves (a scope sentence and a rule subject both use them freely).
 _STOP = frozenset((
     "the", "and", "for", "with", "from", "that", "this", "these", "those", "such", "shall", "will", "must", "under", "into",
@@ -56,7 +65,7 @@ def keep(
 ) -> tuple[list[dict], dict]:
     """(the catalog lines kept, the required books kept): for a kind in `SCOPE_NAMED_KINDS`, only the books the paper cites or
     its scope names (`scope_names`); any other kind: all, as given."""
-    if kind not in SCOPE_NAMED_KINDS:
+    if kind not in scope_named():
         return cat, required
     method = {
         b for b, why in required.items() if str(why).startswith(WHY_METHOD)
@@ -78,7 +87,7 @@ def saved_fits_scope(
     """May a SAVED checklist be reused for this paper? For a kind in `SCOPE_NAMED_KINDS`, only when every book it rests on is cited
     by the paper or named by its own scope (`scope_names`, the same rule as `checklist._catalog`); any other kind: yes."""
     kind = ident.get("kind")
-    if kind not in SCOPE_NAMED_KINDS:
+    if kind not in scope_named():
         return True
     scope = str(ident.get("scope_quote") or "")
     method = {

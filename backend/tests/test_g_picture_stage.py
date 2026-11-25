@@ -21,6 +21,14 @@ TEXT = (
 )
 DOC = "doc_stage"
 
+@pytest.fixture(autouse=True)
+def _update_on(monkeypatch):
+    """This file tests a part of an update that goes live switched off (`aim_review.updates`): switched on here."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_u7b_enabled", True)
+
+
 
 @pytest.fixture
 def aim_db(tmp_path, monkeypatch):
@@ -277,7 +285,9 @@ def test_the_worker_reads_the_picture_page_re_chunks_it_and_the_document_stays_a
     from app import states
     from app.ingest import IngestionWorker
     from app.main import app
-    from tests.test_ocr import _InlinePool  # noqa: F401 - the same stand-in the OCR stage tests use
+    from tests.test_ocr import (
+        _InlinePool,  # noqa: F401 - the same stand-in the OCR stage tests use
+    )
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "upload_dir", tmp_path / "uploads")
