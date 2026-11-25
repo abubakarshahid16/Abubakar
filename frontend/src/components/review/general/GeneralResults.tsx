@@ -18,6 +18,7 @@ const MARK_FALLBACK = "AI, to be checked";
 /** The shown labels in plain words for the header's counts (a label not listed is shown as written, in lower case). */
 const SHOWN_WORDS: Record<string, string> = {
   "Question": "questions", "AI opinion": "other AI opinions", "AI opinion: met": "met (the AI's view)",
+  "AI opinion: not met": "not met (the AI's view)",
   "AI opinion: does not apply": "do not apply (the AI's view)", "Fail, compared by code": "failed, compared by code", "Pass, compared by code": "passed, compared by code",
 };
 

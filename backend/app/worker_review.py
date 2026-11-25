@@ -11,8 +11,10 @@ whole run, health reports it as `busy`, and every progress update the job makes
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from contextvars import ContextVar
 
 from . import errors, model_metrics
@@ -40,6 +42,30 @@ def beat_now() -> float:
     if beat is not None:
         beat()
     return time.time()
+
+
+@contextmanager
+def keep_beating(every: float = 30.0):
+    """Beat the running review's heartbeat every `every` seconds while a call that cannot beat itself is waiting (a Claude request can
+    take minutes). Bounded by the call: it ends when the `with` block does, so a request that never returns still ends at its own
+    timeout. Nothing is done when no review is running on this thread."""
+    beat = _ACTIVITY.get()
+    if beat is None:
+        yield
+        return
+    done = threading.Event()
+
+    def loop() -> None:
+        while not done.wait(every):
+            beat()
+
+    thread = threading.Thread(target=loop, name="review-beat", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        done.set()
+        thread.join(timeout=1.0)
 
 
 class ReviewDrain:
