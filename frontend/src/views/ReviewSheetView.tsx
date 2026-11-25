@@ -208,7 +208,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
         <div className="space-y-1">
           <p aria-live="polite" className="text-slateish-300" data-testid="review-progress">
             {run.status === "queued" ? "Waiting to start"
-              : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
+              : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status, run.waiting_reason)}
             {run.job?.cancel_requested ? " · cancellation requested, stopping at the next step" : ""}
           </p>
           <ReviewProgressBlock job={run.job} />

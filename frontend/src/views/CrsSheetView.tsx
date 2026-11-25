@@ -155,7 +155,7 @@ function RunNotReady({ run, active, onBack, onChanged }: { run: ReviewRunSummary
         <>
           <p aria-live="polite" className="text-slateish-300" data-testid="review-progress">
             {run.status === "queued" ? "Waiting to start"
-              : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status)}
+              : run.job ? progressLine(run.job.progress_done, run.job.progress_total, run.job.progress_label) : runStatusLabel(run.status, run.waiting_reason)}
           </p>
           <ReviewProgressBlock job={run.job} />
           <ReviewJobControl run={run} onChanged={onChanged} />

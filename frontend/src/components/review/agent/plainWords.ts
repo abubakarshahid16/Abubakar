@@ -9,6 +9,7 @@
  * The phrase table mirrors the one the CRS file uses (backend/app/crs_ai_words.py);
  * the keys are the backend's own sentences.
  */
+import { formatDay } from "../../../format/when";
 import type { AgentLine, AgentRunSummary } from "../../../types/api";
 
 export const UNKNOWN_WHY = "Reason not shown in plain words. Open the trace.";
@@ -240,7 +241,7 @@ export function missingWords(m: MissingSplit): string {
 /** The page record's source, when it was copied from an earlier review (never as if this run read the pages). */
 export function pagesTakenWords(cov: { carried_from_run?: string | null; carried_from_at?: string | null } | null | undefined): string | null {
   if (!cov || !cov.carried_from_run) return null;
-  const d = cov.carried_from_at ? new Date(cov.carried_from_at) : null;
-  const day = d && !Number.isNaN(d.getTime()) ? `, ${d.toISOString().slice(0, 10)}` : "";
+  const stamp = formatDay(cov.carried_from_at);
+  const day = stamp ? `, ${stamp}` : "";
   return `Pages: copied from an earlier review of this paper${day}`;
 }

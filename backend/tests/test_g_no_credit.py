@@ -5,6 +5,7 @@ Invented values only."""
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 import pytest
@@ -133,6 +134,7 @@ def test_the_next_plan_says_the_last_review_was_refused_and_says_nothing_otherwi
     _stopped()
     said = _recent_account_refusal(db.connect())
     assert said.startswith("A review's Claude call was refused") and said.endswith(NO_CREDIT)  # past tense, with the time
+    assert re.search(r" at \d{2}:\d{2} UTC\. ", said)  # the stored clock is UTC and says so
     with db.connect() as conn:  # a refusal older than a day is not repeated
         conn.execute(
             f"UPDATE {aim_review_store.RUNS} SET created_at = '2026-01-01T00:00:00+00:00'"

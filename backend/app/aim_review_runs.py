@@ -28,6 +28,16 @@ STATUS_SHOWN = {
 ENDED_WITH_LINES = ("done", "stopped")
 
 
+def _waiting(conn, status: str, paper_id: str) -> str | None:
+    """"waiting: its paper is still being read" for a queued run parked behind its paper's reading, else None."""
+    from . import review_jobs
+
+    try:
+        return review_jobs.WAITING_FOR_PAPER_WORDS if status == "queued" and review_jobs.paper_still_being_read(conn, paper_id) else None
+    except sqlite3.Error:
+        return None
+
+
 def _rows(conn, allowed: frozenset[str], document_id: str | None = None) -> list:
     if not aim_review_store.has_tables(conn):
         return []
@@ -130,6 +140,7 @@ def entries(
                 "status": "failed" if _account_stop(r) else STATUS_SHOWN.get(status, status),
                 "created_at": r["created_at"],
                 "completed_at": r["finished_at"],
+                "waiting_reason": _waiting(conn, status, r["paper_document_id"]),
                 "method": GENERAL,
                 "equipment_tags": _equipment(r),
                 "general_counts": counts_of(conn, run_id)
