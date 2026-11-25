@@ -23,7 +23,8 @@ not measured yet). `library` reads it; with no measure, nothing changes for any 
 
 MONEY AND PRIVACY: the same lane as the label job (`rule_label_lane.Lane`: reader_transport + claude_spend.metered + the
 injected order ledger) and the same rule-book families (`rule_label_job.ALLOWED_FAMILIES`); behind the same switch
-(`agent_review_enabled`). Only rule-book text is sent.
+(`agent_review_enabled`). Only rule-book text is sent, by the standards converter lane (`standards_lane.open_for`: a held
+company standard of an allowed family, checked by the converter's own role check; never the chat's per-request consent).
 """
 
 from __future__ import annotations
@@ -227,7 +228,7 @@ def run_second(
 ) -> dict:
     """The pass over `rules` (on a COPY); counts only. A cap or the ledger's stop ends the run; nothing is approved on an
     error, an unreadable answer or an answer from a label pass's family."""
-    from . import agent_claude, claude_approved, claude_spend
+    from . import agent_claude, claude_spend, standards_lane
 
     require_on()
     require_copy(conn)
@@ -241,7 +242,7 @@ def run_second(
         reps = [r for r, _a, _b in batch]
         try:
             with (
-                claude_approved.per_request_consent(sorted({r.sdid for r in reps})),
+                standards_lane.open_for(conn, {r.sdid for r in reps}),
                 claude_spend.for_run("rule-second"),
             ):
                 answer = lane.call(
@@ -369,7 +370,7 @@ def judge_sample(
 ) -> dict:
     """The blind judge on a drawn sample: clause, quote and the approved reading only. Its family is none of the approver's
     nor the two label passes'. Stores each verdict once; an unreadable answer leaves the rule unjudged."""
-    from . import claude_approved, claude_spend
+    from . import claude_spend, standards_lane
 
     require_copy(conn)
     rows = [tuple(r) for r in conn.execute(
@@ -397,9 +398,7 @@ def judge_sample(
         items = [{"n": i, "clause": rules[r[0]].clause, "quote": rules[r[0]].quote, "paper_kind": r[2], "field": r[3],
                   **json.loads(r[4])} for i, r in enumerate(batch, 1)]  # fmt: skip
         with (
-            claude_approved.per_request_consent(
-                sorted({rules[r[0]].sdid for r in batch})
-            ),
+            standards_lane.open_for(conn, {rules[r[0]].sdid for r in batch}),
             claude_spend.for_run("rule-second-judge"),
         ):
             answer = lane.call(
