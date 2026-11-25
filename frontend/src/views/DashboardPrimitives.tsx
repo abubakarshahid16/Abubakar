@@ -206,9 +206,11 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
       ok: workerReady,
       detail: !workerReady
         ? "processing has stopped - new uploads will wait"
-        : metrics.worker.reviewing
-          ? `busy with a review: ${nf.format(metrics.worker.pending_count)} upload${metrics.worker.pending_count === 1 ? "" : "s"} waiting`
-          : "new documents will be processed as they arrive",
+        : metrics.worker.reviewing && (metrics.worker.uploads_waiting_for_review ?? 0) > 0
+          ? `busy with a review: ${nf.format(metrics.worker.uploads_waiting_for_review ?? 0)} upload${metrics.worker.uploads_waiting_for_review === 1 ? "" : "s"} waiting`
+          : metrics.worker.reviewing && metrics.worker.pending_count > 0
+            ? `a review is running; ${nf.format(metrics.worker.pending_count)} upload${metrics.worker.pending_count === 1 ? " is" : "s are"} read beside it`
+            : "new documents will be processed as they arrive",
     },
     {
       label: "Market data",

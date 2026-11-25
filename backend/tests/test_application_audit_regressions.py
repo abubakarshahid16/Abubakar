@@ -62,10 +62,15 @@ def test_unrelated_field_names_do_not_supply_an_operator():
 
 @pytest.mark.parametrize("identifier", ["XY-MECH-STD-104", "XY MECH STD 104"])
 def test_an_unregistered_company_standard_is_read_from_the_paper(identifier):
-    assert standard_ids.cited_standards(f"Relief design per {identifier}.") == [
+    """Update 7 (review of update 6a, B1): the shared grammar reads no name shape; a company number is read for a family the
+    library holds (`company_citations`), never for an unknown family."""
+    assert standard_ids.cited_standards(f"Relief design per {identifier}.") == []
+    assert [c[0] for c in standard_ids.company_citations(f"Relief design per {identifier}.", frozenset({"XY"}))] == [
         identifier
     ]
+    assert standard_ids.company_citations(f"Relief design per {identifier}.", frozenset({"QQ"})) == []
 
 
 def test_company_standard_shape_does_not_accept_equipment_tags():
     assert standard_ids.cited_standards("Tags 21-PV-1234 and 21-XY-STD-104-X.") == []
+    assert standard_ids.company_citations("Tags 21-PV-1234 and 21-XY-STD-104-X.", frozenset({"XY"})) == []

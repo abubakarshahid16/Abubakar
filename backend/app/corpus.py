@@ -52,7 +52,17 @@ _NOUN_ROLE: dict[str, str | None] = {
     "datasheet": "CONTRACTOR_SUBMITTAL", "datasheets": "CONTRACTOR_SUBMITTAL",
     "document": None, "documents": None, "file": None, "files": None,
     "pdf": None, "pdfs": None,
+    # the contract package's parts (Form of Agreement, Schedules): their recorded role (planner 19 Nov 02:00: "how many contracts"
+    # was answered from general knowledge)
+    "contract": "CONTRACT_DOCUMENT", "contracts": "CONTRACT_DOCUMENT",
+    # a paper KIND with no role of its own: counted from the app's recorded kinds (`document_kinds`), with its boundary
+    "procedure": "KIND:procedure", "procedures": "KIND:procedure",
+    "drawing": "KIND:drawing", "drawings": "KIND:drawing",
+    "calculation": "KIND:calculation", "calculations": "KIND:calculation",
+    "transmittal": "KIND:transmittal", "transmittals": "KIND:transmittal",
 }
+#: The prefix of a paper KIND counted from `document_kinds` (`_NOUN_ROLE`), not a `document_role`.
+KIND_PREFIX = "KIND:"
 
 #: How each role is named in an answer, singular and plural.
 ROLE_LABEL: dict[str | None, tuple[str, str]] = {
@@ -132,7 +142,10 @@ class CorpusQuestion:
     content: tuple[str, ...] = ()
 
 
-_REPAIRABLE = tuple(sorted(k for k in _NOUN_ROLE if len(k) >= 6))
+#: Typo repair only for the library nouns, never for a contract or a paper kind ("procedural" is not "procedure", "contracted"
+#: is not "contract").
+_REPAIRABLE = tuple(sorted(k for k, r in _NOUN_ROLE.items() if len(k) >= 6
+                           and r != "CONTRACT_DOCUMENT" and not str(r).startswith("KIND:")))
 
 
 def _repair(word: str) -> str:
@@ -254,8 +267,51 @@ def counts(*, allowed_document_ids: frozenset[str]) -> dict[str | None, dict]:
 
 
 def _label(role: str | None, n: int) -> str:
+    if role and role.startswith(KIND_PREFIX):
+        kind = role[len(KIND_PREFIX):]
+        return f"document recorded as a {kind}" if n == 1 else f"documents recorded as {kind}s"
     singular, plural = ROLE_LABEL.get(role, (str(role), str(role)))
     return singular if n == 1 else plural
+
+
+def kind_counts(kind: str, *, allowed_document_ids: frozenset[str]) -> dict:
+    """{loaded, not_loaded, unrecorded}: documents the caller may read whose RECORDED paper kind (`document_kinds`, suggested or
+    confirmed) is `kind`, split into loaded and not; and how many readable documents have no recorded kind at all (the count's
+    boundary: a kind is recorded only for papers the app has read for kind). Scoped in the query; an empty scope counts nothing."""
+    if not allowed_document_ids:
+        return {"loaded": 0, "not_loaded": 0, "unrecorded": 0}
+    marks = ",".join("?" for _ in allowed_document_ids)
+    ids = sorted(allowed_document_ids)
+    conn = connect()
+    rows = conn.execute(
+        f"""SELECT d.status AS status, COUNT(*) AS n FROM documents d JOIN document_kinds k ON k.document_id = d.id
+            WHERE d.id IN ({marks}) AND k.kind = ? GROUP BY d.status""", [*ids, kind]).fetchall()
+    unrecorded = conn.execute(
+        f"""SELECT COUNT(*) FROM documents d LEFT JOIN document_kinds k ON k.document_id = d.id
+            WHERE d.id IN ({marks}) AND (k.kind IS NULL OR k.kind = '')""", ids).fetchone()[0]
+    out = {"loaded": 0, "not_loaded": 0, "unrecorded": int(unrecorded or 0)}
+    for r in rows:
+        out["loaded" if r["status"] in _LOADED else "not_loaded"] += r["n"]
+    return out
+
+
+def _tally(role: str | None, by_role: dict, allowed_document_ids: frozenset[str]) -> dict:
+    """{loaded, not_loaded[, unrecorded]} for one role, a paper kind (`KIND_PREFIX`) or every role (None)."""
+    if role and role.startswith(KIND_PREFIX):
+        return kind_counts(role[len(KIND_PREFIX):], allowed_document_ids=allowed_document_ids)
+    if role is None:
+        return {"loaded": sum(v["loaded"] for v in by_role.values()),
+                "not_loaded": sum(v["not_loaded"] for v in by_role.values())}
+    return dict(by_role.get(role, {"loaded": 0, "not_loaded": 0}))
+
+
+def _kind_boundary(slot: dict) -> str:
+    """The boundary of a kind count: how many readable documents have no recorded kind ('' when none)."""
+    n = slot.get("unrecorded") or 0
+    if not n:
+        return ""
+    return (f" The kind is counted as the app recorded it; {n} document{'' if n == 1 else 's'} you can read "
+            f"{'has' if n == 1 else 'have'} no recorded kind.")
 
 
 def statement(question: CorpusQuestion, *,
@@ -267,12 +323,8 @@ def statement(question: CorpusQuestion, *,
     status. A count with neither would read as the size of the world.
     """
     by_role = counts(allowed_document_ids=allowed_document_ids)
-    if question.role is None:
-        loaded = sum(v["loaded"] for v in by_role.values())
-        not_loaded = sum(v["not_loaded"] for v in by_role.values())
-    else:
-        slot = by_role.get(question.role, {"loaded": 0, "not_loaded": 0})
-        loaded, not_loaded = slot["loaded"], slot["not_loaded"]
+    slot = _tally(question.role, by_role, allowed_document_ids)
+    loaded, not_loaded = slot["loaded"], slot["not_loaded"]
 
     if loaded == 0:
         # Not "0 standards exist": that would be a claim about documents this
@@ -300,6 +352,7 @@ def statement(question: CorpusQuestion, *,
     if question.kind == "list" and loaded:
         where = _WHERE_LISTED.get(question.role, _WHERE_LISTED[None])
         text += f" The full list is on {where}."
+    text += _kind_boundary(slot)
     return {"text": text, "role": question.role, "loaded": loaded,
             "not_loaded": not_loaded, "kind": question.kind,
             "source": "database", "qualified": question.qualified}
@@ -345,13 +398,12 @@ def inventory_statement(roles: list[str | None], *,
     by_role = counts(allowed_document_ids=allowed_document_ids)
     sentences: list[str] = []
     breakdown: list[dict] = []
+    boundaries: list[str] = []
     for role in roles:
-        if role is None:
-            loaded = sum(v["loaded"] for v in by_role.values())
-            not_loaded = sum(v["not_loaded"] for v in by_role.values())
-        else:
-            slot = by_role.get(role, {"loaded": 0, "not_loaded": 0})
-            loaded, not_loaded = slot["loaded"], slot["not_loaded"]
+        slot = _tally(role, by_role, allowed_document_ids)
+        loaded, not_loaded = slot["loaded"], slot["not_loaded"]
+        if (b := _kind_boundary(slot)) and b not in boundaries:
+            boundaries.append(b)
         entry: dict = {"role": role, "loaded": loaded, "not_loaded": not_loaded}
         piece: str
         if loaded == 0:
@@ -371,6 +423,7 @@ def inventory_statement(roles: list[str | None], *,
         breakdown.append(entry)
         sentences.append(piece)
     text = (". ".join(s[0].upper() + s[1:] for s in sentences) + ".") if sentences else ""
+    text += "".join(boundaries)
     # The SAME top-level shape `statement` returns (role/loaded/not_loaded),
     # so a caller of either function sees one contract: a single named role
     # reports itself there exactly as `statement` would; more than one

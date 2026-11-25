@@ -44,4 +44,34 @@ describe("GeneralResults header", () => {
     expect(t).toHaveTextContent("1 not met (the AI's view)");
     expect(t).not.toHaveTextContent(/AI opinion:/i);
   });
+
+  it("names the pages that were not read, and says nothing when every page was", () => {
+    const { unmount } = mount(review({ pages_not_read: [
+      { where: "page 7", why: "no_text", sentence: "Page 7 was not read: it has no text, or almost none (fewer than 20 characters), and no picture reading came back." },
+      { where: "picture 2", why: "picture_not_read", sentence: "Picture 2 was not read: no picture reading came back." },
+    ] }));
+    const note = screen.getByTestId("general-pages-not-read");
+    expect(note).toHaveTextContent("2 parts of this paper were not read.");
+    expect(note).toHaveTextContent("Page 7 was not read");
+    expect(note).toHaveTextContent("Picture 2 was not read");
+    unmount();
+    mount(review({ pages_not_read: [] }));
+    expect(screen.queryByTestId("general-pages-not-read")).toBeNull();
+  });
+
+  it("a review that stopped because the Claude account has no credit says so at the top in plain words, not only a stop code", () => {
+    const words = "The AI account has no credit left, so the Claude steps cannot run. Choose Local only, or ask the owner to add credit.";
+    mount(review({ status: "stopped", stop_reason: "aim_judge: stop account_no_credit", stop_words: words }));
+    const top = screen.getByTestId("general-account-stop");
+    expect(top).toHaveTextContent("This review did not finish.");
+    expect(top).toHaveTextContent(words);
+    expect(screen.getByTestId("general-stopped")).not.toHaveTextContent("account_no_credit"); // the code is not the message
+  });
+
+  it("any other stop keeps the code and shows no account alert", () => {
+    mount(review({ status: "stopped", stop_reason: "run_cap: the run cap" }));
+    expect(screen.queryByTestId("general-account-stop")).toBeNull();
+    expect(screen.getByTestId("general-stopped")).toHaveTextContent("run_cap");
+  });
 });
+

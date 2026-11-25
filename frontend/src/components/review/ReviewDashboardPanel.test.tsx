@@ -98,7 +98,7 @@ describe("four cards, each with its population", () => {
     expect(screen.getByText(
       "21 of 21 cited standards are not in the library")).toBeInTheDocument();
     expect(screen.getByText(
-      "0 running · 8 awaiting an engineer's sign-off or code")).toBeInTheDocument();
+      "0 running · 8 waiting for an engineer's sign-off or code")).toBeInTheDocument();
   });
 
   it("says WHY anything needs attention, never a bare number", async () => {
@@ -299,14 +299,14 @@ describe("V2: the review cards say whose reviews they count", () => {
     dashboard.mockResolvedValue({ ok: true, data: data({ papers_with_a_review: 5, earlier_runs_not_counted: 82 }) });
     panel();
     expect(await screen.findByText(
-      "0 running · 8 awaiting an engineer's sign-off or code · of 5 papers, latest review each · 82 earlier reviews not counted"))
+      "0 running · 8 waiting for an engineer's sign-off or code · of 5 papers, latest review each · 82 earlier reviews not counted"))
       .toBeInTheDocument();
     const tile = screen.getByText("Needs attention").parentElement!;
     expect(within(tile).getByText(/of 5 papers, latest review each · 82 earlier reviews not counted/)).toBeInTheDocument();
   });
   it("says nothing extra from an older server that does not send the count", async () => {
     panel();
-    expect(await screen.findByText("0 running · 8 awaiting an engineer's sign-off or code")).toBeInTheDocument();
+    expect(await screen.findByText("0 running · 8 waiting for an engineer's sign-off or code")).toBeInTheDocument();
   });
 });
 
@@ -349,7 +349,16 @@ describe("order 14: the general reviews are in the recent table and the in-progr
   it("the in-progress card says how many signed reviews are done and keeps its boundary", async () => {
     dashboard.mockResolvedValue({ ok: true, data: data({ reviews_running: 1, reviews_awaiting_decision: 2, reviews_signed: 3, papers_with_a_review: 6, earlier_runs_not_counted: 4 }) });
     panel();
-    expect(await screen.findByText("1 running · 2 awaiting an engineer's sign-off or code · 3 signed off (done) · of 6 papers, latest review each · 4 earlier reviews not counted")).toBeInTheDocument();
+    expect(await screen.findByText("1 running · 2 waiting for an engineer's sign-off or code · 3 signed off (done) · of 6 papers, latest review each · 4 earlier reviews not counted")).toBeInTheDocument();
+  });
+
+  it("the in-progress number counts only the reviews that are running: one that waits for a sign-off is not in progress (planner 19 Nov, item 8)", async () => {
+    dashboard.mockResolvedValue({ ok: true, data: data({ reviews_running: 1, reviews_awaiting_decision: 7, reviews_signed: 0 }) });
+    panel();
+    const card = (await screen.findByText("Reviews in progress")).parentElement as HTMLElement;
+    expect(within(card).getByText("1")).toBeInTheDocument();
+    expect(within(card).queryByText("8")).toBeNull();
+    expect(card).toHaveTextContent("7 waiting for an engineer's sign-off or code");
   });
 });
 

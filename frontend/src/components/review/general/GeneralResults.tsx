@@ -82,6 +82,11 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
 
   return (
     <div data-testid="general-results" className="space-y-4">
+      {review.stop_words && (
+        <div role="alert" data-testid="general-account-stop" className="rounded-[var(--radius-md)] border border-danger-500 p-3 text-sm text-danger-500">
+          <strong>This review did not finish.</strong> {review.stop_words}
+        </div>
+      )}
       <div role="note" data-testid="general-mark" className="rounded-[var(--radius-md)] border border-signal-400 p-3 text-sm text-slateish-100">
         {signoff?.state === "signed" && signoff.signed ? (
           <>
@@ -99,7 +104,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
 
       {review.status === "stopped" && (
         <p role="alert" data-testid="general-stopped" className="text-sm text-danger-500">
-          This review stopped early{review.stop_reason ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
+          This review stopped early{review.stop_reason && !review.stop_words ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
         </p>
       )}
       {!c.ok && (
@@ -117,12 +122,27 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         </div>
       )}
 
+      {(review.pages_not_read ?? []).length > 0 && (
+        <div role="note" data-testid="general-pages-not-read" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
+          <strong>{(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read.</strong>
+          <p className="text-slateish-200">Nothing below says anything about them: no text and no picture reading came back, or it has not run yet.</p>
+          <ul className="list-disc pl-5 text-slateish-200">
+            {(review.pages_not_read ?? []).map((x) => <li key={x.where}>{x.sentence}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {(review.pages_not_read ?? []).length === 0 && review.pages_not_read_record === "not_recorded" && (
+        <p data-testid="general-pages-not-recorded" className="text-sm text-slateish-300">Which pages were read is not recorded for this review.</p>
+      )}
+
       <p data-testid="general-counts" className="text-sm text-slateish-200">
         {review.counts.points} points reviewed, {review.counts.comments} comments sent
         {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).
         {Object.entries(review.counts.by_shown_label ?? {}).filter(([k]) => k).map(([k, n]) => (
           <span key={k} className="ml-2 text-xs text-slateish-400">{n} {SHOWN_WORDS[k] ?? k.toLowerCase()}</span>
         ))}
+        {" "}{review.counts.decided_by_code?.sentence}
       </p>
 
       <div className="flex flex-wrap items-center gap-3">

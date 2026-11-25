@@ -196,18 +196,19 @@ def wrong_table(monkeypatch):
 def test_the_wrong_share_is_said_with_its_n_of_m_and_the_target(wrong_table):
     got = M.for_run({"kind": "study"})
     assert got["sentence"].endswith(
-        " A strict reader judged 23 of 124 comments wrong (19%; target 10% or less)."
+        " A strict reader judged 23 of 124 comments wrong across those test copies (19%; target 10% or less)."
     )
     assert got["false_alarm"] == {
         "wrong": 23, "of": 124, "percent": 19, "target_percent": 10, "within_target": False,
-        "sentence": "A strict reader judged 23 of 124 comments wrong (19%; target 10% or less).",
+        "sentence": "A strict reader judged 23 of 124 comments wrong across those test copies (19%; target 10% or less).",
     }  # fmt: skip
 
 
 def test_a_share_within_the_target_says_so_in_the_data_and_is_rounded_up(wrong_table):
     got = M.for_run({"kind": "datasheet"})
     assert (
-        "4 of 71 comments wrong (6%; target 10% or less)" in got["sentence"]
+        "4 of 71 comments wrong across those test copies (6%; target 10% or less)"
+        in got["sentence"]
     )  # 5.63 shown as 6, never 5
     assert got["false_alarm"]["within_target"] is True
 
@@ -266,7 +267,7 @@ def test_the_summary_sheet_carries_the_wrong_share_too(world, monkeypatch):
     ]
     assert (
         cells
-        and "A strict reader judged 23 of 124 comments wrong (19%; target 10% or less)."
+        and "A strict reader judged 23 of 124 comments wrong across those test copies (19%; target 10% or less)."
         in cells[0]
     )
 
@@ -311,3 +312,25 @@ def test_a_type_with_no_row_and_a_kind_with_no_number_is_not_measured(monkeypatc
     monkeypatch.setattr(M, "_table", lambda: FAMILY_TABLE)
     got = M.for_run({"kind": "datasheet", "equipment_type": "gate_valve"})
     assert got["verdict"] == "not measured" and got["found"] is None
+
+
+def test_a_row_with_its_copies_date_and_version_says_them(monkeypatch):
+    """Planner 19 Nov, item 5: an old number says it is old and of how many test copies."""
+    table = {
+        "out_of": 10,
+        "target": 7.0,
+        "kinds": {
+            "contract": {
+                "label": "contract document",
+                "found_mean": 6.0,
+                "copies": 3,
+                "measured_on": "2026-11-18",
+                "code_head": "abc1234",
+            }
+        },
+    }
+    monkeypatch.setattr(M, "_table", lambda: table)
+    got = M.for_run({"kind": "contract"})
+    assert got["sentence"].startswith(
+        "Measured on 3 planted test copies of this kind (measured 2026-11-18, version abc1234): 6.0 of 10 mistakes found (target 7)"
+    )

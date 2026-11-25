@@ -197,14 +197,14 @@ describe("H10: Accept / Edit / Reject on each card", () => {
 });
 
 describe("card chips (planner 18 Nov 23:30-3)", () => {
-  it("a chip shows the tag, the page and the value; a blank value reads blank", () => {
+  it("a chip shows the tag, the page and the value; a place with no verified quote shows no value", () => {
     const c = card(1, { applies_to: [
       { page: 1, field: "Set pressure (North skid)", quote: "340 psig", tag: "North skid", value: "340 psig" },
-      { page: 2, field: "Effective area", quote: "76 Effective area", tag: "", value: "Effective area: blank" },
+      { page: 2, field: "Effective area", quote: "76 Effective area", tag: "", value: "" },
     ] });
     mount(review([c]));
     expect(screen.getByRole("button", { name: "page 1" })).toHaveTextContent("North skid · p1 · 340 psig");
-    expect(screen.getByRole("button", { name: "page 2" })).toHaveTextContent("Effective area · p2 · Effective area: blank");
+    expect(screen.getByRole("button", { name: "page 2" })).toHaveTextContent("Effective area · p2");
   });
 
   it("a long value is cut with a mark and the whole text stays in the chip's title", () => {
@@ -231,3 +231,23 @@ describe("paired values tag (A's 1664fa01)", () => {
   });
 });
 
+describe("one chip per field (planner 19 Nov, item 3)", () => {
+  it("a field on several pages is ONE chip with a button for each page", () => {
+    const c = card(1, { applies_to: [{ page: 1, pages: [1, 2, 3], field: "Bonnet vent arrangement", quote: "Bolted closed", tag: "", value: "" }] });
+    const open = mount(review([c]));
+    const chip = screen.getByTestId("chip-field");
+    expect(chip).toHaveTextContent("Bonnet vent arrangement");
+    expect(within(chip).getAllByRole("button").map((b) => b.textContent)).toEqual(["p1", "p2", "p3"]);
+    fireEvent.click(within(chip).getByRole("button", { name: "page 2" }));
+    expect(open).toHaveBeenCalledWith(2);
+    expect(screen.getAllByText(/Bonnet vent arrangement/)).toHaveLength(1);
+  });
+
+  it("shows every member's quote with its OWN page, never one quote beside the lowest page", () => {
+    const c = card(1, { applies_to: [{ page: 1, pages: [1, 3], field: "Set pressure", quote: "page one says 10 bar", quotes: [{ page: 1, quote: "page one says 10 bar" }, { page: 3, quote: "page three says 12 bar" }] }] });
+    mount(review([c]));
+    const quotes = screen.getAllByTestId("card-quote").map((q) => q.textContent);
+    expect(quotes).toEqual(["page 1page one says 10 bar", "page 3page three says 12 bar"]);
+    expect(screen.getByText(/Show evidence \(2 quotes\)/)).toBeTruthy();
+  });
+});

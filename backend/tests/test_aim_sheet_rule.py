@@ -144,6 +144,8 @@ def test_the_page_json_has_the_contract_shape(world):
         "not_sent": {"edited": 0, "answered": 0},
         "by_label": {"Met": 2, "Not met": 1, "Question": 1, "Does not apply": 1, "AI opinion": 1},
         "by_shown_label": body["counts"]["by_shown_label"], "boundary": "this paper, this review",
+        # update 7, the planner's measure: the points code decided (Pass or Fail, compared by code), with the denominator
+        "decided_by_code": {"count": 2, "of": 6, "sentence": body["counts"]["decided_by_code"]["sentence"]},
     }  # fmt: skip
     assert [c["n"] for c in body["comments"]] == [1, 3, 5]
     assert set(body["comments"][0]) >= {
@@ -1631,12 +1633,12 @@ def test_a_card_has_a_short_title_and_its_parts_as_fields(world):
     one = by[1]
     assert (
         one["title"] == "Design pressure limit"
-        and one["paper_says"] == "invented quote 1"
+        and one["paper_says"] == ""  # the test paper holds no page text: code cannot find the quote, so PAPER SAYS says nothing (19 Nov, item 2)
     )
     assert one["rule_says"] == "Design pressure limit (STD-X clause 4.1): 25 bar <= 20 bar: false"  # the requirement in a few words first (planner 18 Nov 23:30)
     assert one["we_ask"] == "State a design pressure within the limit."
     assert one["applies_to"] == [
-        {"page": 3, "field": "Invented field 1", "quote": "invented quote 1", "tag": "", "value": "invented quote 1"}
+        {"page": 3, "pages": [3], "field": "Invented field 1", "quote": "invented quote 1", "quotes": [{"page": 3, "quote": "invented quote 1"}], "tag": "", "value": ""}
     ]
     assert len(by[2]["title"].replace(" ...", "").split()) < 12 and by[2][
         "title"

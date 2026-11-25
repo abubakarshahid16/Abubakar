@@ -121,7 +121,14 @@ def decide_general(choice: str, f: Facts) -> Plan:
         and "choose Claude" not in words
     ):
         words += CHOOSE_CLAUDE
-    plan.refused = f"Claude cannot be used for this paper: {words}"
+    # Automatic holding a paper back is NOT "Claude cannot be used": the explicit choice of Claude lifts it (the words say so), so the two
+    # never sit in one sentence (planner 19 Nov, items 6 and the HAZOP plan of the first-time user)
+    lifted = choice == AUTOMATIC and code in LIFTED_BY_CLAUDE
+    plan.refused = (
+        f"Automatic will not send this paper to Claude on its own: {words}"
+        if lifted
+        else f"Claude cannot be used for this paper: {words}"
+    )
     plan.refused_code = code
     plan.parts = [off, Part(AI_REVIEW, NOT_RUN, words)]
     return plan
@@ -159,6 +166,55 @@ def _last_general_cost(conn, document_id: str) -> tuple[float | None, str | None
     return float(usd), LAST_COST_READ
 
 
+def _unscored_note(facts) -> str:
+    """The sentence under the engine line for a kind not on the automatic list. A kind that HAS a measured score on test copies is never
+    called "not scored" beside that score (planner 19 Nov, item 6): it says it is measured but not yet on the automatic list."""
+    from . import agent_review_gate, aim_review_measured
+
+    got = aim_review_measured.for_run({"kind": getattr(facts, "kind", None)})
+    if got and got.get("found") is not None:
+        return (
+            "This kind of paper is measured on test copies (the score is shown with the review) but is not on Automatic's list yet: "
+            "treat every line as a draft"
+        )
+    return agent_review_gate.UNSCORED_WORDS
+
+
+ACCOUNT_REFUSAL_HOURS = 24
+
+
+def _recent_account_refusal(conn) -> str | None:
+    """The plain sentence when a general review of the last day STOPPED because the Claude account cannot answer, else None. It says what
+    the last review met, not that the account is still empty (credit may have been added since)."""
+    from datetime import UTC, datetime, timedelta
+
+    from . import aim_review_gate, aim_review_store
+
+    if not aim_review_store.has_tables(conn):
+        return None
+    since = (datetime.now(UTC) - timedelta(hours=ACCOUNT_REFUSAL_HOURS)).isoformat(
+        timespec="seconds"
+    )
+    row = conn.execute(
+        f"SELECT stop_reason, COALESCE(finished_at, created_at) AS stopped_at FROM {aim_review_store.RUNS} WHERE status = 'stopped' AND created_at >= ? AND ("
+        + " OR ".join("stop_reason LIKE ?" for _ in aim_review_gate.ACCOUNT_WORDS)
+        + ") ORDER BY created_at DESC LIMIT 1",
+        (since, *[f"%{c}%" for c in aim_review_gate.ACCOUNT_WORDS]),
+    ).fetchone()
+    words = aim_review_gate.account_words(row["stop_reason"]) if row else None
+    if not words:
+        return None
+    # Credit may have been added since: a later general review that spent on Claude and finished (done, usd > 0) clears the note at once.
+    later = conn.execute(
+        f"SELECT 1 FROM {aim_review_store.RUNS} WHERE status = 'done' AND COALESCE(usd, 0) > 0 AND COALESCE(finished_at, created_at) > ? LIMIT 1",
+        (row["stopped_at"],),
+    ).fetchone()
+    if later is not None:
+        return None
+    at = str(row["stopped_at"])[11:16]
+    return f"A review's Claude call was refused{f' at {at}' if at else ''}. {words}"
+
+
 def general_plan(
     conn, document_id, allowed, plan, facts, reading, out: dict, project_ids=()
 ) -> dict:
@@ -168,9 +224,7 @@ def general_plan(
     from .config import settings
 
     if plan.unscored:
-        from . import agent_review_gate
-
-        out["unscored_note"] = agent_review_gate.UNSCORED_WORDS
+        out["unscored_note"] = _unscored_note(facts)
     ctx = (conn, document_id, allowed, facts, reading)
     out["documents"] = review_leaving.documents_block(ctx, plan, tuple(project_ids))
     out["boundary"] = "documents you may read"
@@ -189,6 +243,10 @@ def general_plan(
         "exact": False,
     }
     out["notes"] = _notes(plan, settings)
+    if refusal := _recent_account_refusal(
+        conn
+    ):  # the last Claude call was refused by the account: say it before the start
+        out["notes"] = [*out["notes"], refusal]
     if plan.refused:
         out["sentence"] = (
             plan.refused if plan.refused.endswith(".") else plan.refused + "."

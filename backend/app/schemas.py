@@ -764,7 +764,10 @@ class WorkerStatus(BaseModel):
     )
     stalled_reasons: list[str]
     reviewing: bool = Field(
-        False, description="a review is running on the worker's one thread; uploads wait behind it (busy, not stopped)"
+        False, description="a review is running on the worker's review lane; uploads are read beside it (busy, not stopped)"
+    )
+    uploads_waiting_for_review: int = Field(
+        0, description="uploads waiting now because the review lane holds the local model; 0 when none waits"
     )
     last_error: ApiError | None = Field(
         None, description="response-safe only; tracebacks go to the local log"
@@ -1303,6 +1306,8 @@ class ClassificationCoverage(BaseModel):
     by_discipline: list[CoverageByDiscipline]
     by_subject: list[CoverageBySubject]
     needs_classification: int
+    #: The documents awaiting a type: the one count the Documents page and the Dashboard both say (scoped like the rest).
+    awaiting_type: int = 0
     corpus_wide: bool = Field(
         description="whether these counts are the WHOLE corpus or only what "
                     "this caller may read. The screen must say which")
