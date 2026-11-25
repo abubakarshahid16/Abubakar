@@ -161,21 +161,7 @@ class LocalModel:
             raise StepFailed(
                 f"{step}: local_too_long (the prompt does not fit the local model's window)"
             )
-        body = {
-            "model": name,
-            "messages": messages,
-            "stream": False,
-            "format": "json",
-            "options": {
-                "temperature": 0,
-                "num_ctx": int(self.budget.num_ctx),
-                "num_predict": num_predict,
-            },
-        }
-        if self._thinking(
-            name
-        ):  # a model that thinks is told not to (its thinking would spend the answer's room)
-            body["think"] = False
+        body = self._body(name, messages, num_predict)
         self._memory_rule(step, rec)
         self._one_in_memory(name)
         answer = self._post(step, body, rec)
@@ -204,6 +190,24 @@ class LocalModel:
             raise StepFailed(f"{step}: no_json")
         self.meter.charge(rec)
         return out
+
+    def _body(self, name: str, messages: list[dict], num_predict: int) -> dict:
+        """The chat request: JSON answers, no randomness, the run's window; a model that thinks is told not to (its thinking
+        would spend the answer's room)."""
+        body = {
+            "model": name,
+            "messages": messages,
+            "stream": False,
+            "format": "json",
+            "options": {
+                "temperature": 0,
+                "num_ctx": int(self.budget.num_ctx),
+                "num_predict": num_predict,
+            },
+        }
+        if self._thinking(name):
+            body["think"] = False
+        return body
 
     def _thinking(self, name: str) -> bool:
         if name not in self._thinks:
