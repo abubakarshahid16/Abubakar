@@ -18,21 +18,12 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
-from . import kind_review_table, paper_kind
+from . import kind_list, kind_review_table, paper_kind
 
 DATASHEET = "datasheet"
 UNKNOWN_NOUN = "document"
 #: kind -> the noun a sentence uses. A kind outside the table is a "document".
-NOUNS = {
-    "datasheet": "datasheet",
-    "procedure": "procedure",
-    "contract": "contract",
-    "transmittal": "transmittal",
-    "calculation": "calculation",
-    "specification": "specification",
-    "drawing": "drawing",
-    "test_record": "test record",
-}
+NOUNS = {k: r["noun"] for k, r in kind_list.kinds().items() if r["code_decided"]}  # from THE ONE LIST
 
 
 def noun_of_kind(kind: str | None) -> str:

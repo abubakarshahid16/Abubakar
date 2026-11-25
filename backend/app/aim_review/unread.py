@@ -29,6 +29,8 @@ NO_TEXT, WAITING, FAILED, NO_TEXT_AFTER = (
     "picture_reading_no_text",
 )
 PICTURE_NOT_READ, PICTURE_FAILED = "picture_not_read", "picture_reading_failed"
+#: A page Claude's picture reading was not given: past the per-review limit, or refused (a cap, the lane, the approval).
+CAPPED, REFUSED = "picture_reading_capped", "picture_reading_refused"
 
 #: The plain words of each code (the same on the page and in the file).
 WHY_WORDS = {
@@ -38,6 +40,8 @@ WHY_WORDS = {
     NO_TEXT_AFTER: "its picture reading came back with no text",
     PICTURE_NOT_READ: "no picture reading came back",
     PICTURE_FAILED: "its picture reading failed",
+    CAPPED: "it is past the limit of pages Claude reads as pictures in one review",
+    REFUSED: "Claude's picture reading of it was refused (a spending cap, the lane or the approval)",
 }
 
 STEP = "aim_unread_pages"
@@ -61,6 +65,11 @@ def with_unread(conn, paper_id: str, paper, reload):
                 "general review: pending pictures not read (%s)", type(exc).__name__
             )
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
+        from . import picture_pages
+
+        paper = picture_pages.read(
+            conn, paper_id, paper, ref["path"]
+        )  # Claude's picture reading of what local recognition cannot read
     except Exception as exc:  # noqa: BLE001 - never a failed review: the pages simply are not claimed
         log.info("general review: unread pages not worked out (%s)", type(exc).__name__)
     return paper
@@ -81,13 +90,12 @@ def _ref(conn, paper_id: str) -> dict | None:
         or (row["pagination"] or "") == "flow"
     )
     path = None
-    if word:
-        try:
-            path = agent_review_pages.pdf_path(
-                {"stored_path": row["stored_path"]}, settings.data_dir
-            )
-        except agent_review_pages.PageImageUnavailable:
-            path = None
+    try:  # the stored file: a Word file's pictures are read from it, a PDF's unread pages are rendered from it
+        path = agent_review_pages.pdf_path(
+            {"stored_path": row["stored_path"]}, settings.data_dir
+        )
+    except agent_review_pages.PageImageUnavailable:
+        path = None
     return {"word": word, "path": path, "pages": int(row["page_count"] or 0)}
 
 
