@@ -48,9 +48,9 @@ NONE, NOT_CHECKED = "none", "not_checked"
 LISTED, ALL_READ, NOT_RECORDED = "listed", "all_read", "not_recorded"
 
 
-def with_unread(conn, paper_id: str, paper, reload):  # noqa: ARG001 - kept for the caller; 7b gives it back its use
+def with_unread(conn, paper_id: str, paper, _reload):
     """The paper with its `unread` list filled: a PDF's pages with no usable text (waiting pages are named, not read here), or a Word
-    file's pictures with no reading. `reload` is kept for the caller's signature. Never raises."""
+    file's pictures with no reading. `_reload` is kept for the caller's signature (the review no longer reloads the paper). Never raises."""
     try:
         ref = _ref(conn, paper_id)
         if ref is None:
