@@ -1,4 +1,5 @@
-"""Order 238.2: the 35B model is the default answer model; a machine without it is told plainly.
+"""Order 238.2, changed by the owner on 25 Nov 2026 23:25: the 14B model is the default answer model (the 35B crashed memory);
+a machine without it is told plainly.
 
 The defaults are read from the field definitions, not from `settings`, so a developer's own
 `backend/.env` (which may pin another model) cannot change what is being tested.
@@ -16,11 +17,11 @@ from tests.test_metrics_host_telemetry import (  # noqa: F401
     temp_storage,
 )
 
-THE_35B = "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"
+THE_14B = "ministral-3:14b"  # the owner, 25 Nov 2026 23:25: "let us not use the 35 billion parameter model"
 
 
-def test_the_default_answer_model_is_the_35b():
-    assert Settings.model_fields["answer_model"].default == THE_35B
+def test_the_default_answer_model_is_the_14b():
+    assert Settings.model_fields["answer_model"].default == THE_14B
 
 
 def test_the_default_small_task_model_stays_small():
@@ -28,9 +29,9 @@ def test_the_default_small_task_model_stays_small():
     assert Settings.model_fields["ai_task_model"].default == "qwen3.5:2b"
 
 
-def test_the_memory_the_default_asks_for_is_about_24_gb():
+def test_the_memory_the_default_asks_for_is_about_11_gb():
     need = Settings.model_fields["answer_model_ram_bytes"].default
-    assert 22_000_000_000 < need <= 26_000_000_000
+    assert need == 11_100_000_000  # measured: the 14B resident at a 28,672-token window
 
 
 def _models(**more):

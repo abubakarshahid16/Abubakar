@@ -402,11 +402,15 @@ class Settings(SettingsExt, BaseSettings):
     #: alone still refuses everything. Checked with a real URL parser, never a
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
-    answer_model: str = "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL"
+    #: ONE local default (owner, 25 Nov 2026 23:25: "let us not use the 35 billion parameter model, it crashes memory"): the
+    #: 14B-class model for Chat's local answers and technical-query drafts. The 35B stays installed and is loaded only when
+    #: the owner asks (set ANSWER_MODEL to it).
+    answer_model: str = "ministral-3:14b"
     answer_prompt_variant: str = "default"
-    #: Resident size of the answer model (the 35B: a 22 GB file, about 24 GB). Warns BEFORE
-    #: Explain is pressed. Set it with ANSWER_MODEL when pinning a smaller model.
-    answer_model_ram_bytes: int = 24_000_000_000
+    #: Resident size of the answer model: the 14B MEASURED at 11.10 GB in the engine with a 28,672-token window (25 Nov
+    #: 2026; Chat's 8,192-token window needs less); the 35B was about 24 GB. Warns BEFORE Explain is pressed. Set it with
+    #: ANSWER_MODEL when pinning another model.
+    answer_model_ram_bytes: int = 11_100_000_000
 
     # ---------------------------------------------------------- AI task runner
     # (#644). Small strict model tasks run from a background queue by
