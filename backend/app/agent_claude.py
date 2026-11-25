@@ -13,7 +13,7 @@ environment wins whenever it says anything, including "0". This module reads no 
 The key lives only in a call-local env copy for `build_request` and in the request headers; it is never stored on
 the provider, in a module global, the ledger, a trace or an error (codes only).
 
-THE CALLER (the runner) must wrap the run in `claude_approved.per_request_consent(ids)` / `claude_approved.carrying(ids)`
+THE CALLER (the runner) must wrap the run in `claude_approved.carrying(ids)` (the chat alone uses `per_request_consent`)
 with exactly the selected documents. Without a declaration every call fails closed with `DocumentNotApproved` (a
 `BudgetExceeded`, so `AgentBudgetStop`) and nothing is sent.
 
