@@ -667,3 +667,14 @@ def test_a_long_set_aside_reason_is_never_cut():
         rows, 5, CL._clean_item, CL.KNOWLEDGE_NOT_HELD
     )
     assert elsewhere[0]["why"] == f"for {long} paper"
+
+
+def test_the_judge_holds_a_limit_only_against_its_own_component_and_states_conditions_as_the_paper_gives_them():
+    """Update 6 same-judge read: a limit for one pressure component was held against another (in update 5 and 6), and a comment
+    wrote a stronger external condition than the paper's own value. One general sentence each in the judge's instructions."""
+    task = CL.P.S4_TASK
+    assert "never held against" in task and "built-up, superimposed" in task
+    assert (
+        "states every condition as the paper gives it" in task
+        and '"full vacuum" unless the paper says so' in task
+    )
