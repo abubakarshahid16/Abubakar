@@ -440,7 +440,10 @@ def _quantities(nums) -> list[tuple] | None:
     if not isinstance(nums, dict):
         return None
     out = []
-    for value, unit in ((nums.get("paper_value"), nums.get("paper_unit")), (nums.get("rule_value"), nums.get("rule_unit"))):
+    for value, unit in (
+        (nums.get("paper_value"), nums.get("paper_unit")),
+        (nums.get("rule_value"), nums.get("rule_unit")),
+    ):
         if value in (None, "") or not unit:
             return None
         m = claims.normalise(str(value), str(unit))
@@ -451,12 +454,18 @@ def _quantities(nums) -> list[tuple] | None:
 
 
 def _same_figure(a: tuple, b: tuple) -> bool:
-    return a[0] == b[0] and a[1] == b[1] and abs(a[2] - b[2]) <= JOIN_WITHIN * max(abs(a[2]), abs(b[2]), 1e-12)
+    return (
+        a[0] == b[0]
+        and a[1] == b[1]
+        and abs(a[2] - b[2]) <= JOIN_WITHIN * max(abs(a[2]), abs(b[2]), 1e-12)
+    )
 
 
 def _same_pair(a: list[tuple], b: list[tuple]) -> bool:
     """The same two figures, whichever of them each line calls the paper's and the rule's."""
-    return (_same_figure(a[0], b[0]) and _same_figure(a[1], b[1])) or (_same_figure(a[0], b[1]) and _same_figure(a[1], b[0]))
+    return (_same_figure(a[0], b[0]) and _same_figure(a[1], b[1])) or (
+        _same_figure(a[0], b[1]) and _same_figure(a[1], b[0])
+    )
 
 
 def _existing(decided: list[dict], line: dict) -> dict | None:
@@ -466,7 +475,11 @@ def _existing(decided: list[dict], line: dict) -> dict | None:
     if want is None:
         return None
     for d in decided:
-        if d.get("page") != line.get("page") or d.get("label") not in ("AI opinion", "Question") or d.get("deferred"):
+        if (
+            d.get("page") != line.get("page")
+            or d.get("label") not in ("AI opinion", "Question")
+            or d.get("deferred")
+        ):
             continue
         have = _quantities(d.get("numbers"))
         if have is not None and _same_pair(have, want):
@@ -489,10 +502,14 @@ def join_into(decided: list[dict], new: list[dict]) -> list[dict]:
             label="Not met", comment=line["comment"], standard=line["standard"], clause=line["clause"], source=line["source"],
             book_document_id=line.get("book_document_id"), numbers=line["numbers"], code_compare=line["code_compare"], deferred=False, ask="",
         )  # fmt: skip
-        target[key] = "; ".join([line.get("code") or line.get("code_note") or "", JOINED]).strip("; ")
+        target[key] = "; ".join(
+            [line.get("code") or line.get("code_note") or "", JOINED]
+        ).strip("; ")
     return appended
 
 
 def add_lines(conn, paper, state) -> None:
     """Add the formula lines to the run (`state.decided`), from the rule books the run carried (`join_into`: a finding already commented on is upgraded, not repeated)."""
-    state.decided += join_into(state.decided, lines(conn, paper, sorted(state.books - state.reference_ids)))
+    state.decided += join_into(
+        state.decided, lines(conn, paper, sorted(state.books - state.reference_ids))
+    )

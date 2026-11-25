@@ -25,18 +25,52 @@ def ai(n=1, label="AI opinion", page=1, nums=None, **more):
 
 
 def test_a_firm_line_upgrades_the_ai_comment_with_the_same_two_figures_on_the_same_page_and_adds_no_line():
-    decided = [ai(1), ai(2, label="Question", nums={"paper_value": "380", "paper_unit": "psig", "rule_value": "11.03", "rule_unit": "barg"})]
+    decided = [
+        ai(1),
+        ai(
+            2,
+            label="Question",
+            nums={
+                "paper_value": "380",
+                "paper_unit": "psig",
+                "rule_value": "11.03",
+                "rule_unit": "barg",
+            },
+        ),
+    ]
     appended = F.join_into(decided, [firm()])
     assert appended == []  # no second comment
     up = decided[0]
-    assert up["label"] == "Not met" and up["code_compare"]["result"] == "fail" and up["comment"].startswith("Not met, proven by code")
-    assert up["standard"] == "X-STD" and up["clause"] == "X-2" and up["field"] == "Set pressure vs MAWP" and up["item_id"] == "C001"  # the place and item stay
-    assert F.JOINED in up["code_note"] and "formula check" in up["code_note"] and "the AI chose" not in up["code_note"] and up["ask"] == ""
+    assert (
+        up["label"] == "Not met"
+        and up["code_compare"]["result"] == "fail"
+        and up["comment"].startswith("Not met, proven by code")
+    )
+    assert (
+        up["standard"] == "X-STD"
+        and up["clause"] == "X-2"
+        and up["field"] == "Set pressure vs MAWP"
+        and up["item_id"] == "C001"
+    )  # the place and item stay
+    assert (
+        F.JOINED in up["code_note"]
+        and "formula check" in up["code_note"]
+        and "the AI chose" not in up["code_note"]
+        and up["ask"] == ""
+    )
     assert decided[1]["label"] == "Question"  # another figure pair: untouched
 
 
 def test_the_figures_match_through_the_unit_code_in_either_order():
-    swapped = ai(1, nums={"paper_value": "23.5", "paper_unit": "barg", "rule_value": "380", "rule_unit": "psig"})
+    swapped = ai(
+        1,
+        nums={
+            "paper_value": "23.5",
+            "paper_unit": "barg",
+            "rule_value": "380",
+            "rule_unit": "psig",
+        },
+    )
     assert F.join_into([swapped], [firm()]) == [] and swapped["label"] == "Not met"
 
 
@@ -50,13 +84,43 @@ def test_another_page_other_figures_or_a_settled_line_make_the_firm_line_a_new_c
     line = firm()
     for decided in (
         [ai(1, page=2)],
-        [ai(1, nums={"paper_value": "340", "paper_unit": "psig", "rule_value": "23.5", "rule_unit": "barg"})],
+        [
+            ai(
+                1,
+                nums={
+                    "paper_value": "340",
+                    "paper_unit": "psig",
+                    "rule_value": "23.5",
+                    "rule_unit": "barg",
+                },
+            )
+        ],
         [ai(1, label="Met")],
         [ai(1, label="Not met")],
         [ai(1, deferred=True)],
-        [ai(1, nums={"paper_value": "x", "paper_unit": "psig", "rule_value": "23.5", "rule_unit": "barg"})],
+        [
+            ai(
+                1,
+                nums={
+                    "paper_value": "x",
+                    "paper_unit": "psig",
+                    "rule_value": "23.5",
+                    "rule_unit": "barg",
+                },
+            )
+        ],
         [ai(1, nums=None) | {"numbers": None}],
-        [ai(1, nums={"paper_value": "26.2", "paper_unit": "bar", "rule_value": "23.5", "rule_unit": "bara"})],  # gauge is never set against absolute
+        [
+            ai(
+                1,
+                nums={
+                    "paper_value": "26.2",
+                    "paper_unit": "bar",
+                    "rule_value": "23.5",
+                    "rule_unit": "bara",
+                },
+            )
+        ],  # gauge is never set against absolute
     ):
         before = [dict(d) for d in decided]
         assert F.join_into(decided, [line]) == [line], decided
