@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 
 from app import (
     agent_claude,
+    agent_review_local,
     aim_review_gate,
     aim_review_jobs,
     aim_review_store,
@@ -92,7 +93,11 @@ def _stand_in_engine(monkeypatch, kind: str) -> list[dict]:
         return {
             "model": REPORTED,
             "message": {"role": "assistant", "content": json.dumps(out)},
-            "prompt_eval_count": 50,
+            # a count the whole request can have (at least its fewest tokens)
+            "prompt_eval_count": 1
+            + agent_review_local.lower_bound_tokens(
+                "\n".join(m["content"] for m in body["messages"])
+            ),
             "eval_count": 5,
             "done_reason": "stop",
         }
@@ -356,8 +361,9 @@ def test_the_window_holds_the_whole_paper_and_is_raised_never_cut():
         budget.for_paper(14_000),
         budget.for_paper(90_000),
     )
-    assert small.num_ctx == 24_576 and small.window_tokens >= 6_000
-    assert sheet.num_ctx == 32_768 and sheet.window_tokens >= 14_000
+    # half again for a tokenizer that counts more than the app's estimate (the 14B does)
+    assert small.num_ctx == 28_672 and small.window_tokens >= 9_000
+    assert sheet.num_ctx == 40_960 and sheet.window_tokens >= 21_000
     assert long.num_ctx == budget.MAX_CTX and long.window_tokens < 90_000
     pages = dict.fromkeys(
         range(1, 8), "word " * 2400
@@ -472,7 +478,7 @@ def test_the_model_socket_offers_claude_and_local_and_refuses_an_unapproved_vend
         )
     assert got.value.stops_run and MS.NOT_APPROVED in str(got.value)
     local = MS.model_for_run("local", paper_tokens=14_000)
-    assert local.engine == "local" and local.budget.num_ctx == 32_768
+    assert local.engine == "local" and local.budget.num_ctx == 40_960
     imported = set()
     for node in ast.walk(ast.parse(Path(MS.__file__).read_text(encoding="utf-8"))):
         if isinstance(node, ast.ImportFrom):
@@ -637,3 +643,13 @@ def test_swap_growing_more_than_one_gb_during_the_run_stops_it(monkeypatch):
     with pytest.raises(method_engine.StepFailed) as got:
         m.ask(**ask)
     assert got.value.stops_run and "local_swap" in str(got.value)
+
+
+def test_a_prompt_counted_longer_than_the_estimate_is_no_cut_but_one_filling_the_window_is():
+    """The 14B's tokenizer counted 8,087 tokens where the app's estimate allowed less: that is no cut. A count that reaches the
+    room the window leaves, or one shorter than the text can be, is."""
+    text = "word " * 400  # 2,000 characters
+    assert local_model._prompt_cut(8_087, 28_672, 512, text) is False
+    assert local_model._prompt_cut(28_672 - 512 - 10, 28_672, 512, text) is True
+    assert local_model._prompt_cut(3, 28_672, 512, text) is True
+    assert local_model._prompt_cut(None, 28_672, 512, text) is True

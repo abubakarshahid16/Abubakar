@@ -184,8 +184,9 @@ class LocalModel:
         rec.input_tokens = _count(answer.get("prompt_eval_count"))
         rec.output_tokens = _count(answer.get("eval_count"))
         text = _content(answer)
+        whole = "\n".join(m["content"] for m in messages)
         if _prompt_cut(
-            answer.get("prompt_eval_count"), self.budget.num_ctx, num_predict, need
+            answer.get("prompt_eval_count"), self.budget.num_ctx, num_predict, whole
         ):
             rec.ok, rec.code = False, "local_cut"
             self.meter.charge(rec)
@@ -310,15 +311,17 @@ def _content(answer: dict) -> str:
     return text if isinstance(text, str) else ""
 
 
-def _prompt_cut(reported, window: int, num_predict: int, estimate: int) -> bool:
-    """True when the engine's reported prompt size says it may not have read the whole request (the local AI reviewer's own rule,
-    `agent_review_local._cut_prompt`): not reported, reaching the room the window leaves, or longer than the estimate."""
-    from app import agent_review_local
+def _prompt_cut(reported, window: int, num_predict: int, text: str) -> bool:
+    """True when the engine's reported prompt size says it may not have read the whole request: not reported, reaching the room
+    the window leaves it, or shorter than the request's text can be (the local AI reviewer's own limits,
+    `agent_review_local`). A count LONGER than the app's estimate is no cut: another tokenizer counts more (the 14B does)."""
+    from app import agent_review_local as A
 
-    return (
-        agent_review_local._cut_prompt(reported, window, "", num_predict, estimate)
-        is not None
-    )
+    if isinstance(reported, bool) or not isinstance(reported, int) or reported <= 0:
+        return True
+    if reported >= window - int(num_predict) - A.CUT_MARGIN:
+        return True
+    return reported < A.lower_bound_tokens(text)
 
 
 def _show(name: str) -> dict:
