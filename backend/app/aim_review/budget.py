@@ -41,7 +41,8 @@ class Budget:
     line_chunk: int
 
 
-#: The installed local model (Qwen 35B, a 32k window on this Mac): about 10k tokens of paper, 6k of clause text, 8k of answer.
+#: The local model's base sizes. The window and the paper's share of it are set PER PAPER by `for_paper` (owner's standing lesson,
+#: 25 Nov 2026: NO BLIND CHUNKING; the judge sees the whole paper whenever it can fit, and the context is raised to make it fit).
 LOCAL = Budget(
     name="local",
     num_ctx=32_768,
@@ -50,12 +51,30 @@ LOCAL = Budget(
     book=12_000,
     text_book=8_000,
     batch_chars=20_000,
-    window_tokens=10_000,
-    window_chars=30_000,
+    window_tokens=16_768,
+    window_chars=50_000,
     judge_batch=3,
     judge_parallel=1,
     line_chunk=20,
 )
+#: Room in the window besides the paper (tokens): the step's instructions, the items with their clause text, and the answer.
+RESERVE_TOKENS = 16_000
+#: The smallest and largest window a local run asks for (tokens). Above the largest, a paper is judged in page windows and the
+#: run record says so on every judge call ("not the whole paper").
+MIN_CTX, MAX_CTX = 16_384, 65_536
+STEP_CTX = 4_096
+
+
+def for_paper(paper_tokens: int, base: Budget = LOCAL) -> Budget:
+    """The local sizes for a paper of `paper_tokens` (an upper bound, `context_budget.estimate_tokens`): the window is raised until
+    the whole paper and `RESERVE_TOKENS` fit (never cut to fit a smaller window), up to `MAX_CTX`."""
+    from dataclasses import replace
+
+    want = int(paper_tokens) + RESERVE_TOKENS
+    num_ctx = min(MAX_CTX, max(MIN_CTX, -(-want // STEP_CTX) * STEP_CTX))
+    room = num_ctx - RESERVE_TOKENS
+    return replace(base, num_ctx=num_ctx, window_tokens=room, window_chars=room * 3)
+
 
 _ACTIVE: ContextVar[Budget | None] = ContextVar("aim_review_budget", default=None)
 

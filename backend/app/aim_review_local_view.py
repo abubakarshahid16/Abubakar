@@ -23,8 +23,51 @@ def _calls(run: dict) -> list[dict]:
     return [c for c in calls if isinstance(c, dict)] if isinstance(calls, list) else []
 
 
+#: The plain name of each method step, for the "which model ran each step" line.
+STEP_WORDS = {
+    "aim_identify": "name",
+    "aim_select": "choose",
+    "aim_checklist": "checklist",
+    "aim_checklist_knowledge": "checklist",
+    "aim_checklist_retry": "checklist",
+    "aim_attack": "attack",
+    "aim_judge": "judge",
+    "aim_reference": "judge",
+    "aim_answered": "whole-paper check",
+    "aim_second_read": "second reader",
+    "aim_edit": "editor",
+}
+
+
+def by_step(run: dict) -> dict:
+    """{"steps": {step: [models]}, "sentence": ..., "paper": ...}: the models each step's calls recorded (from the run, never a
+    setting), and for a local run whether every judge call saw the whole paper (owner, 25 Nov 2026: no blind chunking)."""
+    steps: dict[str, list[str]] = {}
+    for c in _calls(run):
+        step, model = (
+            STEP_WORDS.get(str(c.get("step") or "")),
+            str(c.get("model") or ""),
+        )
+        if step and model and model not in steps.setdefault(step, []):
+            steps[step].append(model)
+    sentence = "; ".join(f"{k}: {', '.join(v)}" for k, v in steps.items()) or None
+    notes = [
+        str(c.get("note") or "")
+        for c in _calls(run)
+        if c.get("step") == "aim_judge" and c.get("note")
+    ]
+    if not notes:
+        paper = None
+    elif all(n.endswith("the whole paper") for n in notes):
+        paper = f"The judge saw the whole paper in each of its {len(notes)} calls."
+    else:
+        part = sum(1 for n in notes if not n.endswith("the whole paper"))
+        paper = f"The judge saw a page window, not the whole paper, in {part} of its {len(notes)} calls."
+    return {"steps": steps, "sentence": sentence, "paper": paper}
+
+
 def engine_of(conn, run: dict) -> dict:
-    """{"local": bool, "models": [...], "sentence": ...} for one stored general run."""
+    """{"local": bool, "models": [...], "sentence": ..., "by_step": ...} for one stored general run."""
     from . import review_engine
 
     models = sorted(
@@ -38,13 +81,16 @@ def engine_of(conn, run: dict) -> dict:
         )
     except sqlite3.Error:  # an unreadable plan: the calls alone say it
         planned = False
+    steps = by_step(run)
     if not (planned or models):
-        return {"local": False, "models": [], "sentence": None}
+        return {"local": False, "models": [], "sentence": None, "by_step": steps}
     named = ", ".join(models) if models else "no call was made"
+    paper = f" {steps['paper']}" if steps["paper"] else ""
     return {
         "local": True,
         "models": models,
-        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}.",
+        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}.{paper}",
+        "by_step": steps,
     }
 
 
@@ -57,9 +103,19 @@ def measured(identity: dict | None, local: dict) -> dict | None:
     words (`aim_review_measured.for_local_run`). None when a Claude run names no kind."""
     identity = identity if isinstance(identity, dict) else {}
     if local.get("local"):
-        return aim_review_measured.for_local_run(
+        out = aim_review_measured.for_local_run(
             identity, list(local.get("models") or [])
         )
+        steps = local.get("by_step") or {}
+        extra = [
+            x
+            for x in (
+                steps.get("sentence") and f"Model by step: {steps['sentence']}.",
+                steps.get("paper"),
+            )
+            if x
+        ]
+        return out | {"sentence": " ".join([out["sentence"], *extra])}
     return aim_review_measured.for_run(
         {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
     )

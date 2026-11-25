@@ -59,8 +59,9 @@ class CallRecord:
     seconds: float = 0.0
     ok: bool = True
     code: str = ""
-    #: "local" for a call on the local model (`local_model.LocalModel`); "" for Claude (the stored calls of a Claude run are unchanged)
+    #: "local" and what the call read, on the local model (`local_model`); "" for Claude (a Claude run's calls are unchanged)
     engine: str = ""
+    note: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -72,7 +73,7 @@ class CallRecord:
             "seconds": self.seconds,
             "ok": self.ok,
             "code": self.code,
-        } | ({"engine": self.engine} if self.engine else {})
+        } | {k: v for k, v in (("engine", self.engine), ("note", self.note)) if v}
 
 
 @dataclass
@@ -793,6 +794,5 @@ def _judge(
         state.stop(stop)
 
 
-# the fake model (tests and the dry run) lives in its own module; kept importable from here
-from .fake import FakeModel  # noqa: E402, F401
+from .fake import FakeModel  # noqa: E402, F401 - tests and the dry run (its own module)
 from .local_model import LocalModel  # noqa: E402, F401
