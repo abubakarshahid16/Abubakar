@@ -187,8 +187,8 @@ export function ReviewDashboardPanel(
         />
         <Card
           label="Reviews in progress"
-          value={data.reviews_running + data.reviews_awaiting_decision}
-          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} awaiting an engineer's sign-off or code`
+          value={data.reviews_running}
+          detail={`${data.reviews_running} running · ${data.reviews_awaiting_decision} waiting for an engineer's sign-off or code`
             + (typeof data.reviews_signed === "number" ? ` · ${data.reviews_signed} signed off (done)` : "")
             + boundary(data)}
         />

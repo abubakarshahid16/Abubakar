@@ -502,15 +502,15 @@ describe("the Documents tile's per-type counts", () => {
     expect(within(tile).queryByText(/awaiting a type/)).toBeNull();
   });
 
-  it("says nothing needs a type when needs_classification is zero", async () => {
-    mockApi(makeMetrics(), makeCoverage({ register_loaded: true, by_type: byType, needs_classification: 0 }));
+  it("says nothing needs a type when the awaiting-a-type count is zero", async () => {
+    mockApi(makeMetrics(), makeCoverage({ register_loaded: true, by_type: byType, needs_classification: 0, awaiting_type: 0 }));
     await openDashboard();
     const tile = await documentsTile();
     expect(within(tile).queryByText(/awaiting a type/)).toBeNull();
   });
 
-  it("shows an amber count awaiting a type when needs_classification is non-zero", async () => {
-    mockApi(makeMetrics(), makeCoverage({ register_loaded: true, by_type: byType, needs_classification: 7 }));
+  it("shows an amber count awaiting a type from the ONE awaiting-a-type count (the Documents page's), not the unconfirmed count (planner 19 Nov, item 9)", async () => {
+    mockApi(makeMetrics(), makeCoverage({ register_loaded: true, by_type: byType, needs_classification: 307, awaiting_type: 7 }));
     await openDashboard();
     const tile = await documentsTile();
     const line = within(tile).getByText(/awaiting a type/);

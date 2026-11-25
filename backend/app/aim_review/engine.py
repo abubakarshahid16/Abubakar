@@ -321,7 +321,7 @@ def run(
         seconds=round(time.time() - t0, 2),
         references=state.references,
         answered=state.answered,
-        book_why=dict(state.book_why),
+        book_why=state.every_reason(),
     )
 
 
@@ -372,6 +372,7 @@ class _RunState:
         ] = []  # the whole-paper check's verdicts (local run record)
         self.reference_ids: set[str] = set()
         self.book_why: dict[str, str] = {}
+        self.book_fallback: dict[str, str] = {}
         self.not_held: list[dict] = []
         self.unlisted: set[str] = set()
         self.decided: list[dict] = []
@@ -387,6 +388,11 @@ class _RunState:
                 self.run_id,
                 self.stop_reason.split(" ", 2)[:2],
             )
+
+    def every_reason(self) -> dict[str, str]:
+        from . import book_names as BN
+
+        return BN.every_reason(self.book_why, self.book_fallback, self.books - self.reference_ids, self.reused)  # fmt: skip
 
     def lines(self) -> list[dict]:
         return [to_line(i + 1, d) for i, d in enumerate(self.decided)]
@@ -433,20 +439,15 @@ def _steps(
 ) -> None:
     from . import library as L
     from . import steps as S
+    from . import unread as U
     from .paper import load_paper, windows
 
     lead, strong = _models()
     say(0, "read the paper")
     paper = load_paper(conn, state.paper_id)
     # The trace says where each page's text came from (counts only, no text): a row of the run's calls, no model, no cost.
-    mdl.meter.calls.append(
-        CallRecord(
-            step="aim_read_pages",
-            model="code",
-            prompt_chars=0,
-            code=paper.source_note(),
-        )
-    )
+    paper = U.with_unread(conn, state.paper_id, paper, load_paper)
+    mdl.meter.calls.extend(U.read_calls(paper))
     if not paper.pages:
         raise StepFailed("no_pages: the paper has no stored page text")
     say(5, "name the paper")
@@ -464,7 +465,10 @@ def _steps(
     checklist = _checklist(
         conn, state, mdl, ident, allowed_books, store, text, lead, strong
     )
+    from . import book_names as BN
+
     state.book_why = _book_reasons(checklist)
+    state.book_fallback = BN.fallback_reasons(conn, state.paper_id, ident, allowed_books, state.cited)  # fmt: skip
     # the standards the paper itself cites (S1, each verified in its quote) that no held document answers: said as not held
     from . import book_names as BN
 

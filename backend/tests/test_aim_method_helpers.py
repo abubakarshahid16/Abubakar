@@ -67,7 +67,7 @@ def _hex(s: str) -> str:
 def _doc(conn, doc_id: str, filename: str, role: str, pages: dict[int, str]) -> None:
     conn.execute(
         "INSERT INTO documents (id, filename, sha256, size_bytes, stored_path, page_count, status, uploaded_at)"
-        " VALUES (?, ?, ?, 1, ?, ?, 'indexed', '2026-11-18T00:00:00Z')",
+        " VALUES (?, ?, ?, 1, ?, ?, 'ready', '2026-11-18T00:00:00Z')",  # read (review of 7a, M3: never claimed mid-read)
         (doc_id, filename, _hex(doc_id), f"/nowhere/{doc_id}", len(pages)),
     )
     conn.execute(

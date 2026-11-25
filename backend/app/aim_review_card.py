@@ -16,6 +16,7 @@ import re
 
 from . import aim_review
 from .aim_review import steps as _steps
+from .aim_review.always import TOPIC as ALWAYS_TOPIC
 from .aim_review.fail_words import PAIRED_MARK
 from .aim_review_gate import AI_MARK
 from .aim_review_store import FAIL_BY_CODE, PASS_BY_CODE
@@ -33,6 +34,23 @@ BY_CODE = frozenset({FAIL_BY_CODE, PASS_BY_CODE})
 #: A card title has fewer than this many words.
 TITLE_WORDS = 12
 KNOWLEDGE = "Engineering knowledge (no held rule book)"
+
+
+def decided_by_code(points: list[dict], boundary: str) -> dict | None:
+    """The planner's measure (19 Nov 2026): how many of the review's points code decided, out of all its points. A point is
+    decided by code when its shown label is code's own verdict (Pass or Fail, compared by code: `BY_CODE`);
+    every other point is an AI reading, an AI opinion or a question. The count always comes with its denominator; None for a
+    review with no points (no measure, never "0 of 0")."""
+    total = len(points)
+    if not total:
+        return None
+    n = sum(1 for p in points if p.get("shown_label") in BY_CODE)
+    return {
+        "count": n,
+        "of": total,
+        "sentence": f"{n} of {total} points decided by code (code compared the paper's value with the rule's limit); the other "
+        f"{total - n} are AI readings, AI opinions or questions ({boundary}).",
+    }
 
 
 def _parts(code_note) -> list[str]:
@@ -58,9 +76,12 @@ def point_severity(p: dict) -> str:
 
 def title(p: dict) -> str:
     """A one-line title (fewer than `TITLE_WORDS` words) from the point's checklist item topic, else its field."""
-    words = (
-        str(p.get("topic") or p.get("field") or "Comment").replace("\n", " ").split()
-    )
+    topic = str(p.get("topic") or "")
+    if (
+        topic.strip().lower() == ALWAYS_TOPIC
+    ):  # an always-checked item has no subject of its own: the field is the subject
+        topic = ""
+    words = str(topic or p.get("field") or "Comment").replace("\n", " ").split()
     short = " ".join(words[: TITLE_WORDS - 1]).strip(" .;:,")
     return short + (" ..." if len(words) >= TITLE_WORDS else "")
 
@@ -96,31 +117,57 @@ def is_blank(quote: str, field: str) -> bool:
 
 
 def place_text(m: dict) -> str:
-    """What the paper says at one place: its quote, or the word "blank" with the field when the quote is only the field's label."""
+    """What the paper says at one place: the code-verified quote, or NOTHING. A quote that is only the field's own label states no
+    value; it is left out, never replaced by a summary word such as "blank" (planner 19 Nov, item 2)."""
     quote = " ".join(str(m.get("quote") or "").split())
-    if quote and not is_blank(quote, m.get("field") or ""):
-        return quote
-    field = _TAG.sub("", str(m.get("field") or "").split(" / ")[0]).strip()
-    return f"{field}: blank" if field else ""
+    if not quote or m.get("quote_unverified") or is_blank(quote, m.get("field") or ""):
+        return ""
+    return quote
 
 
 def _places(members: list[dict]) -> list[dict]:
-    """APPLIES TO: one chip per distinct place (page, tag, text); the tag is the field's last bracket (a valve tag, a sheet)."""
-    out, seen = [], set()
+    """APPLIES TO: ONE chip per field (planner 19 Nov, item 3), with every page the field stands on; the tag is the field's last bracket
+    (a valve tag, a sheet). `page` stays the first page and `quote` is that page's own quote (older readers); `quotes` holds every member's quote with its own page; `value` is what the paper says there when it says the same on
+    every page, else nothing (the quotes are under the card's evidence)."""
+    out: dict[str, dict] = {}
     for m in members:
-        tag = ((_TAG.search(m.get("field") or "") or [None, ""])[1]).strip()
-        item = {
-            "page": m.get("page"),
-            "field": m.get("field") or "",
-            "quote": m.get("quote") or "",
-            "tag": tag,
-            "value": place_text(m),
-        }
-        key = (item["page"], item["field"], item["quote"])
-        if key not in seen:
-            seen.add(key)
-            out.append(item)
-    return out
+        field = str(m.get("field") or "")
+        item = out.setdefault(
+            field,
+            {
+                "page": m.get("page"),
+                "pages": [],
+                "field": field,
+                "quote": "",
+                "quotes": [],
+                "tag": ((_TAG.search(field) or [None, ""])[1]).strip(),
+                "values": [],
+            },
+        )
+        page = m.get("page")
+        if page is not None and page not in item["pages"]:
+            item["pages"].append(page)
+        quote = (m.get("quote") or "").strip()
+        if quote and {"page": page, "quote": quote} not in item["quotes"]:
+            item["quotes"].append(
+                {"page": page, "quote": quote}
+            )  # every quote stays with ITS OWN page
+        text = place_text(m)
+        if text and text not in item["values"]:
+            item["values"].append(text)
+    for item in out.values():
+        item["pages"].sort()
+        if item["pages"]:
+            item["page"] = item["pages"][0]
+        item["quotes"].sort(
+            key=lambda q: (q["page"] is None, q["page"] if q["page"] is not None else 0)
+        )
+        item["quote"] = next(
+            (q["quote"] for q in item["quotes"] if q["page"] == item["page"]), ""
+        )  # older readers: the first page's own quote
+        values = item.pop("values")
+        item["value"] = values[0] if len(values) == 1 else ""
+    return list(out.values())
 
 
 def paper_says(members: list[dict]) -> str:
@@ -171,7 +218,7 @@ def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict
     return {
         "severity": severity,
         "title": title(first),
-        "paper_says": paper_says(members) or comment.get("quote") or "",
+        "paper_says": paper_says(members) if members else comment.get("quote") or "",
         "rule_says": rule_says(first),
         "we_ask": (first.get("comment") or "").replace(_steps.PAIRED_NOTE, ""),
         "applies_to": _places(members),

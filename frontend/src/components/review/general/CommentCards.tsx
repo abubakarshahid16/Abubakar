@@ -126,7 +126,8 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
   const places = line.applies_to ?? [];
   const [allChips, setAllChips] = useState(false);
   const shownPlaces = allChips ? places : places.slice(0, CHIPS_SHOWN);
-  const quotes = places.filter((a) => a.quote);
+  // every member's quote with ITS OWN page (older runs carry one quote on the place: it goes with the place's page)
+  const quotes = places.flatMap((a) => (a.quotes && a.quotes.length > 0 ? a.quotes : a.quote ? [{ page: a.page ?? null, quote: a.quote }] : []));
   return (
     <li data-testid="general-row" data-severity={sev} className={`space-y-3 rounded-[var(--radius-md)] border border-ink-600 border-l-4 bg-ink-800 p-4 ${tone.edge}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -145,11 +146,27 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <em className="mr-1 not-italic text-slateish-400">Applies to</em>
           {shownPlaces.map((a, i) => {
-            const text = [a.tag || a.field, a.page != null ? `p${a.page}` : "", a.value ? clip(a.value) : ""].filter(Boolean).join(" · ");
-            return a.page != null
-              ? <button key={i} type="button" aria-label={`page ${a.page}`} title={`Open page ${a.page}${a.field ? `: ${a.field}` : ""}${a.value ? `: ${a.value}` : ""}`} onClick={() => onViewPage(a.page!)}
-                  className="rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200 hover:bg-ink-700">{text}</button>
-              : <span key={i} className="rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200">{text}</span>;
+            const name = a.tag || a.field;
+            const value = a.value ? clip(a.value) : "";
+            const label = [name, value].filter(Boolean).join(" · ");
+            const pages = a.pages && a.pages.length > 0 ? a.pages : a.page != null ? [a.page] : [];
+            const title = (p: number) => `Open page ${p}${a.field ? `: ${a.field}` : ""}${a.value ? `: ${a.value}` : ""}`;
+            const cls = "rounded-[var(--radius-sm)] border border-ink-500 px-2 py-0.5 text-slateish-200";
+            if (pages.length === 1) {
+              return <button key={i} type="button" aria-label={`page ${pages[0]}`} title={title(pages[0])} onClick={() => onViewPage(pages[0])}
+                className={`${cls} hover:bg-ink-700`}>{[name, `p${pages[0]}`, value].filter(Boolean).join(" · ")}</button>;
+            }
+            if (pages.length === 0) return <span key={i} className={cls}>{label}</span>;
+            // one chip per field: its name once, then a button per page
+            return (
+              <span key={i} className={`${cls} inline-flex flex-wrap items-center gap-1`} data-testid="chip-field">
+                <span>{label}</span>
+                {pages.map((p) => (
+                  <button key={p} type="button" aria-label={`page ${p}`} title={title(p)} onClick={() => onViewPage(p)}
+                    className="rounded-[var(--radius-sm)] border border-ink-500 px-1 hover:bg-ink-700">p{p}</button>
+                ))}
+              </span>
+            );
           })}
           {places.length > CHIPS_SHOWN && (
             <button type="button" onClick={() => setAllChips((v) => !v)} className="text-signal-300 underline-offset-2 hover:underline">
@@ -164,7 +181,7 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
           <div className="mt-2 space-y-2">
             {line.comment && <p className="text-slateish-200">{line.comment}</p>}
             {quotes.map((a, i) => (
-              <blockquote key={i} className="border-l-2 border-ink-500 pl-3 text-xs text-slateish-300">
+              <blockquote key={i} className="border-l-2 border-ink-500 pl-3 text-xs text-slateish-300" data-testid="card-quote">
                 {a.page != null ? <span className="mr-2 text-slateish-400">page {a.page}</span> : null}{a.quote}
               </blockquote>
             ))}

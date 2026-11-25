@@ -26,6 +26,7 @@ def _alive_worker_with_a_backlog(monkeypatch):
     upload(TestClient(app))
     w = IngestionWorker()
     w._thread = type("T", (), {"is_alive": staticmethod(lambda: True)})()
+    w._review_thread = type("T", (), {"is_alive": staticmethod(lambda: True)})()  # update 7: the review lane's own thread
     w.last_beat = time.time()
     w.last_progress = time.time() - (NO_PROGRESS_SECONDS + 10)
     monkeypatch.setattr(ingest, "get_worker", lambda: w)
@@ -53,8 +54,8 @@ def test_a_slow_review_step_is_busy_not_stuck(monkeypatch):
     seen = {}
 
     def slow_step(job_id, worker_id, heartbeat=None):
-        # The step does not report for a long while (a 35B-model page).
-        w.last_beat = time.time() - (STALL_AFTER_SECONDS + 60)
+        # The step does not report for a long while (a 35B-model page): the REVIEW lane's beat (update 7, #1913).
+        w.last_review_beat = time.time() - (STALL_AFTER_SECONDS + 60)
         seen["health"] = _health()
         seen["status"] = w.status()
         return "done"
@@ -67,9 +68,8 @@ def test_a_slow_review_step_is_busy_not_stuck(monkeypatch):
 
     assert seen["health"]["busy"] is True
     assert not _badge_is_red(seen["health"])
-    assert not any(
-        "pending_but_no_progress" in r for r in seen["status"]["stalled_reasons"]
-    )
+    # update 7 (#1913): uploads no longer queue behind a review, so a review never vouches for a stuck upload lane
+    assert any("pending_but_no_progress" in r for r in seen["status"]["stalled_reasons"])
     assert seen["status"]["reviewing"] is True
 
 
@@ -80,9 +80,9 @@ def test_a_review_that_reports_nothing_for_a_long_time_turns_red_again(monkeypat
     seen = {}
 
     def stuck(job_id, worker_id, heartbeat=None):
-        w.last_beat = time.time() - (REVIEW_SILENCE_SECONDS + 60)
+        w.last_review_beat = time.time() - (REVIEW_SILENCE_SECONDS + 60)
         seen["health"] = _health()
-        w.last_beat = time.time() - (REVIEW_SILENCE_SECONDS - 120)
+        w.last_review_beat = time.time() - (REVIEW_SILENCE_SECONDS - 120)
         seen["quiet_but_alive"] = _health()
         return "done"
 
@@ -103,7 +103,8 @@ def test_the_queue_is_not_called_stuck_the_moment_a_review_ends(monkeypatch):
     monkeypatch.setattr(job_queue, "worker_id", lambda: "w1")
     assert w._drain_review_jobs() is True
     assert w.reviewing is False
-    assert not _badge_is_red(_health())
+    # update 7 (#1913): the ended review leaves no "silent review" reason behind
+    assert not any(r.endswith("_in_review") for r in w.status()["stalled_reasons"])
 
 
 def test_a_review_that_fails_still_clears_busy(monkeypatch):
@@ -130,7 +131,8 @@ def test_a_review_progress_update_counts_as_worker_activity():
     review_jobs._step(_StepConn(), "j", 1, heartbeat=lambda: beats.append("step"))
     assert beats == ["page", "step"]
     w._review_activity()
-    assert time.time() - w.last_beat < 5 and time.time() - w.last_progress < 5
+    # update 7 (#1913): the review lane's own heartbeat; the upload lane's beat and progress are its own
+    assert time.time() - w.last_review_beat < 5 and time.time() - w.last_beat > 900
 
 
 class _NoTransaction:

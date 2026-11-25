@@ -134,12 +134,15 @@ def _route_document_kind(doc_id: str, result: dict) -> None:
 
 
 class IngestionWorker(ReviewDrain):
-    """One worker thread draining the document queue, one document at a time."""
+    """The worker: the UPLOAD lane (this class's own thread: documents one at a time, then rule extraction of new standards) and
+    the REVIEW lane (`worker_review.ReviewDrain`, its own thread). One large local model at a time: `local_model_gate`."""
 
     def __init__(self, poll_seconds: float = 1.0) -> None:
         self.poll_seconds = poll_seconds
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._review_thread: threading.Thread | None = None
+        self.last_review_beat: float = time.time()
         self.current_document: str | None = None
         self.last_beat: float = time.time()
         # Last time a document actually reached a terminal state. Heartbeat
@@ -164,11 +167,15 @@ class IngestionWorker(ReviewDrain):
         self._stop.clear()
         self._thread = threading.Thread(target=self._run, name="ingestion", daemon=True)
         self._thread.start()
+        if not self.review_alive:
+            self._review_thread = threading.Thread(target=self._review_run, name="review", daemon=True)
+            self._review_thread.start()
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=timeout)
+        for thread in (self._thread, self._review_thread):
+            if thread:
+                thread.join(timeout=timeout)
 
     @property
     def alive(self) -> bool:
@@ -210,20 +217,25 @@ class IngestionWorker(ReviewDrain):
         progress_age = now - self.last_progress
         pending, oldest_age = self.backlog()
 
+        from . import local_model_gate
+
         dead = not self.alive
-        # A review on this one thread may wait minutes on a model: while it has reported within `REVIEW_SILENCE_SECONDS` (`in_review`)
-        # the worker is busy, not hung; past that silence it is hung again (the badge turns red).
-        hung = beat_age > STALL_AFTER_SECONDS and not self.in_review()
-        # Documents wait behind a review on this one thread: not ignored work.
-        ignoring_work = (
-            pending > 0 and progress_age > NO_PROGRESS_SECONDS and not self.in_review()
-        )
+        # The upload lane waits for the model only while the review lane holds it (`local_model_gate`): waiting, not hung.
+        waits = local_model_gate.blocked(local_model_gate.UPLOAD)
+        hung = beat_age > STALL_AFTER_SECONDS and not waits
+        # A review that reports nothing past `REVIEW_SILENCE_SECONDS` is hung (the badge turns red), on its own lane.
+        review_silent = self.review_silent_for()
+        ignoring_work = pending > 0 and progress_age > NO_PROGRESS_SECONDS and not waits
 
         reasons = []
         if dead:
             reasons.append("worker_not_running")
+        if self.alive and self._review_thread is not None and not self.review_alive:
+            reasons.append("review_lane_not_running")  # the review thread was started and has died
         if hung:
             reasons.append(f"no_heartbeat_for_{beat_age:.0f}s")
+        if review_silent is not None:
+            reasons.append(f"no_heartbeat_for_{review_silent:.0f}s_in_review")
         if ignoring_work:
             reasons.append(f"{pending}_pending_but_no_progress_for_{progress_age:.0f}s")
 
@@ -231,12 +243,14 @@ class IngestionWorker(ReviewDrain):
             "alive": self.alive,
             "current_document": self.current_document,
             "reviewing": self.in_review(),
+            # uploads that wait now because the review lane holds the local model (the Dashboard's "N uploads waiting")
+            "uploads_waiting_for_review": pending if waits and self.in_review() else 0,
             "seconds_since_heartbeat": round(beat_age, 1),
             "seconds_since_progress": round(progress_age, 1),
             "documents_completed": len(self._completed),
             "pending_count": pending,
             "oldest_pending_age_seconds": oldest_age,
-            "stalled": dead or hung or ignoring_work,
+            "stalled": dead or hung or ignoring_work or review_silent is not None or "review_lane_not_running" in reasons,
             "stalled_reasons": reasons,
             "last_error": self.last_error,
         }
@@ -373,6 +387,14 @@ class IngestionWorker(ReviewDrain):
             return False
 
     def _run(self) -> None:
+        from . import local_model_gate
+
+        with local_model_gate.lane(local_model_gate.UPLOAD):
+            self._upload_run()
+
+    def _upload_run(self) -> None:
+        """The upload lane's loop: documents first, then rule extraction of new standards, then an idle wait. Reviews run on
+        their own lane (`_review_run`), so nothing here waits behind one."""
         while not self._stop.is_set():
             self.last_beat = time.time()
             try:
@@ -385,13 +407,10 @@ class IngestionWorker(ReviewDrain):
                     # so standards extraction is drained HERE - only when no
                     # document needs work - rather than from a second thread
                     # that would compete for the same 16 GB.
-                    # P3: A REVIEW BEFORE STANDARDS EXTRACTION - a person is
-                    # waiting on it; extraction is backfill.
-                    if self._drain_review_jobs():
-                        continue
+                    # Reviews run on their own lane (update 7, #1913): extraction of a new standard never waits behind one.
                     if self._drain_standard_extraction():
                         continue
-                    self._idle_wait()
+                    self._stop.wait(self.poll_seconds)
                     continue
                 self.current_document = doc_id
                 try:

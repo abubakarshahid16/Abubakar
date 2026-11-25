@@ -1011,15 +1011,17 @@ def test_queuing_twice_does_not_stack_two_jobs(tmp_path):
 
 
 def test_no_second_worker_was_added():
-    """Section 24 allows ONE ingestion/review worker. The standards queue is
-    drained by that worker, not by a thread of its own."""
+    """Section 24 allows ONE ingestion/review worker. Update 7 (planner 19 Nov 2026 01:02, #1913): that one worker has two lanes,
+    the upload lane and the review lane, so an upload never waits behind a review; one large local model at a time between them
+    (`local_model_gate`). The standards queue is drained by the upload lane, not by a thread of its own."""
     import inspect
 
     from app import ingest
     source = inspect.getsource(ingest)
     assert "_drain_standard_extraction" in source
-    # One Thread construction in the module, and it is the ingestion worker's.
-    assert source.count("threading.Thread(") == 1
+    # Two Thread constructions in the module: the worker's upload lane and its review lane, nothing else.
+    assert source.count("threading.Thread(") == 2
+    assert 'name="ingestion"' in source and 'name="review"' in source
 
 
 def test_the_job_state_is_not_readable_outside_the_callers_grants(tmp_path):

@@ -198,6 +198,23 @@ _CLAIMABLE = ("(state = 'queued' OR (state = 'retrying'"
               " AND next_attempt_at IS NOT NULL AND next_attempt_at <= :now))")
 
 
+def _paper_read_sql() -> str:
+    """A job whose OWN paper the upload lane is still reading is not claimed (review of 7a, M3): with two lanes a review waits for
+    its paper, as the one thread did on main, and the next job is claimed instead. "Still being read" is the upload lane's own
+    test (`ingest.IngestionWorker._next_document`): a status not settled, or answerable with vectors or the index outstanding.
+    A job whose paper row is gone is claimable (its run says the file is missing)."""
+    from . import states
+
+    settled = ", ".join(f"'{s}'" for s in sorted(states.TERMINAL_STATES | {states.PARTIALLY_SEARCHABLE}))
+    return ("NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = jobs.document_id AND ("
+            f"d.status NOT IN ({settled}) OR (d.status = '{states.PARTIALLY_SEARCHABLE}'"
+            " AND (d.embedded_count < d.chunk_count OR d.indexed_at IS NULL))))")
+
+
+#: The inner pick of every review stage's claim: claimable AND its paper is read (`_paper_read_sql`).
+_CLAIMABLE_READ = f"{_CLAIMABLE} AND {_paper_read_sql()}"
+
+
 def claim_next(worker_id: str) -> str | None:
     """Claim the next review job (one conditional UPDATE). Returns its id."""
     now = _now()
@@ -206,7 +223,7 @@ def claim_next(worker_id: str) -> str | None:
         row = conn.execute(
             f"""UPDATE jobs SET state = 'running', claimed_by = :me, claimed_at = :now,
                        updated_at = :now
-                WHERE id = (SELECT id FROM jobs WHERE stage = :stage AND {_CLAIMABLE}
+                WHERE id = (SELECT id FROM jobs WHERE stage = :stage AND {_CLAIMABLE_READ}
                             ORDER BY priority DESC, started_at LIMIT 1)
                   AND {_CLAIMABLE} AND {job_queue.under_limit_sql()}
                 RETURNING id, review_run_id""",
