@@ -149,7 +149,9 @@ def _places(members: list[dict]) -> list[dict]:
             item["pages"].append(page)
         quote = (m.get("quote") or "").strip()
         if quote and {"page": page, "quote": quote} not in item["quotes"]:
-            item["quotes"].append({"page": page, "quote": quote})  # every quote stays with ITS OWN page
+            item["quotes"].append(
+                {"page": page, "quote": quote}
+            )  # every quote stays with ITS OWN page
         text = place_text(m)
         if text and text not in item["values"]:
             item["values"].append(text)
@@ -157,8 +159,12 @@ def _places(members: list[dict]) -> list[dict]:
         item["pages"].sort()
         if item["pages"]:
             item["page"] = item["pages"][0]
-        item["quotes"].sort(key=lambda q: (q["page"] is None, q["page"] if q["page"] is not None else 0))
-        item["quote"] = next((q["quote"] for q in item["quotes"] if q["page"] == item["page"]), "")  # older readers: the first page's own quote
+        item["quotes"].sort(
+            key=lambda q: (q["page"] is None, q["page"] if q["page"] is not None else 0)
+        )
+        item["quote"] = next(
+            (q["quote"] for q in item["quotes"] if q["page"] == item["page"]), ""
+        )  # older readers: the first page's own quote
         values = item.pop("values")
         item["value"] = values[0] if len(values) == 1 else ""
     return list(out.values())
