@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from .budget import cap
+
 log = logging.getLogger(__name__)
 
 DEFAULT_WINDOW_TOKENS = 60_000
@@ -156,6 +158,7 @@ def windows(paper: Paper, kind: str | None) -> list[list[int]]:
         limit, overlap = 0, 0
     if limit <= 0:
         limit, overlap = DEFAULT_WINDOW_TOKENS, DEFAULT_OVERLAP_PAGES
+    limit = cap(int(limit), "window_tokens")  # smaller on the local model (`budget`)
     return agent_general_review.window_pages(paper.pages, int(limit), int(overlap))
 
 

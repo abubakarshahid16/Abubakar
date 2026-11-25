@@ -28,6 +28,9 @@ FRONTEND_SRC = BACKEND.parent / "frontend" / "src"
 SENTENCES = {
     "AI_MARK": aim_review_gate.AI_MARK,
     "LOCAL_NOT_AVAILABLE": aim_review_gate.LOCAL_NOT_AVAILABLE,
+    "LOCAL_PLAN_WORDS": aim_review_gate.LOCAL_PLAN_WORDS,
+    "LOCAL_RUN_WHY": aim_review_gate.LOCAL_RUN_WHY,
+    "LOCAL_NOT_SCORED": aim_review_gate.LOCAL_NOT_SCORED,
     "NO_CONTRACTOR_COPY_WORDS": aim_review_gate.NO_CONTRACTOR_COPY_WORDS,
     "OLD_ENGINE_OFF_WORDS": aim_review_gate.OLD_ENGINE_OFF_WORDS,
     "EARLIER_VERSION": aim_review_gate.EARLIER_VERSION,
@@ -61,8 +64,9 @@ def test_the_method_route_says_general_when_the_old_engine_is_off(world, monkeyp
     assert _get_method(world) == {
         "method": "general",
         "old_engine": False,
-        "local_available": False,
-        "local_words": aim_review_gate.LOCAL_NOT_AVAILABLE,
+        # Local only runs the general review on the local model (planner 25 Nov 2026 22:35): available, with its own words
+        "local_available": True,
+        "local_words": aim_review_gate.LOCAL_PLAN_WORDS,
         "mark": aim_review_gate.AI_MARK,
     }
 
@@ -71,7 +75,7 @@ def test_the_method_route_says_earlier_when_the_way_back_is_on(world, monkeypatc
     monkeypatch.setattr(settings, "review_old_engine_enabled", True)
     body = _get_method(world)
     assert body["method"] == "earlier" and body["old_engine"] is True
-    assert body["local_available"] is False
+    assert body["local_available"] is True  # a constant since the local route; the screen reads it for the general method only
 
 
 def test_the_method_route_needs_a_signed_in_caller():

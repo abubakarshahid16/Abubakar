@@ -269,7 +269,7 @@ def test_the_dry_run_reviews_five_kinds_end_to_end_with_no_spend(dry):
     assert _ledger_lines() == before  # no money: not one ledger line
 
 
-def test_local_only_in_the_dry_run_queues_nothing(dry):
+def test_local_only_in_the_dry_run_queues_one_local_run(dry):
     paper = PAPERS["datasheet"][0]
     client = TestClient(app)
     before = db.connect().execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
@@ -282,5 +282,8 @@ def test_local_only_in_the_dry_run_queues_nothing(dry):
         },
         headers=dry["headers"],
     )
-    assert r.status_code == 409 and aim_review_gate.LOCAL_NOT_AVAILABLE in r.text
-    assert db.connect().execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == before
+    # planner 25 Nov 2026 22:35: Local only runs the general review on the local model (one job, nothing sent)
+    assert r.status_code == 200, r.text
+    assert db.connect().execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == before + 1
+    run_id = r.json()["review_run_id"]
+    assert review_engine.ai_review_engine(db.connect(), run_id) == review_engine.ON_LOCAL

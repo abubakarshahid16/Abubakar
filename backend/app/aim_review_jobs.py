@@ -12,6 +12,13 @@ Cancel is honoured between steps and between judge batches. A failed run is NEVE
 its run row says "failed" in plain words. No document text is logged or stored here: ids, counts and fixed words only.
 
 With the old engine on (`aim_review_gate.old_engine_on()`): nothing is queued, claimed or recovered here.
+
+LOCAL ONLY (planner 25 Nov 2026 22:35): a run whose stored plan puts the AI review on the local model runs the same method on
+`aim_review.local_model.LocalModel`, barred from Claude for its whole length (`review_engine.barring`; the start's stored bar raises
+it too). Before anything is loaded, `local_model.readiness` must say yes (no other large local model loaded, no heavy job holding
+the machine, enough free memory): else the run stops with that sentence and nothing is run. Nothing is sent, so there is no shown
+list to cap it: it takes the rule books the plan would list (`aim_review.candidates`) inside the starter's scope, and no book joins
+the approved list for it (route 3 is for books the AI reviewer sends to Claude).
 """
 
 from __future__ import annotations
@@ -320,6 +327,89 @@ def _not_read(text) -> dict:
     }
 
 
+#: The stop reason of a local run that did not start (`local_model.readiness` said why); nothing was loaded or run.
+LOCAL_NOT_READY = "local_not_ready"
+
+
+def on_local(conn, run_id: str) -> bool:
+    """True when the run's stored plan puts the AI review on the local model (Local only). A database error propagates."""
+    from . import review_engine
+
+    return review_engine.ai_review_engine(conn, run_id) == review_engine.ON_LOCAL
+
+
+def local_books(conn, paper_id: str, scope: frozenset[str]) -> frozenset[str]:
+    """The rule books a LOCAL run may read: the ones the plan would list for this paper (`aim_review.candidates`, which reads
+    only inside `scope`), minus the paper, and again inside `scope` (rule 5: only narrows). Nothing leaves this computer."""
+    found = aim_review.candidates(
+        conn,
+        paper_id,
+        frozenset(scope),
+        aim_review_store.DbChecklistStore(conn),
+        aim_review_store.unlisted_of_last(conn, paper_id),
+    )
+    return frozenset(
+        str(b["id"]) for b in found.books if b["id"] != paper_id and b["id"] in scope
+    )
+
+
+def local_ready() -> str | None:
+    """None when a local run may load the local model now, else the plain sentence why not (`local_model.readiness`)."""
+    from .aim_review import local_model
+
+    return local_model.readiness()
+
+
+def _local_not_ready(words: str) -> dict:
+    return {
+        "status": "stopped",
+        "stop_reason": f"{LOCAL_NOT_READY}: {words}",
+        "lines": [],
+        "books": [],
+        "usd": 0.0,
+        "seconds": 0.0,
+    }
+
+
+def _prepare(conn, run_id: str, paper_id: str, scope, model):
+    """(local, the rule books the method may read, the model, why a local run may not start or None). A Claude run: the books on
+    the list the screen showed (#1584 route 3: they join the approved list just before the reviewer asks, only when the paper
+    qualifies and only inside the starter's scope; the send gate still decides). A local run: one large local model at a time,
+    and only with the memory to load it (`local_ready`; a test passes its own model and loads nothing), the books the plan would
+    list, and no book joins the approved list (nothing is sent)."""
+    from .aim_review.local_model import LocalModel
+
+    if not on_local(conn, run_id):
+        books = allowed_books(conn, run_id, paper_id, scope)
+        claude_auto_approve.on_agent_standards(paper_id, sorted(books), run_id)
+        return False, books, model, None
+    words = local_ready() if model is None else None
+    if words:
+        return True, frozenset(), model, words
+    return True, local_books(conn, paper_id, scope), model or LocalModel(), None
+
+
+def _method(conn, job_id, run_id, paper_id, books, progress, model, local: bool):
+    """The method on the run's model. A local run is barred from Claude here too, whatever the stored bar says: no step of it
+    can open the Claude lane."""
+    from contextlib import nullcontext
+
+    from . import review_engine
+
+    with review_engine.barring() if local else nullcontext():
+        return aim_review.run(
+            conn,
+            run_id=run_id,
+            paper_id=paper_id,
+            allowed_books=books,
+            store=aim_review_store.DbChecklistStore(conn),
+            max_usd=aim_review_gate.max_usd(),
+            progress=progress,
+            cancelled=lambda: _cancel_requested(conn, job_id),
+            model=model,
+        )
+
+
 def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
     """The old engine was switched on while this job waited: it goes back to the queue untouched (nothing sent)."""
     with conn:
@@ -366,10 +456,9 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
         text = agent_review_text.read(conn, paper_id)
         if text.stops_run(True):
             return _done(conn, job_id, run_id, _not_read(text))
-        books = allowed_books(conn, run_id, paper_id, scope)
-        # #1584 route 3: the rule books the reviewer will ask rules from join the approved list just before it asks, only when the
-        # paper qualifies and only inside the starter's scope (`on_agent_standards`; off: nothing). The send gate still decides.
-        claude_auto_approve.on_agent_standards(paper_id, sorted(books), run_id)
+        local, books, model, words = _prepare(conn, run_id, paper_id, scope, model)
+        if words:  # a local run that may not load the local model now: nothing is loaded, the run says why
+            return _done(conn, job_id, run_id, _local_not_ready(words))
 
         def progress(_pct: int, words: str) -> None:
             if heartbeat is not None:
@@ -381,17 +470,7 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
                         (STEPS.index(words), words, _now(), _now(), job_id),
                     )
 
-        result = aim_review.run(
-            conn,
-            run_id=run_id,
-            paper_id=paper_id,
-            allowed_books=books,
-            store=aim_review_store.DbChecklistStore(conn),
-            max_usd=aim_review_gate.max_usd(),
-            progress=progress,
-            cancelled=lambda: _cancel_requested(conn, job_id),
-            model=model,
-        )
+        result = _method(conn, job_id, run_id, paper_id, books, progress, model, local)
         holder["result"] = _result_dict(result)
         if _cancel_requested(conn, job_id):
             raise _Cancelled()
