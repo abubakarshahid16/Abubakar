@@ -12,10 +12,13 @@ All PyMuPDF work goes through pdf_guard.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from . import pdf_guard
+
+log = logging.getLogger(__name__)
 
 #: PDF names that mean active or hidden content. /OpenAction alone is common and harmless, so it
 #: is not listed: an action that runs a script or launches a program names one of these anyway.
@@ -53,10 +56,13 @@ def check_pdf(path: str | Path) -> dict[str, Any]:
                 return {"status": UNREADABLE, "findings": ["encrypted"]}
             if doc.embfile_count():
                 findings.add("/EmbeddedFile")
-            for xref in range(1, min(doc.xref_length(), MAX_OBJECTS)):
+            if doc.xref_length() > MAX_OBJECTS:  # only part would be looked at: that is "could not be checked", never "clean"
+                return {"status": UNREADABLE, "findings": ["too_many_objects"]}
+            for xref in range(1, doc.xref_length()):
                 try:
                     body = doc.xref_object(xref, compressed=False)
-                except Exception:  # noqa: BLE001 - one damaged object must not hide the rest
+                except Exception as exc:  # noqa: BLE001 - one damaged object must not hide the rest
+                    log.debug("attachment check: object %s unreadable (%s)", xref, type(exc).__name__)
                     continue
                 for name in ACTIVE_CONTENT:
                     # a name token ends at a delimiter, so /JS does not match /JSON
@@ -67,6 +73,7 @@ def check_pdf(path: str | Path) -> dict[str, Any]:
                             findings.add(name)
                             break
                         index = body.find(name, end)
-    except Exception:  # noqa: BLE001 - not a PDF, damaged, or unreadable
+    except Exception as exc:  # noqa: BLE001 - not a PDF, damaged, or unreadable
+        log.info("attachment check: file could not be checked (%s)", type(exc).__name__)
         return {"status": UNREADABLE, "findings": []}
     return {"status": FLAGGED if findings else CLEAN, "findings": sorted(findings)}

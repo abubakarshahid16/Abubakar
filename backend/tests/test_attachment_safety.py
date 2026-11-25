@@ -109,3 +109,18 @@ def test_linking_records_the_result_and_flagged_text_is_not_pulled_into_the_prop
 def test_a_missing_file_is_reported_as_not_checked(storage):
     item = _attached(storage / "gone.pdf", "doc-gone", "gone.pdf")
     assert item["messages"][0]["attachments"][0]["scan_status"] == attachment_safety.NOT_SCANNED
+
+
+def test_a_pdf_with_more_objects_than_the_limit_is_could_not_be_checked_never_clean(tmp_path, monkeypatch):
+    import pymupdf
+
+    from app import attachment_safety as A
+
+    path = tmp_path / "plain.pdf"
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.save(str(path))
+    doc.close()
+    assert A.check_pdf(path)["status"] == A.CLEAN
+    monkeypatch.setattr(A, "MAX_OBJECTS", 1)  # the file now has more objects than the check would read
+    assert A.check_pdf(path) == {"status": A.UNREADABLE, "findings": ["too_many_objects"]}
