@@ -18,7 +18,10 @@ const root = join(process.cwd(), "dist", "assets");
 // Update 5 (19 Nov 2026): 324000 -> 325000 bytes: the contract parts read (How-made), the steps-not-run notice, the card / header /
 // banner wording, the card chips, the plan-check timeout and the dashboard's general reviews (G; lead 4 allowed it); the earlier
 // screens still ship as the way back; retiring them is on the after-proof list.
-const max = 325000;
+// Updates 6 and 7 (25 Nov 2026): 325000 -> 325100 bytes (lead 4 allowed it): the side-claim cut mark on the card (A, update 6;
+// the joined build is 325047) and the "points decided by code" sentence in the results counts (A, update 7, about 10 bytes);
+// the earlier screens still ship as the way back; retiring them is on the after-proof list.
+const max = 325100;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;

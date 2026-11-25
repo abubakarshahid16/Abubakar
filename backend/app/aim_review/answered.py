@@ -50,6 +50,23 @@ SIDE_CLAIM = "side claim answered"
 SIDE_WORDS_MIN = 3
 
 
+#: Code's own words of a cut (`_outcome`), read back for the card and the team file (never the comment, never the contractor copy).
+_CUT = re.compile(
+    re.escape(SIDE_CLAIM)
+    + r': the paper covers ".*?" on page (\d+): ".*?" - cut from the comment, which read before the cut: "(.*?)"(?=; |$)',
+    re.S,
+)
+
+
+def cuts_of(code_note) -> list[dict]:
+    """Each side-claim cut a line's note records: {"page": the page the paper answers it on, "before": the comment's full text
+    before the cut}. The owner's rule: no text is cut without a visible mark and the full text beside it."""
+    return [
+        {"page": int(m.group(1)), "before": m.group(2)}
+        for m in _CUT.finditer(str(code_note or ""))
+    ]
+
+
 def protected(line: dict) -> bool:
     """The judge suspects a STATED value ("concern"), or two readers found the same point: the paper covering a side claim of
     the comment never answers it (a datasheet copy of 19 Nov: a test set to NO and a hardness above the limit were taken off
