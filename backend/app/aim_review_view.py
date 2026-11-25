@@ -272,12 +272,22 @@ def _keys(sent: list[dict]) -> dict[int, tuple]:
     lines, sheets and pages (the repeats a strict judge marks WEAK). Lines of DIFFERENT
     items are never merged, whatever their label or rule book (18 Nov 2026: long lists of different points buried findings a
     senior engineer would raise one by one), so a code-compared Fail never joins a Question. A line with no item stays alone.
-    Every sent line is in exactly one comment, which keeps each place's own words; every line stays a point."""
-    return {
-        p["n"]: ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
-                 _provisional_kind(p.get("code_note")))
-        for p in sent
-    }  # fmt: skip
+    Every sent line is in exactly one comment, which keeps each place's own words; every line stays a point.
+    ONE POINT, ONE COMMENT (update 7, the live datasheet: one point sent twice, and a card of an always-on item listing six
+    unrelated fields): lines of one item that the editor (S5) put in DIFFERENT groups are different points, so each keeps its own
+    group mark in the key and joins its group (`aim_review_merge.same_group`); and the always-on items report each place as its
+    own finding (`always.G1_CHECK` ...), so their lines are keyed by field too."""
+    from .aim_review.always import TOPIC as ALWAYS
+
+    def key(p: dict) -> tuple:
+        group = (
+            p.get("same_point_as") if isinstance(p.get("same_point_as"), int) else None
+        )
+        own = _field_key(p.get("field")) if p.get("topic") == ALWAYS else ""
+        return ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
+                _provisional_kind(p.get("code_note")), group, own)  # fmt: skip
+
+    return {p["n"]: key(p) for p in sent}
 
 
 def group_comments(points: list[dict]) -> list[dict]:
