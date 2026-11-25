@@ -91,8 +91,10 @@ export const RUN_STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-export function runStatusLabel(status: string | null | undefined): string {
+export function runStatusLabel(status: string | null | undefined, waitingReason?: string | null): string {
   if (!status) return "";
+  // a queued review parked behind its paper's reading says why ("waiting: its paper is still being read"), never a bare "queued"
+  if (status === "queued" && waitingReason) return waitingReason;
   return Object.prototype.hasOwnProperty.call(RUN_STATUS_LABEL, status)
     ? RUN_STATUS_LABEL[status] : status;
 }

@@ -392,3 +392,13 @@ describe("#1638 stated, not checked", () => {
     expect(findingLabel({ compliance_status: "COMPLIANT" })).toBe("Compliant");
   });
 });
+
+describe("a queued review parked behind its paper's reading says why", () => {
+  it("shows the server's reason instead of a bare 'Waiting to start', and only for a queued run", async () => {
+    const { runStatusLabel } = await import("./reviewFormat");
+    expect(runStatusLabel("queued", "waiting: its paper is still being read")).toBe("waiting: its paper is still being read");
+    expect(runStatusLabel("queued", null)).toBe("Waiting to start");
+    expect(runStatusLabel("queued")).toBe("Waiting to start");
+    expect(runStatusLabel("running", "waiting: its paper is still being read")).toBe("Running");
+  });
+});
