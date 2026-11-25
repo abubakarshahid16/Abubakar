@@ -176,7 +176,6 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
  "ask": for a "Question" only: "concern" if you suspect the stated value is wrong or does not fit the clause (say which rule in
         the comment), "confirm" if nothing is suspected and the vendor only needs to confirm it,
  "numbers": {"paper_value": "...", "paper_unit": "...", "operator": "<=|>=|<|>|==|!=", "rule_value": "...", "rule_unit": "...",
-             each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),
              "limit_quote": only when the limit is stated on THE PAPER and not in the clause: the exact paper words that state
              rule_value (5 to 30 words from one page), "limit_page": that paper page}
             or null,
@@ -413,3 +412,20 @@ def _shape_blocks(body: dict) -> list[str]:
     if caches > 4:
         out.append(f"{caches} cache_control blocks (at most 4)")
     return out
+
+
+#: The local model's judge line on values (26 Nov 2026: the 14B did its own unit conversions and sums, so code could not find its
+#: figures in the quotes). The local route only; on Claude it is part of update 7b, off until the paid score.
+PRINTED_LINE = "             each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),\n"
+_NUMBERS_ANCHOR = '"rule_value": "...", "rule_unit": "...",\n'
+
+
+def judge_task() -> str:
+    """S4_TASK as main sends it; on the local model with PRINTED_LINE in the "numbers" field."""
+    from .budget import is_local
+
+    return (
+        S4_TASK.replace(_NUMBERS_ANCHOR, _NUMBERS_ANCHOR + PRINTED_LINE, 1)
+        if is_local()
+        else S4_TASK
+    )

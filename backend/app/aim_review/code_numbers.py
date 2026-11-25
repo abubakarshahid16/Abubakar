@@ -89,8 +89,15 @@ def met_unproven(said, label: str, nums, deferred: bool, code_cmp) -> list[str]:
     Question): an AI verdict of a pass is internal only, kept on All points, never sent. The same rule as the Claude line
     (o14/u7b-A `verify.met_unproven`), here for the local model."""
     from . import AI_MET_UNPROVEN
+    from .budget import is_local
 
-    if said != "Met" or label != "Question" or deferred or not isinstance(nums, dict):
+    if (
+        not is_local()
+        or said != "Met"
+        or label != "Question"
+        or deferred
+        or not isinstance(nums, dict)
+    ):
         return []
     if isinstance(code_cmp, dict) and code_cmp.get("result") in ("pass", "fail"):
         return []

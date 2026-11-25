@@ -291,7 +291,9 @@ def test_on_the_local_model_a_met_code_could_not_prove_is_never_sent():
         )  # 2 mm is not in the quote: code cannot prove it
     assert line["label"] == "Question" and aim_review.AI_MET_UNPROVEN in line["code"]
     assert not aim_review.sendable(to_line(1, line))
-    assert "exactly as PRINTED (never converted or worked out" in P.S4_TASK
+    with budget.using(budget.LOCAL):
+        assert "exactly as PRINTED (never converted or worked out" in P.judge_task()  # the local model's judge line
+    assert "exactly as PRINTED" not in P.judge_task()  # Claude: main's judge text
 
 
 class _Cuts(_Retry):
