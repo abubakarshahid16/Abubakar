@@ -424,7 +424,7 @@ def test_x_total_cap_is_checked_before_a_retry(copy_db, run_dir):
     prov = al.FakeProvider([boom_and_spend, fin(1), NONE_LEFT])
     import contextlib
 
-    consent = SimpleNamespace(per_request_consent=lambda _ids: contextlib.nullcontext())
+    consent = SimpleNamespace(carrying=lambda _ids: contextlib.nullcontext())
     out = go(copy_db, run_dir, prov, [item(1, repeat=True)], claude=True, consent=consent,
              documents=["D1"], ledger=lambda _s: spent["v"], total_cap_usd=10.0)  # fmt: skip
     assert out["stopped"] == "total cap for the agent test" and len(prov.calls) == 1
