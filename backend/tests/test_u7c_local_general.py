@@ -50,7 +50,13 @@ def unloaded(monkeypatch) -> list[str]:
         local_model, "_show", lambda name: {"capabilities": ["completion"]}
     )
     monkeypatch.setattr(local_model, "_unload", gone.append)
+    monkeypatch.setattr(
+        local_model, "_probe", lambda name, num_ctx: None
+    )  # a model that gives the shape
     return gone
+
+
+REAL_PROBE = local_model._probe
 
 
 @pytest.fixture
@@ -719,3 +725,81 @@ def test_without_the_answer_schema_module_every_step_keeps_plain_json(monkeypatc
         sys.modules, "app.aim_review.answer_schema", None
     )  # the module is absent: import fails
     assert local_model._answer_shape("aim_identify") == "json"
+
+
+def _refused_shape(status: int = 501):
+    def post_json(path, body, *, timeout):
+        request = model_transport.httpx.Request("POST", "http://127.0.0.1:11434" + path)
+        response = model_transport.httpx.Response(
+            status, request=request, json={"error": "invented refusal"}
+        )
+        raise model_transport.httpx.HTTPStatusError(
+            "invented", request=request, response=response
+        )
+
+    return post_json
+
+
+def test_a_model_that_cannot_give_the_answer_shape_never_starts_a_run(
+    world, monkeypatch
+):
+    """F, 26 Nov 2026: one 9B build answered HTTP 501 "structured output is unavailable" to format=json, so every run on it
+    died at its first call. The start check now asks one tiny structured answer first (no document): refused, no run."""
+    _no_claude(monkeypatch)
+    monkeypatch.setattr(local_model, "_probe", REAL_PROBE)
+    monkeypatch.setattr(model_transport, "post_json", _refused_shape())
+    name = "invented-small:9b"
+    assert local_model._probe(name, 28_672) == local_model.NO_SHAPE.format(name=name)
+    _engine(monkeypatch, installed=[name], loaded=[])
+    assert local_model.readiness([name], 28_672) == local_model.NO_SHAPE.format(
+        name=name
+    )
+    # through the job: the run stops before anything else, the record and the page say so in plain words
+    monkeypatch.setattr(
+        aim_review_jobs,
+        "local_ready",
+        lambda model: local_model.readiness([name], model.budget.num_ctx),
+    )
+    paper_id = PAPERS["datasheet"][0]
+    run_id = _start_local(world, paper_id)
+    worker = job_queue.worker_id()
+    assert (
+        aim_review_jobs.run(aim_review_jobs.claim_next(worker), worker)
+        == job_queue.DONE
+    )
+    run = _run_row(run_id)
+    words = local_model.NO_SHAPE.format(name=name)
+    assert (
+        run["status"] == "stopped" and run["stop_reason"] == f"local_not_ready: {words}"
+    )
+    assert (
+        json.loads(run["calls_json"] or "[]") == []
+    )  # nothing was asked of the review's steps
+    page = (
+        TestClient(app)
+        .get(f"/api/reviews/papers/{paper_id}/general", headers=world["headers"])
+        .json()
+    )
+    assert words in str(page["stop_reason"])
+
+
+def test_the_probe_sends_no_document_and_a_model_that_answers_passes(monkeypatch):
+    sent = []
+    monkeypatch.setattr(local_model, "_probe", REAL_PROBE)
+    monkeypatch.setattr(
+        model_transport,
+        "post_json",
+        lambda path, body, *, timeout: sent.append(body) or {"message": {}},
+    )
+    assert local_model._probe("invented-mid:14b", 28_672) is None
+    [body] = sent
+    assert body["messages"] == [{"role": "user", "content": local_model.PROBE_PROMPT}]
+    assert body["options"]["num_ctx"] == 28_672 and body[
+        "format"
+    ] == local_model._answer_shape("aim_identify")
+
+    def down(*_a, **_k):
+        raise model_transport.httpx.ConnectError("invented")
+
+    monkeypatch.setattr(model_transport, "post_json", down)
+    assert local_model._probe("invented-mid:14b", 28_672) == local_model.ENGINE_DOWN

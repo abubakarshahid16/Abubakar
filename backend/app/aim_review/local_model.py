@@ -465,6 +465,43 @@ def readiness(names=None, num_ctx: int = LOCAL.num_ctx) -> str | None:
                 need=round(need / 1e9, 1),
                 ctx=int(num_ctx),
             )
+    # last, with the memory known to hold it: each model must give a structured answer (F, 26 Nov 2026: one 9B build answers
+    # HTTP 501 "structured output is unavailable", so every run on it died at its first call)
+    return next((w for w in (_probe(n, num_ctx) for n in names) if w), None)
+
+
+NO_SHAPE = "this model cannot give the answer shape the review needs: {name}"
+#: The probe's request: no document, a one-word answer in the shape the review asks for.
+PROBE_PROMPT = 'Answer with this JSON only: {"ok": true}'
+
+
+def _probe(name: str, num_ctx: int) -> str | None:
+    """One tiny structured-output call to `name` (no document is sent), in the shape the review's first step asks for and at the
+    run's window (so the model the run then uses is already loaded). None when it answers; `NO_SHAPE` when the engine refuses
+    the shape (an HTTP error from it); `ENGINE_DOWN` when it cannot be reached. Codes only are logged."""
+    from app import model_transport
+
+    body = {
+        "model": name,
+        "messages": [{"role": "user", "content": PROBE_PROMPT}],
+        "stream": False,
+        "format": _answer_shape("aim_identify"),
+        "options": {"temperature": 0, "num_ctx": int(num_ctx), "num_predict": 16},
+    }
+    if "thinking" in (_show(name).get("capabilities") or []):
+        body["think"] = False
+    try:
+        model_transport.post_json("/api/chat", body, timeout=CALL_TIMEOUT_SECONDS)
+    except model_transport.httpx.HTTPStatusError as exc:
+        log.info(
+            "local readiness: %s refused the answer shape (HTTP %s)",
+            name,
+            exc.response.status_code,
+        )
+        return NO_SHAPE.format(name=name)
+    except Exception as exc:  # noqa: BLE001 - an engine that cannot be asked is not ready
+        log.info("local readiness: probe of %s failed (%s)", name, type(exc).__name__)
+        return ENGINE_DOWN
     return None
 
 
