@@ -676,6 +676,8 @@ def build(conn, run: dict, scope=None) -> dict:
         "mark": aim_review_gate.AI_MARK,
         "status": status,
         "stop_reason": _blank(run.get("stop_reason")),
+        # a stop for an account refusal says so in plain words, at the top of the page (never only the stop code)
+        "stop_words": aim_review_gate.account_words(run.get("stop_reason")),
         "identity": {
             k: _blank(identity.get(k)) for k in ("kind", "equipment_type", "subject")
         },

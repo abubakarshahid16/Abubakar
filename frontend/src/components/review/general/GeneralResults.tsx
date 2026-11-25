@@ -82,6 +82,11 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
 
   return (
     <div data-testid="general-results" className="space-y-4">
+      {review.stop_words && (
+        <div role="alert" data-testid="general-account-stop" className="rounded-[var(--radius-md)] border border-danger-500 p-3 text-sm text-danger-500">
+          <strong>This review did not finish.</strong> {review.stop_words}
+        </div>
+      )}
       <div role="note" data-testid="general-mark" className="rounded-[var(--radius-md)] border border-signal-400 p-3 text-sm text-slateish-100">
         {signoff?.state === "signed" && signoff.signed ? (
           <>
@@ -99,7 +104,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
 
       {review.status === "stopped" && (
         <p role="alert" data-testid="general-stopped" className="text-sm text-danger-500">
-          This review stopped early{review.stop_reason ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
+          This review stopped early{review.stop_reason && !review.stop_words ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
         </p>
       )}
       {!c.ok && (

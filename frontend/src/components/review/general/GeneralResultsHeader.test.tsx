@@ -58,5 +58,20 @@ describe("GeneralResults header", () => {
     mount(review({ pages_not_read: [] }));
     expect(screen.queryByTestId("general-pages-not-read")).toBeNull();
   });
+
+  it("a review that stopped because the Claude account has no credit says so at the top in plain words, not only a stop code", () => {
+    const words = "The AI account has no credit left, so the Claude steps cannot run. Choose Local only, or ask the owner to add credit.";
+    mount(review({ status: "stopped", stop_reason: "aim_judge: stop account_no_credit", stop_words: words }));
+    const top = screen.getByTestId("general-account-stop");
+    expect(top).toHaveTextContent("This review did not finish.");
+    expect(top).toHaveTextContent(words);
+    expect(screen.getByTestId("general-stopped")).not.toHaveTextContent("account_no_credit"); // the code is not the message
+  });
+
+  it("any other stop keeps the code and shows no account alert", () => {
+    mount(review({ status: "stopped", stop_reason: "run_cap: the run cap" }));
+    expect(screen.queryByTestId("general-account-stop")).toBeNull();
+    expect(screen.getByTestId("general-stopped")).toHaveTextContent("run_cap");
+  });
 });
 

@@ -180,6 +180,29 @@ def _unscored_note(facts) -> str:
     return agent_review_gate.UNSCORED_WORDS
 
 
+ACCOUNT_REFUSAL_HOURS = 24
+
+
+def _recent_account_refusal(conn) -> str | None:
+    """The plain sentence when a general review of the last day STOPPED because the Claude account cannot answer, else None. It says what
+    the last review met, not that the account is still empty (credit may have been added since)."""
+    from datetime import UTC, datetime, timedelta
+
+    from . import aim_review_gate, aim_review_store
+
+    if not aim_review_store.has_tables(conn):
+        return None
+    since = (datetime.now(UTC) - timedelta(hours=ACCOUNT_REFUSAL_HOURS)).isoformat(timespec="seconds")
+    row = conn.execute(
+        f"SELECT stop_reason FROM {aim_review_store.RUNS} WHERE status = 'stopped' AND created_at >= ? AND ("
+        + " OR ".join("stop_reason LIKE ?" for _ in aim_review_gate.ACCOUNT_WORDS)
+        + ") ORDER BY created_at DESC LIMIT 1",
+        (since, *[f"%{c}%" for c in aim_review_gate.ACCOUNT_WORDS]),
+    ).fetchone()
+    words = aim_review_gate.account_words(row["stop_reason"]) if row else None
+    return f"The last review's Claude call was refused. {words}" if words else None
+
+
 def general_plan(
     conn, document_id, allowed, plan, facts, reading, out: dict, project_ids=()
 ) -> dict:
@@ -208,6 +231,8 @@ def general_plan(
         "exact": False,
     }
     out["notes"] = _notes(plan, settings)
+    if refusal := _recent_account_refusal(conn):  # the last Claude call was refused by the account: say it before the start
+        out["notes"] = [*out["notes"], refusal]
     if plan.refused:
         out["sentence"] = (
             plan.refused if plan.refused.endswith(".") else plan.refused + "."

@@ -311,7 +311,11 @@ def _summary(ws: Worksheet, model: dict) -> None:
         (
             "Status",
             model["status"]
-            + (f": {model['stop_reason']}" if model.get("stop_reason") else ""),
+            + (
+                f": {model.get('stop_words') or model['stop_reason']}"
+                if model.get("stop_reason")
+                else ""
+            ),
         ),
         ("Kind of paper", model["identity"].get("kind")),
         ("Equipment type", model["identity"].get("equipment_type")),
