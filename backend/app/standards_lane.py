@@ -50,18 +50,29 @@ def not_standards(conn, ids) -> list[str]:
     return bad
 
 
+class Checked(frozenset):
+    """Document ids `check` verified (only this module makes one): lets a worker thread, which holds no database connection,
+    open the lane for ids inside a set the main thread checked."""
+
+
+def check(conn, document_ids) -> Checked:
+    """The ids, verified as held company standards of an allowed family; `NotStandardsLane` for anything else (or no ids)."""
+    ids = frozenset(str(d) for d in (document_ids or ()) if d)
+    bad = not_standards(conn, ids) if conn is not None else sorted(ids)
+    if bad or not ids:
+        raise NotStandardsLane(f"not a held standard of an allowed family (ids: {', '.join(bad) or 'none'}); nothing is sent")
+    return Checked(ids)
+
+
 @contextlib.contextmanager
-def open_for(conn, document_ids):
-    """Declare exactly these documents for the Claude calls inside, by the standards lane; refused before anything is
-    declared when one of them is not a held company standard of an allowed family."""
+def open_for(conn, document_ids, checked: Checked | None = None):
+    """Declare exactly these documents for the Claude calls inside, by the standards lane: each is checked here (`check`), or
+    lies inside `checked`, a set `check` made earlier. Anything else is refused before anything is declared."""
     from . import claude_approved
 
     ids = frozenset(str(d) for d in (document_ids or ()) if d)
-    bad = not_standards(conn, ids)
-    if bad or not ids:
-        raise NotStandardsLane(
-            f"not a held standard of an allowed family (ids: {', '.join(bad) or 'none'}); nothing is sent"
-        )
+    if not (isinstance(checked, Checked) and ids and ids <= checked):
+        check(conn, ids)
     carried, verified = claude_approved._CARRIED.set(ids), _VERIFIED.set(ids)
     try:
         yield
