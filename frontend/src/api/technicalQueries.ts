@@ -21,7 +21,7 @@ export interface TechnicalQuery {
   /** The newest "prepare evidence" job: it runs in the background, one at a time, and waits for a running review. */
   evidence_job?: { id: string; state: "queued" | "running" | "done" | "failed"; progress_done: number; progress_total: number; label: string | null; error: string | null } | null;
   /** How many contracts the evidence search covered: "Searched N of N contracts, hits in M." */
-  evidence_coverage?: { searched: number; of: number; hits_in: number; failed: number; line: string; likely_not_covered?: boolean; not_covered_line?: string | null; matching_passages?: number; key_terms?: number } | null;
+  evidence_coverage?: { searched: number; of: number; hits_in: number; failed: number; line: string; matching_passages?: number; key_terms?: number; /** The best passage's own reranker score: a number from the search, never a verdict. */ top_rerank_score?: number | null } | null;
   confirmed_question?: string | null;
   confirmed_question_by?: string | null;
   confirmed_question_at?: string | null;

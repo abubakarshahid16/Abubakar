@@ -236,6 +236,8 @@ def _ensure_schema() -> None:
         }
         if "attachment_checked_at" not in evidence_columns:
             conn.execute("ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT")
+        if "rank_score" not in evidence_columns:
+            conn.execute("ALTER TABLE query_evidence ADD COLUMN rank_score REAL")  # the reranker's own score of the passage for this question
         for column in ("match_count", "match_terms", "match_ok"):  # how many of the question's key terms the passage holds (technical_query_match)
             if column not in evidence_columns:
                 conn.execute(f"ALTER TABLE query_evidence ADD COLUMN {column} INTEGER")
@@ -794,7 +796,7 @@ def get(
         result["evidence"] = [
             dict(r)
             for r in conn.execute(
-                "SELECT * FROM query_evidence WHERE query_id=? ORDER BY created_at",
+                "SELECT * FROM query_evidence WHERE query_id=? ORDER BY (rank_score IS NULL), rank_score DESC, created_at",
                 (query_id,),
             )
         ]
@@ -1305,13 +1307,13 @@ def prepare_evidence(
                         (standing, known["id"]),
                     )
                 conn.execute(  # the match for THIS question and a locator when there was none; never an overwrite of a locator
-                    "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,locator=COALESCE(locator,?) WHERE id=?",
-                    (sc["count"], sc["terms"], int(sc["matches"]), locator, known["id"]),
+                    "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,rank_score=?,locator=COALESCE(locator,?) WHERE id=?",
+                    (sc["count"], sc["terms"], int(sc["matches"]), passage.get("rerank_score"), locator, known["id"]),
                 )
                 continue
             evidence_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at,match_count,match_terms,match_ok) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?,?,?,?)",
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at,match_count,match_terms,match_ok,rank_score) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?,?,?,?,?)",
                 (
                     evidence_id,
                     query_id,
@@ -1326,16 +1328,19 @@ def prepare_evidence(
                     sc["count"],
                     sc["terms"],
                     int(sc["matches"]),
+                    passage.get("rerank_score"),
                 ),
             )
-        coverage.update(technical_query_match.coverage_of(terms, scores))  # decided by code: no passage holds the question's key terms
+        coverage.update(technical_query_match.coverage_of(terms, scores))  # counts, as information only
+        top = max((h.get("rerank_score") for h in hits if h.get("rerank_score") is not None), default=None)
+        coverage["top_rerank_score"] = None if top is None else round(float(top), 3)  # the best passage's own reranker score, a plain number
         conn.execute("UPDATE technical_queries SET evidence_coverage=? WHERE id=?", (json.dumps(coverage), query_id))
         _event(
             conn,
             query_id,
             "evidence_prepared",
             actor_user_id,
-            f"passages={len(hits)}; {coverage['line']}" + (f" {coverage['not_covered_line']}" if coverage.get("likely_not_covered") else ""),
+            f"passages={len(hits)}; {coverage['line']}",
         )
     return get(query_id, user_id, is_admin, unrestricted)
 

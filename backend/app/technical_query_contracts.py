@@ -77,7 +77,8 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
         ][:PER_CONTRACT]
         hits_in += 1 if found else 0
         hits.extend(found)
-    hits.sort(key=lambda h: float(h.get("score") or 0.0), reverse=True)
+    # ranked by the RERANKER's own score (the search's `score` adds boosts and penalties on top of it); a passage with none ranks by its score
+    hits.sort(key=lambda h: float(h["rerank_score"] if h.get("rerank_score") is not None else (h.get("score") or 0.0)), reverse=True)
     coverage = {
         "searched": searched,
         "of": len(contracts),

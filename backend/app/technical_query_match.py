@@ -6,9 +6,9 @@ LOCATOR. "clause 6.1, page 4", not just a page. Read from the passage's own head
 the nearest clause heading ABOVE the passage on its page (else the last heading of the page before). A heading is only a line that looks like
 one ("6.1 Painting", "Article 6 ...", "6 GENERAL"); a table row ("12 Set pressure bar") is not. Nothing found = no locator (never a guess).
 
-MATCH SCORE. How many of the question's KEY TERMS the passage holds (its distinctive words, no filler), shown as "4 of 6 key terms". A passage MATCHES when it holds at
-least half of the key terms (every one when there are only one or two). When the query has key terms and NO passage matches, the screen
-says so: "no passage matches the question's key terms: likely not covered". No model, no wording of the passage is changed.
+KEY-TERM COUNT, INFORMATION ONLY. How many of the question's KEY TERMS the passage holds (its distinctive words, no filler), shown as "4 of 6 key
+terms". It is never used to say that a question is "not covered": measured on the 12-question test (26 Nov 2026) the overlap missed 7 of 10 answered
+questions, because contractors word questions their own way. Passages are ranked by the reranker's own score (`rank_score`).
 """
 
 from __future__ import annotations
@@ -70,16 +70,15 @@ def score(terms: list[str], text: str) -> dict:
     }
 
 
-NOT_COVERED_LINE = "No passage matches the question's key terms: likely not covered."
-
-
 def coverage_of(terms: list[str], scores: list[dict]) -> dict:
-    """The query-level verdict: how many passages match, and whether the question is likely not covered (decided by code; undecided when the
-    question has no key terms or there are no passages at all)."""
-    matching = sum(1 for s in scores if s["matches"])
-    likely = bool(terms) and bool(scores) and matching == 0
-    return {"key_terms": len(terms), "passages": len(scores), "matching_passages": matching, "likely_not_covered": likely,
-            "not_covered_line": NOT_COVERED_LINE if likely else None}  # fmt: skip
+    """Counts only, as INFORMATION: how many key terms the question has, how many passages there are, how many hold at least half of them.
+    No verdict is drawn from them (a contractor words a question their own way, so a low overlap does not mean "not covered": measured on the
+    12-question test, 26 Nov 2026, it was wrong on 7 of 10 answered questions)."""
+    return {
+        "key_terms": len(terms),
+        "passages": len(scores),
+        "matching_passages": sum(1 for s in scores if s["matches"]),
+    }
 
 
 # ------------------------------------------------------------------ the locator

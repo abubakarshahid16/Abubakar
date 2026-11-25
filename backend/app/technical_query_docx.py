@@ -110,8 +110,8 @@ def render(query: dict, output: Path | None = None) -> Path:
     coverage = query.get("evidence_coverage") or {}
     if coverage.get("line"):
         paragraphs.append(_p(str(coverage["line"])))
-    if coverage.get("likely_not_covered"):
-        paragraphs.append(_p(str(coverage.get("not_covered_line") or "")))
+    if coverage.get("top_rerank_score") is not None:
+        paragraphs.append(_p(f"Best passage's relevance score (the search reranker's own score, a number and not a verdict): {coverage['top_rerank_score']}."))
     listed = [e for e in query.get("evidence") or [] if e.get("evidence_state", "verified") == "verified"]
     if not listed:
         paragraphs.append(

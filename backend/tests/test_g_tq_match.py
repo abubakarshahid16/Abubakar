@@ -107,7 +107,7 @@ def test_a_passage_matches_with_half_of_the_key_terms_and_the_count_is_stated():
     )
 
 
-def test_when_no_passage_matches_the_line_says_likely_not_covered_and_otherwise_nothing():
+def test_the_key_term_counts_are_information_only_no_verdict_is_drawn_from_them():
     terms = M.key_terms("coating thickness for carbon steel tanks")
     none = M.coverage_of(
         terms,
@@ -116,21 +116,14 @@ def test_when_no_passage_matches_the_line_says_likely_not_covered_and_otherwise_
             M.score(terms, "Payment is monthly."),
         ],
     )
-    assert (
-        none["likely_not_covered"] is True
-        and none["not_covered_line"]
-        == "No passage matches the question's key terms: likely not covered."
+    assert none == {
+        "key_terms": 5,
+        "passages": 2,
+        "matching_passages": 0,
+    }  # counts only: nothing says "not covered"
+    assert "not covered" not in repr(none).casefold() and not hasattr(
+        M, "NOT_COVERED_LINE"
     )
-    some = M.coverage_of(
-        terms, [M.score(terms, "Carbon steel tanks get coating thickness.")]
-    )
-    assert some["likely_not_covered"] is False and some["not_covered_line"] is None
-    assert (
-        M.coverage_of([], [M.score([], "x")])["likely_not_covered"] is False
-    )  # a question with no key terms: undecided, not "not covered"
-    assert (
-        M.coverage_of(terms, [])["likely_not_covered"] is False
-    )  # no passages at all: the coverage line already says nothing was found
 
 
 def _query_with_contract(monkeypatch, body, page_text):
@@ -186,8 +179,8 @@ def test_prepare_evidence_stores_the_locator_and_the_match_and_shows_it_in_the_c
         1,
     )  # all but 'thickness': the passage says coats and microns
     assert (
-        got["evidence_coverage"]["likely_not_covered"] is False
-        and got["evidence_coverage"]["matching_passages"] == 1
+        got["evidence_coverage"]["matching_passages"] == 1
+        and "likely_not_covered" not in got["evidence_coverage"]
     )
     tq.update_evidence(
         item["id"],
@@ -211,7 +204,7 @@ def test_prepare_evidence_stores_the_locator_and_the_match_and_shows_it_in_the_c
     assert "6.1 Painting" in word and "4 of 5 key terms" in word
 
 
-def test_a_question_no_passage_answers_is_flagged_likely_not_covered_and_the_word_file_says_so(
+def test_a_question_no_passage_holds_the_key_terms_of_is_never_called_not_covered_and_the_top_reranker_score_is_shown(
     monkeypatch, tmp_path
 ):
     from zipfile import ZipFile
@@ -234,26 +227,71 @@ def test_a_question_no_passage_answers_is_flagged_likely_not_covered_and_the_wor
                     "page_end": 4,
                     "text": quote,
                     "score": 1.0,
+                    "rerank_score": 0.4123,
                 }
             ]
         },
     )
     got = tq.prepare_evidence(item["id"], frozenset({"con-a"}), "u1", True, False, "u1")
-    assert got["evidence_coverage"]["likely_not_covered"] is True
+    coverage = got["evidence_coverage"]
+    assert coverage["matching_passages"] == 0 and coverage["top_rerank_score"] == 0.412
     assert (
-        got["evidence_coverage"]["not_covered_line"]
-        == "No passage matches the question's key terms: likely not covered."
+        "likely_not_covered" not in coverage and "not_covered_line" not in coverage
+    )  # no verdict from the key-term overlap
+    assert (
+        got["evidence"][0]["match_ok"] == 0
+        and got["evidence"][0]["locator"] is None
+        and got["evidence"][0]["rank_score"] == 0.4123
     )
-    assert (
-        got["evidence"][0]["match_ok"] == 0 and got["evidence"][0]["locator"] is None
-    )  # no heading found: left empty, never guessed
-    tq.add_draft(item["id"], "Not covered.", [], [], "u1", "u1", True, False)
+    tq.add_draft(item["id"], "Draft.", [], [], "u1", "u1", True, False)
     word = (
         ZipFile(render(tq.get(item["id"], "u1", True, False), tmp_path / "n.docx"))
         .read("word/document.xml")
         .decode()
     )
-    assert "likely not covered" in word
+    assert (
+        "not covered" not in word.casefold()
+        and "relevance score" in word
+        and "0.412" in word
+    )
+
+
+def test_passages_are_ranked_by_the_rerankers_own_score_across_contracts_and_listed_in_that_order(
+    monkeypatch,
+):
+    from app import technical_query_contracts as TC
+
+    on(monkeypatch)
+    for d in ("con-a", "con-b", "con-c"):
+        hold_contract(d)
+    scores = {
+        "con-a": (0.30, 9.0),
+        "con-b": (0.80, 1.0),
+        "con-c": (0.55, 5.0),
+    }  # (reranker score, final score with boosts): they disagree
+
+    def fake(question, **kw):
+        d = kw["document_id"]
+        return {
+            "hits": [
+                {
+                    "document_id": d,
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": f"text {d}",
+                    "rerank_score": scores[d][0],
+                    "score": scores[d][1],
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.search.search", fake)
+    got = TC.search_all("a question", frozenset({"con-a", "con-b", "con-c"}))
+    assert [h["document_id"] for h in got["hits"]] == [
+        "con-b",
+        "con-c",
+        "con-a",
+    ]  # by the reranker's score, not the boosted one
 
 
 @pytest.mark.parametrize("setting", [settings])
