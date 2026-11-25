@@ -30,9 +30,9 @@ def test_na_is_an_answer_not_a_blank():
 
 
 def test_a_value_with_a_marker_anywhere_is_still_blank():
-    """THE MUTATION TARGET (M1313): "340 psig By Contractor" is a provisional
+    """THE MUTATION TARGET (M1313): "315 psig By Contractor" is a provisional
     figure, not a value - the marker can sit inside a longer cell."""
-    is_blank, marker = blank_markers.classify("340 psig By Contractor /Vendor")
+    is_blank, marker = blank_markers.classify("315 psig By Contractor /Vendor")
     assert is_blank is True
     assert "contractor" in marker.lower()
 

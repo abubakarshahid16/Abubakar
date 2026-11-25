@@ -3,7 +3,7 @@
 MEASURED ON THE CLIENT PSV SHEET. Seventeen values on it are range-shaped and
 none of them parsed: `-5 to 58 C & 0 to 100%` is two quantities sharing a row,
 `27.5 / 12.04 barg` is the design pressure and the operating pressure, and
-`-3 to 121OC` writes its degree sign as a letter. Every one was recorded as
+`-7 to 245OC` writes its degree sign as a letter. Every one was recorded as
 free text or dropped, so nothing on that sheet could be compared against a
 rule that mentions temperature or pressure.
 
@@ -20,7 +20,7 @@ THREE SHAPES, EACH A RULE ABOUT FORM AND NOT ABOUT THIS SHEET:
   facts before the rule was tightened. Nothing comparable is lost: `compare`
   needs a dimension, so a unitless range could never have been evaluated.
 
-  DEGREE GLYPHS. `121OC` is 121 °C, and only immediately after a digit.
+  DEGREE GLYPHS. `245OC` is 245 °C, and only immediately after a digit.
 
 AND THE COMPARISON NEVER AVERAGES. A range is compared at the end the RULE
 asks about - the top for "shall not exceed", the bottom for "shall be at
@@ -118,10 +118,10 @@ def test_a_range_keeps_both_ends(raw, low, high, unit):
 
 
 def test_a_negative_start_works():
-    """`-3 to 121OC` is the sheet's design temperature. A pattern that read
-    the minus as the separator would give 3 to 121 and lose the sign, which
+    """`-7 to 245OC` is the sheet's design temperature. A pattern that read
+    the minus as the separator would give 3 to 245 and lose the sign, which
     is the difference between a vessel rated for frost and one that is not."""
-    assert datasheets.parse_range("-3 to 121OC") == ("-3", "121", "°C")
+    assert datasheets.parse_range("-7 to 245OC") == ("-7", "245", "°C")
 
 
 def test_a_bare_symbol_counts_as_a_unit():
@@ -188,10 +188,10 @@ def test_a_single_value_is_untouched_by_the_range_path():
 # ==================================================== degree glyphs
 
 @pytest.mark.parametrize("raw,expected", [
-    ("121OC", "121°C"),
-    ("121oC", "121°C"),
+    ("245OC", "245°C"),
+    ("245oC", "245°C"),
     ("93.3OC", "93.3°C"),
-    ("-3 to 121OC / 77oC", "-3 to 121°C / 77°C"),
+    ("-7 to 245OC / 65oC", "-7 to 245°C / 65°C"),
     ("100OF", "100°F"),
 ])
 def test_the_degree_glyph_is_recovered_after_a_number(raw, expected):
@@ -208,9 +208,9 @@ def test_a_word_ending_in_oc_is_left_alone(raw):
 
 
 def test_the_glyph_reaches_measure_value():
-    """The rule is no use in a helper nobody calls. `121OC` must read as a
+    """The rule is no use in a helper nobody calls. `245OC` must read as a
     temperature through the ordinary path."""
-    assert datasheets.measure_value("121OC")[:2] == ("121", "°C")
+    assert datasheets.measure_value("245OC")[:2] == ("245", "°C")
 
 
 # ============================================ comparing against a range

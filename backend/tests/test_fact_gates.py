@@ -117,13 +117,13 @@ def test_a_small_integer_followed_by_a_unit_is_a_value_not_a_line_number():
 
 def test_a_small_integer_followed_by_a_label_is_still_a_line_number():
     """THE GUARD. A client sheet is two forms side by side - "5 | Design pressure
-    | 23.5 barg | 46 | Bonnet material | CS" - and 46 there really is the next
+    | 22.2 barg | 46 | Bonnet material | CS" - and 46 there really is the next
     pair's line number. It is not followed by a unit, so it still reads as one.
     """
     pairs = datasheets.split_label_value(
-        ["Design pressure", "23.5 barg", "46", "Bonnet material", "CS"])
+        ["Design pressure", "22.2 barg", "46", "Bonnet material", "CS"])
 
-    assert ("Design pressure", "23.5 barg") in pairs
+    assert ("Design pressure", "22.2 barg") in pairs
     assert ("Bonnet material", "CS") in pairs
     assert not any(label == "46" for label, _v in pairs)
 

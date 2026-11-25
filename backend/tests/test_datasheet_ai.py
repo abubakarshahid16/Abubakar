@@ -34,7 +34,7 @@ from app.config import settings
 KEY = "sk-ant-test-NEVER-IN-A-LOG-0000"
 
 ROWS = [
-    ("Design pressure", "23.5 barg"),
+    ("Design pressure", "22.2 barg"),
     ("Design temperature", "120 C"),
     ("Max design temperature", "150 C"),
     ("Paint system", "Two coat epoxy"),
@@ -141,7 +141,7 @@ def _by(facts, name):
     return [f for f in facts if f["field_name"] == name]
 
 
-AGREE = _fact("Design pressure", "23.5", "barg", "Design pressure 23.5 barg")
+AGREE = _fact("Design pressure", "22.2", "barg", "Design pressure 22.2 barg")
 #: A real misreading: the label's words are in the quote, but it is the
 #: neighbouring row's value.
 DISAGREE = _fact("Design temperature", "150", "C", "Max design temperature 150 C")
@@ -311,7 +311,7 @@ def test_an_unavailable_engine_falls_back_to_the_rules_with_a_reason(tmp_path, m
 
 
 def test_a_malformed_answer_is_a_reason_not_a_crash():
-    out = datasheet_ai.read_page_text_with_ai("Design pressure 23.5 barg", 1,
+    out = datasheet_ai.read_page_text_with_ai("Design pressure 22.2 barg", 1,
                                               lambda prompt: "not json")
     assert out["accepted"] == [] and "model_malformed" in out["error"]
 
@@ -332,10 +332,10 @@ def _ai(name, value, unit=None, kind="offered", page=1):
 
 
 def test_merge_the_four_outcomes():
-    rules = [_rule("design pressure", "23.5 barg", rid="a"),
+    rules = [_rule("design pressure", "22.2 barg", rid="a"),
              _rule("design temperature", "120 C", rid="b"),
              _rule("casing material", "SA-216 WCB", rid="c")]
-    ais = [_ai("design pressure", "23.5", "barg"),
+    ais = [_ai("design pressure", "22.2", "barg"),
            _ai("design temperature", "150", "C"),
            _ai("paint system", "Two coat epoxy")]
     got = {d["field_name"]: d for d in datasheet_ai.merge_readings(rules, ais)}
@@ -363,11 +363,11 @@ def test_merge_matches_only_across_the_same_kind():
 
 
 def test_merge_a_second_same_kind_value_beside_an_agreement_is_a_conflict():
-    rules = [_rule("design pressure", "23.5 barg")]
-    ais = [_ai("design pressure", "23.5", "barg"), _ai("design pressure", "30", "barg")]
+    rules = [_rule("design pressure", "22.2 barg")]
+    ais = [_ai("design pressure", "22.2", "barg"), _ai("design pressure", "30", "barg")]
     [d] = datasheet_ai.merge_readings(rules, ais)
     assert d["outcome"] == datasheet_ai.CONFLICT
-    assert d["agreed_ai"]["value"] == "23.5" and [a["value"] for a in d["ai"]] == ["30"]
+    assert d["agreed_ai"]["value"] == "22.2" and [a["value"] for a in d["ai"]] == ["30"]
 
 
 def test_merge_a_second_copy_of_an_agreeing_reading_is_not_a_conflict():
@@ -511,7 +511,7 @@ def _claude_env(monkeypatch):
 
 def test_the_claude_engine_is_metered_by_claude_spend(monkeypatch):
     sent = _claude_env(monkeypatch)
-    out = datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, "claude")
+    out = datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, "claude")
     assert len(sent) == 2                     # two runs
     assert [f["field_name"] for f in out["accepted"]] == ["design pressure"]
     assert [e["step"] for e in claude_spend.entries()] == [datasheet_ai.STEP] * 2
@@ -520,8 +520,8 @@ def test_the_claude_engine_is_metered_by_claude_spend(monkeypatch):
 def test_a_cap_refusal_stops_the_claude_calls(monkeypatch):
     sent = _claude_env(monkeypatch)
     monkeypatch.setattr(settings, "claude_budget_usd_per_step", 0.000001)
-    run = datasheet_ai.read_pages({1: "Design pressure 23.5 barg",
-                                   2: "Design pressure 23.5 barg"}, "claude")
+    run = datasheet_ai.read_pages({1: "Design pressure 22.2 barg",
+                                   2: "Design pressure 22.2 barg"}, "claude")
     assert sent == []
     assert run["stopped"] == claude_spend.BudgetExceeded.count_key
     assert run["reasons"][1].startswith("stopped by a limit")
@@ -545,7 +545,7 @@ def test_the_ollama_engine_goes_through_model_transport(monkeypatch):
                 "done_reason": "stop"}
     monkeypatch.setattr(model_transport, "post_json", post_json)
     monkeypatch.setattr(settings, "datasheet_ai_ollama_model", "local-0001")
-    out = datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, "ollama")
+    out = datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, "ollama")
     assert posted == [("/api/generate", "local-0001")] * 2
     assert out["engine"] == "ollama" and len(out["accepted"]) == 1
 

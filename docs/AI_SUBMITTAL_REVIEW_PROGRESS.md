@@ -1611,7 +1611,7 @@ All numbers below were taken from the same tree state, at commit
    real piece of work.
 2. **No classification of document or equipment type.** Section 10 asks for it;
    it is not built. The role already exists on the document from Phase 2.
-3. **Ranges are not parsed.** `-3 to 121OC` and `27.5 / 8 barg` yield nothing -
+3. **Ranges are not parsed.** `-7 to 245OC` and `27.5 / 8 barg` yield nothing -
    the same gap 3B recorded, now hit on real data where ranges are common.
 4. **No scanned-datasheet path.** All three files are native text, so the OCR
    route was never exercised. A scanned datasheet would fall to the text-block

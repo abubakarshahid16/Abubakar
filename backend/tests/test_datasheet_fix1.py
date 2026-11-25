@@ -205,7 +205,7 @@ def test_the_unit_grid_reads_right_values_with_no_glued_label():
 
 PAGE = """PUMP DATASHEET
 Design pressure | By Vendor
-Set pressure | 340 psig
+Set pressure | 315 psig
 Rated flow | TBD
 Casing | -
 Motor power | to be confirmed
@@ -235,7 +235,7 @@ def test_the_gate_refuses_a_blank_marker_whatever_the_model_says(field, value, q
 
 def test_the_gate_still_keeps_a_real_value_beside_the_blanks():
     out = _gate(("Design pressure", "By Vendor", None, "Design pressure | By Vendor"),
-                ("Set pressure", "340", "psig", "Set pressure | 340 psig"))
+                ("Set pressure", "315", "psig", "Set pressure | 315 psig"))
     assert [p["field"] for p in out["accepted"]] == ["Set pressure"]
 
 

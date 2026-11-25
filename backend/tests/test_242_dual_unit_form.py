@@ -26,7 +26,7 @@ def _measure(text):
         ("76.7 (170) C (F)", "76.7", "C"),
         ("76.7 (170) °C (°F)", "76.7", "°C"),
         ("10 (145) bar (psi)", "10", "bar"),
-        ("340 (23.4) psig (barg)", "340", "psig"),
+        ("315 (21.7) psig (barg)", "315", "psig"),
         ("  24.8   (109)  m3/h  (USGPM) ", "24.8", "m3/h"),
     ],
 )
@@ -41,7 +41,7 @@ def test_the_first_system_is_the_value_and_its_unit_is_kept(text, value, unit):
         "10 (14) bar (psi)",  # 14 psi is not 10 bar: two quantities, not one
         "12 (3.6) mm (in)",  # 3.6 in is not 12 mm
         "20 (25) barg (barg)",  # the same unit twice with two values
-        "340 (23.4) psig",  # one unit after two numbers: which number it belongs to is unknown
+        "315 (21.7) psig",  # one unit after two numbers: which number it belongs to is unknown
         "24.8 (109) m3/h",
         "5 (note 3) kW (hp)",
         "24.8 (30) m3/h (USGPM)",  # 30 USGPM is not 24.8 m3/h: two quantities (planner's review)

@@ -31,7 +31,7 @@ def temp_storage(tmp_path, monkeypatch):
 PAGE = """PRESSURE SAFETY VALVE DATASHEET            Page 1 of 1
 5 | Design/Operating pressure | 27.5 / 8 barg (Note - 3)
 8 | Set pressure | 355 psig
-9 | Relieving temperature | 121 C
+9 | Relieving temperature | 245 C
 12 | Casing material | Carbon steel
 Required flow      Offered flow
 9,970 kg/hr        10,200 kg/hr
@@ -234,7 +234,7 @@ def test_the_model_is_called_twice_by_default():
 
 THREE = (
     _fact("Set pressure", "355", "8 | Set pressure | 355 psig", unit="psig"),
-    _fact("Relieving temperature", "121", "9 | Relieving temperature | 121 C", unit="C"),
+    _fact("Relieving temperature", "245", "9 | Relieving temperature | 245 C", unit="C"),
     _fact("Hydrotest result", "51", "Hydrotest result: 51 barg held for 30 min",
           unit="barg", kind="measured"),
 )

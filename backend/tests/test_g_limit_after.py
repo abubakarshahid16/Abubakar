@@ -1,5 +1,5 @@
 """A limit written AFTER its number ("300 psig or less") is a limit code can compare (order 14, update 5: the new-book test's
-"<value> psig or less" rule gave "no comparison code can read", so a filled-in 340 psig was never compared). Invented values only."""
+"<value> psig or less" rule gave "no comparison code can read", so a filled-in 315 psig was never compared). Invented values only."""
 
 from __future__ import annotations
 
@@ -10,14 +10,14 @@ from app.aim_review import steps as S
 from app.aim_review import verify
 from app.aim_review.paper import Paper
 
-STATED = "Relief setting 340 psig (By Contractor, to suit the duty)"
+STATED = "Relief setting 315 psig (By Contractor, to suit the duty)"
 PAPER = Paper(
     paper_id="doc_p", pages={1: STATED + "\nInlet size psig (By Contractor)\n"}
 )
 BOOKS = {"B01": {"alias": "B01", "book": "doc_b", "identifier": "QX-STD-101"}}
 
 
-def _decide(rule_quote: str, *, rule_value="300", paper_value="340", label="Question"):
+def _decide(rule_quote: str, *, rule_value="300", paper_value="315", label="Question"):
     item = {
         "id": "C001",
         "book": "B01",
@@ -127,7 +127,7 @@ def test_a_figure_under_a_limit_written_after_its_number_is_met_by_code():
 def test_an_or_more_limit_is_compared_the_other_way():
     d = _decide(
         "The set pressure shall be 400 psig or more.", rule_value="400"
-    )  # 340 >= 400: false
+    )  # 315 >= 400: false
     assert d["label"] == "Not met" and d["code_compare"]["op"] == ">="
 
 
@@ -137,7 +137,7 @@ def test_forged_numbers_never_make_a_verdict():
     rule = "The stated set pressure shall be 300 psig or less for each valve."
     forged_rule = _decide(
         rule, rule_value="250"
-    )  # 340 > 250 would "fail" if the model's number were believed
+    )  # 315 > 250 would "fail" if the model's number were believed
     assert forged_rule["label"] == "Question" and forged_rule["code_compare"] is None
     forged_paper = _decide(
         rule, paper_value="290", label="Met"

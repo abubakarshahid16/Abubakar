@@ -70,7 +70,7 @@ NO_QUOTE_LABEL = (
 #: `agent_review_verdict.quote_defers`), or whose gate reason says so (`DEFERRED_WHY`), is a question in these words: the paper asks
 #: the contractor for the value, so no AI reader's Pass / Fail or Met / Not met is shown on it (`defers`).
 DEFERRED_LABEL = "The paper leaves this value open (to be filled): engineer to confirm with the contractor"
-#: The same question when the verified quote STATES a figure beside its deferral mark ("340 psig by contractor"): the paper gives a
+#: The same question when the verified quote STATES a figure beside its deferral mark ("315 psig by contractor"): the paper gives a
 #: value, still to be confirmed (lead's review of #1892: "leaves this value open" would be untrue). Read by the app's one number reader
 #: (`crs_ai_actions.provisional`).
 DEFERRED_VALUE_LABEL = "The paper gives a value but marks it as still to be confirmed (by the contractor): engineer to confirm"

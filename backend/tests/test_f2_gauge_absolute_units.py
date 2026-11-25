@@ -1,6 +1,6 @@
 """#725 F2: one unit routine reads gauge and absolute pressures.
 
-On the real PSV datasheet the set pressure is "340 psig". `claims.normalise`
+On the real PSV datasheet the set pressure is "315 psig". `claims.normalise`
 returned no number for barg, psig, bara, psia, kPag or kg/cm2g, and
 `comparison._measurement_from_fact` re-read the raw unit and ignored the value
 the extraction had already normalised - so no pressure on that sheet could be
@@ -19,7 +19,7 @@ MPA_PER_PSI = 0.006894757
 
 
 @pytest.mark.parametrize("value,unit,mpa,reference", [
-    ("340", "psig", 340 * MPA_PER_PSI, "gauge"),
+    ("315", "psig", 315 * MPA_PER_PSI, "gauge"),
     ("10", "barg", 1.0, "gauge"),
     ("10", "bara", 1.0, "absolute"),
     ("14.7", "psia", 14.7 * MPA_PER_PSI, "absolute"),
@@ -65,13 +65,13 @@ def _requirement(**fields):
 
 def _fact(**fields):
     base = {"id": "f", "document_id": None, "field_name": "set pressure",
-            "field_label": "Set pressure", "field_value": "340 psig", "raw_value": "340",
+            "field_label": "Set pressure", "field_value": "315 psig", "raw_value": "315",
             "raw_unit": "psig", "is_blank": 0, "blank_marker": None}
     return {**base, **fields}
 
 
 def test_a_psig_value_is_compared_with_a_barg_limit():
-    # 340 psig = 23.4 barg: within 25 barg, outside 20 barg
+    # 315 psig = 21.7 barg: within 25 barg, outside 20 barg
     assert comparison.compare(_requirement(), _fact())["status"] == comparison.COMPLIANT
     over = comparison.compare(_requirement(raw_value="20"), _fact())
     assert over["status"] == comparison.NON_COMPLIANT
@@ -79,16 +79,16 @@ def test_a_psig_value_is_compared_with_a_barg_limit():
 
 def test_a_gauge_value_against_an_absolute_limit_goes_to_an_engineer_with_the_reason():
     """Order 141 B: gauge against absolute IS converted, with the standard
-    atmosphere stated - but 340 psig (23.4 barg) against 24 bara is within
+    atmosphere stated - but 315 psig (21.7 barg) against 22.5 bara is within
     the limit at a low atmospheric pressure and outside it at the standard
     one, so the site's atmosphere decides and the engineer is told so."""
-    verdict = comparison.compare(_requirement(raw_value="24", raw_unit="bara"), _fact())
+    verdict = comparison.compare(_requirement(raw_value="22.5", raw_unit="bara"), _fact())
     assert verdict["status"] == comparison.NEEDS_ENGINEER_REVIEW
     assert "gauge" in verdict["rationale"] and "absolute" in verdict["rationale"]
     assert "atmospheric pressure is not recorded" in verdict["rationale"]
     # where no conversion is possible the reason is still named (`_reference_obstacle`)
     why = comparison._reference_obstacle(
-        claims.normalise("340", "psig"), claims.normalise("24", "bara")
+        claims.normalise("315", "psig"), claims.normalise("22.5", "bara")
     )
     assert why and "gauge" in why and "absolute" in why
 
@@ -96,10 +96,10 @@ def test_a_gauge_value_against_an_absolute_limit_goes_to_an_engineer_with_the_re
 def test_the_stored_normalised_value_of_a_fact_is_used():
     """The extraction already normalised the value; the comparison must not
     throw it away by re-reading a spelling it cannot read."""
-    fact = _fact(raw_unit="psig (By Contractor)", normalized_value=340 * MPA_PER_PSI, normalized_unit="MPa",
+    fact = _fact(raw_unit="psig (By Contractor)", normalized_value=315 * MPA_PER_PSI, normalized_unit="MPa",
                  unit_reference="gauge")
     m = comparison._measurement_from_fact(fact)
-    assert m.normalized_value == pytest.approx(340 * MPA_PER_PSI)
+    assert m.normalized_value == pytest.approx(315 * MPA_PER_PSI)
     assert m.normalized_unit == "MPa" and m.reference == "gauge"
     assert comparison.compare(_requirement(raw_value="20"), fact)["status"] == comparison.NON_COMPLIANT
 

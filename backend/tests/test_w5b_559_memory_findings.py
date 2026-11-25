@@ -19,7 +19,7 @@ from tests.test_model_matching import _signed_in
 from tests.test_review_ai_check import GOOD, TEXT, Fake, _ai_rows, _preview, _resolver, world  # noqa: F401
 
 HELD_ITEM = {**GOOD, "relates_to": "std", "observation": "The hydrotest pressure is not stated beside "
-                                                          "the design pressure of 23.5 barg."}
+                                                          "the design pressure of 22.2 barg."}
 
 
 def _run(world, items):

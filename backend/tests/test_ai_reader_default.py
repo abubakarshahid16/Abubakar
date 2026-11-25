@@ -55,7 +55,7 @@ def test_the_local_engine_uses_its_own_timeout_and_records_its_model(monkeypatch
     monkeypatch.setattr(settings, "datasheet_ai_ollama_model", "local-0001")
     call, why = datasheet_ai.model_call_for("ollama")
     assert why is None and call.model == "local-0001"
-    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, call)
     assert seen and set(seen) == {42.0}
 
 
@@ -226,7 +226,7 @@ def test_the_claude_engine_asks_for_a_page_sized_answer_with_the_reasoning_model
     monkeypatch.setattr(settings, "claude_reasoning_model", "claude-sonnet-5")
     call, why = datasheet_ai.model_call_for("claude")
     assert why is None and call.model == "claude-sonnet-5"
-    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, call)
     assert sent and {b["max_tokens"] for b in sent} == {3000}
     assert {b["model"] for b in sent} == {"claude-sonnet-5"}
     # R32: this model rejects `temperature`; sending it failed every call
@@ -238,7 +238,7 @@ def test_temperature_is_still_sent_to_a_model_that_accepts_it(monkeypatch):
     sent = _claude_env(monkeypatch)
     monkeypatch.setattr(settings, "claude_reasoning_model", "claude-sonnet-4-5")
     call, _why = datasheet_ai.model_call_for("claude")
-    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, call)
     assert sent and all(b["temperature"] == 0 for b in sent)
 
 
@@ -247,8 +247,8 @@ def test_an_answer_inside_one_code_fence_is_read_and_a_cut_off_one_is_not():
     import json as _json
 
     from app import claude_datasheet
-    fact = {"field": "Design pressure", "value": "23.5", "unit": "barg",
-            "quote": "Design pressure 23.5 barg", "kind": "offered"}
+    fact = {"field": "Design pressure", "value": "22.2", "unit": "barg",
+            "quote": "Design pressure 22.2 barg", "kind": "offered"}
     whole = _json.dumps({"facts": [fact]})
     fence = "`" * 3
     for raw in (whole, f"{fence}json\n{whole}\n{fence}", f"{fence}\n{whole}\n{fence}",

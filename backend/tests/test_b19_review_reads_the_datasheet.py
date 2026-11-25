@@ -27,7 +27,7 @@ from app.config import settings
 NOW = "2026-09-22T00:00:00Z"
 
 ROWS = [
-    ("Design pressure", "23.5 barg"),
+    ("Design pressure", "22.2 barg"),
     ("Density at relieving temper.", "31.75 Kg/m3"),
     ("Compressibility factor", "0.892"),
     ("Set pressure", "355 psig By Contractor"),

@@ -11,7 +11,7 @@ both units are ones the unit table converts, they are of one dimension, and the 
 one quantity once converted (the rule the slash form "10 barg / 145 psig" uses). Nothing is
 accepted unchecked: "10 (20) kW (max)", "10 (12) bar (g)", "5 (7) m3/h (n)" and "10 (20) m3/h
 (min)" carry a NOTE in the bracket, not a second system, and are left as they were (no unit
-placed). "340 (23.4) psig" (one unit after two numbers) stays unplaced too: which number the unit
+placed). "315 (21.7) psig" (one unit after two numbers) stays unplaced too: which number the unit
 belongs to cannot be told.
 
 The trailing form "24.8 m3/h (109 USGPM)" is read as before (the first number and unit) unless the

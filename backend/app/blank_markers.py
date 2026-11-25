@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 
-#: A marker ANYWHERE in the cell makes it blank: "340 psig By Contractor" is a
+#: A marker ANYWHERE in the cell makes it blank: "315 psig By Contractor" is a
 #: provisional figure the vendor must confirm, not a value. Loose about the
 #: separator because the real sheets write "By Contractor /Vendor",
 #: "By Contractor / Vendor" and "(By Contractor, as per Code)".
@@ -283,7 +283,7 @@ def is_whole_deferral(text: str | None, *, value_field: bool = False) -> bool:
 
 # ---------------------------------------------------------------- order 14, the general review: pending vs who supplies
 
-#: A PENDING marker: the value is not final yet, whatever figure stands beside it ("380 psig TBC", "12 mm *"). The lead's decision of
+#: A PENDING marker: the value is not final yet, whatever figure stands beside it ("345 psig TBC", "12 mm *"). The lead's decision of
 #: 18 Nov 2026: only these, the blank forms, or a who-supplies note with NO figure leave a value open. A stated figure beside a
 #: who-supplies note is PROVISIONAL (`is_provisional_figure`): checked, never a verdict (a value left to the vendor is a Question).
 _PENDING = re.compile(
@@ -321,7 +321,7 @@ def names_who_supplies(text: str | None) -> bool:
 
 
 def is_provisional_figure(quote: str | None) -> bool:
-    """A STATED figure beside a who-supplies note ("Set pressure 380 psig (By Contractor)"): a who-supplies note and the value is
+    """A STATED figure beside a who-supplies note ("Set pressure 345 psig (By Contractor)"): a who-supplies note and the value is
     not left open (`value_left_open`). The general review checks such a figure by code but never gives it a verdict."""
     return names_who_supplies(quote) and not value_left_open(quote)
 
@@ -333,7 +333,7 @@ def value_left_open(quote: str | None) -> bool:
     or "(*)" that is no note pointer), (b) the value (after the field's own label, the text after the last colon) is a blank form
     (`_WHOLE_CELL`, `_PLACEHOLDER`, `is_whole_deferral`, `star_fills_value`), or (c) a who-supplies note stands with NO figure
     stated for the value ("Set pressure psig (By Contractor)", "By Vendor"). A who-supplies note beside a stated figure
-    ("Set pressure 380 psig (By Contractor, as per Code)") does NOT leave it open: it is a figure the contractor filled in
+    ("Set pressure 345 psig (By Contractor, as per Code)") does NOT leave it open: it is a figure the contractor filled in
     (`is_provisional_figure`), judged as a stated value (owner, 18 Nov 2026 after live). Pure."""
     text = " ".join(str(quote or "").split())
     if not text:

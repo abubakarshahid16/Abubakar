@@ -13,7 +13,7 @@ from app import applicability, crs_mapping, datasheets
 from tests.test_applicability import _doc, _run, _scope, temp_storage  # noqa: F401
 
 
-def _psv(text="Set pressure 340 psig.", **meta):
+def _psv(text="Set pressure 315 psig.", **meta):
     return _doc("sub", "psv-datasheet.pdf", "CONTRACTOR_SUBMITTAL", text=text,
                 equipment_type="relief valve", **meta)
 
@@ -35,7 +35,7 @@ def _not_cited(check):
 def test_a_required_standard_the_contractor_did_not_cite_gives_exactly_one_crs_row():
     """THE MUTATION TARGET."""
     std = _doc("std_520", "API-520-I.pdf", "COMPANY_STANDARD", document_number="API 520 Part I")
-    sub = _psv(text="Sizing per API 526. Set pressure 340 psig.")
+    sub = _psv(text="Sizing per API 526. Set pressure 315 psig.")
     check = _check(sub, std)
     missed = _not_cited(check)
     assert "API 520 Part I" in missed and "API 526" not in missed

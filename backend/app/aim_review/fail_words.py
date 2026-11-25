@@ -91,7 +91,7 @@ PROVEN_FAIL = "Not met, proven by code"
 def proven_fail(label: str, code_cmp, deferred: bool, notes: list[str]) -> bool:
     """THE one decision "Not met, proven by code" (lead 4, owner's order of 18 Nov 2026): code compared the paper's VERIFIED
     quote with the HELD rule's verified words (`read_from` "verified quotes": both inputs are quotes) and the value breaks the
-    limit. A figure FILLED IN beside a who-supplies note ("380 psig (By Contractor)") is a stated value (owner, after-live order
+    limit. A figure FILLED IN beside a who-supplies note ("345 psig (By Contractor)") is a stated value (owner, after-live order
     of 18 Nov, item 5; lead 4's decision): it is proven too. Never a value left open (no figure: By Contractor, TBA, TBD, *),
     never a provisional figure, never the AI's words alone (no comparison, or a pairing of two paper values the AI chose)."""
     return (

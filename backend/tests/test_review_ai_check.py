@@ -33,8 +33,8 @@ from tests.test_b3_page_ledger import _review, _sheet, temp_storage  # noqa: F40
 from tests.test_model_matching import _signed_in
 
 GOOD = {"topic": "Hydrotest pressure", "page": 1, "field": "Design pressure",
-        "value": "23.5 barg",
-        "observation": "The hydrotest pressure is not stated beside the design pressure of 23.5 barg.",
+        "value": "22.2 barg",
+        "observation": "The hydrotest pressure is not stated beside the design pressure of 22.2 barg.",
         "action": "Contractor to state the hydrotest pressure.",
         "relates_to": "API 610", "clause": None, "confidence": "medium"}
 TEXT = "hydrotest pressure is not stated"
@@ -120,20 +120,20 @@ def test_a_true_item_passes_the_gate(world):
 
 @pytest.mark.parametrize("change, reason", [
     ({"value": "25.0 barg"}, "value_not_on_page"),                                        # M1026
-    ({"observation": "Typically 1.3 times the design pressure of 23.5 barg is used."},
+    ({"observation": "Typically 1.3 times the design pressure of 22.2 barg is used."},
      "number_not_on_page"),                                                               # M1027
     ({"clause": "6.3.1"}, "clause_not_verified"),                                         # M1028
     ({"observation": "Per clause 6.3.1 the hydrotest pressure should be stated."},
      "clause_not_verified"),                                                              # M1028
     ({"observation": 'The standard says "the hydrostatic test shall be witnessed by the purchaser".'},
      "quote_not_on_page"),                                                                # M1035
-    ({"observation": "The design pressure of 23.5 barg complies with the service."},
+    ({"observation": "The design pressure of 22.2 barg complies with the service."},
      "pass_fail_word"),                                                                   # M1029
     ({"action": "Contractor to note the sheet is approved."}, "pass_fail_word"),
     ({"confidence": "high"}, "confidence_not_low_or_medium"),                              # M1030
     ({"page": 9}, "page_not_in_datasheet"),
     ({"relates_to": "Rule 1.5 margin",
-      "observation": "Apply the Rule 1.5 margin to the design pressure of 23.5 barg."},
+      "observation": "Apply the Rule 1.5 margin to the design pressure of 22.2 barg."},
      "number_not_on_page"),                                                               # M1040
 ])
 def test_the_gate_refuses_with_a_named_reason(world, change, reason):
@@ -163,7 +163,7 @@ def test_kept_items_are_pending_drafts_that_never_move_the_code(world):
     [row] = _ai_rows(run)
     assert (row["compliance_status"], row["confirmed_by"], row["approval_status"]) == (
         None, None, "pending")
-    assert row["contractor_page"] == 1 and row["contractor_evidence_text"] == "23.5 barg"
+    assert row["contractor_page"] == 1 and row["contractor_evidence_text"] == "22.2 barg"
     assert aic.LABEL in row["ai_rationale"] and "Relates to: API 610" in row["ai_rationale"]
     assert comparison.run_outcome(run, allowed_document_ids=scope)["recommended_code"] == before
 
@@ -227,13 +227,13 @@ def test_a_budget_refusal_never_fails_the_review(world, monkeypatch):
 # on every single run.
 
 ITEM_A = {**GOOD, "topic": "First observation",
-          "observation": "The hydrotest pressure is not stated beside 23.5 barg (first).",
+          "observation": "The hydrotest pressure is not stated beside 22.2 barg (first).",
           "action": "Contractor to confirm the hydrotest pressure (first)."}
 ITEM_B = {**GOOD, "topic": "Second observation",
-          "observation": "No corrosion allowance is stated near 23.5 barg (second).",
+          "observation": "No corrosion allowance is stated near 22.2 barg (second).",
           "action": "Contractor to state the corrosion allowance (second)."}
 ITEM_C_BAD = {**GOOD, "topic": "Third observation",
-              "observation": "The design pressure of 23.5 barg complies with the service."}
+              "observation": "The design pressure of 22.2 barg complies with the service."}
 
 
 def test_parse_partial_keeps_only_complete_items_before_the_cut_off(world):
@@ -324,7 +324,7 @@ def test_accept_still_gates_items_recovered_from_a_retry(world):
     assert result["kept"] == 1
     assert result["rejected"] == {"pass_fail_word": 1}
     [row] = _ai_rows(run)
-    assert row["contractor_evidence_text"] == "23.5 barg"
+    assert row["contractor_evidence_text"] == "22.2 barg"
 
 
 def test_the_route_is_409_when_off_and_404_outside_scope(world, monkeypatch):

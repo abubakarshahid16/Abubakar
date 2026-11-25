@@ -1,8 +1,8 @@
 """Order 223: the same number and unit with a note is ONE value.
 
 The owner's X-ray of a relief-valve run showed about 33 "two different values on
-the sheet" rows where the reader had stored one value twice, `340 psig` and
-`340 psig (By Contractor, as per Code)`, under one tag. The check compared the
+the sheet" rows where the reader had stored one value twice, `315 psig` and
+`315 psig (By Contractor, as per Code)`, under one tag. The check compared the
 printed TEXT, so the note made a second value. It now compares what the value
 IS (number, unit, gauge/absolute); a different number, a different unit or basis,
 or a note that changes the meaning stays two values. Made-up values only.
@@ -37,7 +37,7 @@ def _result(facts, rule_id="DS-C1"):
 def test_the_same_number_with_a_note_is_one_value_and_is_compared():
     facts = [
         *full_vessel(),
-        _with_note("design pressure", "23.5", "(By Contractor, as per Code)"),
+        _with_note("design pressure", "22.2", "(By Contractor, as per Code)"),
     ]
     assert _result(facts)["status"] == "COMPLIANT"
 
@@ -67,8 +67,8 @@ def test_each_tag_is_judged_on_its_own_values():
         return {**P(name, value), "equipment_tag": tag, "id": f"{name}-{value}-{tag}"}
 
     facts = [
-        tagged("design pressure", "23.5", "V-1"),
-        {**_with_note("design pressure", "23.5", "(per Code)"), "equipment_tag": "V-1"},
+        tagged("design pressure", "22.2", "V-1"),
+        {**_with_note("design pressure", "22.2", "(per Code)"), "equipment_tag": "V-1"},
         tagged("operating pressure", "20", "V-1"),
         tagged("design pressure", "18", "V-2"),
         tagged("operating pressure", "20", "V-2"),
@@ -132,30 +132,30 @@ MEANING_CHANGING_NOTES = [
 
 @pytest.mark.parametrize("note", PLAIN_NOTES)
 def test_a_plain_note_does_not_make_a_second_value(note):
-    assert same_value.key(_f("340", "psig", f"340 psig {note}")) == same_value.key(
-        _f("340", "psig")
+    assert same_value.key(_f("315", "psig", f"315 psig {note}")) == same_value.key(
+        _f("315", "psig")
     )
 
 
 @pytest.mark.parametrize("note", MEANING_CHANGING_NOTES)
 def test_a_note_that_changes_the_meaning_stays_a_second_value(note):
-    assert same_value.key(_f("340", "psig", f"340 psig {note}")) != same_value.key(
-        _f("340", "psig")
+    assert same_value.key(_f("315", "psig", f"315 psig {note}")) != same_value.key(
+        _f("315", "psig")
     )
 
 
 @pytest.mark.parametrize(
-    "text", ["not 340 psig", "- 340 psig", "approx 340 psig", "~340 psig"]
+    "text", ["not 315 psig", "- 315 psig", "approx 315 psig", "~315 psig"]
 )
 def test_a_word_or_sign_before_the_number_stays_a_second_value(text):
-    assert same_value.key(_f("340", "psig", text)) != same_value.key(_f("340", "psig"))
+    assert same_value.key(_f("315", "psig", text)) != same_value.key(_f("315", "psig"))
 
 
 @pytest.mark.parametrize("word", ["xyzzy", "banana", "zone", "service", "left"])
 def test_a_word_nobody_listed_keeps_the_readings_apart(word):
     """The guard is an allow-list: an arbitrary word is never neutral."""
-    assert same_value.key(_f("340", "psig", f"340 psig ({word})")) != same_value.key(
-        _f("340", "psig")
+    assert same_value.key(_f("315", "psig", f"315 psig ({word})")) != same_value.key(
+        _f("315", "psig")
     )
 
 
@@ -172,10 +172,10 @@ def test_the_neutral_word_list_is_closed():
     ("a", "b"),
     [
         (_f("20", "barg"), _f("20", "bara")),
-        (_f("340", "psig"), _f("340", "psia")),
+        (_f("315", "psig"), _f("315", "psia")),
         (_f("5", "kg/hr"), _f("5", "t/hr")),
-        (_f("-340", "psig"), _f("340", "psig")),
-        (_f("340", "psig"), _f("130", "psig")),
+        (_f("-340", "psig"), _f("315", "psig")),
+        (_f("315", "psig"), _f("130", "psig")),
         ({"field_value": "Open"}, {"field_value": "Closed"}),
     ],
 )

@@ -43,7 +43,7 @@ from app.config import Settings, settings
 PUMP = "Compressor"
 
 LINES = """EQUIPMENT DATASHEET - CENTRIFUGAL PUMP
-Design pressure: 23.5 barg
+Design pressure: 22.2 barg
 Design temperature: 120 °C
 Rated flow: 42 m3/h
 Operating temperature: 85 °C
@@ -52,13 +52,13 @@ Operating temperature: 85 °C
 TABLE = """| Item | Description        | Unit | Value |
 |------|--------------------|------|-------|
 | 1    | Rated flow         | m3/h | 42    |
-| 2    | Design pressure    | barg | 23.5  |
+| 2    | Design pressure    | barg | 22.2  |
 | 3    | Design temperature | °C   | 120   |
 | 4    | Operating temp.    | °C   | 85    |
 """
 
 PROSE = (
-    "The pump is built for a design pressure of 23.5 barg at a design\n"
+    "The pump is built for a design pressure of 22.2 barg at a design\n"
     "temperature of 120 °C. It delivers a rated flow of 42 m3/h while the\n"
     "operating temperature is 85 °C.\n"
 )
@@ -116,7 +116,7 @@ def _values(reading):
 
 
 EXPECTED = [
-    ("design_pressure", "23.5", "barg"),
+    ("design_pressure", "22.2", "barg"),
     ("design_temperature", "120", "°C"),
     ("operating_temperature", "85", "°C"),
     ("rated_flow", "42", "m3/h"),
@@ -132,7 +132,7 @@ EXPECTED = [
         (
             LINES,
             [
-                row("design_pressure", "23.5", "barg", "Design pressure: 23.5 barg"),
+                row("design_pressure", "22.2", "barg", "Design pressure: 22.2 barg"),
                 row("design_temperature", "120", "°C", "Design temperature: 120 °C"),
                 row("rated_flow", "42", "m3/h", "Rated flow: 42 m3/h"),
                 row(
@@ -145,9 +145,9 @@ EXPECTED = [
             [
                 row(
                     "design_pressure",
-                    "23.5",
+                    "22.2",
                     "barg",
-                    "| 2    | Design pressure    | barg | 23.5  |",
+                    "| 2    | Design pressure    | barg | 22.2  |",
                 ),
                 row(
                     "design_temperature",
@@ -172,7 +172,7 @@ EXPECTED = [
         (
             PROSE,
             [
-                row("design_pressure", "23.5", "barg", "design pressure of 23.5 barg"),
+                row("design_pressure", "22.2", "barg", "design pressure of 22.2 barg"),
                 row("design_temperature", "120", "°C", "design\ntemperature of 120 °C"),
                 row("rated_flow", "42", "m3/h", "rated flow of 42 m3/h"),
                 row(
@@ -278,13 +278,13 @@ def _one(text, the_row, key="design_pressure"):
 
 def test_a_quote_not_on_the_page_is_rejected():
     assert _one(
-        LINES, row("design_pressure", "23.5", "barg", "Design pressure: 23.5 barg max")
+        LINES, row("design_pressure", "22.2", "barg", "Design pressure: 22.2 barg max")
     ) == (form_reader.MISSING, ["quote_not_on_page"])
 
 
 def test_a_value_not_in_the_quote_is_rejected():
     assert _one(
-        LINES, row("design_pressure", "25", "barg", "Design pressure: 23.5 barg")
+        LINES, row("design_pressure", "25", "barg", "Design pressure: 22.2 barg")
     ) == (form_reader.MISSING, ["value_not_in_quote"])
 
 
@@ -304,12 +304,12 @@ def test_a_unit_of_the_wrong_kind_is_rejected():
 
 def test_a_unit_not_printed_in_the_quote_is_rejected():
     assert _one(
-        LINES, row("design_pressure", "23.5", "psig", "Design pressure: 23.5 barg")
+        LINES, row("design_pressure", "22.2", "psig", "Design pressure: 22.2 barg")
     ) == (form_reader.MISSING, ["unit_not_in_quote"])
 
 
 def test_two_runs_that_disagree_are_not_accepted():
-    good = row("design_pressure", "23.5", "barg", "Design pressure: 23.5 barg")
+    good = row("design_pressure", "22.2", "barg", "Design pressure: 22.2 barg")
     other = row("design_temperature", "120", "°C", "Design temperature: 120 °C")
     model = FakeModel({1: [[good, other], [{**good, "value": "25"}, other]]})
     reading = form_reader.read_form({1: LINES}, PUMP, model)
@@ -325,7 +325,7 @@ def test_two_runs_that_disagree_are_not_accepted():
 def test_one_run_when_asked():
     reading, model = _read(
         LINES,
-        [row("design_pressure", "23.5", "barg", "Design pressure: 23.5 barg")],
+        [row("design_pressure", "22.2", "barg", "Design pressure: 22.2 barg")],
         runs=1,
     )
     assert (
@@ -375,14 +375,14 @@ def test_two_pages_with_two_values_keep_both_as_a_conflict():
     page2 = "Design pressure: 25 barg\n"
     model = FakeModel(
         {
-            1: [[row("design_pressure", "23.5", "barg", "Design pressure: 23.5 barg")]],
+            1: [[row("design_pressure", "22.2", "barg", "Design pressure: 22.2 barg")]],
             2: [[row("design_pressure", "25", "barg", "Design pressure: 25 barg")]],
         }
     )
     reading = form_reader.read_form({1: LINES, 2: page2}, PUMP, model)
     assert reading.status["design_pressure"] == form_reader.CONFLICT
     both = [f for f in reading.facts if f["field_key"] == "design_pressure"]
-    assert sorted(f["value"] for f in both) == ["23.5", "25"]
+    assert sorted(f["value"] for f in both) == ["22.2", "25"]
     assert all(
         f["form_conflict"] and f["provenance"]["conflict_pages"] == [1, 2] for f in both
     )
@@ -392,7 +392,7 @@ def test_two_pages_with_two_values_keep_both_as_a_conflict():
 def test_the_same_value_on_two_pages_is_one_fact():
     model = FakeModel(
         {
-            p: [[row("design_pressure", "23.5", "barg", "Design pressure: 23.5 barg")]]
+            p: [[row("design_pressure", "22.2", "barg", "Design pressure: 22.2 barg")]]
             for p in (1, 2)
         }
     )
@@ -427,7 +427,7 @@ def storage(tmp_path, monkeypatch):
     db.reset_connection()
 
 
-ROWS = [("Design pressure", "23.5 barg"), ("Design temperature", "120 C")]
+ROWS = [("Design pressure", "22.2 barg"), ("Design temperature", "120 C")]
 
 
 def _extract(tmp_path):
@@ -498,9 +498,9 @@ def test_form_mode_writes_verified_facts_through_the_existing_merge(
                     [
                         row(
                             "design_pressure",
-                            "23.5",
+                            "22.2",
                             "barg",
-                            "Design pressure 23.5 barg",
+                            "Design pressure 22.2 barg",
                         ),
                         row(
                             "design_temperature", "120", "C", "Design temperature 120 C"

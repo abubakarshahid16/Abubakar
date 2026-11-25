@@ -733,7 +733,7 @@ def _every_kind_of_line():
             "Pass",
             reason_code="value_deferred",
             why="x",
-            paper_quote="340 psig (By Contractor)",
+            paper_quote="315 psig (By Contractor)",
         ),
         mk("R-17", "Query", None, error="stop_max_tokens", reasoning=""),
         mk("R-18", "Query", None, reason_code="not_applicable", comment=stored, **NA_PROOF),
