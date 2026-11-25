@@ -331,7 +331,11 @@ def _summary(ws: Worksheet, model: dict) -> None:
         (
             "Pages not read",
             " ".join(x["sentence"] for x in model.get("pages_not_read") or [])
-            or "none: every page had text or a picture reading",
+            or (
+                "none: every page had text or a picture reading"
+                if model.get("pages_not_read_record") == "all_read"
+                else "not recorded for this review"
+            ),
         ),
         (
             "AI steps that did not run",

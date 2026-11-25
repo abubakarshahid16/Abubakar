@@ -196,13 +196,23 @@ def _recent_account_refusal(conn) -> str | None:
         timespec="seconds"
     )
     row = conn.execute(
-        f"SELECT stop_reason FROM {aim_review_store.RUNS} WHERE status = 'stopped' AND created_at >= ? AND ("
+        f"SELECT stop_reason, COALESCE(finished_at, created_at) AS stopped_at FROM {aim_review_store.RUNS} WHERE status = 'stopped' AND created_at >= ? AND ("
         + " OR ".join("stop_reason LIKE ?" for _ in aim_review_gate.ACCOUNT_WORDS)
         + ") ORDER BY created_at DESC LIMIT 1",
         (since, *[f"%{c}%" for c in aim_review_gate.ACCOUNT_WORDS]),
     ).fetchone()
     words = aim_review_gate.account_words(row["stop_reason"]) if row else None
-    return f"The last review's Claude call was refused. {words}" if words else None
+    if not words:
+        return None
+    # Credit may have been added since: a later general review that spent on Claude and finished (done, usd > 0) clears the note at once.
+    later = conn.execute(
+        f"SELECT 1 FROM {aim_review_store.RUNS} WHERE status = 'done' AND COALESCE(usd, 0) > 0 AND COALESCE(finished_at, created_at) > ? LIMIT 1",
+        (row["stopped_at"],),
+    ).fetchone()
+    if later is not None:
+        return None
+    at = str(row["stopped_at"])[11:16]
+    return f"A review's Claude call was refused{f' at {at}' if at else ''}. {words}"
 
 
 def general_plan(

@@ -156,3 +156,19 @@ def test_the_contractor_copy_names_the_same_pages_because_it_uses_the_same_funct
     from app import aim_review_contractor as C
 
     assert C.applies_text is S.applies_text
+
+
+def test_every_members_quote_stays_with_its_own_page_on_the_place():
+    """Reviewer's B2: members on pages 3 then 1: the quote of page 3 is never shown beside page 1."""
+    members = [
+        {"field": "Set pressure", "page": 3, "quote": "page three says 12 bar"},
+        {"field": "Set pressure", "page": 1, "quote": "page one says 10 bar"},
+        {"field": "Set pressure", "page": 3, "quote": "page three says 12 bar"},  # the same quote twice: once
+    ]
+    (place,) = CARD._places(members)
+    assert place["pages"] == [1, 3] and place["page"] == 1
+    assert place["quotes"] == [
+        {"page": 1, "quote": "page one says 10 bar"},
+        {"page": 3, "quote": "page three says 12 bar"},
+    ]
+    assert place["quote"] == "page one says 10 bar"  # older readers: the first page's OWN quote, not the first member's

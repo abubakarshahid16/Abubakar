@@ -712,6 +712,7 @@ def build(conn, run: dict, scope=None) -> dict:
         "calls": [c for c in _json(run.get("calls_json"), []) if isinstance(c, dict)],
         "steps_not_applied": steps_not_applied(_json(run.get("calls_json"), [])),
         "pages_not_read": unread.from_calls(_json(run.get("calls_json"), [])),
+        "pages_not_read_record": unread.record_state(_json(run.get("calls_json"), [])),
         "cost": _cost(run),
         "seconds": run.get("seconds"),
         "created_at": run.get("created_at"),

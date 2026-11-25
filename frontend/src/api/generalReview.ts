@@ -29,7 +29,7 @@ export interface GeneralLine {
   paper_says?: string;
   rule_says?: string;
   we_ask?: string;
-  applies_to?: { page: number | null; field: string; quote: string; /** Every page the field stands on (one chip per field). */ pages?: number[]; /** The valve tag or sheet in the field's last bracket. */ tag?: string; /** What the paper says there, "<field>: blank" for a blank value. */ value?: string }[];
+  applies_to?: { page: number | null; field: string; quote: string; /** Every page the field stands on (one chip per field). */ pages?: number[]; /** Every member's quote with its own page. */ quotes?: { page: number | null; quote: string }[]; /** The valve tag or sheet in the field's last bracket. */ tag?: string; /** What the paper says there, "<field>: blank" for a blank value. */ value?: string }[];
   /** "compared by code", or the mark when it is an AI reading. */
   proven?: string;
   /** Set when the two readers of this comment differ: shown as a small tag, never part of the comment's text. */
@@ -143,6 +143,8 @@ export interface GeneralReview {
   steps_not_applied?: { step: string; why: string; sentence: string }[];
   /** Pages (or Word pictures) with no text and no picture reading: a page counts as read only when text or a reading came back. */
   pages_not_read?: { where: string; why: string; sentence: string }[];
+  /** "all_read" only when the check ran and every page had text or a picture reading; "not_recorded" for an older review or a check that did not run. */
+  pages_not_read_record?: "listed" | "all_read" | "not_recorded";
   /** Every call of the run, in order: the "How this review was made" view groups them by step. */
   calls?: GeneralCall[];
   seconds?: number | null;

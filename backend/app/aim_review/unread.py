@@ -41,6 +41,9 @@ WHY_WORDS = {
 }
 
 STEP = "aim_unread_pages"
+#: The record's code when every page had text or a picture reading, and when the check did not run (an older review, a failed check, a missing file).
+NONE, NOT_CHECKED = "none", "not_checked"
+LISTED, ALL_READ, NOT_RECORDED = "listed", "all_read", "not_recorded"
 
 
 def with_unread(conn, paper_id: str, paper, reload):
@@ -52,6 +55,7 @@ def with_unread(conn, paper_id: str, paper, reload):
             return paper
         if ref["word"]:
             paper.unread = _word_unread(conn, ref["path"])
+            paper.unread_checked = ref["path"] is not None  # a Word file that was not found was not checked
             return paper
         try:
             if _recognise_pending(paper_id):
@@ -61,6 +65,7 @@ def with_unread(conn, paper_id: str, paper, reload):
                 "general review: pending pictures not read (%s)", type(exc).__name__
             )
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
+        paper.unread_checked = True
     except Exception as exc:  # noqa: BLE001 - never a failed review: the pages simply are not claimed
         log.info("general review: unread pages not worked out (%s)", type(exc).__name__)
     return paper
@@ -211,6 +216,18 @@ def from_calls(calls) -> list[dict]:
     return out
 
 
+def record_state(calls) -> str:
+    """What the run's record says about unread pages: LISTED (some were not read), ALL_READ (the check ran: none), NOT_RECORDED (an older
+    review, or the check did not run). Never "all read" for a review that was not checked."""
+    code = None
+    for c in calls if isinstance(calls, list) else []:
+        if isinstance(c, dict) and c.get("step") == STEP:
+            code = str(c.get("code") or "")
+    if code is None or code == NOT_CHECKED:
+        return NOT_RECORDED
+    return ALL_READ if code == NONE else LISTED
+
+
 def sentence(where: str, why: str) -> str:
     return f"{where[0].upper()}{where[1:]} was not read: {WHY_WORDS.get(why, 'no reading came back')}."
 
@@ -243,8 +260,7 @@ def read_calls(paper):
             code=paper.source_note(),
         )
     ]
-    if getattr(paper, "unread", None):
-        calls.append(
-            CallRecord(step=STEP, model="code", prompt_chars=0, code=note(paper.unread))
-        )
+    # ALWAYS written: "none" only when the check really ran and found every page read; "not_checked" when it did not run or failed
+    code = note(paper.unread) if getattr(paper, "unread", None) else (NONE if getattr(paper, "unread_checked", False) else NOT_CHECKED)
+    calls.append(CallRecord(step=STEP, model="code", prompt_chars=0, code=code))
     return calls
