@@ -23,6 +23,7 @@ from . import (
     aim_review_signoff,
     aim_review_store,
     review_shown,
+    tag_cross,
 )
 from .aim_review import references as aim_review_references
 
@@ -109,6 +110,8 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
             "book_document_id": None,
             "comment": aim_review_references.HIDDEN_COMMENT
             if aim_review_references.NOTE_CHECKED in str(row.get("code_note") or "")
+            else tag_cross.HIDDEN_COMMENT  # the other paper's value is its content too: never shown (rule 5)
+            if str(row.get("code_note") or "").startswith(tag_cross.NOTE)
             else comment,
             # code's note may hold the rule's words or numbers: only its state words stay (they decide whether the line is sent
             # and how it groups, the same for every viewer); the comparison's words are not served either (`compared`)
