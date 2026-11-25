@@ -52,6 +52,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const returnedOnce = useRef(false); // StrictMode runs an effect twice in development: the one-time code is posted once
   const [gmailReturn, setGmailReturn] = useState<"working" | "connected" | "admin_must_allow" | null>(null);
   const [engine, setEngine] = useState<"local" | "claude">("local");
+  const [fileRole, setFileRole] = useState("SUPPORTING_DOCUMENT");
   const [claudeDocs, setClaudeDocs] = useState<string[]>([]);
   const [ticked, setTicked] = useState<number[]>([]);
   const [handOpen, setHandOpen] = useState(false);
@@ -318,7 +319,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <p>Received: {message.received_at}</p>
             {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
             <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
-            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/documents/${encodeURIComponent(attachment.document_id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · {SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}</li>)}</ul>}
+            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/documents/${encodeURIComponent(attachment.document_id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · {SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}
+              {attachment.document_id && !attachment.filed_at && <span data-testid="attachment-unfiled"> · kept out of the library: not found by search, Chat or the review list{selected.can_review ? <> <select aria-label="Role to file this attachment under" value={fileRole} onChange={(event) => setFileRole(event.target.value)} className="ml-1 rounded border border-ink-600 bg-ink-900 p-1 text-xs"><option value="SUPPORTING_DOCUMENT">Supporting document</option><option value="CONTRACTOR_SUBMITTAL">Contractor submittal</option><option value="SPECIFICATION">Specification</option><option value="CONTRACT_DOCUMENT">Contract document</option><option value="COMPANY_STANDARD">Company standard</option></select> <button type="button" disabled={busy} onClick={() => { if (!window.confirm("File this attachment into the library? It then appears in search, Chat and the review list under the chosen role.")) return; act(() => technicalQueriesApi.fileIntoLibrary(selected.id, attachment.id, fileRole)); }} className="ml-1 rounded bg-ink-700 px-2 py-0.5 text-xs text-slateish-100 disabled:opacity-50">File into the library</button></> : null}</span>}
+            </li>)}</ul>}
           </article>)}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Evidence</h3>
           {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}

@@ -207,7 +207,7 @@ def list_documents(request: Request, response: Response,
     # alone would apply the filter for ordinary users and silently drop it for
     # an administrator - the filter working everywhere except where it is least
     # likely to be noticed.
-    enumerate_ids = metadata_filtered or not scope.unrestricted
+    enumerate_ids = metadata_filtered or not scope.unrestricted or bool(scope.query_attachment_ids)  # an unfiled technical-query attachment is never listed
     if enumerate_ids and not allowed:
         response.headers["X-Total-Count"] = "0"
         response.headers["X-Limit"] = str(limit)

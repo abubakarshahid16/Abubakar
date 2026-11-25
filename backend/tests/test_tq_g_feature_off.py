@@ -157,19 +157,29 @@ def test_no_code_can_send_and_the_send_route_only_refuses(monkeypatch):
     on(monkeypatch)
     from app import gmail_client, gmail_worker
 
-    assert not hasattr(GmailApiClient, "send") and not hasattr(gmail_worker, "send_approved")
+    assert not hasattr(GmailApiClient, "send") and not hasattr(
+        gmail_worker, "send_approved"
+    )
     app_dir = Path(api.__file__).resolve().parent.parent
     for path in app_dir.rglob("*.py"):
         text = path.read_text()
         assert "messages/send" not in text, path.name  # no send request can be built
-        assert "gmail.send" not in text.replace("gmail.send is not asked for", ""), path.name
+        assert "gmail.send" not in text.replace("gmail.send is not asked for", ""), (
+            path.name
+        )
     assert "send" not in gmail_client.BASE
     item, _ = tq.import_message(envelope("lock"), "u1", False, False)
     scope = AccessScope("u1", frozenset(), capabilities=REVIEWER)
     for who in (scope, AccessScope("u1", frozenset(), unrestricted=True)):
         with pytest.raises(HTTPException) as refused:
-            api.prepare_query_send(item["id"], api.SendIn(draft_id="d", mailbox_id="m", idempotency_key=IDEMPOTENCY), who)
-        assert refused.value.status_code == 409 and "not approved by the owner" in str(refused.value.detail)
+            api.prepare_query_send(
+                item["id"],
+                api.SendIn(draft_id="d", mailbox_id="m", idempotency_key=IDEMPOTENCY),
+                who,
+            )
+        assert refused.value.status_code == 409 and "not approved by the owner" in str(
+            refused.value.detail
+        )
     with db.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM query_sends").fetchone()[0] == 0
 
@@ -340,7 +350,9 @@ def draft_ready(monkeypatch, docs=("d1", "d2")):
     """A query with a confirmed question and verified, current evidence in contract documents `docs`."""
     on(monkeypatch)
     item, _ = tq.import_message(envelope("draft-" + "-".join(docs)), "u1", False, False)
-    tq.confirm_question(item["id"], "What applies?", "u1", True, False, "u1", reviewer=True)
+    tq.confirm_question(
+        item["id"], "What applies?", "u1", True, False, "u1", reviewer=True
+    )
     with db.connect() as conn:
         for n, d in enumerate(docs):
             hold_contract(d)
@@ -351,17 +363,30 @@ def draft_ready(monkeypatch, docs=("d1", "d2")):
     return item, AccessScope("u1", frozenset(docs), capabilities=REVIEWER)
 
 
-def test_claude_for_the_draft_is_refused_while_the_engine_setting_is_local_and_for_any_other_vendor(monkeypatch):
+def test_claude_for_the_draft_is_refused_while_the_engine_setting_is_local_and_for_any_other_vendor(
+    monkeypatch,
+):
     item, scope = draft_ready(monkeypatch)
-    monkeypatch.setattr("app.api.technical_queries.answer.answer", lambda *a, **k: pytest.fail("no answer is asked"))
+    monkeypatch.setattr(
+        "app.api.technical_queries.answer.answer",
+        lambda *a, **k: pytest.fail("no answer is asked"),
+    )
     assert settings.technical_query_draft_engine == "local"
     with pytest.raises(HTTPException) as local_only:
-        api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="claude", document_ids=["d1"]))
-    assert local_only.value.status_code == 409 and "not enabled on this server" in str(local_only.value.detail)
+        api.generate_query_draft(
+            item["id"], scope, api.GenerateDraftIn(engine="claude", document_ids=["d1"])
+        )
+    assert local_only.value.status_code == 409 and "not enabled on this server" in str(
+        local_only.value.detail
+    )
     with pytest.raises(HTTPException) as other:
-        api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="some-other-vendor"))
+        api.generate_query_draft(
+            item["id"], scope, api.GenerateDraftIn(engine="some-other-vendor")
+        )
     assert "not approved by the owner" in str(other.value.detail)
-    assert "per_request_consent" not in Path(api.__file__).read_text()  # chat's lane is chat's only
+    assert (
+        "per_request_consent" not in Path(api.__file__).read_text()
+    )  # chat's lane is chat's only
 
 
 def test_the_default_draft_runs_on_the_local_model(monkeypatch):
@@ -378,7 +403,9 @@ def test_the_default_draft_runs_on_the_local_model(monkeypatch):
     assert seen == [("local", frozenset({"d1", "d2"}))]
 
 
-def test_a_claude_draft_needs_the_chosen_documents_records_the_choice_first_and_sends_only_those(monkeypatch):
+def test_a_claude_draft_needs_the_chosen_documents_records_the_choice_first_and_sends_only_those(
+    monkeypatch,
+):
     item, scope = draft_ready(monkeypatch)
     monkeypatch.setattr(settings, "technical_query_draft_engine", "claude")
     seen = []
@@ -386,8 +413,16 @@ def test_a_claude_draft_needs_the_chosen_documents_records_the_choice_first_and_
     def fake(*a, **k):
         from app import claude_approved
 
-        seen.append((k["model"], k["allowed_document_ids"], claude_approved._consented(frozenset({"d1", "d2"}))))
-        with db.connect() as conn:  # the consent record already exists when the call is made
+        seen.append(
+            (
+                k["model"],
+                k["allowed_document_ids"],
+                claude_approved._consented(frozenset({"d1", "d2"})),
+            )
+        )
+        with (
+            db.connect() as conn
+        ):  # the consent record already exists when the call is made
             from app import technical_query_claude as C
 
             assert [e["document_ids"] for e in C.entries(conn, item["id"])] == [["d1"]]
@@ -395,18 +430,34 @@ def test_a_claude_draft_needs_the_chosen_documents_records_the_choice_first_and_
 
     monkeypatch.setattr("app.api.technical_queries.answer.answer", fake)
     with pytest.raises(HTTPException) as nothing_chosen:
-        api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="claude"))
-    assert "choose the contract documents" in str(nothing_chosen.value.detail) and seen == []
+        api.generate_query_draft(
+            item["id"], scope, api.GenerateDraftIn(engine="claude")
+        )
+    assert (
+        "choose the contract documents" in str(nothing_chosen.value.detail)
+        and seen == []
+    )
     with pytest.raises(HTTPException) as not_evidence:
-        api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="claude", document_ids=["elsewhere"]))
-    assert "not verified, current evidence" in str(not_evidence.value.detail) and seen == []
+        api.generate_query_draft(
+            item["id"],
+            scope,
+            api.GenerateDraftIn(engine="claude", document_ids=["elsewhere"]),
+        )
+    assert (
+        "not verified, current evidence" in str(not_evidence.value.detail)
+        and seen == []
+    )
     with pytest.raises(HTTPException):  # the fake stops it after the checks
-        api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="claude", document_ids=["d1"]))
+        api.generate_query_draft(
+            item["id"], scope, api.GenerateDraftIn(engine="claude", document_ids=["d1"])
+        )
     # only the chosen document is passed to the answer lane and only it is consented; the other one is not
     assert seen == [("technical_query_draft", frozenset({"d1"}), frozenset({"d1"}))]
 
 
-def test_the_gate_lets_the_chosen_contract_go_but_the_client_register_block_and_other_documents_still_stop_it(monkeypatch):
+def test_the_gate_lets_the_chosen_contract_go_but_the_client_register_block_and_other_documents_still_stop_it(
+    monkeypatch,
+):
     from app import claude_approved as CA
 
     on(monkeypatch)
@@ -414,17 +465,26 @@ def test_the_gate_lets_the_chosen_contract_go_but_the_client_register_block_and_
     hold_contract("other")
     monkeypatch.setattr(settings, "claude_approved_list_enforced", True)
     with CA.carrying(["chosen"]):
-        assert CA.refusal() is not None  # a contract without a yes is refused outside the lane
+        assert (
+            CA.refusal() is not None
+        )  # a contract without a yes is refused outside the lane
     with CA.technical_query_lane(["chosen"]), CA.carrying(["chosen"]):
         assert CA.refusal() is None
     with CA.technical_query_lane(["chosen"]), CA.carrying(["chosen", "other"]):
-        assert CA.refusal() is not None  # a document the engineer did not choose is still refused
+        assert (
+            CA.refusal() is not None
+        )  # a document the engineer did not choose is still refused
     monkeypatch.setattr(CA, "_block_stop", lambda ids: (CA.NOT_APPROVED, "blocked"))
     with CA.technical_query_lane(["chosen"]), CA.carrying(["chosen"]):
-        assert CA.refusal() == (CA.NOT_APPROVED, "blocked")  # the register block wins over the choice
+        assert CA.refusal() == (
+            CA.NOT_APPROVED,
+            "blocked",
+        )  # the register block wins over the choice
 
 
-def test_the_draft_provider_is_claude_only_when_its_own_engine_setting_and_the_lane_say_so(monkeypatch):
+def test_the_draft_provider_is_claude_only_when_its_own_engine_setting_and_the_lane_say_so(
+    monkeypatch,
+):
     from app import chat_model
     from app import reasoning_provider as rp
 
@@ -435,7 +495,9 @@ def test_the_draft_provider_is_claude_only_when_its_own_engine_setting_and_the_l
     monkeypatch.setattr(settings, "technical_query_draft_engine", "claude")
     assert isinstance(chat_model.provider(chat_model.TQ_DRAFT), rp.ClaudeProvider)
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
-    assert isinstance(chat_model.provider(chat_model.TQ_DRAFT), rp.OllamaProvider)  # the master switch still keeps everything local
+    assert isinstance(
+        chat_model.provider(chat_model.TQ_DRAFT), rp.OllamaProvider
+    )  # the master switch still keeps everything local
 
 
 # ---------------------------------------------------------------- F6: a query by hand, with its papers
@@ -453,7 +515,9 @@ def pdf_bytes(active: bool = False) -> bytes:
     doc = pymupdf.open()
     doc.new_page()
     if active:
-        doc.xref_set_key(doc.pdf_catalog(), "OpenAction", "<</S/JavaScript/JS(app.alert(1))>>")
+        doc.xref_set_key(
+            doc.pdf_catalog(), "OpenAction", "<</S/JavaScript/JS(app.alert(1))>>"
+        )
     data = doc.tobytes()
     doc.close()
     return data
@@ -560,7 +624,15 @@ def test_a_passage_the_search_found_blocks_approval_until_a_reviewer_keeps_it(
     evidence = prepared["evidence"][0]
     assert evidence["evidence_state"] == "proposed"
     drafted = tq.add_draft(
-        item["id"], "Answer", [], [], "u1", "u1", True, False, citations=[{"evidence_id": evidence["id"], "label": "S1"}]
+        item["id"],
+        "Answer",
+        [],
+        [],
+        "u1",
+        "u1",
+        True,
+        False,
+        citations=[{"evidence_id": evidence["id"], "label": "S1"}],
     )
     draft_id = drafted["drafts"][-1]["id"]
     with pytest.raises(ValueError, match="not yet kept as evidence"):
@@ -597,26 +669,55 @@ def test_a_passage_the_search_found_blocks_approval_until_a_reviewer_keeps_it(
 
 def test_a_paper_with_active_content_is_never_ingested(monkeypatch):
     on(monkeypatch)
-    monkeypatch.setattr("app.api.technical_queries.upload_mod.ingest", lambda *a: pytest.fail("a flagged file must not be ingested"))
+    monkeypatch.setattr(
+        "app.api.technical_queries.upload_mod.ingest",
+        lambda *a: pytest.fail("a flagged file must not be ingested"),
+    )
     scope = scope_of("admin", tq.REVIEWER_CAPABILITY, unrestricted=True)
     with pytest.raises(HTTPException) as refused:
-        make(scope, [UploadFile(filename="bad.pdf", file=BytesIO(pdf_bytes(active=True)))])
-    assert refused.value.status_code == 422 and "active content" in str(refused.value.detail)
+        make(
+            scope,
+            [UploadFile(filename="bad.pdf", file=BytesIO(pdf_bytes(active=True)))],
+        )
+    assert refused.value.status_code == 422 and "active content" in str(
+        refused.value.detail
+    )
     with db.connect() as conn:
-        row = conn.execute("SELECT scan_status,scan_detail,document_id FROM query_attachments").fetchone()
-    assert row["scan_status"] == "static_check_flagged" and row["document_id"] is None and "/JavaScript" in row["scan_detail"]
+        row = conn.execute(
+            "SELECT scan_status,scan_detail,document_id FROM query_attachments"
+        ).fetchone()
+    assert (
+        row["scan_status"] == "static_check_flagged"
+        and row["document_id"] is None
+        and "/JavaScript" in row["scan_detail"]
+    )
 
 
-def test_a_mailbox_attachment_with_active_content_is_marked_and_not_ingested(monkeypatch):
+def test_a_mailbox_attachment_with_active_content_is_marked_and_not_ingested(
+    monkeypatch,
+):
     on(monkeypatch)
     from app import gmail_worker
     from app.gmail_client import GmailMessage
 
     bad = pdf_bytes(active=True)
     message = GmailMessage(
-        provider_message_id="m1", thread_id="t1", from_address="a@b.example", to_addresses=[], cc_addresses=[], subject="s", body="b",
+        provider_message_id="m1",
+        thread_id="t1",
+        from_address="a@b.example",
+        to_addresses=[],
+        cc_addresses=[],
+        subject="s",
+        body="b",
         received_at="2026-01-01T00:00:00Z",
-        attachments=[{"filename": "bad.pdf", "media_type": "application/pdf", "size_bytes": len(bad), "attachment_id": "a1"}],
+        attachments=[
+            {
+                "filename": "bad.pdf",
+                "media_type": "application/pdf",
+                "size_bytes": len(bad),
+                "attachment_id": "a1",
+            }
+        ],
         label_ids=("L",),
     )
 
@@ -630,18 +731,27 @@ def test_a_mailbox_attachment_with_active_content_is_marked_and_not_ingested(mon
         def attachment(self, *_a):
             return bad
 
-    monkeypatch.setattr("app.gmail_worker.upload_mod.ingest", lambda *a: pytest.fail("a flagged file must not be ingested"))
-    out = gmail_worker.process_history(Client(), "h", "u1", mailbox_id="mb", message_ids=["m1"], label_id="L")
+    monkeypatch.setattr(
+        "app.gmail_worker.upload_mod.ingest",
+        lambda *a: pytest.fail("a flagged file must not be ingested"),
+    )
+    out = gmail_worker.process_history(
+        Client(), "h", "u1", mailbox_id="mb", message_ids=["m1"], label_id="L"
+    )
     assert len(out) == 1
     with db.connect() as conn:
-        row = conn.execute("SELECT scan_status,document_id FROM query_attachments").fetchone()
+        row = conn.execute(
+            "SELECT scan_status,document_id FROM query_attachments"
+        ).fetchone()
     assert row["scan_status"] == "static_check_flagged" and row["document_id"] is None
 
 
 # ---------------------------------------------------------------- reviewer's M3: one bad message must not block a mailbox for ever
 
 
-def test_a_message_that_keeps_failing_is_tried_three_times_then_marked_and_stepped_over(monkeypatch):
+def test_a_message_that_keeps_failing_is_tried_three_times_then_marked_and_stepped_over(
+    monkeypatch,
+):
     on(monkeypatch)
     from app import gmail_worker
 
@@ -660,23 +770,69 @@ def test_a_message_that_keeps_failing_is_tried_three_times_then_marked_and_stepp
 
     for _ in range(2):  # the first two polls fail and are retried from the same cursor
         with pytest.raises(ValueError):
-            gmail_worker.process_history(Client(), "h", "u1", mailbox_id="mb", message_ids=["bad", "good"])
-    out = gmail_worker.process_history(Client(), "h", "u1", mailbox_id="mb", message_ids=["bad", "good"])
-    assert out == [{"query_id": "q", "duplicate": False}]  # the third time the bad one is stepped over, the good one imported
+            gmail_worker.process_history(
+                Client(), "h", "u1", mailbox_id="mb", message_ids=["bad", "good"]
+            )
+    out = gmail_worker.process_history(
+        Client(), "h", "u1", mailbox_id="mb", message_ids=["bad", "good"]
+    )
+    assert out == [
+        {"query_id": "q", "duplicate": False}
+    ]  # the third time the bad one is stepped over, the good one imported
     with db.connect() as conn:
-        row = conn.execute("SELECT tries,state,reason FROM gmail_failed_messages WHERE provider_message_id='bad'").fetchone()
-    assert (row["tries"], row["state"]) == (3, "failed") and "ValueError" in row["reason"] and "size mismatch" not in row["reason"]
+        row = conn.execute(
+            "SELECT tries,state,reason FROM gmail_failed_messages WHERE provider_message_id='bad'"
+        ).fetchone()
+    assert (
+        (row["tries"], row["state"]) == (3, "failed")
+        and "ValueError" in row["reason"]
+        and "size mismatch" not in row["reason"]
+    )
 
 
-def test_a_draft_that_cites_no_verified_current_evidence_cannot_be_approved(monkeypatch):
+def test_a_draft_that_cites_no_verified_current_evidence_cannot_be_approved(
+    monkeypatch,
+):
     item = query_with_question(monkeypatch)
     bare = tq.add_draft(item["id"], "Answer", [], [], "u1", "u1", True, False)
     with pytest.raises(ValueError, match="cites no verified, current evidence"):
-        tq.decide(item["id"], "approve", "u1", None, bare["drafts"][-1]["id"], "u1", True, False, reviewer=True)
+        tq.decide(
+            item["id"],
+            "approve",
+            "u1",
+            None,
+            bare["drafts"][-1]["id"],
+            "u1",
+            True,
+            False,
+            reviewer=True,
+        )
     other, _ = tq.import_message(envelope("c2"), "u1", False, False)
-    with pytest.raises(ValueError, match="cites no verified, current evidence"):  # a citation that resolves to nothing is no citation
-        made = tq.add_draft(other["id"], "Answer 2", [], [], "u1", "u1", True, False, citations=[{"evidence_id": "nothing"}])
-        tq.decide(other["id"], "approve", "u1", None, made["drafts"][-1]["id"], "u1", True, False, reviewer=True)
+    with pytest.raises(
+        ValueError, match="cites no verified, current evidence"
+    ):  # a citation that resolves to nothing is no citation
+        made = tq.add_draft(
+            other["id"],
+            "Answer 2",
+            [],
+            [],
+            "u1",
+            "u1",
+            True,
+            False,
+            citations=[{"evidence_id": "nothing"}],
+        )
+        tq.decide(
+            other["id"],
+            "approve",
+            "u1",
+            None,
+            made["drafts"][-1]["id"],
+            "u1",
+            True,
+            False,
+            reviewer=True,
+        )
 
 
 # ---------------------------------------------------------------- reviewer's M4, M5, M1/M2, M8
@@ -686,7 +842,9 @@ def test_the_access_log_stays_on_except_for_the_one_gmail_return_line():
     import importlib.util
     import logging
 
-    spec = importlib.util.spec_from_file_location("run_under_test", Path(__file__).resolve().parents[1] / "run.py")
+    spec = importlib.util.spec_from_file_location(
+        "run_under_test", Path(__file__).resolve().parents[1] / "run.py"
+    )
     run = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(run)
     assert "access_log=False" not in Path(run.__file__).read_text()
@@ -695,23 +853,48 @@ def test_the_access_log_stays_on_except_for_the_one_gmail_return_line():
     run._keep_oauth_code_out_of_the_access_log()
     added = [f for f in logger.filters if f not in before]
     try:
-        keep = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, "GET /api/documents HTTP/1.1", None, None)
-        drop = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, "GET /api/technical-queries/providers/gmail/oauth/callback?code=x HTTP/1.1", None, None)
-        assert all(f.filter(keep) for f in added) and not any(f.filter(drop) for f in added)
+        keep = logging.LogRecord(
+            "uvicorn.access",
+            logging.INFO,
+            "",
+            0,
+            "GET /api/documents HTTP/1.1",
+            None,
+            None,
+        )
+        drop = logging.LogRecord(
+            "uvicorn.access",
+            logging.INFO,
+            "",
+            0,
+            "GET /api/technical-queries/providers/gmail/oauth/callback?code=x HTTP/1.1",
+            None,
+            None,
+        )
+        assert all(f.filter(keep) for f in added) and not any(
+            f.filter(drop) for f in added
+        )
     finally:
         for f in added:
             logger.removeFilter(f)
 
 
-def test_the_gmail_return_is_a_same_site_post_from_the_app_page_by_the_person_who_started_it(monkeypatch):
+def test_the_gmail_return_is_a_same_site_post_from_the_app_page_by_the_person_who_started_it(
+    monkeypatch,
+):
     """Reviewer's M5 and R4: Google sends the person to a page of the APP; that page posts the code as a same-site request (so the Strict
     sign-in cookie is sent), by the person the state names."""
     on(monkeypatch)
     monkeypatch.setenv("GMAIL_CLIENT_ID", "invented-client")
-    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:5173/technicalQueries/gmail-return")
+    monkeypatch.setenv(
+        "GMAIL_REDIRECT_URI", "http://127.0.0.1:5173/technicalQueries/gmail-return"
+    )
     state = gmail_auth.start("u1").split("state=")[1].split("&")[0]
     completed = []
-    monkeypatch.setattr("app.api.technical_queries.gmail_auth.complete", lambda code, st: completed.append((code, st)) or {"id": "mb-1"})
+    monkeypatch.setattr(
+        "app.api.technical_queries.gmail_auth.complete",
+        lambda code, st: completed.append((code, st)) or {"id": "mb-1"},
+    )
     monkeypatch.setattr("app.api.technical_queries.gmail_sync.start", lambda: None)
     body = api.OauthCompleteIn(code="code", state=state)
     other = AccessScope("someone-else", frozenset(), capabilities=frozenset({"admin"}))
@@ -719,36 +902,67 @@ def test_the_gmail_return_is_a_same_site_post_from_the_app_page_by_the_person_wh
         api.gmail_oauth_complete(body, other)
     assert refused.value.status_code == 403 and completed == []
     owner = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
-    assert api.gmail_oauth_complete(body, owner) == {"result": "connected", "mailbox_id": "mb-1"} and completed == [("code", state)]
+    assert api.gmail_oauth_complete(body, owner) == {
+        "result": "connected",
+        "mailbox_id": "mb-1",
+    } and completed == [("code", state)]
 
 
-def test_the_gmail_return_cannot_be_completed_without_a_sign_in_and_there_is_no_get_callback_any_more(monkeypatch):
+def test_the_gmail_return_cannot_be_completed_without_a_sign_in_and_there_is_no_get_callback_any_more(
+    monkeypatch,
+):
     from app import access
 
     on(monkeypatch)
     monkeypatch.setattr(settings, "auth_mode", access.AUTH_REQUIRED)
     client = TestClient(app)
-    answer = client.post("/api/technical-queries/providers/gmail/oauth/complete", json={"code": "c", "state": "s"})
-    assert answer.status_code == 401  # a request without the session cookie (a cross-site navigation) completes nothing
-    gone = client.get("/api/technical-queries/providers/gmail/oauth/callback?code=c&state=s")
-    assert gone.status_code in (404, 405)  # the one-time code never lands on a server route
+    answer = client.post(
+        "/api/technical-queries/providers/gmail/oauth/complete",
+        json={"code": "c", "state": "s"},
+    )
+    assert (
+        answer.status_code == 401
+    )  # a request without the session cookie (a cross-site navigation) completes nothing
+    gone = client.get(
+        "/api/technical-queries/providers/gmail/oauth/callback?code=c&state=s"
+    )
+    assert gone.status_code in (
+        404,
+        405,
+    )  # the one-time code never lands on a server route
 
 
-def test_attachment_text_original_email_and_word_file_need_the_grant_on_the_attachment(monkeypatch):
-    item = attachment_query(monkeypatch, "Q1 What is the minimum coating thickness for the tank?")
-    monkeypatch.setattr("app.technical_query_questions._ask", lambda text: ["Q1 What is the minimum coating thickness for the tank?"])
+def test_attachment_text_original_email_and_word_file_need_the_grant_on_the_attachment(
+    monkeypatch,
+):
+    item = attachment_query(
+        monkeypatch, "Q1 What is the minimum coating thickness for the tank?"
+    )
+    monkeypatch.setattr(
+        "app.technical_query_questions._ask",
+        lambda text: ["Q1 What is the minimum coating thickness for the tank?"],
+    )
     tq.prepare_evidence(item["id"], frozenset({"att"}), "u1", True, False, "u1")
     full = tq.get(item["id"], "u1", True, False)
     assert full["attachment_context"] and full["proposed_questions"]
     reader = AccessScope("u1", frozenset({"att"}), capabilities=REVIEWER)
     blind = AccessScope("u1", frozenset(), capabilities=REVIEWER)
-    assert api._safe_item(full, reader)["attachment_context"] == full["attachment_context"]
+    assert (
+        api._safe_item(full, reader)["attachment_context"] == full["attachment_context"]
+    )
     hidden = api._safe_item(full, blind)
-    assert hidden["attachment_context"] == [] and hidden["proposed_questions"] == [] and hidden["proposed_question"] is None
+    assert (
+        hidden["attachment_context"] == []
+        and hidden["proposed_questions"] == []
+        and hidden["proposed_question"] is None
+    )
     assert hidden["attachment_text_hidden"] is True
     message = full["messages"][0]
     with db.connect() as conn:
-        conn.execute("UPDATE query_messages SET raw_storage_ref=? WHERE id=?", ("/nowhere.eml", message["id"]))
+        conn.execute(
+            "UPDATE query_messages SET raw_storage_ref=? WHERE id=?",
+            ("/nowhere.eml", message["id"]),
+        )
     with pytest.raises(HTTPException) as no_email:
         api.download_original_query_email(item["id"], message["id"], blind)
     assert no_email.value.status_code == 403
@@ -757,7 +971,9 @@ def test_attachment_text_original_email_and_word_file_need_the_grant_on_the_atta
     assert no_word.value.status_code == 403
 
 
-def test_a_draft_word_file_says_ai_to_be_checked_until_a_reviewer_approves(monkeypatch, tmp_path):
+def test_a_draft_word_file_says_ai_to_be_checked_until_a_reviewer_approves(
+    monkeypatch, tmp_path
+):
     from zipfile import ZipFile
 
     from app.technical_query_docx import render
@@ -769,14 +985,20 @@ def test_a_draft_word_file_says_ai_to_be_checked_until_a_reviewer_approves(monke
     assert drafted["drafts"]
 
 
-def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(monkeypatch):
+def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(
+    monkeypatch,
+):
     on(monkeypatch)
     monkeypatch.setenv("GMAIL_CLIENT_ID", "invented-client")
     monkeypatch.setenv("GMAIL_CLIENT_SECRET", "invented-secret")
-    monkeypatch.setenv("GMAIL_REDIRECT_URI", "http://127.0.0.1:5173/technicalQueries/gmail-return")
+    monkeypatch.setenv(
+        "GMAIL_REDIRECT_URI", "http://127.0.0.1:5173/technicalQueries/gmail-return"
+    )
     owner = AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
     # 1. Google sends the person back with the refusal in the address; the page posts it on
-    assert api.gmail_oauth_complete(api.OauthCompleteIn(error="admin_policy_enforced"), owner) == {"result": "admin_must_allow"}
+    assert api.gmail_oauth_complete(
+        api.OauthCompleteIn(error="admin_policy_enforced"), owner
+    ) == {"result": "admin_must_allow"}
     # 2. Google refuses at the token step (a stubbed 400 answer)
     state = gmail_auth.start("u1").split("state=")[1].split("&")[0]
 
@@ -784,7 +1006,10 @@ def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(monk
         status_code = 400
 
         def json(self):
-            return {"error": "admin_policy_enforced", "error_description": "raw text that must not reach the screen"}
+            return {
+                "error": "admin_policy_enforced",
+                "error_description": "raw text that must not reach the screen",
+            }
 
         def raise_for_status(self):
             raise AssertionError("must be said in words, not raised")
@@ -792,9 +1017,15 @@ def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(monk
     monkeypatch.setattr(httpx, "post", lambda *a, **k: Answer())
     with pytest.raises(gmail_auth.CompanyAdminMustAllow) as said:
         gmail_auth.complete("code", state)
-    assert str(said.value) == "Your company's Google admin must allow this app." and "raw text" not in str(said.value)
+    assert str(
+        said.value
+    ) == "Your company's Google admin must allow this app." and "raw text" not in str(
+        said.value
+    )
     state2 = gmail_auth.start("u1").split("state=")[1].split("&")[0]
-    assert api.gmail_oauth_complete(api.OauthCompleteIn(code="code", state=state2), owner) == {"result": "admin_must_allow"}
+    assert api.gmail_oauth_complete(
+        api.OauthCompleteIn(code="code", state=state2), owner
+    ) == {"result": "admin_must_allow"}
 
 
 def test_the_drafts_local_model_is_the_one_every_local_answer_uses(monkeypatch):
@@ -804,26 +1035,43 @@ def test_the_drafts_local_model_is_the_one_every_local_answer_uses(monkeypatch):
     monkeypatch.setattr(settings, "answer_model", "invented-local-model")
     assert chat_model.provider("local").requested_model == "invented-local-model"
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
-    assert chat_model.provider(chat_model.TQ_DRAFT).requested_model == "invented-local-model"
+    assert (
+        chat_model.provider(chat_model.TQ_DRAFT).requested_model
+        == "invented-local-model"
+    )
 
 
-def test_a_chosen_document_that_is_not_a_contract_is_not_sent_and_no_consent_is_recorded(monkeypatch):
+def test_a_chosen_document_that_is_not_a_contract_is_not_sent_and_no_consent_is_recorded(
+    monkeypatch,
+):
     """Reviewer's R1: the owner approved CONTRACT documents only for the Claude draft."""
     item, scope = draft_ready(monkeypatch)
     with db.connect() as conn:
         conn.execute(
-            "INSERT OR IGNORE INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('datasheet-1','d.pdf',?,1,'d.pdf','ready','x')", ("d" * 64,)
+            "INSERT OR IGNORE INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('datasheet-1','d.pdf',?,1,'d.pdf','ready','x')",
+            ("d" * 64,),
         )
-        conn.execute("INSERT OR REPLACE INTO document_classification(document_id,document_role,suggested_by) VALUES ('datasheet-1','CONTRACTOR_SUBMITTAL','r')")
+        conn.execute(
+            "INSERT OR REPLACE INTO document_classification(document_id,document_role,suggested_by) VALUES ('datasheet-1','CONTRACTOR_SUBMITTAL','r')"
+        )
         conn.execute(
             "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,supersession_state,evidence_state,created_at) VALUES ('e9',?,'datasheet-1',1,1,'q','h9','current','verified','x')",
             (item["id"],),
         )
-    scope = AccessScope("u1", frozenset({"d1", "d2", "datasheet-1"}), capabilities=REVIEWER)
+    scope = AccessScope(
+        "u1", frozenset({"d1", "d2", "datasheet-1"}), capabilities=REVIEWER
+    )
     monkeypatch.setattr(settings, "technical_query_draft_engine", "claude")
-    monkeypatch.setattr("app.api.technical_queries.answer.answer", lambda *a, **k: pytest.fail("nothing may be sent"))
+    monkeypatch.setattr(
+        "app.api.technical_queries.answer.answer",
+        lambda *a, **k: pytest.fail("nothing may be sent"),
+    )
     with pytest.raises(HTTPException) as refused:
-        api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="claude", document_ids=["d1", "datasheet-1"]))
+        api.generate_query_draft(
+            item["id"],
+            scope,
+            api.GenerateDraftIn(engine="claude", document_ids=["d1", "datasheet-1"]),
+        )
     assert "not a contract: not sent (datasheet-1)" in str(refused.value.detail)
     from app import technical_query_claude as C
 
@@ -833,16 +1081,30 @@ def test_a_chosen_document_that_is_not_a_contract_is_not_sent_and_no_consent_is_
 
 def test_the_queue_list_carries_no_attachment_text_for_anyone(monkeypatch):
     """Reviewer's R2: the list shows a fixed set of columns; the text is in the detail, behind the grant check."""
-    item = attachment_query(monkeypatch, "Q1 What is the minimum coating thickness for the tank?")
-    monkeypatch.setattr("app.technical_query_questions._ask", lambda text: ["Q1 What is the minimum coating thickness for the tank?"])
+    item = attachment_query(
+        monkeypatch, "Q1 What is the minimum coating thickness for the tank?"
+    )
+    monkeypatch.setattr(
+        "app.technical_query_questions._ask",
+        lambda text: ["Q1 What is the minimum coating thickness for the tank?"],
+    )
     tq.prepare_evidence(item["id"], frozenset({"att"}), "u1", True, False, "u1")
-    for scope in (AccessScope("u1", frozenset({"att"}), capabilities=REVIEWER), AccessScope("u1", frozenset(), capabilities=REVIEWER)):
+    for scope in (
+        AccessScope("u1", frozenset({"att"}), capabilities=REVIEWER),
+        AccessScope("u1", frozenset(), capabilities=REVIEWER),
+    ):
         listed = api.list_technical_queries(scope=scope)["items"]
         assert listed and set(listed[0]) <= set(api.LIST_COLUMNS)
-        assert "attachment_context" not in listed[0] and "proposed_question" not in listed[0] and "extracted_question" not in listed[0]
+        assert (
+            "attachment_context" not in listed[0]
+            and "proposed_question" not in listed[0]
+            and "extracted_question" not in listed[0]
+        )
 
 
-def test_an_outage_or_a_google_5xx_or_429_never_counts_as_a_bad_message_and_the_wait_doubles(monkeypatch):
+def test_an_outage_or_a_google_5xx_or_429_never_counts_as_a_bad_message_and_the_wait_doubles(
+    monkeypatch,
+):
     """Reviewer's R3: only a failure of the message itself is counted; the network and Google's own faults are retried later."""
     on(monkeypatch)
     from app import gmail_worker
@@ -850,12 +1112,20 @@ def test_an_outage_or_a_google_5xx_or_429_never_counts_as_a_bad_message_and_the_
     request = httpx.Request("GET", "https://gmail.googleapis.com/x")
     for error in (
         httpx.ConnectError("down", request=request),
-        httpx.HTTPStatusError("busy", request=request, response=httpx.Response(429, request=request)),
-        httpx.HTTPStatusError("fault", request=request, response=httpx.Response(503, request=request)),
+        httpx.HTTPStatusError(
+            "busy", request=request, response=httpx.Response(429, request=request)
+        ),
+        httpx.HTTPStatusError(
+            "fault", request=request, response=httpx.Response(503, request=request)
+        ),
     ):
         assert gmail_worker.is_transient(error)
     assert not gmail_worker.is_transient(ValueError("size mismatch"))
-    assert not gmail_worker.is_transient(httpx.HTTPStatusError("gone", request=request, response=httpx.Response(404, request=request)))
+    assert not gmail_worker.is_transient(
+        httpx.HTTPStatusError(
+            "gone", request=request, response=httpx.Response(404, request=request)
+        )
+    )
 
     def offline(client, message_id, **kw):
         raise httpx.ConnectError("down", request=request)
@@ -863,17 +1133,33 @@ def test_an_outage_or_a_google_5xx_or_429_never_counts_as_a_bad_message_and_the_
     monkeypatch.setattr(gmail_worker, "_process_message", offline)
     for _ in range(5):  # far more than the three tries
         with pytest.raises(httpx.ConnectError):
-            gmail_worker.process_history(object(), "h", "u1", mailbox_id="mb", message_ids=["m1"])
+            gmail_worker.process_history(
+                object(), "h", "u1", mailbox_id="mb", message_ids=["m1"]
+            )
     with db.connect() as conn:
-        counted = conn.execute("SELECT name FROM sqlite_master WHERE name='gmail_failed_messages'").fetchone()
-        assert counted is None or conn.execute("SELECT COUNT(*) FROM gmail_failed_messages").fetchone()[0] == 0
-    assert [gmail_sync.wait_seconds(n) for n in (0, 1, 2, 3, 6)] == [60, 120, 240, 480, 900]
+        counted = conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='gmail_failed_messages'"
+        ).fetchone()
+        assert (
+            counted is None
+            or conn.execute("SELECT COUNT(*) FROM gmail_failed_messages").fetchone()[0]
+            == 0
+        )
+    assert [gmail_sync.wait_seconds(n) for n in (0, 1, 2, 3, 6)] == [
+        60,
+        120,
+        240,
+        480,
+        900,
+    ]
 
 
 # ---------------------------------------------------------------- reviewer's R6, R5: the evidence runs as a job with progress; a cut says so
 
 
-def test_preparing_evidence_is_a_job_with_progress_that_waits_for_a_running_review(monkeypatch):
+def test_preparing_evidence_is_a_job_with_progress_that_waits_for_a_running_review(
+    monkeypatch,
+):
     item = query_with_question(monkeypatch)
     from app import technical_query_jobs as J
 
@@ -884,10 +1170,14 @@ def test_preparing_evidence_is_a_job_with_progress_that_waits_for_a_running_revi
     queued = api.prepare_query_evidence(item["id"], scope)
     job = queued["evidence_job"]
     assert job["state"] == "queued"
-    assert api.prepare_query_evidence(item["id"], scope)["evidence_job"]["id"] == job["id"]  # one active job per query, not a second
+    assert (
+        api.prepare_query_evidence(item["id"], scope)["evidence_job"]["id"] == job["id"]
+    )  # one active job per query, not a second
     seen = []
     real_set = J._set
-    monkeypatch.setattr(J, "_set", lambda job_id, **f: (seen.append(f), real_set(job_id, **f))[1])
+    monkeypatch.setattr(
+        J, "_set", lambda job_id, **f: (seen.append(f), real_set(job_id, **f))[1]
+    )
     # a review is running: the job says it waits, and does not start
     flags = iter([True, False])
     monkeypatch.setattr(J, "_review_running", lambda: next(flags))
@@ -895,25 +1185,45 @@ def test_preparing_evidence_is_a_job_with_progress_that_waits_for_a_running_revi
     J.run_job(job["id"])
     assert any(f.get("label") == J.WAITING_WORDS for f in seen)
     done = tq.get(item["id"], "u1", True, False)["evidence_job"]
-    assert done["state"] == "done" and done["progress_total"] == 2 and done["progress_done"] == 1  # N of M while it ran
-    assert any(str(f.get("label", "")).startswith("searching contract 2 of 2") for f in seen)
+    assert (
+        done["state"] == "done"
+        and done["progress_total"] == 2
+        and done["progress_done"] == 1
+    )  # N of M while it ran
+    assert any(
+        str(f.get("label", "")).startswith("searching contract 2 of 2") for f in seen
+    )
 
 
-def test_a_job_that_fails_says_why_and_one_left_running_by_a_stopped_server_is_marked(monkeypatch):
+def test_a_job_that_fails_says_why_and_one_left_running_by_a_stopped_server_is_marked(
+    monkeypatch,
+):
     item = query_with_question(monkeypatch)
     from app import technical_query_jobs as J
 
     scope = AccessScope("u1", frozenset(), capabilities=REVIEWER)
     job = api.prepare_query_evidence(item["id"], scope)["evidence_job"]
-    monkeypatch.setattr(tq, "prepare_evidence", lambda *a, **k: (_ for _ in ()).throw(ValueError("no question could be proposed")))
+    monkeypatch.setattr(
+        tq,
+        "prepare_evidence",
+        lambda *a, **k: (_ for _ in ()).throw(
+            ValueError("no question could be proposed")
+        ),
+    )
     J.run_job(job["id"], wait_for_review=False)
     failed = tq.get(item["id"], "u1", True, False)["evidence_job"]
-    assert failed["state"] == "failed" and failed["error"] == "no question could be proposed"
+    assert (
+        failed["state"] == "failed"
+        and failed["error"] == "no question could be proposed"
+    )
     other = api.prepare_query_evidence(item["id"], scope)["evidence_job"]
     with db.connect() as conn:
         conn.execute(f"UPDATE {J.TABLE} SET state='running' WHERE id=?", (other["id"],))
     assert J.recover_interrupted() == 1
-    assert tq.get(item["id"], "u1", True, False)["evidence_job"]["error"] == J.INTERRUPTED_WORDS
+    assert (
+        tq.get(item["id"], "u1", True, False)["evidence_job"]["error"]
+        == J.INTERRUPTED_WORDS
+    )
 
 
 def test_a_read_of_a_query_never_creates_the_job_table(monkeypatch):
@@ -923,15 +1233,224 @@ def test_a_read_of_a_query_never_creates_the_job_table(monkeypatch):
     item, _ = tq.import_message(envelope("ro"), "u1", False, False)
     assert tq.get(item["id"], "u1", True, False)["evidence_job"] is None
     with db.connect() as conn:
-        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='query_evidence_jobs'").fetchone() is None
+        assert (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='query_evidence_jobs'"
+            ).fetchone()
+            is None
+        )
 
 
 def test_the_pages_not_read_and_a_cut_wording_are_said_on_the_query(monkeypatch):
-    item = attachment_query(monkeypatch, "Q1 What is the minimum coating thickness for the tank?")
+    item = attachment_query(
+        monkeypatch, "Q1 What is the minimum coating thickness for the tank?"
+    )
     with db.connect() as conn:
         conn.execute("UPDATE documents SET page_count=12 WHERE id='att'")
     monkeypatch.setattr("app.technical_query_questions._ask", lambda text: [])
     got = tq.prepare_evidence(item["id"], frozenset({"att"}), "u1", True, False, "u1")
-    assert got["attachment_reading"][0]["line"] == "query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read."
+    assert (
+        got["attachment_reading"][0]["line"]
+        == "query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read."
+    )
     long_text = tq.propose_question("x" * (tq.MAX_PROPOSED_QUESTION + 50))
     assert long_text.endswith(tq.CUT_MARK) and "cut here" in long_text
+
+
+# ---------------------------------------------------------------- Lead 4: a mailbox attachment is kept OUT of the library until filed
+
+
+def flagged_attachment(monkeypatch):
+    """A held document that arrived as a technical-query attachment, and an ordinary library document beside it."""
+    item = attachment_query(
+        monkeypatch, "Q1 What is the minimum coating thickness for the tank?"
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('lib-doc','l.pdf',?,1,'l.pdf','ready','x')",
+            ("9" * 64,),
+        )
+    return item
+
+
+def test_an_unfiled_attachment_is_in_no_scope_but_the_query_screens_can_still_read_it(
+    monkeypatch,
+):
+    from app import access
+
+    flagged_attachment(monkeypatch)
+    scope = access.unrestricted_scope()
+    assert (
+        "att" not in scope.allowed_document_ids
+        and "lib-doc" in scope.allowed_document_ids
+    )
+    assert (
+        scope.query_attachment_ids == frozenset({"att"})
+        and scope.may_read_attachment("att")
+        and not scope.may_read("att")
+    )
+    with db.connect() as conn:
+        assert tq.unfiled_attachment_ids(conn) == frozenset({"att"})
+        # and for a signed-in person whose role holds BOTH documents: the grant tables say yes, the flag keeps one out of every scope
+        conn.execute(
+            "INSERT INTO roles(id,name,description,kind,created_at) VALUES ('r-x','Role X','x','discipline','2026-01-01T00:00:00Z')"
+        )
+        conn.execute(
+            "INSERT INTO user_roles(user_id,role_id,granted_at) VALUES ('u1','r-x','2026-01-01T00:00:00Z')"
+        )
+        for d in ("att", "lib-doc"):
+            conn.execute(
+                "INSERT INTO document_role_access(document_id,role_id,permission,granted_at) VALUES (?,?,'read','2026-01-01T00:00:00Z')",
+                (d, "r-x"),
+            )
+    user = access.scope_for_user("u1")
+    assert user.allowed_document_ids == frozenset(
+        {"lib-doc"}
+    ) and user.query_attachment_ids == frozenset({"att"})
+    assert user.may_read_attachment("att") and not user.may_read("att")
+
+
+def test_an_unfiled_attachment_is_not_listed_searched_or_reviewed_and_is_never_on_the_approved_list(
+    monkeypatch,
+):
+    from app import claude_approved as CA
+    from app import claude_auto_approve as AA
+    from app import search
+
+    flagged_attachment(monkeypatch)
+    client = TestClient(app)
+    listed = {d["id"] for d in client.get("/api/documents?limit=100").json()}
+    assert "lib-doc" in listed and "att" not in listed  # the library list
+    from app import access
+
+    allowed = access.unrestricted_scope().allowed_document_ids
+    found = search.search(
+        "coating thickness",
+        limit=5,
+        rerank=False,
+        dense=False,
+        allowed_document_ids=allowed,
+    )
+    assert all(
+        h["document_id"] != "att" for h in found.get("hits", [])
+    )  # search and Chat read only the scope's ids
+    assert client.get("/api/reviews/papers/att/general").status_code in (
+        403,
+        404,
+    )  # the review picker/page: not a paper of this scope
+    with db.connect() as conn:
+        row = conn.execute(
+            "SELECT id, sha256, filename FROM documents WHERE id='att'"
+        ).fetchone()
+    assert AA._want(row, "test") is None  # no automatic route may put it on the list
+    monkeypatch.setattr(
+        settings, "claude_approved_list_enforced", False
+    )  # even with the list not enforced the gate holds it
+    with CA.carrying(["att"]):
+        refused = CA.refusal()
+    assert refused is not None and "technical-query attachments not filed" in refused[1]
+    with CA.carrying(["lib-doc"]):
+        assert (
+            CA.refusal() is None or "technical-query" not in CA.refusal()[1]
+        )  # an ordinary library document is not held by it
+
+
+def test_filing_an_attachment_on_purpose_with_a_role_makes_it_an_ordinary_library_document(
+    monkeypatch,
+):
+    from app import access
+
+    item = flagged_attachment(monkeypatch)
+    attachment_id = tq.get(item["id"], "u1", True, False)["messages"][0]["attachments"][
+        0
+    ]["id"]
+    scope = AccessScope(
+        "u1",
+        frozenset({"att"}),
+        capabilities=REVIEWER,
+        query_attachment_ids=frozenset(),
+    )
+    unrelated = AccessScope("u1", frozenset(), capabilities=frozenset())
+    with pytest.raises(HTTPException) as nobody:
+        api.file_attachment_into_library(
+            item["id"],
+            attachment_id,
+            api.FileIntoLibraryIn(role="SPECIFICATION"),
+            unrelated,
+        )
+    assert nobody.value.status_code == 403
+    done = api.file_attachment_into_library(
+        item["id"], attachment_id, api.FileIntoLibraryIn(role="SPECIFICATION"), scope
+    )
+    assert done["messages"][0]["attachments"][0]["filed_at"]
+    allowed = access.unrestricted_scope().allowed_document_ids
+    assert (
+        "att" in allowed
+    )  # now found by search, Chat and the review list like any library document
+    with db.connect() as conn:
+        assert tq.unfiled_attachment_ids(conn) == frozenset()
+        assert (
+            conn.execute(
+                "SELECT document_role FROM document_classification WHERE document_id='att'"
+            ).fetchone()["document_role"]
+            == "SPECIFICATION"
+        )
+    with pytest.raises(HTTPException) as again:
+        api.file_attachment_into_library(
+            item["id"],
+            attachment_id,
+            api.FileIntoLibraryIn(role="SPECIFICATION"),
+            scope,
+        )
+    assert again.value.status_code == 409
+
+
+def test_a_paper_the_library_already_held_is_not_hidden_by_being_attached_to_a_query(
+    monkeypatch,
+):
+    on(monkeypatch)
+    item, _ = tq.import_message(
+        {**envelope("dup"), "body": "See attached.", "question": None},
+        "u1",
+        False,
+        False,
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('already','a.pdf',?,1,'a.pdf','ready','x')",
+            ("8" * 64,),
+        )
+    tq.link_attachment(
+        item["id"],
+        item["messages"][0]["attachments"][0]["id"],
+        "already",
+        "u1",
+        "u1",
+        True,
+        False,
+    )
+    with db.connect() as conn:
+        assert "already" in tq.unfiled_attachment_ids(conn)
+        tq.mark_filed(
+            conn, "already", "u1"
+        )  # what both upload paths do when the upload was a duplicate of a held, unflagged paper
+        assert "already" not in tq.unfiled_attachment_ids(conn)
+
+
+def test_with_the_feature_never_switched_on_there_is_no_flag_and_scopes_are_exactly_as_before(
+    monkeypatch,
+):
+    from app import access
+
+    monkeypatch.setattr(settings, "technical_queries_enabled", False)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('plain','p.pdf',?,1,'p.pdf','ready','x')",
+            ("7" * 64,),
+        )
+        assert tq.unfiled_attachment_ids(conn) == frozenset()
+    scope = access.unrestricted_scope()
+    assert (
+        "plain" in scope.allowed_document_ids
+        and scope.query_attachment_ids == frozenset()
+    )

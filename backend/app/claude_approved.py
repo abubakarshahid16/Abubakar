@@ -613,6 +613,20 @@ def unshown_specifications(ids) -> frozenset[str]:
     return _unshown_specifications(ids)
 
 
+def _unfiled_attachments(ids) -> frozenset[str]:
+    """Of the declared documents, the technical-query attachments nobody has filed into the library. An unreadable table is the safe side:
+    nothing is held for it (no attachment can exist without the table)."""
+    import sqlite3
+
+    from . import technical_queries
+    from .db import connect
+
+    try:
+        return frozenset(ids) & technical_queries.unfiled_attachment_ids(connect())
+    except sqlite3.Error:
+        return frozenset()
+
+
 def refusal() -> tuple[str, str] | None:
     """`(code, reason)` when the Claude call about to be reserved must not
     leave, else None. Ids only in the reason - never a file name.
@@ -628,6 +642,12 @@ def refusal() -> tuple[str, str] | None:
         stopped = _block_stop(ids)
         if stopped is not None:
             return stopped
+        apart = _unfiled_attachments(ids)
+        if apart:  # a technical-query attachment goes nowhere until an engineer files it into the library
+            return NOT_APPROVED, (
+                f"{len(apart)} of {len(ids)} document(s) in this prompt are technical-query attachments not filed into the library "
+                f"(ids: {', '.join(sorted(apart))}), so nothing is sent"
+            )
     # The list the screen showed is a cap of its own, whether or not the owner's list is enforced.
     held = frozenset() if _REQUEST_CONSENT.get() else _unshown_specifications(ids)
     if held:

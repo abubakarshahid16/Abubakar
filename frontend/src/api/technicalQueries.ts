@@ -29,7 +29,7 @@ export interface TechnicalQuery {
   priority: string;
   received_at: string;
   due_at: string | null;
-  messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ filename: string; size_bytes: number; document_id: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
+  messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
@@ -90,6 +90,9 @@ export const technicalQueriesApi = {
     request(`/technical-queries/${encodeURIComponent(id)}/assignment`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ assignee_user_id: assigneeUserId }) }),
   triage: (id: string, fields: { contractor_name: string | null; department: string | null; priority: string; due_at: string | null }): Promise<Result<TechnicalQuery>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/triage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fields) }),
+  /** Files a mailbox attachment into the library on purpose, with a role (until then it stays out of search, Chat and the review picker). */
+  fileIntoLibrary: (id: string, attachmentId: string, role: string): Promise<Result<TechnicalQuery>> =>
+    request(`/technical-queries/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/file-into-library`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) }),
   confirmQuestion: (id: string, question: string): Promise<Result<TechnicalQuery>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/confirm-question`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }),
   classifyEvidence: (id: string, evidenceId: string, evidenceState: string, supersessionState: string): Promise<Result<TechnicalQuery>> =>

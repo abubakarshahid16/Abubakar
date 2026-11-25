@@ -20,7 +20,9 @@ from .gmail_client import GmailApiClient
 from .technical_queries import (
     import_message,
     link_attachment,
+    mark_filed,
     now,
+    unfiled_attachment_ids,
 )
 
 log = logging.getLogger(__name__)
@@ -118,9 +120,11 @@ def _process_message(
                     ),
                 )
             continue
+        with connect() as conn:
+            flagged_before = unfiled_attachment_ids(conn)
         row, _, duplicate_of = upload_mod.ingest(BytesIO(content), source["filename"])
         if duplicate_of is not None and settings.auth_mode != access.AUTH_DISABLED:
-            if not access.scope_for_user(actor_user_id).may_read(row["id"]):
+            if not access.scope_for_user(actor_user_id).may_read_attachment(row["id"]):
                 raise PermissionError(
                     "the duplicate attachment document is not readable"
                 )
@@ -140,6 +144,9 @@ def _process_message(
             )
             or item
         )
+        if duplicate_of is not None and row["id"] not in flagged_before:
+            with connect() as conn:  # a paper the library already held is not hidden by being attached to a query
+                mark_filed(conn, row["id"], actor_user_id)
     return {"query_id": item.get("id"), "duplicate": duplicate}
 
 

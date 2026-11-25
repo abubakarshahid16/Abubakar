@@ -33,6 +33,7 @@ const api = vi.hoisted(() => ({
   generateDraft: vi.fn(),
   createByHand: vi.fn(),
   completeGmail: vi.fn(),
+  fileIntoLibrary: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
@@ -113,6 +114,19 @@ describe("Technical Queries screen", () => {
     expect(api.completeGmail).toHaveBeenCalledWith({ code: "one-time", state: "abc", error: null });
     await screen.findByText("Gmail is connected. Choose the label to import below.");
     expect(screen.queryByText(/requires code and state/)).toBeNull();
+  });
+
+  it("says an unfiled mailbox attachment is kept out of the library and files it only when the engineer chooses a role", async () => {
+    const withFile = { ...query, messages: [{ id: "m1", from_address: "a@b.example", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null, attachments: [{ id: "a1", filename: "query.pdf", size_bytes: 10, document_id: "d1", filed_at: null, scan_status: "static_check_clean", parse_status: "ready" }] }] };
+    api.get.mockResolvedValue({ ok: true, data: withFile });
+    api.fileIntoLibrary.mockResolvedValue({ ok: true, data: { ...withFile, messages: [{ ...withFile.messages[0], attachments: [{ ...withFile.messages[0].attachments[0], filed_at: "2026-11-26T00:00:00Z" }] }] } });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("attachment-unfiled")).textContent).toContain("kept out of the library");
+    fireEvent.change(screen.getByLabelText("Role to file this attachment under"), { target: { value: "SPECIFICATION" } });
+    fireEvent.click(screen.getByText("File into the library"));
+    await waitFor(() => expect(api.fileIntoLibrary).toHaveBeenCalledWith("q1", "a1", "SPECIFICATION"));
+    await waitFor(() => expect(screen.queryByTestId("attachment-unfiled")).toBeNull());
   });
 
   it("creates a query by hand with its papers, with no mailbox", async () => {

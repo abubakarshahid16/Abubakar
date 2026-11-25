@@ -246,7 +246,7 @@ def _attachment_documents(item: dict) -> set[str]:
 def _hide_unreadable_attachment_text(item: dict, scope: access.AccessScope) -> dict:
     """Text copied out of an attachment is shown only to a person who may read that attachment's document (rule 5: a copy never widens
     access). When a person may not, the copy, the questions found in it and the wording built from it are left out, and it says so."""
-    if _attachment_documents(item) <= set(scope.allowed_document_ids):
+    if _attachment_documents(item) <= set(scope.readable_with_attachments):
         return item
     return {
         **item,
@@ -592,7 +592,7 @@ def download_original_query_email(
         raise HTTPException(status_code=404, detail="original email not stored")
     if not scope.unrestricted and not {
         a["document_id"] for a in message.get("attachments", []) if a.get("document_id")
-    } <= set(scope.allowed_document_ids):
+    } <= set(scope.readable_with_attachments):
         # the stored message holds its attachments' bytes: a person who may not read one of them does not get the whole message
         raise _refuse(403, "the original email carries an attachment you may not read")
     folder = (settings.data_dir / "technical_query_mail").resolve()
@@ -956,7 +956,7 @@ def prepare_query_evidence(
         raise HTTPException(status_code=404, detail="technical query not found")
     if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
         raise _refuse(422, "evidence cannot be prepared in the current query state")
-    technical_query_jobs.enqueue(query_id, scope.allowed_document_ids, scope.user_id, scope.is_admin, scope.unrestricted)
+    technical_query_jobs.enqueue(query_id, scope.readable_with_attachments, scope.user_id, scope.is_admin, scope.unrestricted)
     return _safe_item(technical_queries.get(query_id, *_visible(scope)) or current, scope)
 
 
@@ -1066,13 +1066,15 @@ def _ingest_query_attachment(query_id: str, attachment: dict, file: UploadFile, 
             "the attachment was not accepted: the static check "
             + ("found active content in it" if checked["status"] == attachment_safety.FLAGGED else "could not check it"),
         )
+    with connect() as conn:
+        flagged_before = technical_queries.unfiled_attachment_ids(conn)
     try:
         row, job_id, duplicate_of = upload_mod.ingest(file.file, file.filename or "")
     except upload_mod.UploadError as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc
     if (
         duplicate_of is not None
-        and not scope.may_read(row["id"])
+        and not scope.may_read_attachment(row["id"])
         and not scope.unrestricted
     ):
         raise HTTPException(
@@ -1085,12 +1087,43 @@ def _ingest_query_attachment(query_id: str, attachment: dict, file: UploadFile, 
     )
     if item is None:
         raise HTTPException(status_code=404, detail="query attachment not found")
+    if duplicate_of is not None and row["id"] not in flagged_before:
+        with connect() as conn:  # a paper the library already held is not hidden by being attached to a query
+            technical_queries.mark_filed(conn, row["id"], scope.user_id)
     return {
         "item": _safe_item(item, scope),
         "document_id": row["id"],
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
     }
+
+
+class FileIntoLibraryIn(BaseModel):
+    role: Literal["CONTRACTOR_SUBMITTAL", "COMPANY_STANDARD", "CONTRACT_DOCUMENT", "SPECIFICATION", "SUPPORTING_DOCUMENT"]
+
+
+@router.post("/api/technical-queries/{query_id}/attachments/{attachment_id}/file-into-library", response_model=QueryOut)
+def file_attachment_into_library(
+    query_id: str,
+    attachment_id: str,
+    body: FileIntoLibraryIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """An engineer files a query's attachment into the library ON PURPOSE, with a role. Until then the attachment is kept out of library
+    search, Chat, the review picker and every automatic Claude-approval route; the query's own screens keep working. Then it is an ordinary
+    library document: its role decides what the approval routes do with it, as for any upload."""
+    _require_identity_to_write(scope)
+    if not (_reviewer(scope) or scope.is_admin):
+        raise _refuse(403, "a qualified technical-query reviewer or an administrator is required to file an attachment into the library")
+    attachment = technical_queries.attachment_for_query(query_id, attachment_id, *_visible(scope))
+    if attachment is None or not attachment["document_id"]:
+        raise HTTPException(status_code=404, detail="query attachment not found")
+    if not scope.may_read_attachment(attachment["document_id"]):
+        raise _refuse(403, "you may not read this attachment")
+    if not technical_queries.file_into_library(attachment["document_id"], body.role, scope.user_id):
+        raise _refuse(409, "this attachment is already in the library")
+    item = technical_queries.get(query_id, *_visible(scope))
+    return _safe_item(item, scope)
 
 
 @router.post("/api/technical-queries/{query_id}/decisions", response_model=QueryOut)

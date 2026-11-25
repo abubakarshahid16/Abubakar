@@ -228,6 +228,9 @@ def _ensure_schema() -> None:
         }
         if "scan_detail" not in attachment_columns:
             conn.execute("ALTER TABLE query_attachments ADD COLUMN scan_detail TEXT")
+        for column in ("filed_at", "filed_by"):  # set when an engineer files the attachment into the library on purpose
+            if column not in attachment_columns:
+                conn.execute(f"ALTER TABLE query_attachments ADD COLUMN {column} TEXT")
         evidence_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(query_evidence)")
         }
@@ -990,6 +993,49 @@ MAX_PROPOSED_QUESTION = 12_000
 ATTACHMENT_PAGES_READ = 5
 CUT_MARK = " [cut here: the wording was longer than the limit; the rest is on the attachment pages]"
 MAX_CONFIRMED_QUESTION = 5_000
+
+
+def unfiled_attachment_ids(conn) -> frozenset[str]:
+    """The FLAG: documents that arrived as a technical-query attachment and that nobody has filed into the library. They are kept out of
+    library search, Chat, the review picker and every automatic Claude-approval route (the scope of every request leaves them out:
+    `access.scope_for_user`), until an engineer files one on purpose with a role (`file_into_library`). Reads only: with the feature never
+    switched on there is no table and the answer is empty."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='query_attachments'").fetchone() is None:
+        return frozenset()
+    columns = {r["name"] for r in conn.execute("PRAGMA table_info(query_attachments)")}
+    if "filed_at" not in columns:
+        return frozenset(r["document_id"] for r in conn.execute("SELECT DISTINCT document_id FROM query_attachments WHERE document_id IS NOT NULL"))
+    return frozenset(
+        r["document_id"]
+        for r in conn.execute(
+            "SELECT DISTINCT document_id FROM query_attachments WHERE document_id IS NOT NULL AND document_id NOT IN "
+            "(SELECT document_id FROM query_attachments WHERE document_id IS NOT NULL AND filed_at IS NOT NULL)"
+        )
+    )
+
+
+def mark_filed(conn, document_id: str, user_id: str | None) -> None:
+    conn.execute(
+        "UPDATE query_attachments SET filed_at=?, filed_by=? WHERE document_id=? AND filed_at IS NULL", (now(), user_id, document_id)
+    )
+
+
+def file_into_library(document_id: str, role: str, user_id: str | None) -> bool:
+    """File an unfiled attachment document into the library on purpose, with a role (an engineer's act). The role goes through the one
+    `classification.set_role`, which brings the ordinary hooks (extraction, the approval check of the role) with it. False when the
+    document is not an unfiled technical-query attachment."""
+    from . import classification
+
+    with connect() as conn:
+        if document_id not in unfiled_attachment_ids(conn):
+            return False
+    classification.set_role(document_id, role)
+    with connect() as conn:
+        mark_filed(conn, document_id, user_id)
+    from . import claude_auto_approve
+
+    claude_auto_approve.on_upload(document_id)  # now an ordinary library document: the approval routes look at it by its role
+    return True
 
 
 def query_attachment_document_ids(conn) -> frozenset[str]:
