@@ -446,8 +446,15 @@ def met_unproven(said, label: str, nums, deferred: bool, code_cmp) -> list[str]:
     by code: Pass" only when code compared), kept on All points, never sent as a concern. Decided by the judge's own label and
     code's result, never by the comment's words. A value left open, or anything else: []."""
     from . import AI_MET_UNPROVEN
+    from .updates import u7b
 
-    if said != "Met" or label != "Question" or deferred or not isinstance(nums, dict):
+    if (
+        not u7b()
+        or said != "Met"
+        or label != "Question"
+        or deferred
+        or not isinstance(nums, dict)
+    ):
         return []
     if isinstance(code_cmp, dict) and code_cmp.get("result") in ("pass", "fail"):
         return []
@@ -456,5 +463,10 @@ def met_unproven(said, label: str, nums, deferred: bool, code_cmp) -> list[str]:
 
 def value_in(value, unit, quote: str) -> dict | None:
     """The figure as the quote prints it (`quoted_value`), else the one printed figure the judge's converted `value unit` matches
-    (`converted_value`)."""
-    return quoted_value(value, quote) or converted_value(value, unit, quote)
+    (`converted_value`). 7b switched off (`updates.u7b`): the printed figure only, as main."""
+    from .updates import u7b
+
+    found = quoted_value(value, quote)
+    return (
+        found if found is not None or not u7b() else converted_value(value, unit, quote)
+    )

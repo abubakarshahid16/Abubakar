@@ -425,3 +425,93 @@ def _shape_blocks(body: dict) -> list[str]:
     if caches > 4:
         out.append(f"{caches} cache_control blocks (at most 4)")
     return out
+
+
+# ------------------------------------------------------------------ the way back (main 475adb91), per update switch
+#: The texts as main 475adb91 sends them, word for word (`aim_review.updates`: a switch OFF sends these). Removed when the update
+#: is switched on for good.
+CONDITIONS_ASK_MAIN = (
+    "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
+    "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
+    '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
+    "value it covers, and each material, allowance or rating suits the stated condition."
+)
+S4_TASK_MAIN = """TASK S4 - JUDGE THE PAPER ABOVE AGAINST THESE CHECKLIST ITEMS. For each item: read the clause (given), read the
+paper pages it names (and any other page where the thing is), and judge.
+Labels: "Met" (the paper states what the clause requires), "Not met" (the paper states something that breaks it), "Question"
+(the value or statement is missing, unclear, or left open by the vendor: TBA, TBC, TBD, later, *, blank, or "by
+vendor/contractor" with no figure), "Does not apply" (the item's condition does not hold for this paper), "AI opinion" (a concern a senior engineer would raise that the
+clause does not decide).
+A value belongs to the equipment item its section, block, table heading or sheet names (the main item, its driver, an auxiliary
+system, one side of it): two values conflict only when they belong to the SAME item. When a judgment rests on a second value
+elsewhere on the paper, give it as "other": {"page": p, "quote": "exact paper words"} and name the item of each value as the
+paper writes it: "items": ["item of quote", "item of other"].
+Check the item on EVERY sheet or section of the paper it applies to; report each place where it fails or is left open; one
+finding per place: repeat the item's id for each such place (at most 6), each with its own page, quote and numbers. An item
+that holds everywhere gets one judgment.
+A figure the contractor FILLED IN beside a note of who supplies it, such as "380 psig (By Contractor)", is a STATED value: judge
+it as any value (Met, Not met or Question, and give "numbers" for a limit). A comment on a value left open (no figure) is a
+QUESTION to the vendor, never a statement that it fails. A "Question" ASKS: its comment never says that a value passes, fails,
+exceeds or meets a limit (code compares the numbers you give). Compare a value only with a limit for the SAME quantity: a field
+with two names and two values split by "/" pairs them in order (the first value is the first name's), and a limit for one kind
+of a quantity (one part, one case, one state) never judges another kind of it.
+Read each item's "applies_when" against THIS place of the paper (this sheet, this item, its stated type and service): when the
+condition does not hold there (the item is for a part, a type or a service this place does not have), the label is "Does not
+apply" with the paper words that show it; a blank field for a part the condition excludes is never a Question.
+A line whose words would only say that the paper meets the rule, is acceptable or adequate, or restate what the paper states,
+is NO COMMENT: give it "Met" with its quote when it rests on a held rule; for any other item give "Question" with "ask":
+"confirm" and an empty comment. Never send a pass as a "concern" or an "AI opinion": a comment must ask the vendor for something
+or name what is wrong, missing or in conflict.
+Rules: quote the paper EXACTLY (5 to 30 words from one page) for every label except "Does not apply" with nothing to quote;
+NEVER Met or Not met on a value the vendor left open; for EVERY item that rests on a held rule with a numeric limit, give
+"numbers" (the paper's figure and the rule's limit) whenever both are stated, WHATEVER your label, and code will compare them (do not compare
+yourself); items whose source is not "held standard" (engineering knowledge) may only be "Question", "AI opinion" or
+"Does not apply".
+Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "field": "the paper field or section",
+ "page": paper page, "quote": "exact paper words", "deferred": true if the vendor left the value open,
+ "ask": for a "Question" only: "concern" if you suspect the stated value is wrong or does not fit the clause (say which rule in
+        the comment), "confirm" if nothing is suspected and the vendor only needs to confirm it,
+ "numbers": {"paper_value": "...", "paper_unit": "...", "operator": "<=|>=|<|>|==|!=", "rule_value": "...", "rule_unit": "...",
+             "limit_quote": only when the limit is stated on THE PAPER and not in the clause: the exact paper words that state
+             rule_value (5 to 30 words from one page), "limit_page": that paper page}
+            or null,
+ "comment": "the comment a senior engineer would send the vendor, at most 35 words"}]}
+THE ITEMS:
+%(items)s"""
+
+ANSWERED_TASK_MAIN = """TASK S4B - CHECK EACH COMMENT'S CLAIMS AGAINST THE WHOLE PAPER. Below are comments a reviewer would send about
+the paper above (one per line: n, field, page, comment). Read EVERY page of the paper. A comment often CLAIMS that the paper
+lacks something, leaves it blank or unstated, does not define or address it, or ONLY says X; it may also ask for something.
+For EACH comment, as a strict senior engineer checking the reviewer's work, check EVERY such claim and request against the whole
+paper, on ANY page, not only the comment's own page (another section, a table, an annex, an attachment, a note, a filled field):
+answered true when the paper states what the comment says is missing or asks for, or states the opposite of what it claims,
+for ANY ONE of its claims (a comment with one false claim is wrong as written, even when another part of it is right): give that
+claim in at most 12 words, the page, and the exact paper words that show it (5 to 30 words from that one page, character for
+character, no "..."); answered false when the paper covers none of its claims. Code checks every quote on its page.
+Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
+{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "..."}, {"n": n, "answered": false}]}
+THE COMMENTS:
+%(comments)s"""
+
+
+def conditions_ask() -> str:
+    from .updates import u7b
+
+    return CONDITIONS_ASK if u7b() else CONDITIONS_ASK_MAIN
+
+
+def knowledge_ask() -> str:
+    """KNOWLEDGE_ASK with the conditions text of the switch (main's has no gas-group sentence)."""
+    return KNOWLEDGE_ASK.replace(CONDITIONS_ASK, conditions_ask())
+
+
+def s4_task() -> str:
+    from .updates import u7b
+
+    return S4_TASK if u7b() else S4_TASK_MAIN
+
+
+def answered_task() -> str:
+    from .updates import u6b
+
+    return ANSWERED_TASK if u6b() else ANSWERED_TASK_MAIN

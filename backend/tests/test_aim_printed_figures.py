@@ -5,6 +5,8 @@ back to a sent Question. Invented papers and rules; no model."""
 
 from __future__ import annotations
 
+import pytest
+
 from app import aim_review
 from app.aim_review import prompts as P
 from app.aim_review import steps as S
@@ -17,6 +19,14 @@ PAPER = Paper(
     paper_id="doc_inv_sheet",
     pages={1: f"Invented sheet.\n{QUOTE}\nInvented design figure: 15 barg\n"},
 )
+
+@pytest.fixture(autouse=True)
+def _update_on(monkeypatch):
+    """This file tests a part of an update that goes live switched off (`aim_review.updates`): switched on here."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_u7b_enabled", True)
+
 
 
 def _item(rule_quote: str) -> dict:

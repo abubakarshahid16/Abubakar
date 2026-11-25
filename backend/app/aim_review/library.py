@@ -23,7 +23,6 @@ from functools import lru_cache
 from pathlib import Path
 
 # The six reasons a book is on the plan's list, and the list's size: one home, the package (`app.aim_review`).
-from .. import rule_second_approval as _second
 from . import MAX_BOOKS as MAX_CANDIDATES
 from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED
 from .citations import (  # noqa: F401 - one home of citation matching: citations
@@ -33,6 +32,7 @@ from .citations import (  # noqa: F401 - one home of citation matching: citation
     citation_tokens,
     identifier_key,
 )
+from .updates import second_sql
 
 log = logging.getLogger(__name__)
 
@@ -437,7 +437,7 @@ def rule_pool(
     types, fam = type_set(type_id)
     has_kind = "rule_label" in held
     has_equip = "rule_equipment_label" in held
-    second = _second.review_sql(conn, held, labels) if has_kind else None
+    second = second_sql(conn, held, labels) if has_kind else None  # update 8 off: None
     cols = [
         "sr.id AS id",
         "sr.standard_document_id AS book",
