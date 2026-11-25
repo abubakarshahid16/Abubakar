@@ -1157,8 +1157,10 @@ export interface WorkerStatus {
   /** not alive, OR no heartbeat, OR work pending with no progress */
   stalled: boolean;
   stalled_reasons: string[];
-  /** a review is running on the worker's one thread; uploads wait behind it (busy, not stopped) */
+  /** a review is running on the worker's review lane; uploads are read beside it (busy, not stopped) */
   reviewing?: boolean;
+  /** uploads waiting now because the review lane holds the local model; 0 when none waits */
+  uploads_waiting_for_review?: number;
   /** response-safe only; tracebacks go to the local log */
   last_error: ApiError | null;
 }

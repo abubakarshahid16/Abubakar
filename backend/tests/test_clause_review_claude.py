@@ -381,28 +381,22 @@ def test_with_no_table_the_idle_poll_does_nothing():
 
 
 def test_the_idle_worker_loop_polls(monkeypatch):
+    """The clause review's Claude-batch poll runs on the REVIEW lane's idle wait (update 7, #1913: reviews have their own lane)."""
     from app import ingest
 
     worker = ingest.IngestionWorker.__new__(ingest.IngestionWorker)
     worker._stop = ingest.threading.Event()
     worker.poll_seconds = 0
     worker.last_error = None
-    turns = []
-
-    def next_document():  # a loop that forgot the poll still ends, and the assert below fails
-        turns.append(1)
-        if len(turns) > 1:
-            worker._stop.set()
-
-    monkeypatch.setattr(worker, "_next_document", next_document, raising=False)
     monkeypatch.setattr(worker, "_drain_review_jobs", lambda: False, raising=False)
-    monkeypatch.setattr(
-        worker, "_drain_standard_extraction", lambda: False, raising=False
-    )
     polled = []
 
-    monkeypatch.setattr(clause_review_claude, "poll_due", lambda: polled.append(1))
-    worker._run()
+    def poll():  # a loop that forgot the poll never stops by itself: the stop is set here
+        polled.append(1)
+        worker._stop.set()
+
+    monkeypatch.setattr(clause_review_claude, "poll_due", poll)
+    worker._review_run()
     assert polled
 
 

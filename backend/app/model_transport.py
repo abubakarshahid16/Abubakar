@@ -243,9 +243,12 @@ def post_json(path: str, body: dict, *, timeout: float) -> Any:
     why sanitising a prompt is not the control. Its runner OPTIONS are made
     uniform (`with_runner_options`), which is not an inspection of content.
     """
+    from . import local_model_gate
+
     url = endpoint(path)
     body = _normalised(path, body)
-    with httpx.Client(
+    # one large local model at a time between the worker's lanes (`local_model_gate`); no lane outside the worker: no wait
+    with local_model_gate.holding(), httpx.Client(
         timeout=timeout,
         # A 302 is a host no check ever saw; following one would move the
         # destination outside the check that just passed. Same reasoning as
@@ -369,26 +372,30 @@ def stream_json(path: str, body: dict, *, timeout: float, cancel=None):
     """
     import json as _json
 
+    from . import local_model_gate
+
     url = endpoint(path)
     body = _normalised(path, body)
-    client = httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False)
-    abort = _Abort(client, cancel)
-    try:
-        with client.stream("POST", url, json={**body, "stream": True},
-                           extensions={"trace": abort.trace}) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if cancel is not None and cancel.is_set():
-                    return
-                if line.strip():
-                    yield _json.loads(line)
-    except (httpx.TransportError, RuntimeError):
-        if cancel is not None and cancel.is_set():
-            return        # the abort above, not a failure
-        raise
-    finally:
-        abort.finished.set()
-        client.close()
+    # held for the whole stream: one large local model at a time between the worker's lanes (`local_model_gate`)
+    with local_model_gate.holding():
+        client = httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False)
+        abort = _Abort(client, cancel)
+        try:
+            with client.stream("POST", url, json={**body, "stream": True},
+                               extensions={"trace": abort.trace}) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if cancel is not None and cancel.is_set():
+                        return
+                    if line.strip():
+                        yield _json.loads(line)
+        except (httpx.TransportError, RuntimeError):
+            if cancel is not None and cancel.is_set():
+                return        # the abort above, not a failure
+            raise
+        finally:
+            abort.finished.set()
+            client.close()
 
 
 _client_lock = threading.Lock()
