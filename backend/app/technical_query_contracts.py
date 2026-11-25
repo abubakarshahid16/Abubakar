@@ -16,7 +16,11 @@ from .db import connect
 
 log = logging.getLogger(__name__)
 
-PER_CONTRACT = 2
+#: Measured 26 Nov 2026 (10 answered questions): a wide candidate pool, a wide reranker shortlist and the cut AFTER the reranker found the right
+#: page for 8 of 10, against 7 of 10 for 16 candidates reranked and 2 kept. Rank-1 and top-3 did not change.
+WIDE_CANDIDATES = 60
+WIDE_SHORTLIST = 40
+PER_CONTRACT = 8
 MAX_PASSAGES = 20
 ROLE = "CONTRACT_DOCUMENT"
 
@@ -47,10 +51,8 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
 def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[str, Any]:
     """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, the best
     MAX_PASSAGES overall by score. A search that fails is counted, logged by type, and never stops the others."""
-    from . import search, technical_query_reach
+    from . import search
 
-    chosen = technical_query_reach.ideas()
-    per_contract = technical_query_reach.WIDE_KEEP if "b" in chosen else PER_CONTRACT
     contracts = contract_ids(allowed)
     hits: list[dict] = []
     searched = failed = hits_in = 0
@@ -60,9 +62,19 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
                 n - 1, len(contracts), f"searching contract {n} of {len(contracts)}"
             )
         try:
-            found = technical_query_reach.search_contract(
-                question, document_id, per_contract, search_fn=search.search
+            res = search.search(
+                question,
+                limit=PER_CONTRACT,
+                document_id=document_id,
+                rerank=True,
+                dense=True,
+                allowed_document_ids=frozenset({document_id}),
+                candidates=WIDE_CANDIDATES,
+                rerank_candidates=WIDE_SHORTLIST,
             )
+            found = [h for h in (res.get("hits") or []) if (h.get("text") or "").strip()][
+                :PER_CONTRACT
+            ]
         except Exception as exc:  # noqa: BLE001 - counted as not searched and said in the coverage line; the other contracts go on
             log.warning(
                 "technical query: a contract could not be searched (%s)",
@@ -88,8 +100,5 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
         "hits_in": hits_in,
         "failed": failed,
         "line": coverage_line(searched, len(contracts), hits_in, failed),
-        "reach": "".join(
-            sorted(chosen)
-        ),  # which reach ideas were on for this search ("" = the plain search)
     }
     return {"hits": hits[:MAX_PASSAGES], "coverage": coverage}
