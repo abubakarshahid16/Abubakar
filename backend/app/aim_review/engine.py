@@ -321,7 +321,7 @@ def run(
         seconds=round(time.time() - t0, 2),
         references=state.references,
         answered=state.answered,
-        book_why=_every_reason(state),
+        book_why=state.every_reason(),
     )
 
 
@@ -372,9 +372,7 @@ class _RunState:
         ] = []  # the whole-paper check's verdicts (local run record)
         self.reference_ids: set[str] = set()
         self.book_why: dict[str, str] = {}
-        self.book_fallback: dict[
-            str, str
-        ] = {}  # why the tables chose a book (governs, method book, cited), for one the scope step gave no words
+        self.book_fallback: dict[str, str] = {}
         self.not_held: list[dict] = []
         self.unlisted: set[str] = set()
         self.decided: list[dict] = []
@@ -390,6 +388,11 @@ class _RunState:
                 self.run_id,
                 self.stop_reason.split(" ", 2)[:2],
             )
+
+    def every_reason(self) -> dict[str, str]:
+        from . import book_names as BN
+
+        return BN.every_reason(self.book_why, self.book_fallback, self.books - self.reference_ids, self.reused)  # fmt: skip
 
     def lines(self) -> list[dict]:
         return [to_line(i + 1, d) for i, d in enumerate(self.decided)]
@@ -467,8 +470,10 @@ def _steps(
     checklist = _checklist(
         conn, state, mdl, ident, allowed_books, store, text, lead, strong
     )
+    from . import book_names as BN
+
     state.book_why = _book_reasons(checklist)
-    state.book_fallback = _fallback_reasons(conn, state, ident, allowed_books)
+    state.book_fallback = BN.fallback_reasons(conn, state.paper_id, ident, allowed_books, state.cited)  # fmt: skip
     # the standards the paper itself cites (S1, each verified in its quote) that no held document answers: said as not held
     from . import book_names as BN
 
@@ -555,38 +560,6 @@ def _book_reasons(checklist: dict) -> dict[str, str]:
     for b in (checklist or {}).get("books") or []:
         if isinstance(b, dict) and b.get("book"):
             out[str(b["book"])] = str(b.get("why") or "")
-    return out
-
-
-def _fallback_reasons(
-    conn, state: _RunState, ident: dict, allowed_books
-) -> dict[str, str]:
-    """{book id: the table's reason} (governs the equipment type, method book of the kind, cited by the paper) for the books the type
-    requires: the words stored beside a book the scope step gave none for (planner 19 Nov, item 1). Held tables only; no model."""
-    from . import checklist as CL
-
-    try:
-        want = CL.wanted(
-            conn, state.paper_id, CL.type_identity(ident), allowed_books, state.cited
-        )
-    except Exception as exc:  # noqa: BLE001 - a reason is never worth a failed review
-        log.info(
-            "general review: the table reasons were not read (%s)", type(exc).__name__
-        )
-        return {}
-    return {str(d): str(w) for d, w in (want.get("listed") or {}).items() if w}
-
-
-def _every_reason(state: _RunState) -> dict[str, str]:
-    """A reason for EVERY book the run carried: the scope step's words, else the table's reason, else where the book came from (the
-    saved checklist, or the rules of this kind). Nothing is stored as "not recorded" for a book the review used."""
-    from . import WHY_RULES, WHY_SAVED
-
-    last = WHY_SAVED if state.reused else WHY_RULES
-    out = dict(state.book_why)
-    for book in state.books - state.reference_ids:
-        if not str(out.get(book) or "").strip():
-            out[book] = state.book_fallback.get(book) or last
     return out
 
 
