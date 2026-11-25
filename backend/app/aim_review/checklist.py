@@ -464,6 +464,30 @@ def _answers(
     return [(out, batch)]
 
 
+def _retried(
+    model, bad: list[dict], batch, carries, lead, depth: int = 0
+) -> list[dict]:
+    """The retry's items for `bad` (one call). On the local model a cut answer is never used: the items are asked again in two
+    halves, and one item whose answer is still cut is dropped (its quote stays not found); on Claude a cut is raised, as before."""
+    prompt = P.S3_RETRY % {
+        "items": _dumps(bad),
+        "material": "\n".join(_material_line(r) for r in batch),
+    }
+    try:
+        fix = model.ask(step="aim_checklist_retry", model=lead, system="", cached=None, prompt=prompt, carries=carries,
+                        max_tokens=8000)  # fmt: skip
+    except StepFailed as exc:
+        if not is_local() or "max_tokens" not in str(exc) or depth >= SPLIT_DEPTH:
+            raise
+        if len(bad) < 2:
+            return []
+        h = len(bad) // 2
+        return _retried(model, bad[:h], batch, carries, lead, depth + 1) + _retried(
+            model, bad[h:], batch, carries, lead, depth + 1
+        )
+    return _items_of(fix)
+
+
 def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> dict:
     rows, stats = material(sel, text)
     alias_to_book = {b["alias"]: b["book"] for b in sel["books"]}
@@ -491,20 +515,7 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
             size = RETRY_LOCAL if is_local() else len(bad)
             fixed = []
             for k in range(0, len(bad), size):
-                fix = model.ask(
-                    step="aim_checklist_retry",
-                    model=lead,
-                    system="",
-                    cached=None,
-                    prompt=P.S3_RETRY
-                    % {
-                        "items": _dumps(bad[k : k + size]),
-                        "material": "\n".join(_material_line(r) for r in batch),
-                    },
-                    carries=carries,
-                    max_tokens=8000,
-                )
-                fixed += _items_of(fix)
+                fixed += _retried(model, bad[k : k + size], batch, carries, lead)
             ok_fixed = [
                 it
                 for it in fixed
@@ -661,23 +672,31 @@ def s3_attack(
     # the answers joined: every rule is read by the attack on both, none cut (26 Nov 2026)
     out: dict = {"remove": [], "fix": [], "add": []}
     for part in _batches(rows) if is_local() else [rows]:
-        got = model.ask(
-            step="aim_attack",
-            model=strong,
-            system="",
-            cached=None,
-            prompt=_for_type(P.ATTACK_TASK)
-            % {
-                "identity": _identity(ident),
-                "kinds": _dumps(list(ITEM_KINDS)),
-                "items": "\n".join(_dumps(s) for s in shown),
-                "not_held": _not_held_line(sel) or "none",
-                "books": _books_line(sel),
-                "material": "\n".join(_material_line(r) for r in part),
-            },
-            carries=set(alias_to_book.values()),
-            max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
-        )
+        try:
+            got = model.ask(
+                step="aim_attack",
+                model=strong,
+                system="",
+                cached=None,
+                prompt=_for_type(P.ATTACK_TASK)
+                % {
+                    "identity": _identity(ident),
+                    "kinds": _dumps(list(ITEM_KINDS)),
+                    "items": "\n".join(_dumps(s) for s in shown),
+                    "not_held": _not_held_line(sel) or "none",
+                    "books": _books_line(sel),
+                    "material": "\n".join(_material_line(r) for r in part),
+                },
+                carries=set(alias_to_book.values()),
+                max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
+            )
+        except StepFailed as exc:  # a cut answer is never used: on the local model that batch's attack is set aside
+            if not is_local() or "max_tokens" not in str(exc):
+                raise
+            logging.getLogger(__name__).info(
+                "general review: a cut attack answer of one batch is not used"
+            )
+            continue
         for k in out:
             out[k] += (got.get(k) or []) if isinstance(got, dict) else []
     by_id = {it["id"]: it for it in made["items"]}
