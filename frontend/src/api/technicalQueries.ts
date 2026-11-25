@@ -5,6 +5,13 @@ export interface TechnicalQuery {
   subject: string;
   contractor_name: string | null;
   department: string | null;
+  /** Read from the subject by code: TQ (technical query) or CFC (conflict finding clarification), the running number, the discipline code, the short title. */
+  ref_type?: string | null;
+  ref_number?: string | null;
+  discipline_code?: string | null;
+  title_short?: string | null;
+  /** 1 when the subject carried no TQ/CFC number: kept, and flagged for a person. */
+  needs_person?: number | null;
   routing_source?: string | null;
   assignee_user_id: string | null;
   /** The email's own question, as received. */
@@ -48,6 +55,21 @@ export interface TechnicalQueryFilters {
   received_from?: string;
   received_to?: string;
   evidence_state?: string;
+  ref_type?: string;
+  discipline?: string;
+  number?: string;
+  needs_person?: boolean;
+}
+
+export interface MailboxImportJob {
+  id: string;
+  kind: "import" | "poll";
+  state: "queued" | "running" | "done" | "failed";
+  total: number;
+  done: number;
+  failed: number;
+  error: string | null;
+  failures: Array<{ subject: string; reason: string }>;
 }
 
 export interface TechnicalQueryMailbox {
@@ -55,6 +77,8 @@ export interface TechnicalQueryMailbox {
   email: string;
   connection_state: string;
   label_id: string | null;
+  last_checked_at?: string | null;
+  import_job?: MailboxImportJob | null;
 }
 
 export interface RoutingRule { id: string; match_type: "address" | "domain"; match_value: string; contractor_name: string | null; department: string | null }
@@ -62,7 +86,7 @@ export interface GmailLabel { id: string; name: string; type: string }
 export interface TechnicalQueryAssignee { id: string; display_name: string }
 
 function queryPath(filters: TechnicalQueryFilters): string {
-  const values = Object.entries(filters).filter(([, value]) => Boolean(value));
+  const values = Object.entries(filters).filter(([, value]) => Boolean(value)).map(([key, value]) => [key, String(value)]);
   const params = new URLSearchParams(values as [string, string][]);
   return `/technical-queries${params.size ? `?${params}` : ""}`;
 }
@@ -81,7 +105,10 @@ export const technicalQueriesApi = {
     request("/technical-queries/providers/gmail/oauth/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   gmailLabels: (mailboxId: string): Promise<Result<{ items: GmailLabel[] }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/labels`, undefined, hasArrayField("items")),
-  activateGmailLabel: (mailboxId: string, labelId: string): Promise<Result<{ imported: number; connection_state: string }>> =>
+  /** "Check now": queues one poll; answers at once. */
+  checkNow: (mailboxId: string): Promise<Result<{ import_job: string }>> =>
+    request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/check-now`, { method: "POST" }),
+  activateGmailLabel: (mailboxId: string, labelId: string): Promise<Result<{ imported: number; connection_state: string; import_job?: string | null }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/activate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label_id: labelId }) }),
   get: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}`),
   assignees: (): Promise<Result<{ items: TechnicalQueryAssignee[] }>> =>

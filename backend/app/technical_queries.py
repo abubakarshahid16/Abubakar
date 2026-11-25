@@ -199,9 +199,10 @@ def _ensure_schema() -> None:
             actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, event TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL
         );
         """)
-        from . import technical_query_jobs
+        from . import gmail_import_jobs, technical_query_jobs
 
         technical_query_jobs.create_table(conn)
+        gmail_import_jobs.create_tables(conn)
         columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(technical_queries)")
         }
@@ -209,6 +210,12 @@ def _ensure_schema() -> None:
             conn.execute(
                 "ALTER TABLE technical_queries ADD COLUMN assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL"
             )
+        for column in ("ref_key", "ref_type", "ref_number", "discipline_code", "title_short"):  # read from the subject by code
+            if column not in columns:
+                conn.execute(f"ALTER TABLE technical_queries ADD COLUMN {column} TEXT")
+        if "needs_person" not in columns:
+            conn.execute("ALTER TABLE technical_queries ADD COLUMN needs_person INTEGER NOT NULL DEFAULT 0")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_technical_queries_ref ON technical_queries(ref_key)")
         for column in (
             "routing_source",
             "attachment_context",
@@ -422,6 +429,10 @@ def _filtered_where(
     received_from: str | None = None,
     received_to: str | None = None,
     evidence_state: str | None = None,
+    ref_type: str | None = None,
+    discipline: str | None = None,
+    number: str | None = None,
+    needs_person: bool | None = None,
 ) -> tuple[str, list[Any]]:
     where, args = _visible_where(user_id, is_admin, unrestricted)
     filters = (
@@ -431,6 +442,10 @@ def _filtered_where(
         ("assignee_user_id = ?", assignee_user_id),
         ("received_at >= ?", received_from),
         ("received_at <= ?", received_to),
+        ("ref_type = ?", ref_type.upper() if ref_type else None),
+        ("discipline_code = ?", discipline.upper() if discipline else None),
+        ("ref_number = ?", str(int(number)) if number and str(number).strip().isdigit() else None),
+        ("needs_person = ?", None if needs_person is None else int(needs_person)),
     )
     for clause, value in filters:
         if value is not None:
@@ -470,7 +485,14 @@ def import_message(
         # collapse to the duplicate branch above.
         thread = data.get("provider_thread_id")
         threaded = None
-        if thread:
+        from . import technical_query_subject
+
+        ref = technical_query_subject.parse(data.get("subject"))
+        if ref:  # the number in the subject IS the query's identity: a forward or a reply with the same reference joins the same query
+            same = conn.execute("SELECT id FROM technical_queries WHERE ref_key=? ORDER BY created_at LIMIT 1", (ref["reference"],)).fetchone()
+            if same:
+                threaded = {"query_id": same["id"], "from_address": data["from_address"]}
+        if thread and not threaded:
             threaded = conn.execute(
                 "SELECT query_id,from_address FROM query_messages WHERE provider=? AND mailbox_id IS ? AND provider_thread_id=? ORDER BY received_at LIMIT 1",
                 (data["provider"], mailbox_id, thread),
@@ -530,7 +552,7 @@ def import_message(
             conn, data["from_address"], data.get("contractor_name"), data.get("department")
         )
         conn.execute(
-            "INSERT INTO technical_queries(id,owner_user_id,contractor_name,department,routing_source,subject,extracted_question,status,priority,received_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO technical_queries(id,owner_user_id,contractor_name,department,routing_source,subject,extracted_question,status,priority,received_at,created_at,updated_at,ref_key,ref_type,ref_number,discipline_code,title_short,needs_person) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 qid,
                 actor_user_id,
@@ -544,6 +566,12 @@ def import_message(
                 received,
                 now(),
                 now(),
+                ref["reference"] if ref else None,
+                ref["type"] if ref else None,
+                ref["number"] if ref else None,
+                ref["discipline"] if ref else None,
+                ref["title"] if ref else None,
+                0 if ref else 1,  # no number in the subject: kept, and flagged for a person; never dropped
             ),
         )
         conn.execute(
@@ -588,6 +616,10 @@ def list_queries(
     received_from: str | None = None,
     received_to: str | None = None,
     evidence_state: str | None = None,
+    ref_type: str | None = None,
+    discipline: str | None = None,
+    number: str | None = None,
+    needs_person: bool | None = None,
 ) -> list[dict[str, Any]]:
     where, args = _filtered_where(
         user_id,
@@ -600,6 +632,10 @@ def list_queries(
         received_from=received_from,
         received_to=received_to,
         evidence_state=evidence_state,
+        ref_type=ref_type,
+        discipline=discipline,
+        number=number,
+        needs_person=needs_person,
     )
     with connect() as conn:
         return [

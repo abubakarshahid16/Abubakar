@@ -7,7 +7,7 @@ import threading
 
 import httpx
 
-from . import gmail_auth
+from . import gmail_auth, gmail_import_jobs
 from .db import connect
 from .gmail_client import GmailApiClient
 from .gmail_worker import poll_mailbox
@@ -33,6 +33,10 @@ def run_once() -> int:
         ).fetchall()
     processed = 0
     for mailbox in mailboxes:
+        with connect() as conn:
+            busy = gmail_import_jobs.active(conn, mailbox["id"])
+        if busy:  # its import (or a "Check now") is running: the poller leaves it alone
+            continue
         try:
             token = gmail_auth.access_token(mailbox["id"])
             processed += len(
@@ -40,6 +44,7 @@ def run_once() -> int:
                     GmailApiClient(token), mailbox["id"], mailbox["owner_user_id"]
                 )
             )
+            gmail_import_jobs._checked(mailbox["id"])  # noqa: SLF001 - "last checked at" on the screen
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 with connect() as conn:

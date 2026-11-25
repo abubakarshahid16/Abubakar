@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,6 +34,10 @@ const api = vi.hoisted(() => ({
   createByHand: vi.fn(),
   completeGmail: vi.fn(),
   fileIntoLibrary: vi.fn(),
+  mailboxes: vi.fn(),
+  gmailLabels: vi.fn(),
+  activateGmailLabel: vi.fn(),
+  checkNow: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
@@ -44,6 +48,7 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: query });
     api.metrics.mockResolvedValue({ ok: true, data: { total: 1 } });
     api.mailboxes.mockResolvedValue({ ok: false, error: { message: "no" } });
+    window.confirm = () => { throw new Error("the browser's own confirm box must never be used"); };
     api.assignees.mockResolvedValue({ ok: false, error: { message: "no" } });
     api.routingRules.mockResolvedValue({ ok: false, error: { message: "no" } });
     api.generateDraft.mockResolvedValue({ ok: false, error: { message: "Claude for the draft is not enabled on this server." } });
@@ -56,7 +61,7 @@ describe("Technical Queries screen", () => {
 
   it("offers each question the model found with its page, and adds only the ticked ones", async () => {
     render(<TechnicalQueriesView />);
-    const box = await screen.findByRole("checkbox");
+    const box = within(await screen.findByLabelText("Questions found in the attachment")).getByRole("checkbox");
     expect(screen.getByText("query.pdf, page 2")).toBeTruthy();
     fireEvent.click(box);
     fireEvent.click(screen.getByText("Add ticked questions to the text"));
@@ -120,13 +125,14 @@ describe("Technical Queries screen", () => {
     const withFile = { ...query, messages: [{ id: "m1", from_address: "a@b.example", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null, attachments: [{ id: "a1", filename: "query.pdf", size_bytes: 10, document_id: "d1", filed_at: null, scan_status: "static_check_clean", parse_status: "ready" }] }] };
     api.get.mockResolvedValue({ ok: true, data: withFile });
     api.fileIntoLibrary.mockResolvedValue({ ok: true, data: { ...withFile, messages: [{ ...withFile.messages[0], attachments: [{ ...withFile.messages[0].attachments[0], filed_at: "2026-11-26T00:00:00Z" }] }] } });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<TechnicalQueriesView />);
     expect((await screen.findByTestId("attachment-unfiled")).textContent).toContain("kept out of the library");
     // the paper opens by the query's own route (the general document route says 404 for an unfiled attachment)
     expect(screen.getByRole("link", { name: "query.pdf" }).getAttribute("href")).toBe("/api/technical-queries/q1/attachments/a1/original");
     fireEvent.change(screen.getByLabelText("Role to file this attachment under"), { target: { value: "SPECIFICATION" } });
     fireEvent.click(screen.getByText("File into the library"));
+    expect(api.fileIntoLibrary).not.toHaveBeenCalled(); // asked in the page first
+    fireEvent.click(await screen.findByText("Yes, file it"));
     await waitFor(() => expect(api.fileIntoLibrary).toHaveBeenCalledWith("q1", "a1", "SPECIFICATION"));
     await waitFor(() => expect(screen.queryByTestId("attachment-unfiled")).toBeNull());
   });
@@ -142,5 +148,50 @@ describe("Technical Queries screen", () => {
     const form = api.createByHand.mock.calls[0][0] as FormData;
     expect(form.get("subject")).toBe("By hand");
     expect(form.get("body")).toBe("Is it allowed?");
+  });
+
+  it("activates the label with an in-page confirm, saves first, and shows the import progress, the failures by subject and the last check", async () => {
+    const pending = { id: "mb", email: "box@example.test", connection_state: "needs_label", label_id: null };
+    api.mailboxes.mockResolvedValueOnce({ ok: true, data: { items: [pending] } });
+    api.gmailLabels.mockResolvedValue({ ok: true, data: { items: [{ id: "L1", name: "Technical queries", type: "user" }] } });
+    api.activateGmailLabel.mockResolvedValue({ ok: true, data: { imported: 0, connection_state: "active", import_job: "j1" } });
+    const running = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: "2026-11-26T01:20:00Z",
+      import_job: { id: "j1", kind: "import", state: "running", total: 35, done: 12, failed: 1, error: null, failures: [{ subject: "Invented subject one", reason: "the message could not be imported (ValueError)" }] } };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [running] } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("Choose label"));
+    fireEvent.click(await screen.findByText("Activate selected label"));
+    expect(api.activateGmailLabel).not.toHaveBeenCalled(); // an in-page question first, never the browser's box
+    fireEvent.click(await screen.findByText("Yes, save and start the import"));
+    await waitFor(() => expect(api.activateGmailLabel).toHaveBeenCalledWith("mb", "L1"));
+    expect((await screen.findByTestId("import-progress")).textContent).toContain("imported 12 of 35, 1 failed");
+    expect(screen.getByTestId("import-failures").textContent).toContain("Invented subject one");
+    expect(screen.getByTestId("last-checked").textContent).toMatch(/26 Nov 2026, \d{2}:\d{2}( \S+)?/);
+  });
+
+  it("has a Check now button that queues one poll", async () => {
+    const active = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: { id: "j", kind: "import", state: "done", total: 3, done: 3, failed: 0, error: null, failures: [] } };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });
+    api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j2" } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("import-done")).textContent).toContain("imported 3 of 3");
+    fireEvent.click(await screen.findByText("Check now"));
+    await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
+  });
+
+  it("lists type, discipline, number and title, flags a subject with no number, and filters by them", async () => {
+    const withRef = { ...query, id: "q1", subject: "PRJ-CON-CO-TQ-12 - PIPING_a_Coating question", ref_type: "TQ", ref_number: "12", discipline_code: "PIPING", title_short: "Coating question", needs_person: 0 };
+    const noRef = { ...query, id: "q2", subject: "Please advise", needs_person: 1 };
+    api.list.mockResolvedValue({ ok: true, data: { items: [withRef, noRef] } });
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText("TQ-12 · PIPING · Coating question")).toBeTruthy();
+    expect((await screen.findByTestId("needs-person")).textContent).toContain("no TQ or CFC number");
+    fireEvent.change(screen.getByLabelText("Type"), { target: { value: "CFC" } });
+    fireEvent.change(screen.getByLabelText("Discipline code"), { target: { value: "civil" } });
+    fireEvent.change(screen.getByLabelText("Running number"), { target: { value: "7" } });
+    fireEvent.click(screen.getByLabelText(/Needs a person/));
+    api.list.mockClear();
+    fireEvent.click(screen.getByText("Refresh and apply filters"));
+    await waitFor(() => expect(api.list).toHaveBeenCalledWith(expect.objectContaining({ ref_type: "CFC", discipline: "civil", number: "7", needs_person: true })));
   });
 });

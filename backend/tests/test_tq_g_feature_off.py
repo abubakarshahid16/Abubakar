@@ -33,6 +33,7 @@ def storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "db_path", tmp_path / "q.sqlite")
     monkeypatch.setattr(tq, "_READY_FOR", None)
     monkeypatch.setattr("app.technical_query_jobs.AUTO_START", False)
+    monkeypatch.setattr("app.gmail_import_jobs.AUTO_START", False)
     db.reset_connection()
     db.init_db()
     with db.connect() as conn:

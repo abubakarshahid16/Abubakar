@@ -250,6 +250,10 @@ async def lifespan(app: FastAPI):
 
         technical_query_jobs.recover_interrupted()
         technical_query_jobs.start()
+        from . import gmail_import_jobs
+
+        gmail_import_jobs.recover_interrupted()
+        gmail_import_jobs.start()
     warmup_mod.start()
     yield
     gmail_sync_mod.stop()
@@ -257,6 +261,9 @@ async def lifespan(app: FastAPI):
         from . import technical_query_jobs
 
         technical_query_jobs.stop()
+        from . import gmail_import_jobs
+
+        gmail_import_jobs.stop()
     risks_mod.stop_background_detection()
     watcher_mod.stop_watcher()
     ingest_mod.stop_worker()

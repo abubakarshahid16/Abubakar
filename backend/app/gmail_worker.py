@@ -54,9 +54,11 @@ def _process_message(
     admin_role,
     label_id: str | None,
     mailbox_address: str | None,
+    message=None,
 ) -> dict[str, Any] | None:
-    """Import one message with its PDF attachments. None when it is not one to import (another label, or the mailbox's own mail)."""
-    message = client.message(message_id)
+    """Import one message with its PDF attachments. None when it is not one to import (another label, or the mailbox's own mail).
+    `message` is the already fetched message (the import job fetches it first so a failure can be named by its subject)."""
+    message = message or client.message(message_id)
     if label_id and label_id not in message.label_ids:
         return None
     if (

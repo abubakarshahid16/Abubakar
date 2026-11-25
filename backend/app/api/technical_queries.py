@@ -27,7 +27,7 @@ from .. import (
     errors,
     gmail_auth,
     gmail_sync,
-    gmail_worker,
+    gmail_import_jobs,
     technical_queries,
     technical_query_claude,
     technical_query_contracts,
@@ -114,6 +114,11 @@ class OauthStartOut(BaseModel):
 class ActivateOut(BaseModel):
     imported: int
     connection_state: str
+    import_job: str | None = None
+
+
+class CheckNowOut(BaseModel):
+    import_job: str
 
 
 class AttachmentIn(BaseModel):
@@ -240,6 +245,7 @@ def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
 LIST_COLUMNS = (
     "id", "subject", "status", "priority", "contractor_name", "department", "assignee_user_id",
     "received_at", "due_at", "routing_source", "confirmed_question_at",
+    "ref_type", "ref_number", "discipline_code", "title_short", "needs_person",
 )  # fmt: skip
 
 
@@ -307,6 +313,10 @@ def list_technical_queries(
     received_from: str | None = None,
     received_to: str | None = None,
     evidence_state: str | None = None,
+    ref_type: str | None = None,
+    discipline: str | None = None,
+    number: str | None = None,
+    needs_person: bool | None = None,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     rows = technical_queries.list_queries(
@@ -318,6 +328,10 @@ def list_technical_queries(
         received_from=received_from,
         received_to=received_to,
         evidence_state=evidence_state,
+        ref_type=ref_type,
+        discipline=discipline,
+        number=number,
+        needs_person=needs_person,
     )
     # The queue shows a fixed set of columns: stored attachment text and the questions found in it are in the detail, behind the grant check.
     return {"items": [{key: row.get(key) for key in LIST_COLUMNS if key in row} for row in rows]}
@@ -373,11 +387,14 @@ def gmail_mailboxes(scope: access.AccessScope = Depends(access.current_scope)):
             status_code=403, detail="only an administrator can view connected mailboxes"
         )
     with connect() as conn:
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(gmail_mailboxes)")}
+        checked = "last_checked_at" if "last_checked_at" in columns else "NULL AS last_checked_at"
         rows = conn.execute(
-            "SELECT id,email,label_id,connection_state FROM gmail_mailboxes WHERE owner_user_id=? ORDER BY email",
+            f"SELECT id,email,label_id,connection_state,{checked} FROM gmail_mailboxes WHERE owner_user_id=? ORDER BY email",
             (scope.user_id,),
         ).fetchall()
-    return {"items": [dict(row) for row in rows]}
+        items = [{**dict(row), "import_job": gmail_import_jobs.latest(conn, row["id"])} for row in rows]
+    return {"items": items}
 
 
 @router.get("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/labels", response_model=RowsOut)
@@ -410,6 +427,8 @@ def activate_gmail_mailbox(
     body: GmailLabelIn,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
+    """Save the label and set the mailbox ACTIVE first, in this one short request; the existing mail is imported by a background job (one message at a
+    time, progress on the screen). A failure here says one plain sentence and changes nothing."""
     _require_identity_to_write(scope)
     if not scope.is_admin or not scope.user_id:
         raise HTTPException(status_code=403, detail="an administrator is required")
@@ -419,26 +438,38 @@ def activate_gmail_mailbox(
             (mailbox_id, scope.user_id),
         ).fetchone()
     if mailbox is None:
-        raise HTTPException(
-            status_code=404, detail="mailbox is not awaiting label selection"
-        )
+        raise HTTPException(status_code=404, detail="mailbox is not awaiting label selection")
     try:
-        imported = gmail_worker.activate_label(
-            GmailApiClient(gmail_auth.access_token(mailbox_id)),
-            mailbox_id,
-            scope.user_id,
-            body.label_id,
-        )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        labels = {label.get("id") for label in GmailApiClient(gmail_auth.access_token(mailbox_id)).labels()}
     except Exception as exc:
-        raise HTTPException(
-            status_code=503, detail="Gmail label import did not finish; retry safely"
-        ) from exc
+        raise _refuse(503, "Gmail could not be reached, so nothing was changed. Try again in a moment.") from exc
+    if body.label_id not in labels:
+        raise _refuse(422, "That is not one of your own Gmail labels. Choose a label you created.")
+    with connect() as conn:
+        changed = conn.execute(
+            "UPDATE gmail_mailboxes SET label_id=?,connection_state='active',updated_at=? WHERE id=? AND connection_state='needs_label'",
+            (body.label_id, technical_queries.now(), mailbox_id),
+        )
+    if changed.rowcount != 1:
+        raise _refuse(409, "The mailbox changed while you were choosing. Reload the page and try again.")
+    job_id = gmail_import_jobs.enqueue(mailbox_id, "import", body.label_id)
     gmail_sync.start()
-    return {"imported": len(imported), "connection_state": "active"}
+    return {"imported": 0, "connection_state": "active", "import_job": job_id}
+
+
+@router.post("/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/check-now", response_model=CheckNowOut)
+def check_gmail_mailbox_now(mailbox_id: str, scope: access.AccessScope = Depends(access.current_scope)):
+    """"Check now": queue ONE poll (the failed messages of the last import are tried once more, then the new mail). Answers at once."""
+    _require_identity_to_write(scope)
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(status_code=403, detail="an administrator is required")
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT 1 FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='active'", (mailbox_id, scope.user_id)
+        ).fetchone()
+    if mailbox is None:
+        raise HTTPException(status_code=404, detail="mailbox is not active")
+    return {"import_job": gmail_import_jobs.enqueue(mailbox_id, "poll")}
 
 
 class OauthCompleteIn(BaseModel):
