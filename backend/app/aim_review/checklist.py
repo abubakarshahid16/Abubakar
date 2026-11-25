@@ -64,7 +64,8 @@ SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the require
 #: "2026-11-18.3": one item per stated operating or service condition that checks the values the same paper chooses for it.
 #: "2026-11-19.1": carried_by names the package: what a schedule, annex or attachment of the same package normally carries
 #: is set aside for a Form of Agreement (and its S3 knowledge items too, not only S3K's).
-CHECKLIST_METHOD = "2026-11-19.1"
+#: "2026-11-25.1": a stated hazardous-area classification gets one item over every gas or vapour the same paper names.
+CHECKLIST_METHOD = "2026-11-25.1"
 
 
 def _dumps(o) -> str:
