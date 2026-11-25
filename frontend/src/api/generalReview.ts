@@ -112,6 +112,8 @@ export interface GeneralReview {
   mark: string;
   status: "completed" | "stopped";
   stop_reason?: string | null;
+  /** A stop caused by the Claude account itself (no credit, usage limit) in plain words, to be said at the TOP of the page. */
+  stop_words?: string | null;
   identity: { kind: string | null; equipment_type: string | null; subject: string | null };
   counts: {
     points: number; comments: number; by_label: Record<string, number>; by_shown_label?: Record<string, number>; boundary: string;
@@ -143,6 +145,8 @@ export interface GeneralReview {
   cost: { usd: number | null; note?: string };
   /** A checking step whose answer was not applied to this sheet, in plain words (a failed AI step is shown in the run). */
   steps_not_applied?: { step: string; why: string; sentence: string }[];
+  /** Pages (or Word pictures) with no text and no picture reading: a page counts as read only when text or a reading came back. */
+  pages_not_read?: { where: string; why: string; sentence: string }[];
   /** Every call of the run, in order: the "How this review was made" view groups them by step. */
   calls?: GeneralCall[];
   seconds?: number | null;
