@@ -186,7 +186,7 @@ def claim_next(worker_id: str) -> str | None:
     with conn:
         row = conn.execute(
             f"""UPDATE jobs SET state = 'running', claimed_by = :me, claimed_at = :now, updated_at = :now
-                WHERE id = (SELECT id FROM jobs WHERE stage = :stage AND {review_jobs._CLAIMABLE}
+                WHERE id = (SELECT id FROM jobs WHERE stage = :stage AND {review_jobs._CLAIMABLE_READ}
                             ORDER BY priority DESC, started_at LIMIT 1)
                   AND {review_jobs._CLAIMABLE} AND {job_queue.under_limit_sql()}
                 RETURNING id, review_run_id""",

@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 from app import ai_applicability, division_text, scope_type_words, subject_scope
+from app.config import settings
 from tests.test_141_division_scope import (
     GENERAL,
     SPECIAL,
@@ -196,3 +197,47 @@ def test_a_title_block_with_a_stated_other_material_stays_held():
 # ----------------------------------------------- the draft rule: words in the type
 
 
+@pytest.mark.parametrize(
+    "construction, classification, expected",
+    [
+        ("centrifugal pumps", {"equipment_type": "Centrifugal Pump"}, True),
+        ("centrifugal pumps", {"title": "CENTRIFUGAL PUMP DATASHEET"}, True),
+        ("magnetic-drive pumps", {"equipment_type": "Centrifugal Pump"}, False),
+        ("gas compressors", {"equipment_type": "Compressor"}, False),
+        ("pumps for the oil service", {"equipment_type": "Oil Service Pump"}, True),
+        ("", {"equipment_type": "Pump"}, False),
+        ("centrifugal pumps", None, False),
+    ],
+)
+def test_every_word_of_the_construction_must_be_in_the_type_or_title(
+    construction, classification, expected
+):
+    assert (
+        scope_type_words.construction_in_type(construction, classification) is expected
+    )
+
+
+def test_the_rule_is_off_by_default_and_the_model_is_asked():
+    assert settings.scope_type_words_rule_enabled is False
+    model = _model()
+    _gate(
+        model,
+        facts=[
+            {
+                "field_name": "casing material",
+                "field_label": "Casing material",
+                "field_value": "Carbon steel",
+            }
+        ],
+    )
+    assert "construction" in model.calls
+
+
+def test_switched_on_the_rule_applies_without_asking_the_model(monkeypatch):
+    monkeypatch.setattr(settings, "scope_type_words_rule_enabled", True)
+    model = _model()
+    out = _gate(model)
+    assert (
+        _ids(out["kept"]) == ["dp", "seal"] and out["held"] == [] and out["notes"] == {}
+    )
+    assert "construction" not in model.calls

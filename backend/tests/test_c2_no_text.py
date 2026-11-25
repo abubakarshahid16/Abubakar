@@ -249,10 +249,13 @@ def test_nothing_read_on_a_paper_with_text_but_no_chunks_becomes_the_not_indexed
 
 @pytest.mark.parametrize("status", ["queued", "extracting", "chunking"])
 def test_a_paper_still_being_read_in_says_wait_not_no_text(client, status):
+    # review of 7a, M3: a review is never CLAIMED while its paper is being read (`test_u7a_review_waits_for_its_paper`); this
+    # is the run's own backstop, for a paper read in again after its review was claimed
+    run_id, job_id = start()
     with db.connect() as conn:
         conn.execute("UPDATE documents SET status = ? WHERE id = ?", (status, s.PAPER))
         conn.execute("DELETE FROM chunks WHERE document_id = ?", (s.PAPER,))
-    run_id = _run(client)
+    assert run_job(job_id) == "done"
     got = _summary(client, run_id)
     assert got["paper_text"]["state"] == "still reading"
     assert (
@@ -515,9 +518,14 @@ WAYS = {
 def test_a_plan_with_nothing_to_ask_always_carries_a_plain_sentence_never_silent(
     client, monkeypatch, way
 ):
-    WAYS[way](client, monkeypatch)
+    if way == "still reading":  # claimed first, then read in again (review of 7a, M3: never claimed while being read)
+        run_id, job_id = start()
+        WAYS[way](client, monkeypatch)
+        assert run_job(job_id) == "done"
+    else:
+        WAYS[way](client, monkeypatch)
+        run_id = _run(client)
     fake = agent_review_jobs.lane()[0]
-    run_id = _run(client)
     got = _summary(client, run_id)
     used = _rules_used(client, run_id)
     assert fake.kinds == []  # no AI call

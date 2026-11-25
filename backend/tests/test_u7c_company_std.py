@@ -106,3 +106,43 @@ def test_a_number_at_the_end_of_a_line_is_read_and_the_next_line_does_not_count(
     assert [c[0] for c in S.company_citations(text, frozenset({"XY"}))] == [
         "XY STD 104"
     ]
+
+
+@pytest.mark.parametrize(
+    "word", ["and", "or", "of", "the", "is", "to", "in", "per", "as", "AND", "OF"]
+)
+def test_a_true_citation_followed_by_a_joining_word_is_still_read(word):
+    """Review of 7a, M1: a joining word AFTER the number leaves a true citation of a held family a citation."""
+    found = [
+        c[0]
+        for c in S.company_citations(
+            f"Design to XY STD 104 {word} XY STD 105.", frozenset({"XY"})
+        )
+    ]
+    assert found == ["XY STD 104", "XY STD 105"]
+
+
+def test_a_dash_joined_citation_followed_by_of_is_read():
+    assert [
+        c[0]
+        for c in S.company_citations(
+            "Per XY-MECH-STD-104 of latest revision", frozenset({"XY"})
+        )
+    ] == ["XY-MECH-STD-104"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "XY STD 316 SS",
+        "XY STD 2 COATS",
+        "XY STD 4 POLE",
+        "XY STD 50 MM",
+        "XY SCH STD 40",
+        "XY MFR STD 104",
+        "XY IS STD 104 and more",
+    ],
+)
+def test_the_false_std_cases_stay_fixed(line):
+    """The words that make STD a size, unit, material, schedule or maker's own standard still block it."""
+    assert S.company_citations(line, frozenset({"XY"})) == []
