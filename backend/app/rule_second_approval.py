@@ -245,7 +245,7 @@ def run_second(
         reps = [r for r, _a, _b in batch]
         try:
             with (
-                standards_lane.open_for(conn, {r.sdid for r in reps}),
+                standards_lane.open_for(conn, {r.sdid for r in reps}, user="rule approval"),
                 claude_spend.for_run("rule-second"),
             ):
                 answer = lane.call(
@@ -401,7 +401,7 @@ def judge_sample(
         items = [{"n": i, "clause": rules[r[0]].clause, "quote": rules[r[0]].quote, "paper_kind": r[2], "field": r[3],
                   **json.loads(r[4])} for i, r in enumerate(batch, 1)]  # fmt: skip
         with (
-            standards_lane.open_for(conn, {rules[r[0]].sdid for r in batch}),
+            standards_lane.open_for(conn, {rules[r[0]].sdid for r in batch}, user="rule approval judge"),
             claude_spend.for_run("rule-second-judge"),
         ):
             answer = lane.call(

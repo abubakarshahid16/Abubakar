@@ -468,7 +468,7 @@ class _Pass:
         reps = [g[0] for g in batch]
         try:
             with (
-                standards_lane.open_for(None, {r.sdid for r in reps}, checked=self.checked),
+                standards_lane.open_for(None, {r.sdid for r in reps}, checked=self.checked, user="standards converter"),
                 claude_spend.for_run(run_id),
             ):
                 parts = build_parts(reps, self.system)
