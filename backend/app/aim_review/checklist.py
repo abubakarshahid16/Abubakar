@@ -558,7 +558,14 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
     the kind's floor: items from the model's knowledge of each not-held public standard's requirements (and of engineering
     practice up to the floor), source KNOWLEDGE_NOT_HELD, the standard's public name in `stands_in_for`, no clause quote, no
     clause number. The items so far are named by topic only (the listed books are declared). A failed call adds nothing."""
-    names = _not_held_line(sel)
+    names = sel.get("_not_held_only") or _not_held_line(sel)
+    # one not-held standard per call on the local model (26 Nov 2026: the 9B's answer for all of them at once ran past its
+    # limit on every run, 0 items written)
+    if is_local() and names and "; " in names:
+        for one in names.split("; "):
+            one_sel = {**sel, "_not_held_only": one}
+            made = s3_knowledge(model, ident, one_sel, made, lead)
+        return made
     floor = floor_for(ident.get("kind"))
     have = len(made["items"])
     if not names and have >= floor:

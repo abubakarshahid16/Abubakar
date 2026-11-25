@@ -176,6 +176,7 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
  "ask": for a "Question" only: "concern" if you suspect the stated value is wrong or does not fit the clause (say which rule in
         the comment), "confirm" if nothing is suspected and the vendor only needs to confirm it,
  "numbers": {"paper_value": "...", "paper_unit": "...", "operator": "<=|>=|<|>|==|!=", "rule_value": "...", "rule_unit": "...",
+             each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),
              "limit_quote": only when the limit is stated on THE PAPER and not in the clause: the exact paper words that state
              rule_value (5 to 30 words from one page), "limit_page": that paper page}
             or null,

@@ -82,3 +82,16 @@ def decided(
         return None
     notes.extend([*tried, NOTE])
     return new, cmp_
+
+
+def met_unproven(said, label: str, nums, deferred: bool, code_cmp) -> list[str]:
+    """[AI_MET_UNPROVEN] when the judge itself said Met, with numbers, and code could not prove them (the line fell back to a
+    Question): an AI verdict of a pass is internal only, kept on All points, never sent. The same rule as the Claude line
+    (o14/u7b-A `verify.met_unproven`), here for the local model."""
+    from . import AI_MET_UNPROVEN
+
+    if said != "Met" or label != "Question" or deferred or not isinstance(nums, dict):
+        return []
+    if isinstance(code_cmp, dict) and code_cmp.get("result") in ("pass", "fail"):
+        return []
+    return [AI_MET_UNPROVEN]

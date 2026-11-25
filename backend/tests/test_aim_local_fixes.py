@@ -234,3 +234,61 @@ def test_the_checklist_retry_asks_in_small_groups_on_the_local_model_and_once_on
         len(retries(claude)) == 1
         and len(retries(local)) == -(-14 // CL.RETRY_LOCAL) > 1
     )
+
+
+class _Knowledge:
+    def __init__(self):
+        self.calls = []
+
+    def ask(self, **kw):
+        self.calls.append(kw)
+        return {"items": []}
+
+
+def test_the_knowledge_step_asks_one_not_held_standard_per_call_on_the_local_model():
+    """The 9B's knowledge answer ran past its limit on every run (0 of 6 items): one standard per call on local."""
+    sel = {
+        **_sel(1),
+        "not_held": [
+            {"name": "Invented Std A"},
+            {"name": "Invented Std B"},
+            {"name": "Invented Std C"},
+        ],
+    }
+    ident = {
+        "kind": "datasheet",
+        "equipment_type": None,
+        "subject": "invented",
+        "service": "",
+    }
+    made = {"items": []}
+    claude = _Knowledge()
+    CL.s3_knowledge(claude, ident, sel, made, "claude-sonnet-5-5")
+    local = _Knowledge()
+    with budget.using(budget.LOCAL):
+        CL.s3_knowledge(local, ident, sel, made, "local")
+    assert len(claude.calls) == 1 and len(local.calls) == 3
+    assert all(
+        p in c["prompt"]
+        for c, p in zip(
+            local.calls,
+            ("Invented Std A", "Invented Std B", "Invented Std C"),
+            strict=True,
+        )
+    )
+
+
+def test_on_the_local_model_a_met_code_could_not_prove_is_never_sent():
+    from app import aim_review
+    from app.aim_review import prompts as P
+    from app.aim_review.engine import to_line
+
+    unproven = {**ANSWER, "label": "Met", "numbers": {"paper_value": "2", "paper_unit": "mm", "operator": ">=",
+                                                     "rule_value": "3", "rule_unit": "mm"}}  # fmt: skip
+    with budget.using(budget.LOCAL):
+        line = S._decide(
+            ITEM, unproven, PAPER, {}, ""
+        )  # 2 mm is not in the quote: code cannot prove it
+    assert line["label"] == "Question" and aim_review.AI_MET_UNPROVEN in line["code"]
+    assert not aim_review.sendable(to_line(1, line))
+    assert "exactly as PRINTED (never converted or worked out" in P.S4_TASK
