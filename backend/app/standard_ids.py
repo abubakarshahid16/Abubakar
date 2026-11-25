@@ -374,14 +374,19 @@ _COMPANY_STD = re.compile(
     r"(?P<family>[A-Z][A-Z0-9]{1,11})(?P<mid>(?:[- \t]+[A-Z][A-Z0-9]{0,11}){0,2})"
     r"[- \t]+STD[- \t]+(?P<num>\d{2,8}(?:-\d{1,3})?)(?![\dA-Za-z]|-[A-Za-z0-9])"
 )
-#: Words that make "STD" a size, a schedule, a material or a maker's own standard, never a company standard: they stand
-#: between the family and "STD", or right after the number. The paper's own words, read as words.
+#: Words AFTER the number that make it a size, a unit or a material ("XY STD 316 SS", "VENDOR STD 2 COATS"): the number is
+#: then no standard. ONLY these: a joining word after a true citation ("XY STD 104 and XY STD 105", "XY-MECH-STD-104 of latest
+#: revision") leaves it a citation (review of 7a, M1). "IN" is not here: after a number it is as often "in accordance" as inches.
+_NOT_A_STANDARD_AFTER = frozenset({
+    "SS", "CS", "MM", "INCH", "INCHES", "COAT", "COATS", "POLE", "POLES", "KW", "HP", "RPM", "BAR", "PSI", "PSIG", "LB",
+})  # fmt: skip
+#: Words BETWEEN the family and "STD" that make "STD" a size, a schedule or a maker's own standard ("PIPE SCH STD 40",
+#: "XY MFR STD 104", "MOTOR IS STD 4 POLE"): the joining words count here, and so do the words after a number.
 _NOT_A_STANDARD_WORDS = frozenset({
     "SCH", "SCHED", "SCHEDULE", "PIPE", "TUBE", "WT", "WALL", "WEIGHT", "SIZE", "NPS", "DN", "BORE", "CLASS", "RATING",
     "MFR", "MFG", "MAKER", "MAKERS", "MANUFACTURER", "MANUFACTURERS", "VENDOR", "VENDORS", "SUPPLIER", "SUPPLIERS",
-    "OEM", "IS", "AS", "ARE", "PER", "TO", "AND", "OR", "OF", "THE",
-    "SS", "CS", "MM", "IN", "INCH", "COAT", "COATS", "POLE", "POLES", "KW", "HP", "RPM", "BAR", "PSI", "PSIG", "LB",
-})  # fmt: skip
+    "OEM", "IS", "AS", "ARE", "PER", "TO", "AND", "OR", "OF", "THE", "IN",
+}) | _NOT_A_STANDARD_AFTER  # fmt: skip
 
 
 def company_family(identifier: str | None) -> str | None:
@@ -407,7 +412,7 @@ def company_citations(text: str, families: frozenset[str]) -> list[tuple[str, in
             continue
         mid = set(re.findall(r"[A-Z0-9]+", m.group("mid")))
         after = re.match(r"[- \t]+([A-Za-z]+)", folded[m.end():])  # the next word on the SAME line
-        if mid & _NOT_A_STANDARD_WORDS or (after and after.group(1).upper() in _NOT_A_STANDARD_WORDS):
+        if mid & _NOT_A_STANDARD_WORDS or (after and after.group(1).upper() in _NOT_A_STANDARD_AFTER):
             continue
         out.append((" ".join(text[m.start():m.end()].split()), m.start(), m.end()))
         pos = m.end()
