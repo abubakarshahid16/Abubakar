@@ -321,6 +321,12 @@ class Settings(SettingsExt, BaseSettings):
     auth_max_attempts: int = 8
     auth_lockout_seconds: int = 300
 
+    # Gmail OAuth configuration is read from backend/.env into Settings,
+    # without exporting the client secret to child processes.
+    gmail_client_id: str = ""
+    gmail_client_secret: str = Field(default="", repr=False)
+    gmail_redirect_uri: str = ""
+
     ocr_model_dir: Path = BACKEND_DIR / "models" / "ocr"
     ocr_det_model: str = "PP-OCRv6_det_tiny.onnx"
     #: The recogniser is the open decision. PP-OCRv6 ships no English model, so

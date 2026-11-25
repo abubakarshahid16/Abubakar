@@ -1031,6 +1031,23 @@ def test_gmail_oauth_state_is_one_time_and_never_stores_a_secret(monkeypatch):
     assert gmail_auth.consume_state(state) is None
 
 
+def test_gmail_oauth_uses_application_settings_when_shell_env_is_empty(monkeypatch):
+    for name in ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REDIRECT_URI"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(settings, "gmail_client_id", "synthetic-settings-client")
+    monkeypatch.setattr(settings, "gmail_client_secret", "synthetic-settings-secret")
+    monkeypatch.setattr(
+        settings,
+        "gmail_redirect_uri",
+        "http://127.0.0.1:8110/api/technical-queries/providers/gmail/oauth/callback",
+    )
+    assert gmail_auth._config() == (
+        "synthetic-settings-client",
+        settings.gmail_redirect_uri,
+    )
+    assert gmail_auth._client_secret() == "synthetic-settings-secret"
+
+
 def test_gmail_oauth_completion_stores_refresh_token_outside_database(monkeypatch):
     monkeypatch.setenv("GMAIL_CLIENT_ID", "synthetic-client")
     monkeypatch.setenv("GMAIL_CLIENT_SECRET", "synthetic-secret")

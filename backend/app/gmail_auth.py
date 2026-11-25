@@ -13,6 +13,7 @@ from urllib.parse import urlencode, urlparse
 import httpx
 
 from . import gmail_credentials
+from .config import settings
 from .db import connect
 from .gmail_client import GmailApiClient
 from .technical_queries import now
@@ -26,8 +27,10 @@ SCOPES = (
 
 
 def _config() -> tuple[str, str]:
-    client_id = os.environ.get("GMAIL_CLIENT_ID", "").strip()
-    redirect_uri = os.environ.get("GMAIL_REDIRECT_URI", "").strip()
+    client_id = (os.environ.get("GMAIL_CLIENT_ID") or settings.gmail_client_id).strip()
+    redirect_uri = (
+        os.environ.get("GMAIL_REDIRECT_URI") or settings.gmail_redirect_uri
+    ).strip()
     parsed = urlparse(redirect_uri)
     loopback = parsed.scheme == "http" and parsed.hostname in {
         "localhost",
@@ -44,9 +47,15 @@ def _config() -> tuple[str, str]:
 
 def connection_ready() -> None:
     _config()
-    if not os.environ.get("GMAIL_CLIENT_SECRET", "").strip():
+    if not _client_secret():
         raise RuntimeError("Gmail OAuth client secret is not configured")
     gmail_credentials._keyring()
+
+
+def _client_secret() -> str:
+    return (
+        os.environ.get("GMAIL_CLIENT_SECRET") or settings.gmail_client_secret
+    ).strip()
 
 
 def start(user_id: str | None) -> str:
@@ -127,7 +136,7 @@ def complete(
     if not user_id or not code:
         raise ValueError("Gmail authorization state is invalid or expired")
     client_id, redirect_uri = _config()
-    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
+    client_secret = _client_secret()
     if not client_secret:
         raise RuntimeError("Gmail OAuth client secret is not configured")
     tokens = exchange(
@@ -182,7 +191,7 @@ def access_token(
     if mailbox is None or mailbox["connection_state"] not in {"active", "needs_label"}:
         raise PermissionError("Gmail mailbox is not active")
     client_id, _ = _config()
-    client_secret = os.environ.get("GMAIL_CLIENT_SECRET", "").strip()
+    client_secret = _client_secret()
     if not client_secret:
         raise RuntimeError("Gmail OAuth client secret is not configured")
     refreshed = exchange(
