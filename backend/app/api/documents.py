@@ -39,6 +39,7 @@ from .. import reports as reports_mod
 from .. import review as review_mod
 from .. import submittal_review as submittal_review_mod
 from .. import table_consistency as table_consistency_mod
+from .. import technical_queries as technical_queries_mod
 from .. import upload as upload_mod
 from ..api_utils import (
     DEFAULT_LIMIT,
@@ -70,6 +71,7 @@ async def upload_document(
     file: UploadFile = File(...),
     disciplines: list[str] | None = Form(None),
     uploaded_from: str | None = Form(None),
+    document_role: str | None = Form(None),
     scope: access.AccessScope = Depends(access.current_scope),
 ):
     """Accept an identified upload, visible to the disciplines it names (#609).
@@ -79,6 +81,8 @@ async def upload_document(
     With authentication off every caller reads every document and grants
     decide nothing, so none are asked for or written."""
     _require_identity_to_write(scope)
+    if document_role is not None and document_role not in classification_mod.ROLES:
+        raise HTTPException(status_code=422, detail=errors.safe_error(errors.INVALID_PARAMETER, "unknown document role"))
     admin_role: str | None = None
     discipline_roles: list[str] = []
     if scope.user_id is not None:
@@ -98,11 +102,13 @@ async def upload_document(
             status_code=400,
             content={"code": e.code, "message": e.message, "detail": e.detail},
         )
+    filed_now = duplicate_of is not None and technical_queries_mod.file_if_unfiled_attachment(
+        duplicate_of, scope, document_role)  # a paper held as an unfiled technical-query attachment: this upload FILES it, on purpose
     if duplicate_of is None and admin_role is not None and scope.user_id is not None:
         access.grant_uploaded_document_to_admin(row["id"], admin_role, scope.user_id)
         access.grant_uploaded_document_to_disciplines(
             row["id"], discipline_roles, scope.user_id)
-    elif duplicate_of is not None and not scope.may_read(duplicate_of):
+    elif duplicate_of is not None and not (scope.may_read(duplicate_of) or filed_now):
         return {"document": None, "job_id": "", "duplicate_of": None,
                 "awaiting_grant": True}
     # Order 14 lane E (switch inside): only for a new upload or a duplicate this caller may read (R99, rule 5): a caller who

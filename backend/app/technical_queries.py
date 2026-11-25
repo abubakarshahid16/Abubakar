@@ -1029,13 +1029,23 @@ def file_into_library(document_id: str, role: str, user_id: str | None) -> bool:
     with connect() as conn:
         if document_id not in unfiled_attachment_ids(conn):
             return False
-    classification.set_role(document_id, role)
+    if role:
+        classification.set_role(document_id, role)
     with connect() as conn:
         mark_filed(conn, document_id, user_id)
     from . import claude_auto_approve
 
     claude_auto_approve.on_upload(document_id)  # now an ordinary library document: the approval routes look at it by its role
     return True
+
+
+def file_if_unfiled_attachment(document_id: str, scope, role: str | None) -> bool:
+    """An ORDINARY UPLOAD of a file already held as an unfiled technical-query attachment FILES it (the person uploaded it on purpose): the
+    filing is stamped, and the role the uploader chose (if any) is set through `classification.set_role`. Only for a person who may read
+    that attachment (a stranger is told "awaiting grant", as for any held document they may not read). True when it was filed now."""
+    if not scope.may_read_attachment(document_id) or scope.may_read(document_id):
+        return False
+    return file_into_library(document_id, role or "", scope.user_id)
 
 
 def query_attachment_document_ids(conn) -> frozenset[str]:

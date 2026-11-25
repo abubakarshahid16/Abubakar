@@ -1454,3 +1454,147 @@ def test_with_the_feature_never_switched_on_there_is_no_flag_and_scopes_are_exac
         "plain" in scope.allowed_document_ids
         and scope.query_attachment_ids == frozenset()
     )
+
+
+# ---------------------------------------------------------------- recheck 3: S3 open the paper before filing it, S4 an upload of a held attachment files it
+
+
+def test_the_query_screen_opens_an_unfiled_attachment_by_its_own_route_and_the_general_route_still_says_404(
+    monkeypatch, tmp_path
+):
+    import pymupdf
+
+    item = flagged_attachment(monkeypatch)
+    pdf = tmp_path / "attached.pdf"
+    doc = pymupdf.open()
+    doc.new_page()
+    doc.save(str(pdf))
+    doc.close()
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET stored_path=? WHERE id='att'", (str(pdf),))
+    attachment_id = tq.get(item["id"], "u1", True, False)["messages"][0]["attachments"][
+        0
+    ]["id"]
+    client = TestClient(app)
+    own = client.get(
+        f"/api/technical-queries/{item['id']}/attachments/{attachment_id}/original"
+    )
+    assert own.status_code == 200 and own.content.startswith(
+        b"%PDF"
+    )  # the engineer can read the paper before filing it
+    assert "no-store" in own.headers["cache-control"]
+    assert (
+        client.get("/api/documents/att/original").status_code == 404
+    )  # the general document route does not serve an unfiled attachment
+    assert (
+        client.get(
+            f"/api/technical-queries/{item['id']}/attachments/nope/original"
+        ).status_code
+        == 404
+    )
+    reader = AccessScope(
+        "u1",
+        frozenset(),
+        capabilities=REVIEWER,
+        query_attachment_ids=frozenset({"att"}),
+    )
+    stranger = AccessScope("u1", frozenset(), capabilities=REVIEWER)
+    assert (
+        api.query_attachment_original(
+            item["id"], attachment_id, _Request(), False, reader
+        ).status_code
+        == 200
+    )
+    with pytest.raises(HTTPException) as hidden:
+        api.query_attachment_original(
+            item["id"], attachment_id, _Request(), False, stranger
+        )
+    assert (
+        hidden.value.status_code == 404
+    )  # a person who may not read it is told nothing exists
+
+
+class _Request:
+    query_params: dict = {}
+
+
+def test_an_ordinary_upload_of_a_file_held_as_an_unfiled_attachment_files_it_with_the_chosen_role(
+    monkeypatch,
+):
+    from app import access
+
+    flagged_attachment(monkeypatch)
+    scope = AccessScope(
+        "u1",
+        frozenset(),
+        capabilities=REVIEWER,
+        query_attachment_ids=frozenset({"att"}),
+    )
+    assert tq.file_if_unfiled_attachment("att", scope, "SPECIFICATION") is True
+    with db.connect() as conn:
+        assert tq.unfiled_attachment_ids(conn) == frozenset()
+        assert (
+            conn.execute(
+                "SELECT document_role FROM document_classification WHERE document_id='att'"
+            ).fetchone()["document_role"]
+            == "SPECIFICATION"
+        )
+    assert (
+        "att" in access.unrestricted_scope().allowed_document_ids
+    )  # the document now shows as normal
+    assert (
+        tq.file_if_unfiled_attachment("att", scope, "SPECIFICATION") is False
+    )  # nothing left to file
+
+
+def test_an_upload_by_someone_who_may_not_read_the_attachment_files_nothing(
+    monkeypatch,
+):
+    flagged_attachment(monkeypatch)
+    stranger = AccessScope("u2", frozenset(), capabilities=frozenset())
+    assert tq.file_if_unfiled_attachment("att", stranger, "SPECIFICATION") is False
+    with db.connect() as conn:
+        assert tq.unfiled_attachment_ids(conn) == frozenset({"att"})
+
+
+def test_the_upload_route_files_a_held_attachment_and_answers_with_the_document_not_awaiting_a_grant(
+    monkeypatch, tmp_path
+):
+    """Through the real upload route: the same bytes as the held attachment are uploaded; the response carries the document."""
+    from io import BytesIO
+
+    from app import upload as upload_mod
+
+    flagged_attachment(monkeypatch)
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM documents WHERE id='att'").fetchone()
+    monkeypatch.setattr(upload_mod, "ingest", lambda *a, **k: (row, None, "att"))
+    monkeypatch.setattr(
+        "app.api.documents.upload_mod.ingest", lambda *a, **k: (row, None, "att")
+    )
+    answer = TestClient(app).post(
+        "/api/documents",
+        files={"file": ("q.pdf", BytesIO(b"%PDF-1.4"), "application/pdf")},
+        data={"document_role": "SUPPORTING_DOCUMENT"},
+    )
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert (
+        body["awaiting_grant"] is False
+        and body["document"]["id"] == "att"
+        and body["duplicate_of"] == "att"
+    )
+    with db.connect() as conn:
+        assert tq.unfiled_attachment_ids(conn) == frozenset()
+        assert (
+            conn.execute(
+                "SELECT document_role FROM document_classification WHERE document_id='att'"
+            ).fetchone()["document_role"]
+            == "SUPPORTING_DOCUMENT"
+        )
+    bad = TestClient(app).post(
+        "/api/documents",
+        files={"file": ("q.pdf", BytesIO(b"%PDF-1.4"), "application/pdf")},
+        data={"document_role": "NOPE"},
+    )
+    assert bad.status_code == 422

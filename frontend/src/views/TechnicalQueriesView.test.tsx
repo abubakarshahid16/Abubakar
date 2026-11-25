@@ -123,6 +123,8 @@ describe("Technical Queries screen", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<TechnicalQueriesView />);
     expect((await screen.findByTestId("attachment-unfiled")).textContent).toContain("kept out of the library");
+    // the paper opens by the query's own route (the general document route says 404 for an unfiled attachment)
+    expect(screen.getByRole("link", { name: "query.pdf" }).getAttribute("href")).toBe("/api/technical-queries/q1/attachments/a1/original");
     fireEvent.change(screen.getByLabelText("Role to file this attachment under"), { target: { value: "SPECIFICATION" } });
     fireEvent.click(screen.getByText("File into the library"));
     await waitFor(() => expect(api.fileIntoLibrary).toHaveBeenCalledWith("q1", "a1", "SPECIFICATION"));

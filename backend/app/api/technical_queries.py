@@ -5,7 +5,16 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -26,7 +35,7 @@ from .. import (
     technical_query_jobs,
 )
 from .. import upload as upload_mod
-from ..api_utils import _require_identity_to_write
+from ..api_utils import _require_identity_to_write, reject_unknown_params
 from ..config import settings
 from ..db import connect
 from ..gmail_client import GmailApiClient
@@ -1096,6 +1105,35 @@ def _ingest_query_attachment(query_id: str, attachment: dict, file: UploadFile, 
         "job_id": job_id or "",
         "duplicate_of": duplicate_of,
     }
+
+
+@router.get(
+    "/api/technical-queries/{query_id}/attachments/{attachment_id}/original",
+    response_class=FileResponse,
+    responses={200: {"content": {"application/octet-stream": {}}, "description": "The original bytes of the query's attachment"}},
+)
+def query_attachment_original(
+    query_id: str,
+    attachment_id: str,
+    request: Request,
+    download: bool = Query(False),
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Open a query's attachment. An attachment nobody has filed into the library is out of the general document routes (they answer 404);
+    the person who may see the query and may read the attachment opens it here, so the engineer can read the paper BEFORE deciding to file it."""
+    from . import document_files
+
+    reject_unknown_params(request, {"download"})
+    attachment = technical_queries.attachment_for_query(query_id, attachment_id, *_visible(scope))
+    if attachment is None or not attachment["document_id"]:
+        raise HTTPException(status_code=404, detail="query attachment not found")
+    if not scope.may_read_attachment(attachment["document_id"]):
+        raise HTTPException(status_code=404, detail="query attachment not found")  # as if it were not there: no hint it exists
+    with connect() as conn:
+        doc = conn.execute("SELECT * FROM documents WHERE id = ?", (attachment["document_id"],)).fetchone()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="query attachment not found")
+    return document_files.original_response(doc, attachment["document_id"], download)
 
 
 class FileIntoLibraryIn(BaseModel):
