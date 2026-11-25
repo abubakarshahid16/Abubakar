@@ -41,9 +41,9 @@ describe("MeasuredBadge", () => {
   });
 
   it("draws the wrong-comment share exactly as the server worded it, with its N of M", () => {
-    const wrong = "A strict reader judged 23 of 124 comments wrong (19%; target 10% or less).";
+    const wrong = "A strict reader judged 23 of 124 comments wrong across those test copies (19%; target 10% or less).";
     render(<MeasuredBadge measured={{ ...BELOW, sentence: `${BELOW.sentence} ${wrong}`,
       false_alarm: { wrong: 23, of: 124, percent: 19, target_percent: 10, within_target: false, sentence: wrong } }} />);
-    expect(screen.getByTestId("general-measured-sentence")).toHaveTextContent("23 of 124 comments wrong (19%; target 10% or less)");
+    expect(screen.getByTestId("general-measured-sentence")).toHaveTextContent("23 of 124 comments wrong across those test copies (19%; target 10% or less)");
   });
 });

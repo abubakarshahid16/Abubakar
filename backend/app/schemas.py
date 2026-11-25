@@ -1306,6 +1306,8 @@ class ClassificationCoverage(BaseModel):
     by_discipline: list[CoverageByDiscipline]
     by_subject: list[CoverageBySubject]
     needs_classification: int
+    #: The documents awaiting a type: the one count the Documents page and the Dashboard both say (scoped like the rest).
+    awaiting_type: int = 0
     corpus_wide: bool = Field(
         description="whether these counts are the WHOLE corpus or only what "
                     "this caller may read. The screen must say which")

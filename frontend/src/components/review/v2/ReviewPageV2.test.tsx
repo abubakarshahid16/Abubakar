@@ -961,6 +961,29 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.queryByTestId("v2-code-box")).toBeNull();
   });
 
+  it("the header names the equipment the AI named for this review, not another stored suggestion (first-time user: a vessel read 'Heat Exchanger')", async () => {
+    const g = general();
+    api.general.mockResolvedValue(ok({ ...g, identity: { kind: "datasheet", equipment_type: "pressure_vessel", subject: "invented vessel" } }));
+    api.ofDocument.mockResolvedValue(ok({ document_id: "doc1", equipment_type: "heat_exchanger", confirmed: false, document_kind: "datasheet", document_kind_state: "guessed" } as never));
+    mount();
+    await screen.findByTestId("general-results");
+    await waitFor(() => expect(screen.getByTestId("v2-kind-line")).toHaveTextContent("pressure vessel (named by the AI for this review)"));
+    expect(screen.getByTestId("v2-kind-line")).not.toHaveTextContent("heat exchanger");
+  });
+
+  it("a finished general review hides the plan of a NEW review behind 'Review this paper again' and asks for no plan until it is opened", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    api.plan.mockClear();
+    mount();
+    await screen.findByTestId("general-results");
+    expect(screen.queryByText(/Checking what this would do/)).toBeNull();
+    expect(screen.queryByTestId("v2-engine")).toBeNull();
+    expect(api.plan).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("review-again"));
+    expect(await screen.findByTestId("v2-engine")).toBeInTheDocument();
+    await waitFor(() => expect(api.plan).toHaveBeenCalled());
+  });
+
   it("has NO contractor button, NO sign row and NO review code; one Download button gives the team file", async () => {
     api.general.mockResolvedValue(ok(general()));
     mount(); await screen.findByTestId("general-results");

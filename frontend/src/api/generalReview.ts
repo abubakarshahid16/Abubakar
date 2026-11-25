@@ -29,7 +29,7 @@ export interface GeneralLine {
   paper_says?: string;
   rule_says?: string;
   we_ask?: string;
-  applies_to?: { page: number | null; field: string; quote: string; /** The valve tag or sheet in the field's last bracket. */ tag?: string; /** What the paper says there, "<field>: blank" for a blank value. */ value?: string }[];
+  applies_to?: { page: number | null; field: string; quote: string; /** Every page the field stands on (one chip per field). */ pages?: number[]; /** The valve tag or sheet in the field's last bracket. */ tag?: string; /** What the paper says there, "<field>: blank" for a blank value. */ value?: string }[];
   /** "compared by code", or the mark when it is an AI reading. */
   proven?: string;
   /** Set when the two readers of this comment differ: shown as a small tag, never part of the comment's text. */
@@ -231,5 +231,9 @@ export async function downloadGeneralSheet(documentId: string, runId?: string, c
   link.download = result.data.filename;
   link.click();
   URL.revokeObjectURL(url);
+  // A browser may hold a download while its tab is in the background, and then nothing seems to happen (first-time user, 19 Nov): say it.
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+    return "This tab is in the background, so the browser may not have saved the file. Bring this tab to the front and press Download again.";
+  }
   return null;
 }

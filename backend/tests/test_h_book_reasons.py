@@ -105,3 +105,12 @@ def test_a_book_the_viewer_may_not_read_is_counted_never_named(temp_storage):
     text = str(view["books"])
     assert "why two" not in text and "doc_inv_hidden" not in text
     assert view["books_not_readable"] == 1
+
+
+def test_a_book_the_scope_step_gave_no_words_for_still_gets_a_reason(aim_db, monkeypatch):
+    """Planner 19 Nov, item 1: 15 of 20 books said "the reason was not recorded" on fresh reviews. A book with no scope words is given the
+    table's reason (governs, method, cited), else where it came from; never nothing."""
+    monkeypatch.setattr(E, "_book_reasons", lambda checklist: {})  # the scope step recorded no words at all
+    r = _run(aim_db, "run_h_3", MemoryStore())
+    assert r.books, "the run carried no book: the test has nothing to check"
+    assert all(str(r.book_why.get(b) or "").strip() for b in r.books), r.book_why

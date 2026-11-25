@@ -273,9 +273,9 @@ export function DashboardView({
                     actually non-zero, never as "0 awaiting a type", which
                     would claim a measurement nobody made for a caller with
                     no coverage answer at all. */}
-                {coverageInScope && coverage!.needs_classification > 0 && (
+                {coverageInScope && (coverage!.awaiting_type ?? 0) > 0 && (
                   <span className="ms-1 text-warn-500">
-                    · {nf.format(coverage!.needs_classification)} awaiting a type
+                    · {nf.format(coverage!.awaiting_type ?? 0)} awaiting a type
                   </span>
                 )}
               </>
