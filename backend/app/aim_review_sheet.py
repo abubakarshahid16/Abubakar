@@ -152,14 +152,17 @@ def lines_cell(lines: list[int]) -> str:
 
 
 def applies_text(places) -> str | None:
-    """The card's "Applies to" chips as lines of text: "p4 · Backpressure", one per place, no place twice; None when none."""
+    """The card's "Applies to" chips as lines of text: "p4 · Backpressure", one per place, no place twice; None when none. A field that
+    stands on several pages names every one of them ("p1, 2, 3, 4 · Required relieving capacity"): no page is dropped without a mark."""
     seen: list[str] = []
     for pl in places or []:
-        page = pl.get("page")
+        pages = [p for p in (pl.get("pages") or []) if p is not None] or (
+            [pl["page"]] if pl.get("page") is not None else []
+        )
         text = " · ".join(
             x
             for x in (
-                f"p{page}" if page is not None else "",
+                "p" + ", ".join(str(p) for p in pages) if pages else "",
                 str(pl.get("field") or "").strip(),
             )
             if x
