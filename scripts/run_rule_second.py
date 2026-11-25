@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 from app import rule_label_job as job  # noqa: E402
 from app import rule_second_approval as RS  # noqa: E402
+from app.config import settings  # noqa: E402
 from app.rule_label_schema import require_on  # noqa: E402
 
 DEFAULT_MODEL = "claude-opus-5-5"
@@ -57,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     require_on()
     conn = job.open_copy(a.db, read_only=a.cmd in ("estimate", "gate", "export"))
+    # The app's Claude gate (its block check) and every helper that opens the configured database read THIS copy, the
+    # library whose rule text is sent; never the live database (as `run_rule_labels.py` does).
+    settings.db_path = Path(a.db).resolve()
     if a.cmd == "estimate":
         out = RS.estimate(_needs_human(conn, a.limit), a.model)
     elif a.cmd == "gate":
@@ -72,6 +76,9 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "run" and (refused := RS.batch_refusal(conn, a.limit)):
             print(refused)
             return 2
+        from app import agent_run
+
+        agent_run.check_db_path(a.db)
         lane = job.Lane(job.CapLedger(a.max_usd))
         if a.cmd == "run":
             out = RS.run_second(
