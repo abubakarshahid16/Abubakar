@@ -161,7 +161,7 @@ class LocalModel:
             raise StepFailed(
                 f"{step}: local_too_long (the prompt does not fit the local model's window)"
             )
-        body = self._body(name, messages, num_predict)
+        body = self._body(name, messages, num_predict, step)
         self._memory_rule(step, rec)
         self._one_in_memory(name)
         answer = self._post(step, body, rec)
@@ -191,14 +191,17 @@ class LocalModel:
         self.meter.charge(rec)
         return out
 
-    def _body(self, name: str, messages: list[dict], num_predict: int) -> dict:
-        """The chat request: JSON answers, no randomness, the run's window; a model that thinks is told not to (its thinking
-        would spend the answer's room)."""
+    def _body(
+        self, name: str, messages: list[dict], num_predict: int, step: str = ""
+    ) -> dict:
+        """The chat request: the step's own answer shape when one is written (`answer_schema.for_step`: the engine then
+        cannot return a broken shape), else plain JSON; no randomness; the run's window; a model that thinks is told not to
+        (its thinking would spend the answer's room)."""
         body = {
             "model": name,
             "messages": messages,
             "stream": False,
-            "format": "json",
+            "format": _answer_shape(step),
             "options": {
                 "temperature": 0,
                 "num_ctx": int(self.budget.num_ctx),
@@ -284,15 +287,31 @@ class LocalModel:
 WINDOW_MARGIN_TOKENS = 512
 
 
+def _answer_shape(step: str):
+    """The step's JSON schema for the engine's `format` (`aim_review.answer_schema.for_step`, the method's own module), else
+    "json". A method without that module, or a step it has no schema for, keeps plain JSON."""
+    try:
+        from . import answer_schema
+    except ImportError:
+        return "json"
+    return answer_schema.for_step(step) or "json"
+
+
+#: What the judge's prompt says when it reads a paper MAP with the full pages an item cites (`paper_map.MAP_LINE`).
+MAP_MARK = "THIS IS A LONG PAPER"
+
+
 def _note(step: str, prompt: str, num_ctx: int) -> str:
-    """What the call read, for the run record: its window and, for a judge call, whether it saw the whole paper."""
+    """What the call read, for the run record: its window and, for a judge call, whether it saw the whole paper (a page window
+    or a paper map is not the whole paper)."""
     if step != "aim_judge":
         return f"window {num_ctx} tokens"
-    seen = (
-        "a page window, not the whole paper"
-        if WINDOW_MARK in prompt
-        else "the whole paper"
-    )
+    if MAP_MARK in prompt:
+        seen = "a paper map with the pages it cites, not the whole paper"
+    elif WINDOW_MARK in prompt:
+        seen = "a page window, not the whole paper"
+    else:
+        seen = "the whole paper"
     return f"window {num_ctx} tokens; {seen}"
 
 
