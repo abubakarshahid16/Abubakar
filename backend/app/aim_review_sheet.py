@@ -329,6 +329,12 @@ def _summary(ws: Worksheet, model: dict) -> None:
         ("Equipment type", model["identity"].get("equipment_type")),
         ("Subject", model["identity"].get("subject")),
         ("Method", model["method"]),
+        # a run on the local model names the model its engine reported and says it is not yet scored (a Claude run: no row)
+        *(
+            [("Model", model["engine"]["sentence"])]
+            if (model.get("engine") or {}).get("local")
+            else []
+        ),
         # piece G: the measured score of this paper's kind; a null prints as an empty cell ("below target" / "not measured yet")
         ("Measured score of this kind", (model.get("measured") or {}).get("sentence")),
         ("Comments by severity", severity_words(counts.get("by_severity"))),

@@ -7,6 +7,7 @@ import json
 from collections import defaultdict
 
 from . import library as L
+from .budget import cap
 
 MATERIAL_BUDGET = 150_000
 BOOK_BUDGET = 45_000
@@ -26,6 +27,12 @@ def material(sel: dict, text: L.BookText) -> tuple[list[dict], list[dict]]:
     for r in sel["_pool"]:
         pool_by_book[r["book"]].append(r)
     rows, stats, used, n = [], [], 0, 0
+    # the sizes of this run (`budget`: a local-model run is smaller; a Claude run uses the constants unchanged)
+    rule_chars, book_budget = RULE_CHARS, cap(BOOK_BUDGET, "book")
+    text_book_budget, material_budget = (
+        cap(TEXT_BOOK_BUDGET, "text_book"),
+        cap(MATERIAL_BUDGET, "material"),
+    )
     for b in sel["books"]:
         mine = pool_by_book.get(b["book"], [])
         if b["chosen_subjects"] != "all":
@@ -35,11 +42,11 @@ def material(sel: dict, text: L.BookText) -> tuple[list[dict], list[dict]]:
         if mine:
             for r in mine:
                 t = str(r["source_text"] or r["requirement_text"] or "")
-                cut = len(t) > RULE_CHARS
-                t = t[:RULE_CHARS] + (
+                cut = len(t) > rule_chars
+                t = t[:rule_chars] + (
                     " [CUT: rule text longer than shown]" if cut else ""
                 )
-                if chars + len(t) > BOOK_BUDGET or used + len(t) > MATERIAL_BUDGET:
+                if chars + len(t) > book_budget or used + len(t) > material_budget:
                     break
                 n += 1
                 rows.append(
@@ -67,7 +74,7 @@ def material(sel: dict, text: L.BookText) -> tuple[list[dict], list[dict]]:
             pages = text.pages(b["book"])
             shown = 0
             for p, t in sorted(pages.items()):
-                if chars + len(t) > TEXT_BOOK_BUDGET or used + len(t) > MATERIAL_BUDGET:
+                if chars + len(t) > text_book_budget or used + len(t) > material_budget:
                     break
                 rows.append(
                     {
@@ -108,9 +115,10 @@ def _material_line(r: dict) -> str:
 
 def _batches(rows: list[dict]) -> list[list[dict]]:
     out, cur, size = [], [], 0
+    batch_chars = cap(BATCH_CHARS, "batch_chars")
     for r in rows:
         ln = len(_material_line(r))
-        if cur and size + ln > BATCH_CHARS:
+        if cur and size + ln > batch_chars:
             out.append(cur)
             cur, size = [], 0
         cur.append(r)

@@ -19,6 +19,7 @@ from . import (
 from . import items as I
 from . import library as L
 from . import prompts as P
+from .budget import cap
 from .engine import StepFailed
 from .fail_words import (  # noqa: F401 - one home: fail_words
     PAIRED_NOTE,
@@ -334,6 +335,12 @@ def item_book(it: dict, books: dict) -> str:
     return str(it.get("book_id") or (b or {}).get("book") or "")
 
 
+def _judge_batches(items: list[dict]) -> list[list[dict]]:
+    """The judge's batches of items: `JUDGE_BATCH` each, fewer on the local model (`budget`)."""
+    size = cap(JUDGE_BATCH, "judge_batch")
+    return [items[k : k + size] for k in range(0, len(items), size)]
+
+
 def s4_judge(
     model,
     paper,
@@ -358,7 +365,7 @@ def s4_judge(
     windowed = len(windows) > 1
     answers: dict[str, list[dict]] = {it["id"]: [] for it in items}
     errors: dict[str, str] = {}
-    batches = [items[k : k + JUDGE_BATCH] for k in range(0, len(items), JUDGE_BATCH)]
+    batches = _judge_batches(items)
     jobs: list[
         tuple[list[dict], dict]
     ] = []  # (batch, request) in window, then batch order: the one-at-a-time order
@@ -384,7 +391,7 @@ def s4_judge(
     results, stop = parallel.run_calls(
         model,
         [r for _b, r in jobs],
-        workers=JUDGE_PARALLEL,
+        workers=cap(JUDGE_PARALLEL, "judge_parallel"),
         cancelled=cancelled,
         done=tick,
     )

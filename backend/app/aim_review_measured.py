@@ -193,3 +193,23 @@ def for_run(identity: dict | None) -> dict | None:
         "sentence": sentence,
         "false_alarm": wrong,
     }
+
+
+def for_local_run(identity: dict | None, models: list[str]) -> dict:
+    """What a run made on the LOCAL model says in place of its kind's score: the measured scores are of Claude reviews, so they do
+    not apply; `aim_review_gate.LOCAL_NOT_SCORED` until local runs are scored (planner 25 Nov 2026 22:35). `models`: the model names
+    the local engine itself reported in the run's calls (never the setting); none recorded is said so."""
+    from . import aim_review_gate
+
+    kind = _word((identity or {}).get("kind"))
+    named = ", ".join(models) if models else "its name was not recorded"
+    return {
+        "kind_label": kind or None,
+        "found": None,
+        "target": None,
+        "verdict": NOT_MEASURED,
+        "sentence": (
+            f"Reviewed on the local model on this computer ({named}): {aim_review_gate.LOCAL_NOT_SCORED}. "
+            "The scores of this kind were measured on Claude reviews and do not apply to it."
+        ),
+    }

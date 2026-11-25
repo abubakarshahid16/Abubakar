@@ -20,6 +20,7 @@ import re
 
 from . import ANSWERED, PROVISIONAL, TWO_READERS_AGREE
 from . import prompts as P
+from .budget import cap
 from .engine import StepFailed
 from .references import NOTE_CHECKED as REFERENCE_CHECKED
 from .steps import _dumps, paper_block
@@ -112,7 +113,8 @@ def s4b_answered(
     local run record keeps it so a miss can be read later; it is never sent and never shown to a contractor."""
     pool = offered(lines)
     keys = list(pool)
-    parts = [keys[i : i + ANSWER_CHUNK] for i in range(0, len(keys), ANSWER_CHUNK)]
+    chunk = cap(ANSWER_CHUNK, "line_chunk")  # fewer per call on the local model
+    parts = [keys[i : i + chunk] for i in range(0, len(keys), chunk)]
     taken = 0
     for part in parts:
         shown = {n: pool[n] for n in part}

@@ -18,7 +18,7 @@ from . import (
     aim_review_card,
     aim_review_decisions,
     aim_review_gate,
-    aim_review_measured,
+    aim_review_local_view,
     aim_review_merge,
     aim_review_signoff,
     aim_review_store,
@@ -684,6 +684,7 @@ def build(conn, run: dict, scope=None) -> dict:
     for p in points:
         by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
     identity = _json(run.get("identity_json"), {})
+    local = aim_review_local_view.engine_of(conn, run)
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
     view = {
@@ -698,10 +699,9 @@ def build(conn, run: dict, scope=None) -> dict:
         "identity": {
             k: _blank(identity.get(k)) for k in ("kind", "equipment_type", "subject")
         },
-        # the measured score of this paper's kind ("below target" says so); None when the run names no kind (piece G)
-        "measured": aim_review_measured.for_run(
-            {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
-        ),
+        # the measured score of this paper's kind ("below target" says so; a local run: not yet scored); None: no kind (piece G)
+        "measured": aim_review_local_view.measured(identity, local),
+        "engine": local,  # the local model the run's own calls name (never the setting); a Claude run: not local
         "counts": {
             "points": len(points),
             "comments": len(comments),

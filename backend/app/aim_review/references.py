@@ -32,6 +32,7 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from .. import contract_checks as CC
+from .budget import cap
 
 log = logging.getLogger(__name__)
 
@@ -276,9 +277,10 @@ def _part_text(pages: dict[int, str]) -> tuple[str, int, int]:
     """(the part's text with page markers, pages read, pages held), in page order, cut at MAX_PART_CHARS on a page boundary."""
     out, used = [], 0
     read = 0
+    most = cap(MAX_PART_CHARS, "window_chars")  # less on the local model (`budget`)
     for n in sorted(pages):
         block = f"[page {n}]\n{pages[n]}\n"
-        if used + len(block) > MAX_PART_CHARS and read:
+        if used + len(block) > most and read:
             break
         out.append(block)
         used += len(block)
@@ -532,7 +534,7 @@ def windows_of(
     pages: dict[int, str], size: int | None = None, most: int | None = None
 ) -> list[dict[int, str]]:
     """The Schedule's pages in order, cut into windows of at most `size` characters (a page is never split); at most `most` windows."""
-    size, most = size or WINDOW_CHARS, most or MAX_WINDOWS
+    size, most = cap(size or WINDOW_CHARS, "window_chars"), most or MAX_WINDOWS
     out: list[dict[int, str]] = []
     cur: dict[int, str] = {}
     used = 0
