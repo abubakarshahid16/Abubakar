@@ -211,7 +211,11 @@ def _recent_account_refusal(conn) -> str | None:
     ).fetchone()
     if later is not None:
         return None
-    at = str(row["stopped_at"])[11:16]  # the stored clock is UTC: said so, never a bare time that reads as the reader's own
+    at = str(
+        row["stopped_at"]
+    )[
+        11:16
+    ]  # the stored clock is UTC: said so, never a bare time that reads as the reader's own
     return f"A review's Claude call was refused{f' at {at} UTC' if at else ''}. {words}"
 
 
