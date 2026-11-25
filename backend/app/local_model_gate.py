@@ -10,16 +10,29 @@ local model call (`model_transport.post_json` / `stream_json`, the one path to t
 
 A call made outside a lane (a chat request, a script, a test) is not gated, exactly as before. Nothing here reads, logs or sends
 document content; the gate holds only lane names and counts.
+
+A WAIT IS BOUNDED (`WAIT_SECONDS`): a call that cannot get the model in that time fails with a plain sentence
+(`LocalModelBusy`), never hangs. A streamed call holds the gate until its stream ends or is CLOSED: every caller closes it
+(`contextlib.closing`), so a stream dropped half-way never keeps the model.
 """
 
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 
 REVIEW = "review"
 UPLOAD = "upload"
+#: The longest a call waits for the other lane's calls to end: the review lane's own silence limit
+#: (`worker_review.REVIEW_SILENCE_SECONDS`); a single local call is far shorter (its own time limit is minutes).
+WAIT_SECONDS = 30 * 60
+
+
+class LocalModelBusy(RuntimeError):
+    """A local model call waited `WAIT_SECONDS` for the other lane and did not run."""
+
 
 #: The lane of the work running in this context (`lane`): None outside the worker. A thread started with a COPY of a review's
 #: context (`aim_review.parallel`) is in the review lane too.
@@ -38,7 +51,8 @@ class _Gate:
     def _others_wait(self, lane: str) -> bool:
         return any(n for name, n in self.waiting.items() if name != lane)
 
-    def enter(self, lane: str) -> None:
+    def enter(self, lane: str, wait_seconds: float) -> None:
+        deadline = time.monotonic() + wait_seconds
         with self._cond:
             self.waiting[lane] = self.waiting.get(lane, 0) + 1
             try:
@@ -46,7 +60,19 @@ class _Gate:
                     (self.holder is None and self.turn in (None, lane))
                     or (self.holder == lane and not self._others_wait(lane))
                 ):
-                    self._cond.wait()
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        holder = self.holder or "other"
+                        if (
+                            self.turn == lane
+                        ):  # its turn is given up: the other lane may go on
+                            self.turn = None
+                            self._cond.notify_all()
+                        raise LocalModelBusy(
+                            f"The local model was busy with the {holder} work for more than {int(wait_seconds // 60) or 1} "
+                            "minute(s), so this step did not run; it can be run again."
+                        )
+                    self._cond.wait(left)
             finally:
                 self.waiting[lane] -= 1
             self.holder = lane
@@ -97,12 +123,14 @@ def current() -> str | None:
 
 @contextmanager
 def holding():
-    """Around ONE local model call: waits at the gate when this context is in a lane; passes at once outside the worker."""
+    """Around ONE local model call: waits at the gate (at most `WAIT_SECONDS`, then `LocalModelBusy`) when this context is in a
+    lane; passes at once outside the worker. Released in a `finally`: on return, on an exception, and when a streamed call's
+    generator is closed (GeneratorExit)."""
     name = _LANE.get()
     if name is None:
         yield
         return
-    _GATE.enter(name)
+    _GATE.enter(name, WAIT_SECONDS)
     try:
         yield
     finally:
