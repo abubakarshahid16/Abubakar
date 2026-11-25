@@ -202,6 +202,17 @@ describe("Technical Queries screen", () => {
     await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
   });
 
+  it("says why a stopped mailbox is not checked, and offers Check now (error) or Connect Gmail again", async () => {
+    const stopped = { id: "mb", email: "box@example.test", connection_state: "error", label_id: "L1", last_checked_at: null, status_note: "Gmail could not be read after several tries, so the checking stopped.", import_job: null };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [stopped] } });
+    api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j" } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("mailbox-stopped")).textContent).toContain("is not being checked. Gmail could not be read after several tries");
+    fireEvent.click(await screen.findByText("Check now"));
+    await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
+    expect(screen.getByText("Connect Gmail again")).toBeTruthy();
+  });
+
   it("lists type, discipline, number and title, flags a subject with no number, and filters by them", async () => {
     const withRef = { ...query, id: "q1", subject: "PRJ-CON-CO-TQ-12 - PIPING_a_Coating question", ref_type: "TQ", ref_number: "12", discipline_code: "PIPING", title_short: "Coating question", needs_person: 0 };
     const noRef = { ...query, id: "q2", subject: "Please advise", needs_person: 1 };

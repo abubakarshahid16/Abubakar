@@ -35,6 +35,12 @@ MAX_NAMED = 50
 BACKOFF_SECONDS = (60, 120, 300, 600, 900)
 MAX_ATTEMPTS = 8
 RETRY_FAILED_MESSAGES_SECONDS = 900
+#: Failed jobs since the last good one after which the poller stops queueing the mailbox's work again by itself and marks the mailbox "in error".
+MAX_AUTO_REQUEUES = 3
+GONE_SENTENCE = "This mailbox is no longer connected, so its import was stopped."
+ADMIN_SENTENCE = "The person who connected this mailbox no longer holds the administrator role, so Gmail is not read. An administrator can connect it again."
+REVOKED_SENTENCE = "Google no longer allows this app to read the mailbox. Connect it again."
+GIVEN_UP_SENTENCE = "Gmail could not be read after several tries, so the checking stopped. Use Check now when Gmail is back, or connect the mailbox again."
 WAITING_SENTENCE = "Gmail could not be read just now. It will try again by itself, or use Check now."
 FAILED_SENTENCE = "Gmail could not be read just now. Use Check now to try again."
 
@@ -66,6 +72,8 @@ def create_tables(conn) -> None:
     columns = {r["name"] for r in conn.execute("PRAGMA table_info(gmail_mailboxes)")}
     if columns and "last_checked_at" not in columns:
         conn.execute("ALTER TABLE gmail_mailboxes ADD COLUMN last_checked_at TEXT")
+    if columns and "status_note" not in columns:
+        conn.execute("ALTER TABLE gmail_mailboxes ADD COLUMN status_note TEXT")  # why a mailbox is in error or revoked, in one plain sentence
     job_columns = {r["name"] for r in conn.execute("PRAGMA table_info(gmail_import_jobs)")}
     if "retry_at" not in job_columns:
         conn.execute("ALTER TABLE gmail_import_jobs ADD COLUMN retry_at TEXT")
@@ -144,11 +152,30 @@ def latest(conn, mailbox_id: str) -> dict | None:
     return job
 
 
+def stop_mailbox(mailbox_id: str, state: str, note: str) -> None:
+    """A fault that does not clear by waiting: the mailbox is marked `state` ("error" or "revoked") with one plain sentence for the screen, the poller leaves it
+    alone, and its queued jobs are failed with that sentence (so no thread spins on them). A person's Check now (error) or a new connection (revoked) starts it again."""
+    with connect() as conn:
+        create_tables(conn)
+        conn.execute(
+            "UPDATE gmail_mailboxes SET connection_state=?, status_note=?, updated_at=? WHERE id=?", (state, note, technical_queries.now(), mailbox_id)
+        )
+        conn.execute(
+            "UPDATE gmail_import_jobs SET state='failed', error=?, retry_at=NULL, updated_at=? WHERE mailbox_id=? AND state='queued'",
+            (note, technical_queries.now(), mailbox_id),
+        )
+
+
 def check_now(mailbox_id: str) -> str:
     """"Check now": a job waiting for its next try runs at once; else, when the last IMPORT of the mailbox ended failed, the import is queued again (the label
     mail it never reached is not lost); else one poll is queued. Returns the job id."""
     with connect() as conn:
         create_tables(conn)
+        # a mailbox in error (Gmail was unreachable for too long, or the owner lost the role) tries again when a person asks
+        conn.execute(
+            "UPDATE gmail_mailboxes SET connection_state='active', status_note=NULL, updated_at=? WHERE id=? AND connection_state='error'",
+            (technical_queries.now(), mailbox_id),
+        )
         box = conn.execute("SELECT label_id FROM gmail_mailboxes WHERE id=?", (mailbox_id,)).fetchone()
         last = conn.execute(
             "SELECT state FROM gmail_import_jobs WHERE mailbox_id=? AND kind='import' ORDER BY created_at DESC, rowid DESC LIMIT 1", (mailbox_id,)
@@ -170,6 +197,14 @@ def resume_due(mailbox_id: str) -> bool:
             "SELECT 1 FROM gmail_import_failures f JOIN gmail_import_jobs j ON j.id=f.job_id WHERE j.mailbox_id=? LIMIT 1", (mailbox_id,)
         ).fetchone()
         newest = conn.execute("SELECT MAX(updated_at) m FROM gmail_import_jobs WHERE mailbox_id=?", (mailbox_id,)).fetchone()["m"]
+        failed_run = conn.execute(
+            "SELECT COUNT(*) c FROM gmail_import_jobs WHERE mailbox_id=? AND state='failed' AND created_at > COALESCE("
+            "(SELECT MAX(created_at) FROM gmail_import_jobs WHERE mailbox_id=? AND state='done'), '')",
+            (mailbox_id, mailbox_id),
+        ).fetchone()["c"]
+    if failed_run >= MAX_AUTO_REQUEUES:  # a fault that never clears is not retried for ever: the mailbox is marked, a person decides
+        stop_mailbox(mailbox_id, "error", GIVEN_UP_SENTENCE)
+        return False
     if last is not None and last["state"] == "failed" and box is not None and box["label_id"]:
         enqueue(mailbox_id, "import", box["label_id"])
         return True
@@ -243,7 +278,13 @@ def run_job(job_id: str, *, client=None) -> None:
             if job
             else None
         )
-    if job is None or box is None:
+    if job is None:
+        return
+    if box is None:  # its mailbox row is gone: the job says so and ends, it never stays queued for the thread to pick again
+        _set(job_id, state="failed", error=GONE_SENTENCE, retry_at=None)
+        return
+    if box["connection_state"] in ("revoked", "error"):
+        _set(job_id, state="failed", error=box["status_note"] if "status_note" in box.keys() and box["status_note"] else GIVEN_UP_SENTENCE, retry_at=None)
         return
     _set(job_id, state="running", retry_at=None, error=None)
     try:
@@ -260,23 +301,34 @@ def run_job(job_id: str, *, client=None) -> None:
     except Interrupted:  # the server is stopping: the job stays queued, nothing is lost, no try is counted
         _set(job_id, state="queued")
         return
-    except PermissionError:  # not a Gmail fault: waiting would not help
+    except PermissionError:  # not a Gmail fault: waiting would not help; the mailbox is marked and the screen says why
         log.warning("gmail import job failed (PermissionError)")
-        _set(job_id, state="failed", error=FAILED_SENTENCE)
+        _set(job_id, state="failed", error=ADMIN_SENTENCE)
+        stop_mailbox(box["id"], "error", ADMIN_SENTENCE)
+        return
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 401:  # not a refused token: Gmail could not be read, the ordinary way
+            log.warning("gmail import job will be tried again (HTTPStatusError)")
+            _try_again_later(job_id, int(job["attempts"] or 0), box["id"])
+            return
+        log.warning("gmail import job failed: the token was refused")  # Google withdrew its consent
+        _set(job_id, state="failed", error=REVOKED_SENTENCE)
+        stop_mailbox(box["id"], "revoked", REVOKED_SENTENCE)
         return
     except Exception as exc:  # noqa: BLE001 - Gmail could not be reached, at the start or in the middle: back to the queue with a growing wait (by type, never the text)
         log.warning("gmail import job will be tried again (%s)", type(exc).__name__)
-        _try_again_later(job_id, int(job["attempts"] or 0))
+        _try_again_later(job_id, int(job["attempts"] or 0), box["id"])
         return
     _checked(box["id"])
     _set(job_id, state="done")
 
 
-def _try_again_later(job_id: str, tried: int) -> None:
+def _try_again_later(job_id: str, tried: int, mailbox_id: str) -> None:
     """Back to the queue after the wait for this attempt; after MAX_ATTEMPTS it is failed and "Check now" starts it again."""
     attempts = tried + 1
     if attempts >= MAX_ATTEMPTS:
-        _set(job_id, state="failed", error=FAILED_SENTENCE, attempts=attempts, retry_at=None)
+        _set(job_id, state="failed", error=GIVEN_UP_SENTENCE, attempts=attempts, retry_at=None)
+        stop_mailbox(mailbox_id, "error", GIVEN_UP_SENTENCE)  # the last try is used: no automatic retry goes on for ever
         return
     wait = BACKOFF_SECONDS[min(attempts - 1, len(BACKOFF_SECONDS) - 1)]
     _set(job_id, state="queued", error=WAITING_SENTENCE, attempts=attempts, retry_at=_later_than(wait))
