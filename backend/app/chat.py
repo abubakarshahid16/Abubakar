@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from . import answer as answer_mod
 from . import analysis as analysis_mod
 from . import chat_answers
+from . import chat_db_tools
 from . import chat_comparison
 from . import family_search
 from . import chat_model
@@ -634,6 +635,8 @@ _PAYLOAD_KEYS = (
     # answer with the partial-coverage warning silently gone - worse than
     # never having shipped the field.
     "coverage", "summary_coverage", "evidence_removed",
+    # several selected papers (note A, 25 Nov 2026): reopened without them, "read 8 of 10" and the Review offer would vanish
+    "paper_coverage", "review_offer",
     # The same reason, three more times. Reopened without `corpus`, a two-part reply
     # would lose its database half; without `counts_bounded`, a re-bounded
     # count would lose the note that says it was; without `truncated`, a cut-off
@@ -670,7 +673,7 @@ _PAYLOAD_KEYS = (
 #: shape for a fresh answer and a reopened one.
 _LIFTED = ("answer_kind", "used_line", "sources", "verification", "steps",
            "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd",
-           "requested_provider", "provider_note")
+           "requested_provider", "provider_note", "paper_coverage", "review_offer")
 
 
 def _payload(result: dict) -> dict:
@@ -972,9 +975,12 @@ def ask(
                       and route_kind == intent_mod.DOCUMENT else model)
     claude_preference = model
     if (model == chat_model.CLAUDE and not claude_document_selection
-            and route_kind == intent_mod.DOCUMENT):
+            and route_kind == intent_mod.DOCUMENT
+            and not chat_db_tools.asks_the_records(original)):
         # A document question with no explicit file selection stays on the
         # local path; Claude may still answer a document-free general question.
+        # A question about the library's RECORDS (which papers, their latest review) goes to Claude with the database tools
+        # when their switch is on (`chat_db_tools.asks_the_records`): its document tools still read nothing unselected.
         claude_preference = chat_model.LOCAL
     if (collection_result is None and inventory_result is None and explain_of is None
             and route_kind in (intent_mod.DOCUMENT, intent_mod.EITHER)
@@ -1033,7 +1039,9 @@ def ask(
                 if model != chat_model.CLAUDE or claude_document_selection
                 else frozenset()),
             web_enabled=web, preference=claude_preference, on_fallback_cost=fallback_spent.append,
-            on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append)
+            on_fallback_reason=fallback_why.append, on_unverified=claude_unverified.append,
+            # the owner's database lane (#1584, 25 Nov 2026): the caller's OWN read set, never wider; off: not offered
+            database_scope=allowed_document_ids if model == chat_model.CLAUDE else None)
 
     if collection_result is not None:
         result = collection_result
@@ -1146,6 +1154,12 @@ def ask(
         # THE CHAT NEVER RECORDS A VERDICT: a compliance question is answered
         # from the evidence and ends with the engineer notice.
         result["notices"] = [*(result.get("notices") or []), intent_mod.ENGINEER_NOTICE]
+    if document_ids and "paper_coverage" not in result:
+        # several selected papers, on either engine: the line "read 8 of 10; 2 still processing" by code (note A, 25 Nov)
+        from . import chat_coverage
+
+        result = chat_coverage.attach(result, original, allowed_document_ids & frozenset(document_ids),
+                                      result.get("passages") or [])
     result.update(chat_presentation.present(result))
     thought_seconds = result.pop("thought_seconds", None)
     if thought_seconds is not None:
