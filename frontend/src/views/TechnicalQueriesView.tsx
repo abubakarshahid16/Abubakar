@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
-import { importDoneWords } from "../api/technicalQueries";
+import { attachmentsRead, importDoneWords } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
@@ -383,6 +383,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {!selected.can_review && <p className="mt-1 text-xs text-slateish-500">Only a qualified reviewer can confirm the question.</p>}
           </div>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Original email and attachments</h3>
+          {(() => {
+            const read = attachmentsRead(selected.messages);
+            return read && <div className="mt-2 text-xs text-slateish-300" data-testid="attachments-read"><p>{read.line}.</p>
+              {read.notRead.length > 0 && <ul className="mt-1 list-disc pl-5 text-warn-500">{read.notRead.map((item, index) => <li key={`${item.filename}-${index}`}>{item.filename}: {item.why}</li>)}</ul>}</div>;
+          })()}
           {selected.messages?.map((message, index) => <article key={`${message.received_at}-${index}`} className="mt-3 rounded border border-ink-700 p-3 text-sm text-slateish-300">
             {(message.is_inbound === 0 || message.is_inbound === false) && <p className="mb-1 inline-block rounded border border-signal-500 px-1 text-xs text-signal-300" data-testid="sent-by-us">Sent by us</p>}
             <p>From: {message.from_address}</p><p>To: {message.to_addresses.join(", ")}</p>

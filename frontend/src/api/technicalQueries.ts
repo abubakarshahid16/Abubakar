@@ -36,7 +36,7 @@ export interface TechnicalQuery {
   priority: string;
   received_at: string;
   due_at: string | null;
-  messages?: Array<{ id: string; is_inbound?: number | boolean; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
+  messages?: Array<{ id: string; is_inbound?: number | boolean; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
@@ -170,3 +170,26 @@ export const technicalQueriesApi = {
   decide: (id: string, decision: string, draftId?: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, draft_id: draftId }) }),
   confirmResolution: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/confirm-resolution`, { method: "POST" }),
 };
+
+type QueryAttachment = { filename: string; media_type?: string | null; document_id: string | null; parse_status: string; scan_status: string };
+
+/** Why an attachment of a query was NOT read, in plain words, or null when it was read (its paper is in and ready). Nothing is silently
+ *  missing: a picture, a macro file, a Word file and an unread PDF are each named (lead-4, 26 Nov 2026). */
+export function notReadWhy(a: QueryAttachment): string | null {
+  const name = a.filename.toLowerCase();
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
+  if (a.document_id && a.parse_status === "ready") return null;
+  if (/^(xlsm|xltm|docm|dotm|pptm|potm|ppsm|xlam|ppam)$/.test(ext) || /macroenabled/i.test(a.media_type ?? "")) return "macro file, not opened";
+  if ((a.media_type ?? "").startsWith("image/") || /^(png|jpe?g|gif|bmp|tiff?|webp|heic)$/.test(ext)) return "picture, not read";
+  if (/^(docx?|dotx|rtf|odt)$/.test(ext)) return "Word, not read yet";
+  if (ext === "pdf") return a.parse_status === "failed" ? "PDF, could not be read" : a.scan_status === "static_check_flagged" ? "PDF with active content, its text is not used" : "PDF, not read yet";
+  return `${ext ? ext.toUpperCase() + " file" : "file"}, not read`;
+}
+
+/** "3 of 7 attachments read" over every message of the query (the boundary: this query's attachments), with each one not read and why. */
+export function attachmentsRead(messages: Array<{ attachments: QueryAttachment[] }> | undefined): { line: string; notRead: Array<{ filename: string; why: string }> } | null {
+  const all = (messages ?? []).flatMap((m) => m.attachments);
+  if (!all.length) return null;
+  const notRead = all.flatMap((a) => { const why = notReadWhy(a); return why ? [{ filename: a.filename, why }] : []; });
+  return { line: `${all.length - notRead.length} of ${all.length} attachment${all.length === 1 ? "" : "s"} read`, notRead };
+}

@@ -229,6 +229,20 @@ describe("Technical Queries screen", () => {
     }
   });
 
+  it("says how many of the query's attachments were read and names each one not read with why (nothing silently missing)", async () => {
+    const att = (filename: string, media_type: string, read: boolean) => ({ id: filename, filename, media_type, size_bytes: 1, document_id: read ? "d" : null, scan_status: read ? "static_check_clean" : "pending", parse_status: read ? "ready" : "pending" });
+    const message = { id: "m", from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null,
+      attachments: [att("query.pdf", "application/pdf", true), att("logo.png", "image/png", false), att("answer.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", false), att("calc.xlsm", "application/vnd.ms-excel.sheet.macroenabled.12", false)] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message] } });
+    render(<TechnicalQueriesView />);
+    const box = await screen.findByTestId("attachments-read");
+    expect(box.textContent).toContain("1 of 4 attachments read.");
+    expect(box.textContent).toContain("logo.png: picture, not read");
+    expect(box.textContent).toContain("answer.docx: Word, not read yet");
+    expect(box.textContent).toContain("calc.xlsm: macro file, not opened");
+    expect(box.textContent).not.toContain("query.pdf");
+  });
+
   it("marks our own reply in a query's thread 'Sent by us'", async () => {
     const message = (id: string, inbound: number) => ({ id, is_inbound: inbound, from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null, attachments: [] });
     api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message("in", 1), message("ours", 0)] } });
