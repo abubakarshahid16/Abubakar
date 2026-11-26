@@ -373,3 +373,16 @@ export function matchWords(e: { match_count?: number | null; match_terms?: numbe
 export function replyBeingRewritten(ready: { evidence?: string; draft?: string } | null | undefined): boolean {
   return ready?.evidence === "refreshing" || ready?.draft === "refreshing";
 }
+
+/** The sources grouped under the request they were found for (builder A's per-item search, 27 Nov 2026: `item_no`, 1-based into
+ *  `ready.items`; null = found for the whole request). No items, or no source carries a number: one group with no heading, as before.
+ *  A request with no source keeps its heading and says so; a number past the list joins "For the whole request". */
+export interface SourceGroup<T> { title: string | null; rows: T[] }
+export function groupByItem<T extends { item_no?: number | null }>(rows: T[], items: string[] | null | undefined): SourceGroup<T>[] {
+  const list = items ?? [];
+  if (!list.length || !rows.some((r) => typeof r.item_no === "number")) return [{ title: null, rows }];
+  const groups: SourceGroup<T>[] = list.map((item, i) => ({ title: `${i + 1}. ${item}`, rows: rows.filter((r) => r.item_no === i + 1) }));
+  const whole = rows.filter((r) => typeof r.item_no !== "number" || r.item_no < 1 || r.item_no > list.length);
+  if (whole.length) groups.push({ title: "For the whole request", rows: whole });
+  return groups;
+}

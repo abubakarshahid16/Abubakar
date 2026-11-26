@@ -44,7 +44,7 @@ export interface TechnicalQuery {
   extracted_question_folded?: string | null;
   email_question_note?: string | null;
   messages?: Array<{ id: string; is_inbound?: number | boolean; body_main?: string; body_folded?: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; inline_picture?: number | boolean; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
-  evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; /** Which source the passage comes from (owner, 26 Nov 2026): "contract document", "company standard", "standard" or "document", and its number or name. */ source_kind?: string | null; source_name?: string | null; /** False when found for an earlier wording of the question (builder A). */ for_current_question?: boolean | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
+  evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; /** Which source the passage comes from (owner, 26 Nov 2026): "contract document", "company standard", "standard" or "document", and its number or name. */ source_kind?: string | null; source_name?: string | null; /** False when found for an earlier wording of the question (builder A). */ for_current_question?: boolean | null; /** The request item the passage was found for, 1-based into `ready.items`; null for the whole request (builder A, 27 Nov 2026). */ item_no?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
   drafts?: Array<{ id: string; version: number; answer: string; assumptions_json: string; unresolved_json: string; citations_json: string; model: string | null; /** The wording this draft answers (builder A, 26 Nov 2026). */ question?: string | null; /** True when a model wrote it, false when an engineer typed it. */ system?: boolean | null }>;
@@ -64,6 +64,8 @@ export interface TechnicalQuery {
     marks?: string[];
     /** What the contractor's form cites, one plain line each, and whether we hold it (builder A, 27 Nov 2026); empty when it cites nothing. */
     cited?: Array<{ line: string; held: boolean }>;
+    /** The current wording's numbered requests, in order; [] for a single request (builder A, 27 Nov 2026). */
+    items?: string[];
   } | null;
   decisions?: Array<{ decision: string; comment: string | null; created_at: string }>;
   source_access_revoked?: boolean;
