@@ -59,6 +59,13 @@ contractor copy issued only after that sign-off. Until then every file is the te
    the engineer chooses for that one query, and the query's own text, to Claude through `reader_transport.py` under the
    `claude_spend` caps (per-request consent for those files only, its own lane, not chat's); sending mail stays off
    (`gmail.send` is not asked for) until the owner writes "sending approved".
+   TEST SEND TO THE OWNER'S OWN MAILBOX (owner, 26 Nov 2026 23:14 PKT: "When you are sending the email back to me then
+   there is no problem in it"): `gmail.send` is asked only by a separate re-grant of an already-connected mailbox. A
+   query's draft may be sent ONLY to the exact address of the mailbox that query was imported from: no other To, and
+   never a Cc or Bcc, refused in code before Google is called. The subject is marked as a test. This goes through
+   `gmail_client.py` behind `TECHNICAL_QUERY_TEST_SEND_ENABLED` (off by default, the way-back switch of this one
+   egress lane). Sending to a contractor, or to any other address, stays off regardless, until the owner writes
+   "sending approved" -- that sentence above is otherwise unchanged.
    TQ EVIDENCE SEARCH COVERS HELD STANDARDS TOO (owner, 26 Nov 2026, #1584: "Technical query evidence search must
    include company standards and the standards we hold, as well as contract documents. Show which source each passage
    comes from."): the evidence search (local only, nothing sent) now searches the held standards the caller may read
