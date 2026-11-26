@@ -1,7 +1,7 @@
 /** The query's ask as one readable list, and honest marks instead of gates (owner, 26 Nov 2026). Invented queries only. */
 import { describe, expect, it } from "vitest";
 
-import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, boldSplit, citedSplit, plainStatus, queryHeadline, querySteps, sharedSource, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, boldSplit, plainMark, citedSplit, plainStatus, queryHeadline, querySteps, sharedSource, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 
 const found = (n: number) => Array.from({ length: n }, (_, i) => ({ question: `Invented request ${i + 1}`, filename: "Invented form.pdf", page: 1 }));
 
@@ -129,5 +129,11 @@ describe("read in ten seconds (owner, 26 Nov 2026 22:41)", () => {
     expect(boldSplit("Matching line list: for the invented system")).toEqual(["Matching line list:", " for the invented system"]);
     expect(boldSplit("Piping class information for metallurgy details")).toEqual(["Piping class information for metallurgy details", ""]);
     expect(boldSplit("In order to implement the invented design note the contractor requires detailed information on the tie-in")[0]).toBe("In order to implement the invented design");
+  });
+});
+
+describe("the server's marks in everyday words", () => {
+  it("says 'the AI on this computer' and 'sources'", () => {
+    expect(plainMark("Written by the local model from passages the system found; no engineer has kept them yet.")).toBe("Written by the AI on this computer from sources the system found; no engineer has kept them yet.");
   });
 });

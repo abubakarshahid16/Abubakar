@@ -269,3 +269,11 @@ export function boldSplit(text: string): [string, string] {
   const words = text.split(" ");
   return words.length <= 9 ? [text, ""] : [words.slice(0, 7).join(" "), ` ${words.slice(7).join(" ")}`];
 }
+
+/** A mark from the server in everyday words (the E3 word map): "the local model" is "the AI on this computer", a passage is a source. */
+export function plainMark(mark: string): string {
+  return mark
+    .replace(/\bthe local (drafting )?model\b/gi, "the AI on this computer")
+    .replace(/\bpassages\b/g, "sources")
+    .replace(/\bpassage\b/g, "source");
+}
