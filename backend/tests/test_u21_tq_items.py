@@ -173,3 +173,44 @@ def test_the_page_gets_the_items_to_group_the_sources_by():
     assert auto.ready({"proposed_question": q, "evidence": [], "drafts": []})[
         "items"
     ] == items.items_of(q)
+
+
+def test_roman_numerals_and_bullets_split_into_items_like_the_extractor_keeps_them():
+    """Fresh review of PR #1936: the extractor kept "i) ii) iii)" items that the splitter did not split, so the per-item search quietly
+    fell back to one search of the whole list. One shared marker now."""
+    roman = "Please confirm each item:\n\ni) first invented item\nii) second invented item\niii) third\niv) fourth\nix) ninth\nx) tenth"
+    assert items.items_of(roman) == [
+        "first invented item",
+        "second invented item",
+        "third",
+        "fourth",
+        "ninth",
+        "tenth",
+    ]
+    assert items.items_of("Please confirm:\n\nI. upper one\nII. upper two") == [
+        "upper one",
+        "upper two",
+    ]
+    assert items.items_of("Please confirm:\n\n- bullet one\n- bullet two") == [
+        "bullet one",
+        "bullet two",
+    ]
+    mail = "Dear Sir,\n\nPlease confirm each item:\n\ni) first invented item\nii) second invented item\n\nRegards"
+    assert items.items_of(email_question(mail)) == [
+        "first invented item",
+        "second invented item",
+    ]  # extractor and splitter agree
+
+
+def test_an_item_too_long_is_cut_with_a_visible_mark_never_silently():
+    long_item = (
+        "Please confirm:\n\n1. an invented item\n"
+        + "that wraps on and on " * 200
+        + "\n2. the next"
+    )
+    first, second = items.items_of(long_item)
+    assert (
+        first.endswith(items.ITEM_CUT)
+        and len(first) <= items.ITEM_CAP + len(items.ITEM_CUT)
+        and second == "the next"
+    )
