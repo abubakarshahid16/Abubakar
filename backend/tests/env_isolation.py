@@ -83,9 +83,6 @@ TEST_ALLOWED_HOSTS = "testserver"
 #: run: `isolate()` sets these after copying the code's defaults. Only for a
 #: switch the owner turned on by default; EGRESS_SAFE still checks the value.
 TEST_PINS: dict[str, object] = {
-    # On by default since update 14 (27 Nov 2026; CLAUDE.md rule 1, owner #1584 comment 7171320073); in tests Chat
-    # in Claude mode would offer the database tools; the tests that need them switch them on themselves.
-    "chat_database_tools_enabled": False,
     # On by default since #736 (owner decision 2026-10-10); in tests it would
     # be a model call per standard per review.
     "applicability_reasoning_enabled": False,

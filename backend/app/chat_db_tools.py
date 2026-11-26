@@ -1,6 +1,5 @@
 """DATABASE ANSWERS IN CHAT (owner, 25 Nov 2026: "Yes, allow it"; recorded on #1584): three tools Chat in Claude mode may call,
-whose answers go to Claude. Behind ONE switch, `CHAT_DATABASE_TOOLS_ENABLED`, ON by default since update 14 (27 Nov 2026;
-CLAUDE.md rule 1); the way back is CHAT_DATABASE_TOOLS_ENABLED=false.
+whose answers go to Claude. Behind ONE switch, `CHAT_DATABASE_TOOLS_ENABLED`, default OFF.
 
   * `list_documents(kind or role)`: title, kind, role and id of the documents the caller may read;
   * `latest_review(paper)`: the latest general review of a paper: its counts and its top comments, with page;

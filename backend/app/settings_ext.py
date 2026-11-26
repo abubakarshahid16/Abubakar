@@ -704,6 +704,6 @@ class SettingsExt(BaseModel):
     #: Chat in Claude mode may call the database tools (list documents, a paper's latest review, technical-query open items)
     #: whose answers go to Claude: titles, ids, counts and review comments of documents the caller may read; never the
     #: register or a blocked file; never document text (owner, 25 Nov 2026, #1584). Env: CHAT_DATABASE_TOOLS_ENABLED.
-    #: ON by default since update 14 (27 Nov 2026, the lead's decision on the owner's approval, #1584 comment 7171320073;
-    #: CLAUDE.md rule 1); the way back is CHAT_DATABASE_TOOLS_ENABLED=false.
-    chat_database_tools_enabled: bool = True
+    #: OFF by default. Turning it on by default (update 14) was held back by the update 14 review: the review-comment and
+    #: records answers did not yet check every referenced paper against the register and block list.
+    chat_database_tools_enabled: bool = False
