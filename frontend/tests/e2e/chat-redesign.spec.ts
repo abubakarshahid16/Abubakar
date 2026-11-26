@@ -74,7 +74,7 @@ async function mockApi(page: Page, api: Partial<Api> = {}): Promise<Api> {
     },
     ...api,
   };
-  await page.route(/^http:\/\/127\.0\.0\.1:5173\/api\//, async (route) => {
+  await page.route(/^http:\/\/127\.0\.0\.1:\d+\/api\//, async (route) => { // any local port: a practice run never reaches a real backend
     const req = route.request();
     const url = req.url();
     state.calls.push({ url, method: req.method(), body: req.postData() });
@@ -104,7 +104,11 @@ async function mockApi(page: Page, api: Partial<Api> = {}): Promise<Api> {
 async function openChat(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: /^Chat/ }).click();
-  await expect(page.getByRole("heading", { name: "What can I help with?" })).toBeVisible();
+  // The page title is the menu's name, "Chat" (owner's design audit, 26 Nov 2026); the greeting is a line under it, no longer a
+  // heading. Chat also loads when opened (its own chunk), so wait for the screen itself: its title, the greeting and the question box.
+  await expect(page.getByRole("heading", { name: "Chat", exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("What can I help with?")).toBeVisible();
+  await expect(page.getByLabel("Your question")).toBeVisible();
 }
 
 test("a question streams in, shows how many points were found, and opens its source", async ({ page }) => {
