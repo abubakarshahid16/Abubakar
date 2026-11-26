@@ -68,6 +68,14 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [handBody, setHandBody] = useState("");
   const [handFiles, setHandFiles] = useState<File[]>([]);
   const pendingMailbox = mailboxes.find((mailbox) => mailbox.connection_state === "needs_label");
+  const [filtersOpen, setFiltersOpen] = useState(false); // the filters are folded by default: the mailbox and the list come first
+  const activeFilters = [statusFilter, contractorFilter.trim(), departmentFilter.trim(), assigneeFilter, fromFilter, toFilter, evidenceFilter, typeFilter, disciplineFilter.trim(), numberFilter.trim()].filter(Boolean).length + (needsPersonFilter ? 1 : 0);
+  const topRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // The page always opens at its top (the shared scroll area can arrive halfway down from the page before).
+    topRef.current?.scrollIntoView?.({ block: "start" }); // scrolls every scrollable parent, the shared page area included
+  }, []);
 
   useEffect(() => {
     // With model proposals the text starts as the email's own question; the engineer ticks the proposals that are real.
@@ -207,47 +215,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   }, [queryId]);
 
   return (
-    <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_1fr]" aria-labelledby="technical-queries-title" role="region">
+    <div ref={topRef} className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_1fr]" aria-labelledby="technical-queries-title" role="region">
       <section>
         <h1 id="technical-queries-title" className="text-xl font-semibold text-slateish-100">Technical Queries</h1>
         <p className="mt-1 text-sm text-slateish-400">Incoming questions, evidence and engineer decisions.</p>
         <p className="mt-2 text-xs text-slateish-400">{visibleTotal === null ? "Loading queries" : `${items.length} matching · ${visibleTotal} in selected contractor and department`}</p>
-        <div className="mt-4 space-y-2">
-          <label className="block text-xs text-slateish-300" htmlFor="query-status-filter">Status</label>
-          <select id="query-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100">
-            <option value="">All statuses</option><option value="received">Received</option><option value="triage">Triage</option><option value="drafting">Drafting</option><option value="awaiting_review">Awaiting review</option><option value="changes_requested">Changes requested</option><option value="approved">Approved</option><option value="sent">Sent</option><option value="resolved">Resolved</option>
-          </select>
-          <label className="block text-xs text-slateish-300" htmlFor="query-contractor-filter">Contractor</label>
-          <input id="query-contractor-filter" value={contractorFilter} onChange={(event) => setContractorFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          <label className="block text-xs text-slateish-300" htmlFor="query-department-filter">Department</label>
-          <input id="query-department-filter" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          {assignees.length > 0 && <><label className="block text-xs text-slateish-300" htmlFor="query-responsible-filter">Responsible person</label>
-          <select id="query-responsible-filter" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Anyone</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></>}
-          <label className="block text-xs text-slateish-300" htmlFor="query-from-filter">Received from</label>
-          <input id="query-from-filter" type="date" value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          <label className="block text-xs text-slateish-300" htmlFor="query-to-filter">Received to</label>
-          <input id="query-to-filter" type="date" value={toFilter} onChange={(event) => setToFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          <label className="block text-xs text-slateish-300" htmlFor="query-evidence-filter">Evidence</label>
-          <select id="query-evidence-filter" value={evidenceFilter} onChange={(event) => setEvidenceFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Any</option><option value="verified">Verified</option><option value="needs_review">Needs review</option><option value="conflicting">Conflicting</option><option value="ambiguous">Ambiguous</option><option value="missing">Missing</option><option value="rejected">Rejected</option></select>
-          <label className="block text-xs text-slateish-300" htmlFor="query-type-filter">Type</label>
-          <select id="query-type-filter" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Any</option><option value="TQ">TQ: technical query</option><option value="CFC">CFC: conflict finding clarification</option></select>
-          <label className="block text-xs text-slateish-300" htmlFor="query-discipline-filter">Discipline code</label>
-          <input id="query-discipline-filter" value={disciplineFilter} onChange={(event) => setDisciplineFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          <label className="block text-xs text-slateish-300" htmlFor="query-number-filter">Running number</label>
-          <input id="query-number-filter" value={numberFilter} onChange={(event) => setNumberFilter(event.target.value)} inputMode="numeric" className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-          <label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={needsPersonFilter} onChange={(event) => setNeedsPersonFilter(event.target.checked)} />Needs a person (no full number in the subject)</label>
-          <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Refresh and apply filters</button>
-          {rules !== null && <details className="mt-4 rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Routing rules ({rules.length})</summary>
-            <p className="mt-2 text-slateish-400">A match fills a blank contractor or department when an email arrives. A public mail domain cannot be routed; an exact address can.</p>
-            <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><button type="button" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })} className="rounded bg-ink-700 px-2 py-1">Remove</button></li>)}</ul>
-            <div className="mt-2 space-y-1">
-              <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as "address" | "domain")} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5"><option value="domain">Company domain</option><option value="address">Exact address</option></select>
-              <input aria-label="Rule value" value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder={ruleType === "domain" ? "company.example" : "person@company.example"} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
-              <input aria-label="Rule contractor" value={ruleContractor} onChange={(event) => setRuleContractor(event.target.value)} placeholder="Contractor" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
-              <input aria-label="Rule department" value={ruleDepartment} onChange={(event) => setRuleDepartment(event.target.value)} placeholder="Department" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
-              <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>
-            </div></details>}
-        </div>
         {canManageGmail && mailboxes.length === 0 && <div className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200">
           <p>No Gmail mailbox is connected. Connect one to import technical queries from a selected label.</p>
           <button type="button" disabled={busy} onClick={() => void technicalQueriesApi.startGmail().then((result) => { if (result.ok) window.location.assign(result.data.authorization_url); else setError(result.error.message); })} className="mt-2 rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Connect Gmail</button>
@@ -290,6 +262,37 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         {gmailReturn === "working" && <p role="status" className="mt-4 text-sm text-slateish-300">Finishing the Gmail connection.</p>}
         {gmailReturn === "connected" && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-500">{error}</p>}
+        <div className="mt-4">
+          <button type="button" onClick={() => setFiltersOpen((open) => !open)} aria-expanded={filtersOpen} aria-controls="query-filters" className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">{activeFilters > 0 ? `Filters (${activeFilters} active)` : "Filters"}</button>
+          {filtersOpen && (
+        <div id="query-filters" className="mt-2 space-y-2" role="group" aria-label="Query filters">
+            <label className="block text-xs text-slateish-300" htmlFor="query-status-filter">Status</label>
+            <select id="query-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100">
+              <option value="">All statuses</option><option value="received">Received</option><option value="triage">Triage</option><option value="drafting">Drafting</option><option value="awaiting_review">Awaiting review</option><option value="changes_requested">Changes requested</option><option value="approved">Approved</option><option value="resolved">Resolved</option>
+            </select>
+            <label className="block text-xs text-slateish-300" htmlFor="query-contractor-filter">Contractor</label>
+            <input id="query-contractor-filter" value={contractorFilter} onChange={(event) => setContractorFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            <label className="block text-xs text-slateish-300" htmlFor="query-department-filter">Department</label>
+            <input id="query-department-filter" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            {assignees.length > 0 && <><label className="block text-xs text-slateish-300" htmlFor="query-responsible-filter">Responsible person</label>
+            <select id="query-responsible-filter" value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Anyone</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></>}
+            <label className="block text-xs text-slateish-300" htmlFor="query-from-filter">Received from</label>
+            <input id="query-from-filter" type="date" value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            <label className="block text-xs text-slateish-300" htmlFor="query-to-filter">Received to</label>
+            <input id="query-to-filter" type="date" value={toFilter} onChange={(event) => setToFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            <label className="block text-xs text-slateish-300" htmlFor="query-evidence-filter">Evidence</label>
+            <select id="query-evidence-filter" value={evidenceFilter} onChange={(event) => setEvidenceFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Any</option><option value="verified">Verified</option><option value="needs_review">Needs review</option><option value="conflicting">Conflicting</option><option value="ambiguous">Ambiguous</option><option value="missing">Missing</option><option value="rejected">Rejected</option></select>
+            <label className="block text-xs text-slateish-300" htmlFor="query-type-filter">Type</label>
+            <select id="query-type-filter" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Any</option><option value="TQ">TQ: technical query</option><option value="CFC">CFC: conflict finding clarification</option></select>
+            <label className="block text-xs text-slateish-300" htmlFor="query-discipline-filter">Discipline code</label>
+            <input id="query-discipline-filter" value={disciplineFilter} onChange={(event) => setDisciplineFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            <label className="block text-xs text-slateish-300" htmlFor="query-number-filter">Running number</label>
+            <input id="query-number-filter" value={numberFilter} onChange={(event) => setNumberFilter(event.target.value)} inputMode="numeric" className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            <label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={needsPersonFilter} onChange={(event) => setNeedsPersonFilter(event.target.checked)} />Needs a person (no full number in the subject)</label>
+            <button type="button" onClick={applyFilters} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">Refresh and apply filters</button>
+          </div>
+          )}
+        </div>
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
           {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}
           {items.map((item) => (
@@ -300,6 +303,16 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             </button>
           ))}
         </div>
+          {rules !== null && <details className="mt-5 rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Routing rules ({rules.length})</summary>
+            <p className="mt-2 text-slateish-400">A match fills a blank contractor or department when an email arrives. A public mail domain cannot be routed; an exact address can.</p>
+            <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><button type="button" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })} className="rounded bg-ink-700 px-2 py-1">Remove</button></li>)}</ul>
+            <div className="mt-2 space-y-1">
+              <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as "address" | "domain")} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5"><option value="domain">Company domain</option><option value="address">Exact address</option></select>
+              <input aria-label="Rule value" value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder={ruleType === "domain" ? "company.example" : "person@company.example"} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <input aria-label="Rule contractor" value={ruleContractor} onChange={(event) => setRuleContractor(event.target.value)} placeholder="Contractor" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <input aria-label="Rule department" value={ruleDepartment} onChange={(event) => setRuleDepartment(event.target.value)} placeholder="Department" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>
+            </div></details>}
       </section>
       <section className="rounded border border-ink-700 bg-ink-850 p-5">
         {!selected ? <p className="text-sm text-slateish-500">Select a query to inspect its original message and review history.</p> : <>
