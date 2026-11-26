@@ -714,12 +714,21 @@ def list_queries(
     )
     with connect() as conn:
         return [
-            dict(row)
+            {**dict(row), "contractor_code": contractor_code_of(row["subject"])}
             for row in conn.execute(
                 "SELECT * FROM technical_queries" + where + " ORDER BY updated_at DESC",
                 args,
             ).fetchall()
         ]
+
+
+def contractor_code_of(subject: str | None) -> str | None:
+    """The contractor CODE printed in the query's reference number ("<project>-<contractor>-<company>-<TYPE>-<n>"), or None. Shown when
+    no rule names the contractor yet, so the queue says which code to name instead of "not set" (lead-4, 26 Nov 2026: all 33 said
+    "contractor not set" while 32 carried the code). A code read from the number, never a guessed name; it fills no field."""
+    from .technical_query_subject import parse
+
+    return (parse(subject) or {}).get("contractor_code")
 
 
 def metrics(
@@ -1318,6 +1327,20 @@ def _matched_clause(conn, passage: dict, quote: str, terms: list[str]) -> str | 
     return None
 
 
+def _titled(conn, passage: dict, locator: str | None) -> str | None:
+    """A bare clause number ("7.5") as its titled heading from the passage's own pages ("7.5 Invented Coating"), when they hold one."""
+    from . import technical_query_match
+
+    bare = locator and re.fullmatch(r"\d+(\.\d+)*\.?", locator.strip())
+    if not bare or not passage.get("page_start"):
+        return locator
+    start = passage["page_start"]
+    end = max(start, passage.get("page_end") or start)
+    pages = _source_pages(conn, passage["document_id"], start, end)
+    on = "\n".join(_page_text(r) for r in pages)
+    return technical_query_match.titled(locator.strip().rstrip("."), on) or locator
+
+
 def _locator_of(
     conn, passage: dict, quote: str, terms: list[str] | None = None
 ) -> str | None:
@@ -1518,6 +1541,8 @@ def prepare_evidence(
                 or passage.get("locator")
                 or _locator_of(conn, passage, quote, terms)
             )
+            # never a bare "7.5" when its page names the clause (review of update 14)
+            locator = _titled(conn, passage, locator)
             quote_hash = hashlib.sha256(quote.encode()).hexdigest()
             known = conn.execute(
                 "SELECT id,supersession_state FROM query_evidence WHERE query_id=? "
