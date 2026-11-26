@@ -34,6 +34,8 @@ CFC_QUESTION = "Which invented drawing governs the invented valve pit depth?"
 FORWARDED_QUESTION = "Is the invented spare impeller included in the invented scope?"
 #: A query with a rule line above its question (review of update 12, N5).
 RULED_QUESTION = "May the invented flange rating be lowered to invented class 150?"
+#: A query whose question starts "Important:" (recheck of update 12, R4: it is not a notice).
+IMPORTANT_QUESTION = "Can the invented bolt material be changed to invented grade B7M?"
 #: A clause of the held (invented) contract that answers the TQ.
 CONTRACT_CLAUSE = "The invented cooling water header shall be designed for 12 bar(g)."
 
@@ -49,7 +51,9 @@ def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode().rstrip("=")
 
 
-def docx(paragraphs: list[str], *, macro: bool = False) -> bytes:
+def docx(
+    paragraphs: list[str], *, macro: bool = False, header_field: bool = False
+) -> bytes:
     """A small valid Word file (python-docx and the app's Word reader open it); `macro` adds a VBA part, as a macro file carries."""
     body = "".join(f"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>" for p in paragraphs)
     out = io.BytesIO()
@@ -75,6 +79,14 @@ def docx(paragraphs: list[str], *, macro: bool = False) -> bytes:
         )
         if macro:
             z.writestr("word/vbaProject.bin", b"invented macro part")
+        if header_field:  # a field that fetches from outside, split over two runs, in a HEADER (recheck of update 12, R1 and R2)
+            z.writestr(
+                "word/header1.xml",
+                '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p>'
+                '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> INCLUDE</w:instrText></w:r>'
+                '<w:r><w:instrText>PICTURE "http://invented.example/logo.png"</w:instrText></w:r>'
+                '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:hdr>',
+            )
     return out.getvalue()
 
 
@@ -192,6 +204,27 @@ def _mail() -> list[Message]:
         "Requested reply date: invented",
     ]
     return [
+        Message(
+            "m11-header-field",
+            "t11",
+            "Invented Sender <sender11@contractor-invented.example>",
+            f"{PROJECT}-{CONTRACTOR}-{OWNER}-TQ-00017 - ELE_Invented cable tray",
+            "Please see the attached form.\n\n" + SIGNATURE,
+            [
+                (
+                    "tq-form-17.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    docx(["Invented?"], header_field=True),
+                )
+            ],
+        ),
+        Message(
+            "m10-important",
+            "t10",
+            "Invented Sender <sender10@contractor-invented.example>",
+            f"{PROJECT}-{CONTRACTOR}-{OWNER}-TQ-00016 - MEC_Invented bolt material",
+            f"Dear all,\nImportant: {IMPORTANT_QUESTION}\n\nKind regards,\nInvented Sender\n\n{NOTICE}",
+        ),
         Message(
             "m9-ruled",
             "t9",
