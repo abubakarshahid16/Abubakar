@@ -1213,6 +1213,20 @@ def confirm_question(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
+def _matched_clause(conn, passage: dict, quote: str, terms: list[str]) -> str | None:
+    """The heading above the passage's sentence holding the most of the question's key terms, when that sentence is not the passage's
+    first (the passage spans clauses); None otherwise."""
+    from . import technical_query_match
+
+    best = technical_query_match.best_sentence(terms or [], quote)
+    start, document_id = passage.get("page_start"), passage.get("document_id")
+    if not best or not start or not document_id or _squash(quote).startswith(_squash(best)):
+        return None
+    end = max(start, passage.get("page_end") or start)
+    on = "\n".join(_page_text(r) for r in _source_pages(conn, document_id, start, end))
+    return technical_query_match.heading_above(on, best)
+
+
 def _locator_of(
     conn, passage: dict, quote: str, terms: list[str] | None = None
 ) -> str | None:
@@ -1225,19 +1239,13 @@ def _locator_of(
     document_id = passage.get("document_id")
     if not start or not document_id:
         return None
-    end = passage.get("page_end") or start
+    found = _matched_clause(conn, passage, quote, terms or [])
+    if found:  # the matched words sit further in: their own clause
+        return found
     rows = {
         r["page_no"]: _page_text(r)
-        for r in _source_pages(conn, document_id, max(1, start - 1), max(start, end))
+        for r in _source_pages(conn, document_id, max(1, start - 1), start)
     }
-    best = technical_query_match.best_sentence(terms or [], quote)
-    if best and not _squash(quote).startswith(
-        _squash(best)
-    ):  # the matched words sit further in: their own clause
-        on = "\n".join(rows.get(p, "") for p in range(start, max(start, end) + 1))
-        found = technical_query_match.heading_above(on, best)
-        if found:
-            return found
     return technical_query_match.locator_for(
         rows.get(start, ""),
         rows.get(start - 1) if start > 1 else None,
@@ -1397,7 +1405,12 @@ def prepare_evidence(
 
             sc = technical_query_match.score(terms, quote)
             scores.append(sc)
-            locator = passage.get("locator") or _locator_of(conn, passage, quote, terms)
+            # the clause holding the matched words wins over the clause the search named for the passage's start (review of evidence run 5: Q1)
+            locator = (
+                _matched_clause(conn, passage, quote, terms)
+                or passage.get("locator")
+                or _locator_of(conn, passage, quote, terms)
+            )
             quote_hash = hashlib.sha256(quote.encode()).hexdigest()
             known = conn.execute(
                 "SELECT id,supersession_state FROM query_evidence WHERE query_id=? "

@@ -89,3 +89,46 @@ def test_a_passage_spanning_two_clauses_is_located_at_the_clause_holding_the_mat
             _locator_of(conn, passage, passage_text, key_terms("Which paint colour?"))
             == "3.1 Invented Painting"
         )
+
+
+def test_a_numbered_list_item_is_an_item_with_the_clause_it_refers_to():
+    page = "Invented Schedule\n7.\nThe invented spare parts listed in the invented annex (Ref. Invented Contract, Sub-Clause 3.2.1)\n8.\nInvented next item text."
+    assert (
+        heading_above(page, "The invented spare parts listed in the invented annex")
+        == "Item 7 (refers to 3.2.1)"
+    )
+    title = "4.2.1\nInvented Cooling Water\nThe invented header words."
+    assert (
+        heading_above(title, "The invented header words.")
+        == "4.2.1 Invented Cooling Water"
+    )  # a title is still a clause heading
+
+
+def test_the_clause_holding_the_matched_words_wins_over_the_label_the_search_gave_the_passage_start(
+    monkeypatch,
+):
+    from app import db
+    from app import technical_queries as TQ
+    from app.technical_query_match import key_terms
+
+    page = "9.10.6 Invented Sub Clause\nInvented words of the sub clause.\n10 INVENTED NEW CLAUSE\nThe invented warranty period is invented months."
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('c8','c.pdf',?,1,'c.pdf','ready','2026-01-01')",
+            ("8" * 64,),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES ('c8',1,?,?,0,1)",
+            (page, len(page)),
+        )
+        passage = {
+            "document_id": "c8",
+            "page_start": 1,
+            "page_end": 1,
+            "locator": "9.10 Invented > 9.10.6 Invented Sub Clause",
+        }
+        quote = "Invented words of the sub clause.\n10 INVENTED NEW CLAUSE\nThe invented warranty period is invented months."
+        got = TQ._matched_clause(
+            conn, passage, quote, key_terms("What warranty period applies?")
+        )
+    assert got == "10 INVENTED NEW CLAUSE"

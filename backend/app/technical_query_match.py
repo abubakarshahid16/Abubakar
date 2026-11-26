@@ -119,11 +119,29 @@ def _squash(text: str) -> str:
 _NUMBER_ALONE = re.compile(
     rf"^\s*(?:{KEYWORD}\s+)?(?P<num>(?:\d+\.)+\d+\.?|\d+\.)\s*$", re.IGNORECASE
 )
-_TITLE_LINE = re.compile(r"^\s*[A-Z][^\n]{2,80}\s*$")
+_TITLE_LINE = re.compile(
+    r"^\s*[A-Z(][^\n]{2,}$"
+)  # a title, or a list item's text (any length: `_item_or_title` tells them apart)
+
+
+#: A list item's text (not a title): a sentence, a long line, or a line holding a reference in brackets.
+_ITEM_TEXT = re.compile(r"[.;:)]\s*$|\(|\S+(\s+\S+){7,}")
+
+
+def _item_or_title(number: str, nxt: str, after: str) -> str:
+    """A number standing alone ("4.2.1", "7.") with the next line: a clause heading "4.2.1 Title", or for a single number before a sentence
+    a numbered LIST ITEM "Item 7", with the clause it refers to beside it when its text names one ("Item 7 (refers to 3.2.1)")."""
+    if "." in number.rstrip(".") or not _ITEM_TEXT.search(nxt.strip()):
+        return f"{number.rstrip('.')} {_squash(nxt)}"[:100].strip()
+    ref = CLAUSE_NUMBER.search(f"{nxt} {after}")
+    return f"Item {number.rstrip('.')}" + (
+        f" (refers to {ref.group(1)})" if ref else ""
+    )
 
 
 def _headings(lines: list[str]) -> list[tuple[int, str]]:
-    """(line index, heading) of every clause heading of a page: one line ("6.1 Painting") or a number alone with its title on the next line."""
+    """(line index, heading) of every clause heading of a page: one line ("6.1 Painting"), a number alone with its title on the next line,
+    or a numbered list item of a schedule ("Item 7", review of evidence run 5: Q7)."""
     out = []
     for i, line in enumerate(lines):
         heading = _heading_of(line)
@@ -134,9 +152,13 @@ def _headings(lines: list[str]) -> list[tuple[int, str]]:
             and _TITLE_LINE.match(lines[i + 1])
         ):
             kw = m.group("kw")
-            heading = f"{kw.capitalize() + ' ' if kw else ''}{m.group('num').rstrip('.')} {_squash(lines[i + 1])}"[
-                :100
-            ].strip()
+            after = lines[i + 2] if i + 2 < len(lines) else ""
+            found = _item_or_title(m.group("num"), lines[i + 1], after)
+            heading = (
+                f"{kw.capitalize()} {found}"
+                if kw and not found.startswith("Item")
+                else found
+            )
         if heading:
             out.append((i, heading))
     return out
