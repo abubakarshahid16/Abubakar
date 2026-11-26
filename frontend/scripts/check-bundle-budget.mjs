@@ -29,7 +29,8 @@ const root = join(process.cwd(), "dist", "assets");
 // Update 12 (26 Nov 2026): 337000 -> 339000 bytes: update 12: technical queries pages, draft guard, Chat, 26 Nov, lead decision (build 338387).
 // Update 13 (26 Nov 2026): 339000 -> 340000 bytes: update 13: technical queries evidence, 26 Nov, lead decision (build 339095).
 // Update 14 (26 Nov 2026): 340000 -> 341000 bytes: approved increase, from the look token file (look.css), needed for the restyle work; lead decision (build 340604).
-const max = 341000;
+// Update 15 (26 Nov 2026): 341000 -> 343000 bytes: approved increase, from the new-look restyle on all 11 pages (look.ts, LookParts), behind the off switch VITE_UI_NEW_LOOK; the owner decides the rollout; lead decision (build 342835).
+const max = 343000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;
