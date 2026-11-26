@@ -2,9 +2,9 @@
 shows and opens, in ONE place, for the Reviews list and the dashboard alike.
 
 THE RULE: the newest SIGNED review (its sign-off still matches the decisions), else the newest review made on Claude, else the
-newest review. A review made on the local model (a rough draft, not scored as reliable) is the face only when the paper has
+newest review. A review made on the local model (a rough draft: `aim_review_gate.LOCAL_ROUGH_DRAFT`) is the face only when the paper has
 nothing else; otherwise it is listed folded under the face, named by its engine words. Whatever is the face, its row names the
-engine (`engine_words`: "Claude" or "Local model: rough draft, not scored as reliable"). Reads only.
+engine (`engine_words`: "Claude", or the local model's rough-draft label from `aim_review_gate`). Reads only.
 """
 
 from __future__ import annotations
