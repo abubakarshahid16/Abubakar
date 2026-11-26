@@ -5,7 +5,7 @@
  *
  * WHAT THIS SCREEN DOES NOT DECIDE: which model may be chosen. The server says so for each model (approved, priced, installed,
  * small enough) and gives the reason when not; this file only shows it. Claude stays the main engine: its models are listed as
- * the method's own, as scored, with no picker. A local model always says "local model, not yet scored".
+ * the method's own, as scored, with no picker. A local model always says the server's rough-draft label, with its own note.
  */
 import { useCallback, useEffect, useState } from "react";
 

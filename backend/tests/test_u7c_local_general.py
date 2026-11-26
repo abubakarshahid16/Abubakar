@@ -202,7 +202,7 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         REPORTED
     ]  # from the run, never the setting
     assert (
-        aim_review_gate.LOCAL_NOT_SCORED in page["measured"]["sentence"]
+        aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE in page["measured"]["sentence"]
         and page["measured"]["found"] is None
     )
     sheet = client.get(
@@ -216,7 +216,9 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         for v in row
         if v
     ]
-    assert any(REPORTED in c and aim_review_gate.LOCAL_NOT_SCORED in c for c in cells)
+    assert any(
+        REPORTED in c and aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE in c for c in cells
+    )
     assert any(
         c.startswith("name: " + REPORTED) for c in cells
     )  # the model of each step

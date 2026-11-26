@@ -101,9 +101,7 @@ def test_the_options_list_claude_fixed_and_each_installed_local_model_with_why_n
         not local[HUGE]["selectable"]
         and local[HUGE]["why"] == review_model_setting.TOO_LARGE
     )
-    assert all(
-        m["score_words"] == aim_review_gate.LOCAL_NOT_SCORED for m in got["local"]
-    )
+    assert all(m["score_words"] == aim_review_gate.LOCAL_LABEL for m in got["local"])
     assert got["steps"] == list(local_model.STEP_GROUPS)
     assert engine == ["/api/tags"]  # only the list was read
 
@@ -182,9 +180,7 @@ def test_the_local_only_plan_names_the_models_with_not_yet_scored_and_claude_pla
         assert r.status_code == 200, r.text
         return r.json()["notes"]
 
-    line = (
-        f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_NOT_SCORED})."
-    )
+    line = f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_LABEL})."
     assert line in notes("local")
     assert all(
         not n.startswith("Review model:")
@@ -348,7 +344,7 @@ def test_the_plan_line_names_a_step_set_only_in_env(engine, world, monkeypatch):
     line = review_model_setting.plan_line(OTHER, local_model.step_models())
     assert (
         line
-        == f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_NOT_SCORED})."
+        == f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_LABEL})."
     )
 
 
@@ -426,12 +422,17 @@ def test_the_section_is_given_the_latest_changes_newest_first(engine, world):
         [],
     ],
 )
-def test_the_label_never_says_not_yet_scored_beside_a_measured_score(models):
+def test_every_local_run_is_labelled_rough_draft_with_its_own_note_beside_it(models):
+    """Planner 26 Nov 2026 14:45: one label for every local model ("rough draft, not scored as reliable"); the numbers, or
+    "not yet scored", come only from the model's own note, so the label never contradicts the note."""
     label = aim_review_gate.local_score_words(models)
     note = aim_review_gate.local_measured_note(models)
-    has_score = "of 10" in note
-    assert (label == aim_review_gate.LOCAL_MEASURED_WORDS) is has_score
-    assert (aim_review_gate.NOT_YET_SCORED in label) is not has_score
+    assert label == aim_review_gate.LOCAL_LABEL
+    assert (
+        aim_review_gate.LOCAL_ROUGH_DRAFT in label
+        and aim_review_gate.NOT_YET_SCORED not in label
+    )
+    assert ("of 10" in note) is (sorted(set(models)) == ["qwen3.5:9b-q4_K_M"])
 
 
 def test_the_local_only_plan_on_the_9b_says_measured_and_never_not_yet_scored(
@@ -455,11 +456,11 @@ def test_the_local_only_plan_on_the_9b_says_measured_and_never_not_yet_scored(
         )
         .json()["notes"]
     )
-    assert f"Review model: {nine} ({aim_review_gate.LOCAL_MEASURED_WORDS})." in notes
+    assert f"Review model: {nine} ({aim_review_gate.LOCAL_LABEL})." in notes
     assert aim_review_gate.LOCAL_TEST_NOTE in notes
     assert not any(aim_review_gate.NOT_YET_SCORED in n for n in notes)
     row = next(m for m in review_model_setting.options()["local"] if m["name"] == nine)
-    assert row["score_words"] == aim_review_gate.LOCAL_MEASURED_WORDS
+    assert row["score_words"] == aim_review_gate.LOCAL_LABEL
 
 
 def test_the_short_inline_plan_names_the_model_and_takes_its_note_from_the_same_source(
@@ -497,4 +498,29 @@ def test_the_short_inline_plan_names_the_model_and_takes_its_note_from_the_same_
     assert (
         f"Local model ({OTHER}): {aim_review_gate.NOT_YET_SCORED}." in said
         and "of 10" not in said
+    )
+
+
+def test_every_row_of_a_local_runs_file_leads_its_team_note_with_the_rough_draft_label_and_a_claude_runs_is_unchanged():
+    from app import aim_review_sheet
+
+    note = "invented team note"
+    local = aim_review_sheet.local_team_note({"engine": {"local": True}}, note)
+    assert local == f"{aim_review_gate.LOCAL_TEAM_NOTE} {note}"
+    assert (
+        aim_review_sheet.local_team_note({"engine": {"local": True}}, None)
+        == aim_review_gate.LOCAL_TEAM_NOTE
+    )
+    for claude in ({"engine": {"local": False}}, {"engine": None}, {}):
+        assert (
+            aim_review_sheet.local_team_note(claude, note) == note
+        )  # Claude reviews unchanged
+        assert aim_review_sheet.local_team_note(claude, None) is None
+
+
+def test_the_plan_sentence_of_local_only_says_rough_draft_and_keeps_the_models_note():
+    words = aim_review_gate.local_plan_words({"qwen3.5:9b-q4_K_M"})
+    assert (
+        "Rough draft, not scored as reliable." in words
+        and aim_review_gate.LOCAL_TEST_NOTE in words
     )
