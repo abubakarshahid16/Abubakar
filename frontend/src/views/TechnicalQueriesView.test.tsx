@@ -60,14 +60,29 @@ describe("Technical Queries screen", () => {
     expect((await screen.findByTestId("evidence-coverage")).textContent).toBe("Searched 19 of 20 contracts, hits in 6. 1 could not be searched.");
   });
 
-  it("offers each question the model found with its page, and adds only the ticked ones", async () => {
+  it("places every question the model found in the text as a proposal, with its page, and one taken out can be added back", async () => {
     render(<TechnicalQueriesView />);
-    const box = within(await screen.findByLabelText("Questions found in the attachment")).getByRole("checkbox");
-    expect(screen.getByText("query.pdf, page 2")).toBeTruthy();
+    const box = within(await screen.findByLabelText("Questions found in the attachment")).getByRole("checkbox") as HTMLInputElement;
+    const text = screen.getByLabelText("Question the draft will answer") as HTMLTextAreaElement;
+    // owner, 26 Nov 2026: the found questions were listed but the box opened without them
+    await waitFor(() => expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?"));
+    expect(screen.getByText("query.pdf, page 2 · in the text below")).toBeTruthy();
+    expect(box.checked && box.disabled).toBe(true); // never added twice
+    fireEvent.change(text, { target: { value: "See attached." } }); // the engineer takes it out
+    expect(box.disabled).toBe(false);
     fireEvent.click(box);
     fireEvent.click(screen.getByText("Add ticked questions to the text"));
-    const text = screen.getByLabelText("Question the draft will answer") as HTMLTextAreaElement;
     expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
+  });
+
+  it("opens the box with the found questions when the mail itself asks nothing (a forward of a form)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: [
+      { question: "Please confirm the invented rating?", filename: "form.pdf", page: 1 },
+      { question: "Please clarify the invented limit?", filename: "form.pdf", page: 3 },
+    ] } });
+    render(<TechnicalQueriesView />);
+    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
+    await waitFor(() => expect(text.value).toBe("Please confirm the invented rating?\nPlease clarify the invented limit?"));
   });
 
   it("shows the evidence job's progress, and which attachment pages were not read", async () => {
