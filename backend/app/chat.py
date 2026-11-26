@@ -923,7 +923,7 @@ def ask(
             original, summary_ids, allowed_document_ids=retrieval_allowed,
             model=model,
             explicit_document_selection=bool(document_ids or selected_document))
-    if collection_result is None and explain_of is None:  # the app's own records (reviews, queries, papers by kind), by code
+    if collection_result is None and explain_of is None and not document_ids and document_id is None:  # the app's own records, by code; never over picked papers
         collection_result = chat_records.result(original, allowed=allowed_document_ids, user_id=conversation.get("owner_user_id"), is_admin=include_unowned_records)  # fmt: skip
 
     inventory_result = None

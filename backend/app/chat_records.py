@@ -115,33 +115,41 @@ def _counts(entry: dict) -> str:
     return ", ".join(parts) or "counts not recorded"
 
 
+def _nameable(allowed: frozenset[str]) -> tuple[frozenset[str], int]:
+    """(the papers an answer may name: the reader's read set minus the client's register and the block list, how many were
+    withheld). The same rule as Chat's database tools (`chat_db_tools._documents`; a block file that cannot be read withholds all)."""
+    rows, withheld = chat_db_tools._documents(allowed)
+    return frozenset(r["id"] for r in rows), withheld
+
+
+def _completed(allowed: frozenset[str], *, newest_only: bool = False) -> tuple[list[dict], int]:
+    """(the finished general reviews of the papers an answer may name, how many reviews were left out by the block list)."""
+    from . import aim_review_runs
+
+    ok, _withheld = _nameable(allowed)
+    rows = [e for e in aim_review_runs.entries(connect(), allowed, newest_only=newest_only) if e.get("status") == "completed"]  # fmt: skip
+    kept = [e for e in rows if e.get("submittal_document_id") in ok]
+    return kept, len(rows) - len(kept)
+
+
+def _left_out(n: int) -> str:
+    return f" {n} review{'s' if n != 1 else ''} of papers withheld by the block list {'is' if n == 1 else 'are'} not counted." if n else ""  # fmt: skip
+
+
 def _faces(allowed: frozenset[str]) -> list[dict]:
-    from . import aim_review_runs
-
-    conn = connect()
-    return [
-        e
-        for e in aim_review_runs.entries(conn, allowed, newest_only=True)
-        if e.get("status") == "completed"
-    ]
+    return _completed(allowed, newest_only=True)[0]
 
 
-def signed_reviews(allowed: frozenset[str]) -> str:
-    from . import aim_review_runs
-
-    entries = [
-        e
-        for e in aim_review_runs.entries(connect(), allowed)
-        if e.get("status") == "completed"
-    ]
+def signed_reviews(allowed: frozenset[str]) -> tuple[str, list[str]]:
+    entries, left_out = _completed(allowed)
     signed = [e for e in entries if e.get("general_signoff") == "signed"]
-    head = f"{len(signed)} of {len(entries)} finished reviews {'is' if len(signed) == 1 else 'are'} signed, {BOUNDARY}."
+    head = f"{len(signed)} of {len(entries)} finished reviews {'is' if len(signed) == 1 else 'are'} signed, {BOUNDARY}." + _left_out(left_out)  # fmt: skip
     lines = [
         f"{e.get('submittal_filename') or 'a paper'}: review {e['review_run_id'][:8]} ({e.get('engine_words')}), finished "
         f"{_day(e.get('completed_at'))}; {_counts(e)}"
         for e in signed
     ]
-    return head + ("\n" + _listed(lines) if lines else "")
+    return head + ("\n" + _listed(lines) if lines else ""), [e["submittal_document_id"] for e in signed]
 
 
 def _named(question: str, faces: list[dict]) -> list[dict]:
@@ -167,14 +175,14 @@ def _named(question: str, faces: list[dict]) -> list[dict]:
     return [e for e in faces if best and score(e) == best]
 
 
-def paper_review(question: str, allowed: frozenset[str]) -> str:
+def paper_review(question: str, allowed: frozenset[str]) -> tuple[str, list[str]]:
     faces = _faces(allowed)
     named = _named(question, faces)
     if not named:
         return (
             f"{CANNOT} No reviewed paper {BOUNDARY} matches the words of the question ({len(faces)} reviewed papers "
             f"{BOUNDARY}); name the paper by its file name or equipment."
-        )
+        ), []
     out = []
     for e in named:
         tags = ", ".join(str(t) for t in e.get("equipment_tags") or [])
@@ -189,14 +197,14 @@ def paper_review(question: str, allowed: frozenset[str]) -> str:
         )
         out.append(line + (f" {e['newer_note']}." if e.get("newer_note") else ""))
     head = f"{len(named)} reviewed paper{'s' if len(named) > 1 else ''} match{'' if len(named) > 1 else 'es'} the question, {BOUNDARY}:"
-    return head + "\n" + _listed(out)
+    return head + "\n" + _listed(out), [e["submittal_document_id"] for e in named]
 
 
-def queries_waiting(user_id: str | None, is_admin: bool) -> str:
+def queries_waiting(user_id: str | None, is_admin: bool) -> tuple[str, list[str]]:
     from . import technical_queries
 
     if not technical_queries.enabled():
-        return f"{CANNOT} Technical queries are switched off in this app, so there is no record of them to read."
+        return f"{CANNOT} Technical queries are switched off in this app, so there is no record of them to read.", []
     from . import technical_query_jobs
 
     conn = connect()
@@ -221,10 +229,10 @@ def queries_waiting(user_id: str | None, is_admin: bool) -> str:
         f"{(str(r['ref_type'] or '') + ' ' + str(r['ref_number'] or '')).strip() or 'query ' + str(r['id'])[:8]}: {str(r['status']).replace('_', ' ')}, evidence {states[r['id']]}"
         for r in waiting
     ]  # fmt: skip
-    return head + ("\n" + _listed(lines) if lines else "")
+    return head + ("\n" + _listed(lines) if lines else ""), []  # queries are not documents
 
 
-def papers_by_kind(question: str, allowed: frozenset[str]) -> str:
+def papers_by_kind(question: str, allowed: frozenset[str]) -> tuple[str, list[str]]:
     said = " ".join(_LIST_KIND.search(question).group(1).lower().split())
     kind = KINDS[said]
     rows, withheld = chat_db_tools._documents(allowed)
@@ -234,7 +242,7 @@ def papers_by_kind(question: str, allowed: frozenset[str]) -> str:
     tail = f" {unknown} {BOUNDARY} have no kind recorded yet." if unknown else ""
     tail += f" {withheld} withheld by the block list." if withheld else ""
     lines = [f"{r.get('title') or r['filename']}" + (f" ({r['filename']})" if r.get("title") and r["title"] != r["filename"] else "") for r in picked]  # fmt: skip
-    return head + tail + ("\n" + _listed(lines) if lines else "")
+    return head + tail + ("\n" + _listed(lines) if lines else ""), [r["id"] for r in picked]
 
 
 def result(
@@ -244,15 +252,18 @@ def result(
     kind = kind_of(question)
     if kind is None:
         return None
-    text = {
+    text, named = {
         LIST_KIND: lambda: papers_by_kind(question, allowed),
         SIGNED: lambda: signed_reviews(allowed),
         PAPER_REVIEW: lambda: paper_review(question, allowed),
         WAITING_EVIDENCE: lambda: queries_waiting(user_id, is_admin),
-        UNANSWERED: lambda: f"{CANNOT} {CAN}",
+        UNANSWERED: lambda: (f"{CANNOT} {CAN}", []),
     }[kind]()
     return {
         "question": question, "retrieval_mode": "metadata", "reranked": False, "timings": {}, "candidates_considered": 0,
         "answer_type": "metadata", "answer": text, "reason": REASON, "input_kind": "records_question", "records": kind,
         "examples": [], "passages": [], "seconds": 0.0, "paper_coverage": None,
+        # every paper the answer names, in the stored key `chat.referenced_document_ids` reads: a reopened chat withholds the
+        # answer when one is no longer readable (`chat.get_messages`)
+        "derived_document_ids": sorted(set(named)),
     }  # fmt: skip
