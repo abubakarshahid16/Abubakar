@@ -55,6 +55,10 @@ CAPTION = re.compile(
 )
 
 
+class ClaudeNotOpen(RuntimeError):
+    """The app's own gate (`reasoning_provider.claude_unavailable`) says Claude may not be used: nothing is sent."""
+
+
 class NotFigurePage(ValueError):
     """A page that is not a figure or picture page by the counter's test: nothing of the book is sent."""
 
@@ -160,7 +164,17 @@ def read_book(
 ) -> dict:
     """Read the figure `pages` of one held book; write one JSON line per page to `out` (an open text file). Returns the counts.
     Raises `standards_lane.NotStandardsLane` for a document outside the lane, `NotFigurePage` for a page that is not a figure or
-    picture page; either way nothing is sent."""
+    picture page, `ClaudeNotOpen` when the app's own gate says Claude may not be used; in every case nothing is sent."""
+    from app import reasoning_provider
+
+    if (
+        provider is None
+    ):  # rule 1: the app's gate first (the provider, the egress flags, the key), before any lane is opened
+        code, why = reasoning_provider.claude_unavailable()
+        if code is not None:
+            raise ClaudeNotOpen(
+                f"Claude may not be used here ({code}): {why}; nothing sent"
+            )
     from app import vision_reader
     from app.claude_spend import STANDARD_STEP_PREFIX
     from app.reasoning_provider import ClaudeProvider, Packet
