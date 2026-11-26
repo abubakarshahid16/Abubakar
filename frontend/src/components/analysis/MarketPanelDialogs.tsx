@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { MarketPreview, MarketSearchResult } from "../../api/client";
 import type { EgressState, PublicMarketQuery } from "../../types/analysis";
 import { sampleReason, SAMPLE_BANNER_TAIL, PREVIEW_UNREACHABLE, NO_SAFE_PHRASE, CANCEL_SENDS_NOTHING, FAILURE_NO_ROWS, NO_RESULTS, searchDisabledReason, TierTrail, SearchRow } from "./MarketPanelPrimitives";
+import { Button } from "../kit/Kit";
 
 export function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => void }) {
   const [query, setQuery] = useState("");
@@ -75,13 +76,12 @@ export function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => 
           />
         </div>
       </div>
-      <button
+      <Button variant="secondary" size="sm"
         type="submit"
         disabled={!trimmed}
-        className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Preview exact outbound query
-      </button>
+      </Button>
     </form>
   );
 }
@@ -266,17 +266,16 @@ export function ConfirmDialog({
         <p className="mt-3 text-xs text-slateish-400">{CANCEL_SENDS_NOTHING}</p>
 
         <div className="mt-3 flex justify-end gap-2">
-          <button
+          <Button variant="secondary" size="sm"
             ref={cancelRef}
-            type="button"
+           
             onClick={onCancel}
-            className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button variant="secondary" size="sm"
             ref={confirmRef}
-            type="button"
+           
             onClick={onSend}
             disabled={blocked || noSafePhrase}
             aria-disabled={blocked || noSafePhrase}
@@ -287,10 +286,9 @@ export function ConfirmDialog({
                   ? NO_SAFE_PHRASE
                   : undefined
             }
-            className="rounded-[var(--radius-xs)] border border-signal-500/60 px-3 py-1.5 text-sm text-signal-300 hover:bg-signal-500/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Confirm and send
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import type { AnswerPassage, Answerability, Comparison, ConditionChoice, CorpusFact, EvidenceRemoved, AnswerType, Message, ScopeAmbiguity, Understanding } from "../../types/api";
 import { PassageLocation } from "./EvidencePanel";
+import { Button } from "../kit/Kit";
 /** The parts of an answer this card renders, from a live reply or a replay. */
 export interface AnswerView {
   answer_type: AnswerType;
@@ -321,14 +322,13 @@ export function ReportAction({
   if (!onSaveReport) return null;
   return (
     <div className="mt-3 border-t border-ink-700 pt-3">
-      <button
-        type="button"
+      <Button variant="secondary" size="sm"
+       
         onClick={onSaveReport}
         disabled={savingReport}
-        className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
       >
         {savingReport ? "Saving..." : "Save as report"}
-      </button>
+      </Button>
       <p className="mt-1.5 text-xs text-slateish-500">{note}</p>
       {reportNotice && (
         <p className="mt-1.5 text-xs text-warn-500" role="status">

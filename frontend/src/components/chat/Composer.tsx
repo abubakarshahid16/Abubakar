@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 
 import type { ChatModels } from "../../types/api";
 import { DocumentPicker, type PickedDocument } from "./DocumentPicker";
+import { Button } from "../kit/Kit";
 
 export const MAX_QUESTION = 500;
 
@@ -93,14 +94,13 @@ export function Composer({
             >
               @{d.name}
               {onPick && (
-                <button
-                  type="button"
+                <Button variant="secondary"
+                 
                   aria-label={`Stop answering from ${d.name}`}
                   onClick={() => onPick(picked.filter((p) => p.id !== d.id))}
-                  className="min-h-0 px-0.5 text-slateish-400 hover:text-slateish-100"
                 >
                   ×
-                </button>
+                </Button>
               )}
             </li>
           ))}
@@ -116,13 +116,12 @@ export function Composer({
             {picked.map((d) => d.name).join(" · ")}
           </span>
           {onPickerOpen && (
-            <button
-              type="button"
+            <Button variant="secondary"
+             
               onClick={() => onPickerOpen(true)}
-              className="ms-auto shrink-0 text-signal-300 underline underline-offset-2"
             >
               Change
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -148,16 +147,15 @@ export function Composer({
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <div className="relative flex items-center gap-2">
-          <button
-            type="button"
+          <Button variant="secondary"
+           
             aria-label="More options"
             aria-expanded={menu}
             aria-haspopup="true"
             onClick={() => setMenu((m) => !m)}
-            className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-full)] border border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800"
           >
             +
-          </button>
+          </Button>
           {onPick && onPickerOpen && (
             <button
               ref={pickerButton}
@@ -206,29 +204,27 @@ export function Composer({
               aria-label="More options"
               className="absolute bottom-10 left-0 z-30 w-60 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-1 shadow-[var(--shadow-floating)]"
             >
-              <button
-                type="button"
+              <Button variant="secondary"
+               
                 onClick={() => {
                   setMenu(false);
                   onRecords();
                 }}
-                className="block w-full rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm text-slateish-200 hover:bg-ink-700"
               >
                 Search workflow records
                 <span className="block text-xs text-slateish-500">Deliverables, findings, risks</span>
-              </button>
+              </Button>
               {onUpload && (
-                <button
-                  type="button"
+                <Button variant="secondary"
+                 
                   onClick={() => {
                     setMenu(false);
                     onUpload();
                   }}
-                  className="block w-full rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm text-slateish-200 hover:bg-ink-700"
                 >
                   Add a document
                   <span className="block text-xs text-slateish-500">Opens the Documents screen</span>
-                </button>
+                </Button>
               )}
             </div>
           )}
@@ -270,14 +266,13 @@ export function Composer({
               </select>
             </label>
           )}
-          <button
+          <Button variant="primary"
             type="submit"
             aria-label="Ask"
             disabled={!canSend}
-            className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-full)] bg-signal-500 text-lg font-semibold text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-transform hover:bg-signal-400 active:scale-[0.96] disabled:bg-signal-500/20 disabled:text-signal-300 disabled:shadow-none"
           >
             <span aria-hidden>↑</span>
-          </button>
+          </Button>
         </div>
       </div>
     </form>

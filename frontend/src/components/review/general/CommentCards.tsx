@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 
 import { type CommentDecision, type DecisionState, type GeneralLine, type GeneralReview, type Severity, generalReview } from "../../../api/generalReview";
 import { dayTimeWords } from "../workspace/landing/dateWords";
+import { Button } from "../../kit/Kit";
 
 export const SEVERITIES: Severity[] = ["Must fix", "Check a value", "Missing information", "Please confirm"];
 
@@ -83,12 +84,9 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
           </p>
         ) : <p className="text-sm text-slateish-400">Not decided yet</p>}
         <span className="ml-auto flex gap-1.5">
-          <button type="button" disabled={busy} onClick={() => void send("accept")}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Accept</button>
-          <button type="button" disabled={busy} onClick={() => { setOpen(open === "edit" ? null : "edit"); setProblem(null); }}
-            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100">Edit</button>
-          <button type="button" disabled={busy} onClick={() => { setOpen(open === "reject" ? null : "reject"); setProblem(null); }}
-            className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100">Reject</button>
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => void send("accept")}>Accept</Button>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => { setOpen(open === "edit" ? null : "edit"); setProblem(null); }}>Edit</Button>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => { setOpen(open === "reject" ? null : "reject"); setProblem(null); }}>Reject</Button>
         </span>
       </div>
       {open === "edit" && (
@@ -97,8 +95,8 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
           <textarea id={`edit-${line.n}`} value={text} onChange={(e) => setText(e.target.value)} rows={3}
             className="w-full rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 p-2 text-sm text-slateish-100" />
           <div className="flex gap-2">
-            <button type="button" disabled={busy || !text.trim()} onClick={() => void send("edit")} className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Save my text</button>
-            <button type="button" onClick={() => setOpen(null)} className="text-sm text-slateish-300 hover:underline">Cancel</button>
+            <Button variant="primary" size="sm" disabled={busy || !text.trim()} onClick={() => void send("edit")}>Save my text</Button>
+            <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -108,8 +106,8 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
           <input id={`reject-${line.n}`} value={reason} onChange={(e) => setReason(e.target.value)}
             className="w-full rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 p-2 text-sm text-slateish-100" />
           <div className="flex gap-2">
-            <button type="button" disabled={busy || reason.trim().length < MIN_REASON} onClick={() => void send("reject")} className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Save rejection</button>
-            <button type="button" onClick={() => setOpen(null)} className="text-sm text-slateish-300 hover:underline">Cancel</button>
+            <Button variant="primary" size="sm" disabled={busy || reason.trim().length < MIN_REASON} onClick={() => void send("reject")}>Save rejection</Button>
+            <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -162,16 +160,15 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
               <span key={i} className={`${cls} inline-flex flex-wrap items-center gap-1`} data-testid="chip-field">
                 <span>{label}</span>
                 {pages.map((p) => (
-                  <button key={p} type="button" aria-label={`page ${p}`} title={title(p)} onClick={() => onViewPage(p)}
-                    className="rounded-[var(--radius-sm)] border border-ink-500 px-1 hover:bg-ink-700">p{p}</button>
+                  <Button variant="secondary" key={p} aria-label={`page ${p}`} title={title(p)} onClick={() => onViewPage(p)}>p{p}</Button>
                 ))}
               </span>
             );
           })}
           {places.length > CHIPS_SHOWN && (
-            <button type="button" onClick={() => setAllChips((v) => !v)} className="text-signal-300 underline-offset-2 hover:underline">
+            <Button variant="secondary" onClick={() => setAllChips((v) => !v)}>
               {allChips ? "show fewer" : `+${places.length - CHIPS_SHOWN} more`}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -264,7 +261,7 @@ export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided 
               {pages.map((p) => <option key={p} value={p}>page {p}</option>)}
             </select>
           )}
-          {(severity != null || page != null) && <button type="button" onClick={() => { setSeverity(null); setPage(null); }} className="text-signal-300 underline-offset-2 hover:underline">Clear filters</button>}
+          {(severity != null || page != null) && <Button variant="secondary" onClick={() => { setSeverity(null); setPage(null); }}>Clear filters</Button>}
         </div>
       )}
       {shown.length === 0 && <p className="text-sm text-slateish-300">{review.comments.length === 0 ? "This review has no comments." : "No comment matches this filter."}</p>}

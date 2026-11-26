@@ -24,6 +24,7 @@ import { NotApplicableSection } from "./NotApplicableSection";
 import { PointsList } from "./PointsList";
 import { BookChips, NO_BOOK, NotHeldLine, type TileKey, Tiles } from "./Tiles";
 import { usePoints } from "./usePoints";
+import { Button } from "../../kit/Kit";
 
 export type V2Tab = "points" | "sheet" | "how";
 const TAB_LABEL: Record<V2Tab, string> = { points: "Points", sheet: "CRS sheet", how: "How it was reviewed" };
@@ -57,7 +58,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
     <section data-testid="review-page-v2" className="mx-auto w-full max-w-7xl space-y-4" aria-labelledby="v2-title">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1 space-y-1">
-          <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
+          <Button variant="secondary" onClick={onBack}>← Reviews</Button>
           <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
           <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} aiEquipment={latest?.identity?.equipment_type ?? null} />
         </div>
@@ -66,10 +67,9 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
               plan shown here read like the plan of the run on screen, and its "Checking..." could hang under the button). */}
           {general.state === "loading" ? null : generalLatest && !again ? (
             isAdmin !== false ? (
-              <button type="button" data-testid="review-again" onClick={() => setAgain(true)}
-                className="rounded-[var(--radius-sm)] border border-ink-500 px-4 py-1.5 text-sm text-slateish-100 hover:bg-ink-700">
+              <Button variant="secondary" size="sm" data-testid="review-again" onClick={() => setAgain(true)}>
                 Review this paper again
-              </button>
+              </Button>
             ) : null
           ) : (
             <EngineBar documentId={documentId} isAdmin={isAdmin} onStarted={onOpenRun} />

@@ -58,6 +58,8 @@
 .kit-btn--primary:hover:not(:disabled) { background: var(--kit-primary-hover); }
 .kit-btn--secondary, :root[data-look="new"] main a.kit-btn--secondary, :root[data-look="new"] main button.kit-btn--secondary { background: var(--color-ink-800); color: var(--color-slateish-100); border-color: var(--kit-edge); }
 .kit-btn--secondary:hover:not(:disabled) { background: var(--color-ink-700); }
+.kit-btn--danger, :root[data-look="new"] main button.kit-btn--danger { background: var(--color-ink-800); color: var(--kit-late-tone-fg); border-color: var(--kit-late-bd); }
+.kit-btn--danger:hover:not(:disabled) { background: var(--kit-late-bg); }
 .kit-btn:disabled, :root[data-look="new"] main button.kit-btn:disabled {
   background: var(--color-ink-800); color: var(--color-slateish-400); border-color: var(--color-ink-600); cursor: not-allowed;
 }

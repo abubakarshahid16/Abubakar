@@ -25,6 +25,7 @@ import { ProviderNotice, providerNoteFor } from "./ProviderNotice";
 import { ProgressSteps, UsedLine } from "./UsedLine";
 import { WebConsent, WebSources } from "./WebAnswer";
 import type { ChatStep, ChatVerification } from "../../types/api";
+import { Button } from "../kit/Kit";
 
 const DOCUMENT_TYPES = new Set(["extract", "generated", "insufficient_evidence", "model_unavailable", "metadata"]);
 
@@ -263,14 +264,13 @@ export function StreamingAnswer({
           <span aria-hidden className="ms-0.5 inline-block h-4 w-2 translate-y-0.5 bg-signal-500 motion-safe:animate-pulse" />
         </div>
       )}
-      <button
-        type="button"
+      <Button variant="secondary" size="sm"
+       
         onClick={onStop}
         disabled={stopping}
-        className="mt-3 inline-flex items-center gap-1.5 rounded-[var(--radius-full)] border border-ink-600 px-3 py-1 text-xs text-slateish-200 hover:border-danger-500/50 hover:bg-ink-800 disabled:opacity-60"
       >
         <span aria-hidden>■</span> {stopping ? "Stopping…" : "Stop"}
-      </button>
+      </Button>
     </article>
   );
 }

@@ -2,6 +2,7 @@
  *  line for rule books not held. */
 import type { PointsListing } from "../../../api/reviewPoints";
 import { TILE_LABELS, TILE_ORDER, firmnessLine, tileLine } from "./words";
+import { Button } from "../../kit/Kit";
 
 export type TileKey = (typeof TILE_ORDER)[number];
 /** The chip for points that cite no rule book. */
@@ -74,7 +75,7 @@ export function NotHeldLine({ counts, onSeeAll }: { counts: PointsListing["count
     <>
       <p data-testid="v2-not-held" className="text-xs text-slateish-300">
         Not checked, rule book not held: {names}{h.more > 0 ? ` and ${h.more} more` : ""}.{" "}
-        <button type="button" onClick={onSeeAll} className="text-signal-300 underline-offset-2 hover:underline">See all</button>
+        <Button variant="secondary" onClick={onSeeAll}>See all</Button>
       </p>
       {found.length > 0 && (
         <ul data-testid="v2-found-online" className="text-xs text-slateish-400">

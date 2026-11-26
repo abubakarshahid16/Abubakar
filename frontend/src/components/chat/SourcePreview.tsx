@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 
 import type { AnswerPassage, ChatSource } from "../../types/api";
 import { ProvenanceMark, isRecognised } from "./Provenance";
+import { Button } from "../kit/Kit";
 
 export interface PreviewSource {
   n: number;
@@ -138,22 +139,20 @@ export function SourcePreview({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {p && (
-            <button
-              type="button"
+            <Button variant="secondary" size="sm"
+             
               onClick={onOpenPage}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-200 hover:border-signal-500/50 hover:bg-ink-700"
             >
               Open page
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             aria-label="Close source preview"
             onClick={onClose}
-            className="rounded-[var(--radius-sm)] px-2 py-1 text-xs text-slateish-400 hover:bg-ink-700"
           >
             ×
-          </button>
+          </Button>
         </div>
       </header>
       {p && isRecognised(p) && (

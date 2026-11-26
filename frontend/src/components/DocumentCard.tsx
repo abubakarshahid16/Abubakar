@@ -25,6 +25,7 @@ import {
   progressLine,
   retrievableRatio,
 } from "./documentStatus";
+import { Button } from "./kit/Kit";
 
 const TONE: Record<string, string> = {
   neutral: "bg-ink-700 text-slateish-300",
@@ -330,26 +331,24 @@ export function DocumentCard({
                   {classification.doc_type === null ? "Set the type:" : "Change to:"}
                 </span>
                 {(types ?? []).map((t) => (
-                  <button
+                  <Button variant="secondary" size="sm"
                     key={t}
-                    type="button"
+                   
                     onClick={() => {
                       setChangingType(false);
                       onConfirmType?.(doc, t);
                     }}
-                    className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 text-slateish-300 hover:bg-ink-700"
                   >
                     {t}
-                  </button>
+                  </Button>
                 ))}
                 {classification.doc_type !== null && (
-                  <button
-                    type="button"
+                  <Button variant="secondary"
+                   
                     onClick={() => setChangingType(false)}
-                    className="text-slateish-500 hover:text-slateish-300"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 )}
               </div>
             ) : (
@@ -459,13 +458,12 @@ export function DocumentCard({
             below the {Math.round(LOW_RETRIEVABLE_THRESHOLD * 100)}% threshold. If this layout is
             unfamiliar, the quality gate may be over-rejecting it.
           </p>
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             onClick={() => actions.onExcluded(doc)}
-            className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/60 px-3 py-1 text-xs text-warn-500 hover:bg-warn-500/15"
           >
             See what was excluded
-          </button>
+          </Button>
         </div>
       )}
     </li>

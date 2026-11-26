@@ -22,6 +22,7 @@ import {
   confidenceLabel, findingLabel, kindLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusLabel, statusRank, statusTone, withDenominator,
 } from "./reviewFormat";
+import { Button } from "../kit/Kit";
 
 export interface FindingsTableProps {
   findings: ReviewFinding[];
@@ -194,21 +195,18 @@ export function FindingsTable(
           <span data-testid="findings-page-line" aria-live="polite">
             Showing rows {(page * PAGE_SIZE + 1).toLocaleString()}-{Math.min((page + 1) * PAGE_SIZE, visible.length).toLocaleString()} of {visible.length.toLocaleString()} in the table
           </span>
-          <button type="button" onClick={() => setPage(page - 1)} disabled={page === 0}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 disabled:opacity-40">
+          <Button variant="secondary" size="sm" onClick={() => setPage(page - 1)} disabled={page === 0}>
             Previous {PAGE_SIZE}
-          </button>
-          <button type="button" onClick={() => setPage(page + 1)} disabled={page >= pages - 1}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 disabled:opacity-40">
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setPage(page + 1)} disabled={page >= pages - 1}>
             Next {PAGE_SIZE}
-          </button>
+          </Button>
         </nav>
       )}
 
       {missing.length > 0 && !showMissing && (
-        <button
-          type="button" onClick={() => setShowMissing(true)}
-          className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-300 hover:border-ink-500"
+        <Button variant="secondary"
+          onClick={() => setShowMissing(true)}
         >
           <span className="font-semibold text-slateish-200">
             {missing.length.toLocaleString()} requirements had no evidence on this submittal
@@ -220,20 +218,18 @@ export function FindingsTable(
             No value was submitted against these. That is a question for the
             contractor, not a breach.
           </span>
-        </button>
+        </Button>
       )}
       {missing.length > 0 && showMissing && (
-        <button
-          type="button" onClick={() => setShowMissing(false)}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+        <Button variant="secondary" size="sm"
+          onClick={() => setShowMissing(false)}
         >
           Hide the {missing.length.toLocaleString()} with no evidence
-        </button>
+        </Button>
       )}
       {outOfScope.length > 0 && !showOutOfScope && (
-        <button
-          type="button" onClick={() => setShowOutOfScope(true)}
-          className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-700 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-400 hover:border-ink-500"
+        <Button variant="secondary"
+          onClick={() => setShowOutOfScope(true)}
         >
           <span className="font-semibold text-slateish-300">
             {outOfScope.length.toLocaleString()} requirements need another document
@@ -246,15 +242,14 @@ export function FindingsTable(
             documents that govern them - not a contractor omission, and not a
             breach.
           </span>
-        </button>
+        </Button>
       )}
       {outOfScope.length > 0 && showOutOfScope && (
-        <button
-          type="button" onClick={() => setShowOutOfScope(false)}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+        <Button variant="secondary" size="sm"
+          onClick={() => setShowOutOfScope(false)}
         >
           Hide the {outOfScope.length.toLocaleString()} that need another document
-        </button>
+        </Button>
       )}
       {visible.length === 0 && (
         <p className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-6 text-center text-sm text-slateish-400">
@@ -308,13 +303,12 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
       aria-selected={selected}
     >
       <td className="px-3 py-2">
-        <button
-          type="button"
+        <Button variant="secondary"
+         
           onClick={(e) => { e.stopPropagation(); onSelect(); }}
-          className="text-left text-signal-300 hover:underline"
         >
           {name ?? orNothing(finding.standard_document_id)}
-        </button>
+        </Button>
         <span className="mt-0.5 block text-xs text-slateish-400">
           {finding.standard_clause ? `clause ${finding.standard_clause}` : ""}
           {finding.standard_page ? ` · p${finding.standard_page}` : ""}
@@ -323,13 +317,12 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
       <td className="max-w-md px-3 py-2 text-slateish-300">
         {shown}
         {long && (
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             onClick={(e) => { e.stopPropagation(); setExpanded((value) => !value); }}
-            className="ml-1 text-xs text-signal-300 hover:underline"
           >
             {expanded ? "less" : "more"}
-          </button>
+          </Button>
         )}
       </td>
       <td className="px-3 py-2">
@@ -367,13 +360,12 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
         )}
       </td>
       <td className="px-3 py-2">
-        <button
-          type="button"
+        <Button variant="secondary" size="sm"
+         
           onClick={(e) => { e.stopPropagation(); setShowEvidence((v) => !v); }}
-          className="text-xs text-signal-300 hover:underline"
         >
           {showEvidence ? "Hide evidence" : "Evidence"}
-        </button>
+        </Button>
       </td>
     </tr>
     {showEvidence && (

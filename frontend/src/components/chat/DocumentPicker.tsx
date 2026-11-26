@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 
 import { api } from "../../api/client";
 import type { DocumentRecord } from "../../types/api";
+import { Button } from "../kit/Kit";
 
 export interface PickedDocument {
   id: string;
@@ -152,21 +153,19 @@ export function DocumentPicker({
         ))}
       </ul>
       <div className="mt-1.5 flex justify-between gap-2">
-        <button
-          type="button"
+        <Button variant="secondary" size="sm"
+         
           onClick={() => onChange([])}
           disabled={picked.length === 0}
-          className="rounded-[var(--radius-sm)] px-2 py-1 text-xs text-slateish-400 hover:bg-ink-700 disabled:opacity-50"
         >
           Use all my documents
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button variant="secondary" size="sm"
+         
           onClick={onClose}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-200 hover:bg-ink-700"
         >
           Done
-        </button>
+        </Button>
       </div>
     </div>
   ), document.body);

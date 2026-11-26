@@ -4,6 +4,7 @@
 import { useMemo } from "react";
 
 import type { PointsListing, ReviewPoint } from "../../../api/reviewPoints";
+import { Button } from "../../kit/Kit";
 
 export const NA_TITLE = "AI thinks these do not apply, tick to confirm";
 const NO_BOOK_GROUP = "No rule book named";
@@ -28,8 +29,7 @@ export function NotApplicableSection({ points, counts, confirm, undo, busy }: {
     <section data-testid="v2-na-section" aria-labelledby="v2-na-title" className="space-y-2 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="v2-na-title" className="text-sm font-semibold text-slateish-100">{NA_TITLE}</h2>
-        <button type="button" disabled={busy || open.length === 0} onClick={() => void confirm(open.map((p) => p.id))}
-          className="rounded-[var(--radius-sm)] border border-ink-500 px-2.5 py-1 text-xs text-slateish-100 hover:bg-ink-700 disabled:opacity-50">Confirm all</button>
+        <Button variant="secondary" size="sm" disabled={busy || open.length === 0} onClick={() => void confirm(open.map((p) => p.id))}>Confirm all</Button>
       </div>
       {counts?.sentence && <p data-testid="v2-na-count" className="text-xs text-slateish-400">{counts.sentence}</p>}
       {grouped.map(([book, ps]) => (

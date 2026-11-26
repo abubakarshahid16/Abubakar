@@ -12,6 +12,7 @@
 import { useState } from "react";
 
 import type { AnalysisResult, PerDocumentStatus } from "../../types/analysis";
+import { Button } from "../kit/Kit";
 
 const STATUS_TEXT: Record<PerDocumentStatus, { icon: string; label: string }> = {
   relevant: { icon: "●", label: "Contributed evidence" },
@@ -132,27 +133,25 @@ export function CoverageLedger({
 
           {pages > 1 && (
             <nav aria-label="Coverage table pages" className="mt-2 flex items-center justify-between text-xs text-slateish-400">
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 aria-label="Previous page of documents"
                 disabled={current === 0}
                 onClick={() => setPage(current - 1)}
-                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
               >
                 Prev
-              </button>
+              </Button>
               <span aria-live="polite">
                 {current * pageSize + 1}–{Math.min(total, (current + 1) * pageSize)} of {total} documents
               </span>
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 aria-label="Next page of documents"
                 disabled={current >= pages - 1}
                 onClick={() => setPage(current + 1)}
-                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1 hover:bg-ink-700 disabled:opacity-40"
               >
                 Next
-              </button>
+              </Button>
             </nav>
           )}
         </div>

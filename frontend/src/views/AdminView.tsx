@@ -36,6 +36,7 @@ import type {
   LoadFailure,
 } from "../types/admin";
 import { management, reviews } from "../api/client";
+import { Button } from "../components/kit/Kit";
 
 /**
  * The "seeded but useless" summary.
@@ -108,13 +109,12 @@ function SectionFailure({ failure, onRetry }: { failure: LoadFailure; onRetry: (
     <div role="alert" className="rounded-[var(--radius-md)] border border-danger-500/50 bg-danger-500/10 p-4 text-sm">
       <p className="font-medium text-danger-500">That request failed</p>
       <p className="mt-1 text-slateish-300">{failure.message}</p>
-      <button
-        type="button"
+      <Button variant="secondary" size="sm"
+       
         onClick={onRetry}
-        className="mt-3 rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
       >
         Try again
-      </button>
+      </Button>
     </div>
   );
 }
@@ -144,38 +144,35 @@ export function DangerAction({
 
   if (!asking) {
     return (
-      <button
-        type="button"
+      <Button variant="danger" size="sm"
+       
         disabled={busy}
         onClick={() => setAsking(true)}
-        className="rounded-[var(--radius-xs)] border border-transparent px-2 py-1 text-xs text-slateish-400 motion-safe:transition-colors hover:border-danger-500 hover:bg-danger-500/10 hover:text-danger-500 focus-visible:border-danger-500 focus-visible:text-danger-500 disabled:opacity-50"
       >
         {label}
-      </button>
+      </Button>
     );
   }
 
   return (
     <span className="inline-flex items-center gap-2">
       <span className="text-xs text-danger-500">{question}</span>
-      <button
-        type="button"
+      <Button variant="danger" size="sm"
+       
         disabled={busy}
         onClick={() => {
           setAsking(false);
           onConfirm();
         }}
-        className="rounded-[var(--radius-xs)] border border-danger-500 bg-danger-500/10 px-2 py-1 text-xs font-medium text-danger-500 disabled:opacity-50"
       >
         {confirmLabel}
-      </button>
-      <button
-        type="button"
+      </Button>
+      <Button variant="secondary" size="sm"
+       
         onClick={() => setAsking(false)}
-        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700"
       >
         Keep it
-      </button>
+      </Button>
     </span>
   );
 }
@@ -200,8 +197,8 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
         {created.setup_token}
       </p>
       <div className="mt-3 flex gap-2">
-        <button
-          type="button"
+        <Button variant="secondary" size="sm"
+         
           onClick={() => {
             // Best effort: the clipboard API is unavailable over plain http on
             // some hosts, and a failed copy must not lose the only copy of the
@@ -211,17 +208,15 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
               () => setCopied(false),
             );
           }}
-          className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
         >
           Copy
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button variant="secondary" size="sm"
+         
           onClick={onDismiss}
-          className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-slateish-200 hover:bg-ink-700"
         >
           Done - hide it
-        </button>
+        </Button>
         {copied && <span className="self-center text-xs text-slateish-400">Copied.</span>}
       </div>
     </div>
@@ -302,13 +297,12 @@ function CreateUserForm({
           />
           Also an administrator
         </label>
-        <button
+        <Button variant="secondary" size="sm"
           type="submit"
           disabled={busy}
-          className="rounded-[var(--radius-xs)] border border-signal-500 bg-signal-500/10 px-3 py-1 text-sm text-signal-500 disabled:opacity-50"
         >
           {busy ? "Creating…" : "Create user"}
-        </button>
+        </Button>
       </div>
 
       {error && (
@@ -428,12 +422,12 @@ export function AdminView(props: AdminViewProps) {
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4">
             <h3 className="text-sm font-medium text-slateish-200">Baseline rules</h3>
-            <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-slateish-400"><tr><th className="px-2 py-1">Submittal type</th><th className="px-2 py-1">Baseline type</th><th className="px-2 py-1">Priority</th><th /></tr></thead><tbody>{baselineRules.map((rule) => <tr key={rule.id} className="border-t border-ink-600"><td className="px-2 py-2 text-slateish-200">{rule.submittal_doc_type || "Any"}</td><td className="px-2 py-2 text-slateish-200">{rule.baseline_doc_type}</td><td className="px-2 py-2 text-slateish-400">{rule.priority}</td><td className="px-2 py-2"><button type="button" onClick={() => { setEditingBaseline(rule.id); setBaselineType(rule.submittal_doc_type || ""); setBaselineTarget(rule.baseline_doc_type); }} className="text-signal-400 hover:underline">Edit</button></td></tr>)}</tbody></table></div>
-            <div className="mt-3 flex flex-wrap gap-2"><input aria-label="Submittal document type" value={baselineType} onChange={(e) => setBaselineType(e.target.value)} placeholder="Submittal type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><input aria-label="Baseline document type" value={baselineTarget} onChange={(e) => setBaselineTarget(e.target.value)} placeholder="Baseline type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><button type="button" onClick={() => void createBaselineRule()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">{editingBaseline ? "Save rule" : "Add rule"}</button></div>
+            <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-slateish-400"><tr><th className="px-2 py-1">Submittal type</th><th className="px-2 py-1">Baseline type</th><th className="px-2 py-1">Priority</th><th /></tr></thead><tbody>{baselineRules.map((rule) => <tr key={rule.id} className="border-t border-ink-600"><td className="px-2 py-2 text-slateish-200">{rule.submittal_doc_type || "Any"}</td><td className="px-2 py-2 text-slateish-200">{rule.baseline_doc_type}</td><td className="px-2 py-2 text-slateish-400">{rule.priority}</td><td className="px-2 py-2"><Button variant="secondary" onClick={() => { setEditingBaseline(rule.id); setBaselineType(rule.submittal_doc_type || ""); setBaselineTarget(rule.baseline_doc_type); }}>Edit</Button></td></tr>)}</tbody></table></div>
+            <div className="mt-3 flex flex-wrap gap-2"><input aria-label="Submittal document type" value={baselineType} onChange={(e) => setBaselineType(e.target.value)} placeholder="Submittal type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><input aria-label="Baseline document type" value={baselineTarget} onChange={(e) => setBaselineTarget(e.target.value)} placeholder="Baseline type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><Button variant="secondary" size="sm" onClick={() => void createBaselineRule()}>{editingBaseline ? "Save rule" : "Add rule"}</Button></div>
             {baselineFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{baselineFailure}</p>}
             {baselineMessage && <p role="status" className="mt-2 text-xs text-slateish-400">{baselineMessage}</p>}
           </div>
-          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"><h3 className="text-sm font-medium text-slateish-200">Management summaries</h3><p className="mt-1 text-xs text-slateish-400">Choose how often the summary email is sent.</p><div className="mt-3 flex flex-wrap items-center gap-2"><select aria-label="Summary schedule" value={summarySchedule} onChange={(e) => void updateSummarySchedule(e.target.value as "disabled" | "daily" | "weekly")} className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="disabled">Disabled</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select><button type="button" onClick={() => void sendSummaryNow()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Send now</button></div><p className="mt-2 text-xs text-slateish-500">Sent: {summarySchedule}.</p>{summaryFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{summaryFailure}</p>}</div>
+          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"><h3 className="text-sm font-medium text-slateish-200">Management summaries</h3><p className="mt-1 text-xs text-slateish-400">Choose how often the summary email is sent.</p><div className="mt-3 flex flex-wrap items-center gap-2"><select aria-label="Summary schedule" value={summarySchedule} onChange={(e) => void updateSummarySchedule(e.target.value as "disabled" | "daily" | "weekly")} className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="disabled">Disabled</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select><Button variant="secondary" size="sm" onClick={() => void sendSummaryNow()}>Send now</Button></div><p className="mt-2 text-xs text-slateish-500">Sent: {summarySchedule}.</p>{summaryFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{summaryFailure}</p>}</div>
         </div>
       </section>
   );
@@ -547,12 +541,11 @@ export function AdminView(props: AdminViewProps) {
                     <td className="px-3 py-2 text-right">
                       {u.active && (
                         <div className="flex justify-end gap-2">
-                          <button type="button"
+                          <Button variant="secondary" size="sm"
                             disabled={busyKey === `reset:${u.user_id}`}
-                            onClick={() => onResetPassword(u.user_id)}
-                            className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-300 hover:bg-ink-700 disabled:opacity-50">
+                            onClick={() => onResetPassword(u.user_id)}>
                             Reset password
-                          </button>
+                          </Button>
                           <DangerAction
                             label="Deactivate"
                             confirmLabel="Deactivate"
@@ -684,15 +677,14 @@ export function AdminView(props: AdminViewProps) {
                       );
                     }
                     return (
-                      <button
+                      <Button variant="secondary" size="sm"
                         key={name}
-                        type="button"
+                       
                         disabled={busyKey === key}
                         onClick={() => onGrant({ document_id: doc.document_id, discipline: name })}
-                        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 text-xs text-slateish-400 hover:bg-ink-700 hover:text-slateish-200 disabled:opacity-50"
                       >
                         Grant {name}
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -701,23 +693,21 @@ export function AdminView(props: AdminViewProps) {
           </ul>
           {grantView.pages > 1 && (
             <nav aria-label="Document pages" className="flex items-center gap-3 text-xs text-slateish-300">
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 disabled={grantView.index === 0}
                 onClick={() => setGrantPageIndex(grantView.index - 1)}
-                className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 disabled:opacity-50"
               >
                 Previous
-              </button>
+              </Button>
               <span>Page {grantView.index + 1} of {grantView.pages}</span>
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 disabled={grantView.index >= grantView.pages - 1}
                 onClick={() => setGrantPageIndex(grantView.index + 1)}
-                className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-1 disabled:opacity-50"
               >
                 Next
-              </button>
+              </Button>
             </nav>
           )}
           </>

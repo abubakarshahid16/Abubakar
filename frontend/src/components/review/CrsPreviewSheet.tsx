@@ -19,6 +19,7 @@ import type { CrsPreview } from "../../types/api";
 import {
   CrsItemCell, CrsReplyImportControl, CrsResolutionCell, CrsResponseCell,
 } from "./CrsCommentControls";
+import { Button } from "../kit/Kit";
 
 /** #725 F7: enter the CRS header's company and contractor transmittal
  *  numbers. Starts from what the sheet prints now; "" clears a number. */
@@ -60,10 +61,9 @@ export function CrsTransmittalsForm(
         <input value={contractor} maxLength={80} onChange={(e) => setContractor(e.target.value)}
           className="mt-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-2 py-1 text-slateish-100" />
       </label>
-      <button type="submit" disabled={state === "saving"}
-        className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-200">
+      <Button variant="secondary" size="sm" type="submit" disabled={state === "saving"}>
         Save transmittal numbers
-      </button>
+      </Button>
       {state === "saved" && <span role="status" className="text-slateish-400">Saved</span>}
       {state !== "idle" && state !== "saving" && state !== "saved" && (
         <span role="alert" className="text-danger-500">{state}</span>

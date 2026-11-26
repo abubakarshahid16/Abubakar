@@ -24,6 +24,7 @@ import {
   confidenceLabel, findingLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusLabel, statusTone, trustWords, whenLabel,
 } from "./reviewFormat";
+import { Button } from "../kit/Kit";
 
 export interface FindingDetailProps {
   finding: ReviewFinding;
@@ -235,13 +236,12 @@ function FindingDetailBody(
         />
       </div>
 
-      <button
-        type="button"
+      <Button variant="secondary"
+       
         onClick={() => { setOpen(null); setSideBySide((value) => !value); }}
-        className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-signal-300"
       >
         {sideBySide ? "Close side by side" : "Show submittal and standard side by side"}
-      </button>
+      </Button>
 
       {sideBySide && (
         <SideBySideEvidence
@@ -257,10 +257,9 @@ function FindingDetailBody(
             <p className="text-sm text-slateish-300">
               {open.doc.filename}{open.page ? ` — page ${open.page}` : ""}
             </p>
-            <button
-              type="button" onClick={() => setOpen(null)}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300"
-            >Close</button>
+            <Button variant="secondary" size="sm"
+              onClick={() => setOpen(null)}
+            >Close</Button>
           </div>
           {/* A HEIGHT THE PAGE CAN ACTUALLY BE READ IN. `DocumentPreview`
               fills its parent, and inside this panel that came to about
@@ -292,31 +291,28 @@ function FindingDetailBody(
       <div className="space-y-3 border-t border-ink-700 pt-3">
         <h4 className="text-xs uppercase tracking-wide text-slateish-400">Engineer actions</h4>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button" onClick={() => void confirm()}
+          <Button variant="primary"
+            onClick={() => void confirm()}
             disabled={action.kind === "working" || Boolean(finding.confirmed_by)}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
           >
             {finding.confirmed_by ? "Confirmed" : "Confirm this finding"}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button variant="secondary"
+           
             onClick={() => {
               setDraft(finding.engineer_comment ?? finding.finding ?? "");
               setEditing((value) => !value);
             }}
             disabled={action.kind === "working"}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
           >
             {editing ? "Cancel edit" : "Edit comment"}
-          </button>
-          <button
-            type="button" onClick={() => void notNeeded()}
+          </Button>
+          <Button variant="secondary"
+            onClick={() => void notNeeded()}
             disabled={action.kind === "working" || finding.approval_status === "rejected"}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm text-slateish-100 disabled:opacity-50"
           >
             {finding.approval_status === "rejected" ? "Marked not needed" : "Not needed"}
-          </button>
+          </Button>
         </div>
         {askWhy && finding.approval_status !== "rejected" && (
           <div className="space-y-2">
@@ -339,13 +335,12 @@ function FindingDetailBody(
               onChange={(event) => setDraft(event.target.value)}
               className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
             />
-            <button
-              type="button" onClick={() => void saveEdit()}
+            <Button variant="primary"
+              onClick={() => void saveEdit()}
               disabled={action.kind === "working"}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
             >
               Save comment
-            </button>
+            </Button>
           </div>
         )}
         {canReject ? (
@@ -359,13 +354,12 @@ function FindingDetailBody(
               placeholder="e.g. interpass temperature is a welding parameter, not the service temperature"
               className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
             />
-            <button
-              type="button" onClick={() => void reject()}
+            <Button variant="danger"
+              onClick={() => void reject()}
               disabled={action.kind === "working" || action.kind === "rejected"}
-              className="rounded-[var(--radius-sm)] border border-danger-500/50 px-3 py-2 text-sm text-danger-500 disabled:opacity-50"
             >
               Report wrong pairing
-            </button>
+            </Button>
           </div>
         ) : (
           <p className="text-xs text-slateish-500">
@@ -406,12 +400,11 @@ function Citation({ title, document, page, detail, fallbackName, notLocated, onO
       {notLocated && !page ? <p className="text-xs text-slateish-400">{name} page not located</p> : null}
       {detail ? <p className="mt-1 text-xs text-slateish-400">{detail}</p> : null}
       {document ? (
-        <button
-          type="button" onClick={() => onOpen(document, page)}
-          className="mt-2 rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-signal-300"
+        <Button variant="secondary" size="sm"
+          onClick={() => onOpen(document, page)}
         >
           {page ? `Open ${name} at page ${page}` : `Open the ${name}`}
-        </button>
+        </Button>
       ) : (
         <p className="mt-2 text-xs text-slateish-500">
           {/* NOT "unreadable". Whether this account may read it is a

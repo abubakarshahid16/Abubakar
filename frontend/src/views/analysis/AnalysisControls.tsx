@@ -3,6 +3,7 @@ import { TypeFilter, pendingFilterNotice } from "../../components/classification
 import { RunPlan } from "./AnalysisRunPlan";
 import type { ComparisonType } from "../../types/api";
 import { enginesFor } from "./analysisModel";
+import { Button } from "../../components/kit/Kit";
 
 interface ControlsContext {
   questionId: string;
@@ -45,7 +46,7 @@ export function AnalysisControls({ ctx }: { ctx: ControlsContext }) {
       </div>
       <div className="space-y-3"><RunPlan mode={mode} engines={engines} />
         {mode === "comprehensive" && <p className="rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-3 py-2 text-xs text-warn-500">This wider search cannot show its progress or be stopped yet; the screen waits for the whole answer.</p>}
-        <button type="button" disabled={!canRun} aria-busy={running} onClick={() => void store.runAnalysis()} className="w-full rounded-[var(--radius-sm)] border border-signal-500/70 bg-signal-500 px-4 py-2.5 text-sm font-semibold text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-all hover:shadow-[var(--shadow-glow)] active:scale-[0.98] disabled:cursor-not-allowed disabled:border-ink-500 disabled:bg-ink-700 disabled:text-slateish-500 disabled:shadow-none">{running ? "Running…" : "Run analysis"}</button>
+        <Button variant="primary" disabled={!canRun} aria-busy={running} onClick={() => void store.runAnalysis()}>{running ? "Running…" : "Run analysis"}</Button>
         {running && <div role="status" aria-live="polite" data-testid="analysis-run-status" className="rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 p-3"><div className="flex items-baseline justify-between gap-3"><p className="text-sm font-medium text-slateish-200">Working on this machine</p><span data-testid="analysis-elapsed" className="shrink-0 font-mono text-sm tabular-nums text-slateish-300">{elapsed}s</span></div>{waitingOn.length > 0 && <p className="mt-1.5 text-xs text-slateish-400">Still waiting on: {waitingOn.join(", ")}.</p>}<p className="mt-1.5 text-xs text-slateish-500">The answer is written on this computer and appears all at once; there are no steps to show, so only the time taken is shown. Leaving this screen does not cancel the run - the result will be here when you come back.</p></div>}
         {baselineRefusal !== null && <p role="alert" className="rounded-[var(--radius-xs)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">{baselineRefusal}</p>}
       </div>

@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../../api/client";
 import type { ApiError, ConversationSummary } from "../../types/api";
+import { Button } from "../kit/Kit";
 
 export const UNDO_SECONDS = 6;
 
@@ -112,13 +113,12 @@ export function RecentChats({
     <section aria-label="Recent chats" className="border-t border-ink-700 px-3 pb-3 pt-3">
       <div className="mb-2 flex items-center justify-between px-1">
         <h2 className="text-xs font-medium text-slateish-500">Recent chats</h2>
-        <button
-          type="button"
+        <Button variant="secondary" size="sm"
+         
           onClick={onNew}
-          className="rounded-[var(--radius-sm)] px-1.5 py-0.5 text-xs text-slateish-400 hover:bg-ink-800 hover:text-slateish-200"
         >
           New chat
-        </button>
+        </Button>
       </div>
       {list.length > 5 && (
         <label className="mb-2 block">
@@ -136,9 +136,9 @@ export function RecentChats({
       {load.s === "error" && (
         <p className="px-1 text-xs text-slateish-500" role="status">
           {load.disconnected ? "Chats unavailable while the backend is offline." : load.error.message}{" "}
-          <button type="button" onClick={() => void refresh()} className="text-signal-400 underline">
+          <Button variant="secondary" onClick={() => void refresh()}>
             Retry
-          </button>
+          </Button>
         </p>
       )}
       {load.s === "ready" && list.length === 0 && (
@@ -154,12 +154,12 @@ export function RecentChats({
               <div className="rounded-[var(--radius-sm)] bg-ink-800 px-2 py-1.5 text-xs text-slateish-300" role="group" aria-label={`Delete ${c.title}?`}>
                 <p className="truncate">Delete "{c.title}"?</p>
                 <div className="mt-1 flex gap-2">
-                  <button type="button" onClick={() => remove(c)} className="text-danger-500 underline">
+                  <Button variant="danger" onClick={() => remove(c)}>
                     Delete
-                  </button>
-                  <button type="button" onClick={() => setConfirming(null)} className="underline">
+                  </Button>
+                  <Button variant="secondary" onClick={() => setConfirming(null)}>
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -175,14 +175,13 @@ export function RecentChats({
                 >
                   {c.title}
                 </button>
-                <button
-                  type="button"
+                <Button variant="secondary" size="sm"
+                 
                   aria-label={`Delete conversation ${c.title}`}
                   onClick={() => setConfirming(c.id)}
-                  className="absolute end-1 top-1 rounded-[var(--radius-xs)] px-1.5 py-0.5 text-xs text-slateish-500 opacity-0 hover:bg-ink-600 hover:text-danger-500 focus:opacity-100 group-hover:opacity-100"
                 >
                   ×
-                </button>
+                </Button>
               </>
             )}
           </li>
@@ -191,9 +190,9 @@ export function RecentChats({
       {pending && (
         <p role="status" className="mt-2 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-800 px-2 py-1.5 text-xs text-slateish-300">
           Chat deleted.{" "}
-          <button type="button" onClick={undo} className="font-semibold text-signal-400 underline">
+          <Button variant="secondary" onClick={undo}>
             Undo
-          </button>
+          </Button>
         </p>
       )}
       {failure && (

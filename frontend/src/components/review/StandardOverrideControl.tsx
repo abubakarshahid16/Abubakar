@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewRunMissingReference, ReviewRunStandard } from "../../types/api";
+import { Button } from "../kit/Kit";
 
 /**
  * P2: the engineer adds or removes a standard on a review, with a reason.
@@ -67,10 +68,10 @@ export function StandardOverrideControl({ runId, decided, onChanged }: {
       <ul className="space-y-1">
         {applied.map((s) => (
           <li key={s.standard_document_id}>
-            <button type="button" className="text-xs text-danger-500 underline"
+            <Button variant="danger" size="sm"
               onClick={() => { setTarget({ id: s.standard_document_id, include: false }); setError(null); }}>
               Remove {name(s)}
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
@@ -94,11 +95,10 @@ export function StandardOverrideControl({ runId, decided, onChanged }: {
             <textarea className="mt-1 block w-full rounded border border-ink-600 bg-ink-800 p-2"
               value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
           </label>
-          <button type="button" disabled={busy || reason.trim().length < 3}
-            className="rounded border border-ink-600 px-3 py-1 text-xs disabled:opacity-50"
+          <Button variant="secondary" size="sm" disabled={busy || reason.trim().length < 3}
             onClick={() => { void submit(); }}>
             {target.include ? "Add and recompute the findings" : "Remove and recompute the findings"}
-          </button>
+          </Button>
         </div>
       )}
       {error && <p role="alert" className="text-xs text-danger-500">{error}</p>}

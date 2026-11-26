@@ -11,6 +11,7 @@ import { ENGINE_CHOICES, type EngineChoice, reviewPoints } from "../../../api/re
 import { LeavingList } from "../panels/LeavingList";
 import { ENGINE_LABELS, NEEDS_YES, costWords, engineWords, wontRunWords } from "./words";
 import { usePlan } from "./usePoints";
+import { Button } from "../../kit/Kit";
 
 /** The plan's refusal codes that choosing Claude explicitly lifts (the same list the server's `LIFTED_BY_CLAUDE` holds). */
 const LIFTED_BY_CLAUDE = ["NEEDS_YES", "NOT_APPROVED", "BOOKS_NOT_APPROVED", "UNSCORED"];
@@ -73,10 +74,9 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
           ))}
         </div>
         {isAdmin !== false ? (
-          <button type="button" onClick={review} disabled={busy || !canReview || step}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-1.5 text-sm font-semibold text-ink-950 disabled:opacity-50">
+          <Button variant="primary" size="sm" onClick={review} disabled={busy || !canReview || step}>
             Review
-          </button>
+          </Button>
         ) : <span className="text-xs text-slateish-400">Only an administrator can start a review.</span>}
       </div>
       {plan.state === "loading" && documentId && <p className="text-right text-xs text-slateish-400">Checking what this would do…</p>}
@@ -84,10 +84,9 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
           the way forward is ONE click, never a greyed-out button with no way out (first-time user, 19 Nov: the HAZOP plan) */}
       {engine === "automatic" && ready?.refused && ready.refused_code != null && LIFTED_BY_CLAUDE.includes(ready.refused_code) && (
         <p className="text-right text-xs">
-          <button type="button" data-testid="v2-choose-claude" onClick={() => choose("claude")}
-            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1 text-signal-300 hover:bg-ink-700">
+          <Button variant="secondary" size="sm" data-testid="v2-choose-claude" onClick={() => choose("claude")}>
             Choose Claude to review this paper
-          </button>
+          </Button>
         </p>
       )}
       {plan.state === "error" && <p role="alert" className="text-right text-xs text-warn-500">{plan.message}</p>}
@@ -127,10 +126,8 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
             <p role="note" className="text-slateish-300">{ready.unscored_note}. Internal copy only.</p>
           )}
           <div className="flex gap-2">
-            <button type="button" disabled={busy} onClick={() => void start((leaving ?? []).map((d) => d.id), ticked)}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-1.5 font-semibold text-ink-950 disabled:opacity-50">Start</button>
-            <button type="button" onClick={() => setStep(false)}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-300">Cancel</button>
+            <Button variant="primary" size="sm" disabled={busy} onClick={() => void start((leaving ?? []).map((d) => d.id), ticked)}>Start</Button>
+            <Button variant="secondary" size="sm" onClick={() => setStep(false)}>Cancel</Button>
           </div>
         </div>
       )}

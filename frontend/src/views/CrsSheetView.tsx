@@ -47,6 +47,7 @@ import { runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
 import { saveCrsDecisions } from "../components/review/crs/saveCrsDecisions";
 import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
 import { useCrsKeys } from "../components/review/crs/useCrsKeys";
+import { Button } from "../components/kit/Kit";
 
 type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 type Sign = { busy: boolean; message: string | null; error: string | null };
@@ -163,7 +164,7 @@ function RunNotReady({ run, active, onBack, onChanged }: { run: ReviewRunSummary
       ) : (
         <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
       )}
-      <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
+      <Button variant="secondary" onClick={onBack}>← Reviews</Button>
     </section>
   );
 }
@@ -305,14 +306,12 @@ export function CrsSheetView({ runId, onBack, onOpenCards }: CrsSheetViewProps) 
         <div role="alertdialog" aria-label="Leave this sheet?" data-testid="crs-leave-ask"
           className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
           {LEAVE_WARNING}
-          <button type="button" onClick={() => { setAskLeave(false); onBack(); }}
-            className="ml-2 rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-100">
+          <Button variant="secondary" size="sm" onClick={() => { setAskLeave(false); onBack(); }}>
             Leave without saving
-          </button>
-          <button type="button" onClick={() => setAskLeave(false)}
-            className="ml-2 rounded-[var(--radius-sm)] bg-signal-500 px-2 py-0.5 text-xs text-white">
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => setAskLeave(false)}>
             Stay on the sheet
-          </button>
+          </Button>
         </div>
       )}
       <BeforeYouSign run={run} rows={rows} state={issueGate} onRunChanged={() => void refresh()}

@@ -13,6 +13,7 @@ import { request } from "../../api/core";
 import { InfoFold } from "../../components/look/LookParts";
 import { formatWhen } from "../../format/when";
 import { NEW_LOOK } from "../../look";
+import { Button } from "../../components/kit/Kit";
 
 export interface ReviewModelOption {
   name: string;
@@ -163,10 +164,9 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
             <>{lists}{pickers}</>
           )}
           <div className="flex items-center gap-3">
-            <button type="button" onClick={() => void save()} disabled={busy}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">
+            <Button variant="primary" size="sm" onClick={() => void save()} disabled={busy}>
               Save
-            </button>
+            </Button>
             {options.stored.set_at && (
               <span className="text-xs text-slateish-400">Last saved {formatWhen(options.stored.set_at)}</span>
             )}

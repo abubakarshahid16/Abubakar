@@ -13,6 +13,7 @@ import {
 } from "../workspace/startFailures";
 import { watchRun } from "../workspace/reviewWatch";
 import { StartPanel } from "./StartPanel";
+import { Button } from "../../kit/Kit";
 
 export function StartReviewStep({ documentId, filename = null, onStarted, onOpenRunning, onCancel }: {
   documentId: string;
@@ -53,10 +54,9 @@ export function StartReviewStep({ documentId, filename = null, onStarted, onOpen
       <StartPanel submittalId={documentId} starting={busy} onStart={(e, ids, ticked) => void go(e, ids, ticked)} onCancel={onCancel} />
       {error && <p role="alert" className="text-xs text-danger-500">{error}</p>}
       {runningRunId && (
-        <button type="button" onClick={() => (onOpenRunning ?? onStarted)(runningRunId)}
-          className="text-xs font-semibold text-signal-300 underline-offset-2 hover:underline">
+        <Button variant="secondary" size="sm" onClick={() => (onOpenRunning ?? onStarted)(runningRunId)}>
           Open the review that is running
-        </button>
+        </Button>
       )}
     </div>
   );

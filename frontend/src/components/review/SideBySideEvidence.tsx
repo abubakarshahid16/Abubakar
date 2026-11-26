@@ -29,6 +29,7 @@ import type {
 } from "../../types/api";
 import { EvidencePageImage } from "./EvidencePageImage";
 import { orNothing } from "./reviewFormat";
+import { Button } from "../kit/Kit";
 
 export interface SideBySideEvidenceProps {
   finding: ReviewFinding;
@@ -60,10 +61,9 @@ export function SideBySideEvidence(
     >
       <div className="mb-2 flex items-center justify-between">
         <p className="text-sm text-slateish-300">Submittal and standard, side by side</p>
-        <button
-          type="button" onClick={onClose}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300"
-        >Close</button>
+        <Button variant="secondary" size="sm"
+          onClick={onClose}
+        >Close</Button>
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <Pane

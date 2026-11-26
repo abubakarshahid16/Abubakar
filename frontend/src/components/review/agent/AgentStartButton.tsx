@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import type { AgentStatus } from "../../../types/api";
 import { StartReviewStep } from "../panels/StartReviewStep";
+import { Button } from "../../kit/Kit";
 
 export const LANE_CLOSED_REASON =
   "The AI reviewer cannot start: the Claude connection is not open on this machine. An administrator opens it in the settings file.";
@@ -28,13 +29,12 @@ export function AgentStartButton({ status, documentId, filename = null, paperKin
 
   return (
     <span className="inline-flex flex-col items-start gap-1" data-testid="agent-start">
-      <button
-        type="button" onClick={() => setStep(true)} disabled={closed || step}
+      <Button variant="secondary" size="sm"
+        onClick={() => setStep(true)} disabled={closed || step}
         aria-describedby={closed ? "agent-start-reason" : undefined}
-        className="rounded-[var(--radius-sm)] border border-signal-300 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Start AI review
-      </button>
+      </Button>
       {closed && <span id="agent-start-reason" className="text-xs text-slateish-400">{LANE_CLOSED_REASON}</span>}
       {step && (
         <span className="block w-full max-w-xl text-left">

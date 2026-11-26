@@ -1,5 +1,5 @@
 import { AtAGlance } from "../components/dashboard/AtAGlance";
-import { PageHeader, Small } from "../components/kit/Kit";
+import { Button, PageHeader, Small } from "../components/kit/Kit";
 import { agoWords } from "./technicalQueryQuestion";
 import { useCallback, useRef, useState } from "react";
 import { formatWhenDate } from "../format/when";
@@ -194,7 +194,7 @@ export function DashboardView({
               <p className="mt-1 text-xs text-slateish-500">Live WBS, review, and overdue-risk counts for the projects you can see.</p>
             </div>
             {onOpenDeliverables && (
-              <button type="button" onClick={onOpenDeliverables} className="text-xs font-medium text-signal-400 hover:underline">Open deliverables</button>
+              <Button variant="secondary" size="sm" onClick={onOpenDeliverables}>Open deliverables</Button>
             )}
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">

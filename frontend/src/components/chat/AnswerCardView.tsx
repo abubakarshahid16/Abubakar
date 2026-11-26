@@ -10,6 +10,7 @@ import { ConditionNotice, ScopeNotice, VerdictNotice, WithheldNotice } from "./A
 import type { AnswerPassage, ChatSource } from "../../types/api";
 import { GeneratedAnswer } from "./GeneratedAnswer";
 import { ProviderNotice, providerNoteFor } from "./ProviderNotice";
+import { Button } from "../kit/Kit";
 
 function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
   return passage.score == null ? null : (
@@ -290,14 +291,13 @@ ollama serve
             <ul className="mt-1.5 space-y-1">
               {view.supporting.map((s, i) => (
                   <li key={s.chunk_id}>
-                  <button
-                    type="button"
+                  <Button variant="secondary" size="sm"
+                   
                     onClick={() => onSelectSource(i + 1)}
-                    className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
                   >
                     <ChipMark n={i + 2} active={activeSource === i + 1} />
                     <PassageLocation passage={s} />
-                  </button>
+                  </Button>
                   <RetrievalDetails passage={s} />
                 </li>
               ))}
@@ -307,14 +307,13 @@ ollama serve
 
         {onSaveReport && (
           <div className="mt-3 border-t border-ink-700 pt-3">
-            <button
-              type="button"
+            <Button variant="secondary" size="sm"
+             
               onClick={onSaveReport}
               disabled={savingReport}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:opacity-60"
             >
               {savingReport ? "Saving…" : "Save as report"}
-            </button>
+            </Button>
             <p className="mt-1.5 text-xs text-slateish-500">
               Freezes this answer, its passages and the documents they came
               from into a PDF. The evidence is captured as it is now — later
@@ -340,18 +339,17 @@ ollama serve
           <div className="mt-3 border-t border-ink-700 pt-3">
             {onExplain && (
               <>
-                <button
-                  type="button"
+                <Button variant="secondary" size="sm"
+                 
                   onClick={onExplain}
                   disabled={explaining}
-                  className="rounded-[var(--radius-sm)] border border-info-500/50 px-3 py-1.5 text-sm text-info-500 hover:bg-info-500/10 disabled:opacity-60"
                 >
                   {explaining
                     ? `Explaining… ${explainSeconds ?? 0}s`
                     : upgradeFailure
                       ? "Try the plain-language version again"
                       : "Explain in plain language"}
-                </button>
+                </Button>
                 <p className="mt-1.5 text-xs text-slateish-500">
                   {explaining
                     ? (explainingNote ?? "Generation is not streamed. It typically finishes around 50 seconds on this machine.")
@@ -466,14 +464,13 @@ ollama serve
         <ul className="mt-3 space-y-1">
           {sources.map((s, i) => (
               <li key={s.chunk_id}>
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 onClick={() => onSelectSource(i)}
-                className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
               >
                 <ChipMark n={i + 1} active={activeSource === i} />
                 <PassageLocation passage={s} />
-              </button>
+              </Button>
               <RetrievalDetails passage={s} />
             </li>
           ))}

@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { reviews as reviewsApi } from "../../../api/client";
 import type { ReviewRunSummary } from "../../../types/api";
+import { Button } from "../../kit/Kit";
 
 /** P3: cancel a queued or running review. Shown beside the card, not inside
  *  it - the card is itself a button. The server's answer is shown as given. */
@@ -12,7 +13,7 @@ export function ReviewJobControl({ run, onChanged }: { run: ReviewRunSummary; on
   if (!job || !(run.status === "queued" || run.status === "running") || job.cancel_requested) return null;
   return (
     <div className="flex items-center gap-2 ps-4">
-      <button type="button" className="text-xs text-danger-500 underline"
+      <Button variant="danger" size="sm"
         onClick={() => {
           void reviewsApi.cancelJob(job.id).then((r) => {
             if (!r.ok) { setError(r.error.message); return; }
@@ -21,7 +22,7 @@ export function ReviewJobControl({ run, onChanged }: { run: ReviewRunSummary; on
           });
         }}>
         Cancel this review
-      </button>
+      </Button>
       {error && <span role="alert" className="text-xs text-danger-500">{error}</span>}
     </div>
   );

@@ -13,6 +13,7 @@ import { reviews as reviewsApi } from "../api/client";
 import { oldCrsDownloadOffered } from "../api/reviewPoints";
 import type { ReviewRunSummary } from "../types/api";
 import { NEW_LOOK } from "../look";
+import { Button } from "../components/kit/Kit";
 
 /** Runs fetched per page (#1131). */
 export const RUNS_PAGE = 50;
@@ -99,10 +100,9 @@ export function ReviewCrsList() {
       <h2 className="text-sm font-semibold text-slateish-100">{NEW_LOOK ? "Comment resolution sheets of your reviews" : "Comment Resolution Sheets (review runs)"}</h2>
       {off && <p data-testid="crs-runs-off" className="text-sm text-slateish-400">{RUN_CRS_OFF_LINE}</p>}
       {!off && !open && (
-        <button type="button" onClick={() => void show()}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-200">
+        <Button variant="secondary" size="sm" onClick={() => void show()}>
           Show the review runs' CRSs
-        </button>
+        </Button>
       )}
       {error !== null && <p role="alert" className="text-sm text-danger-500">{error}</p>}
       {open && runs === null && error === null && <p className="text-sm text-slateish-400">{NEW_LOOK ? "Loading your reviews…" : "Loading review runs…"}</p>}
@@ -119,14 +119,13 @@ export function ReviewCrsList() {
                   {run.status}{run.created_at ? ` · ${formatWhen(run.created_at)}` : ""}
                 </span>
               </span>
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 disabled={busy !== null}
                 onClick={() => void download(run.review_run_id)}
-                className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-200"
               >
                 Download CRS (internal review copy)
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
@@ -137,10 +136,9 @@ export function ReviewCrsList() {
             Showing {runs.length.toLocaleString()} of {total.toLocaleString()} {NEW_LOOK ? "reviews" : "review runs"} on submittals you can read
           </span>
           {runs.length < total && (
-            <button type="button" disabled={more} onClick={() => void showMore()}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-200">
+            <Button variant="secondary" size="sm" disabled={more} onClick={() => void showMore()}>
               {more ? "Loading…" : "Show more"}
-            </button>
+            </Button>
           )}
         </div>
       )}

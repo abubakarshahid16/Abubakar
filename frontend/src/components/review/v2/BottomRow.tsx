@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { downloadPaperCrs } from "../agent/downloadAgentCrs";
 import { signWaits } from "./words";
+import { Button } from "../../kit/Kit";
 
 export function BottomRow({ documentId, undecided, codeRecorded, blockers, signed, onSign }: {
   documentId: string | null; undecided: number; codeRecorded: boolean; blockers: string[]; signed: boolean; onSign: () => void;
@@ -26,10 +27,9 @@ export function BottomRow({ documentId, undecided, codeRecorded, blockers, signe
         <button type="button" className={btn} onClick={() => void copy("contractor")} disabled={!documentId}>
           {signed ? "CRS for the contractor (working copy)" : "CRS for the contractor (working copy, not issued)"}
         </button>
-        <button type="button" onClick={onSign} disabled={signed || waits != null} data-testid="v2-sign"
-          className="ml-auto rounded-[var(--radius-sm)] bg-signal-500 px-4 py-1.5 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:bg-ink-600 disabled:text-slateish-500">
+        <Button variant="primary" size="sm" onClick={onSign} disabled={signed || waits != null} data-testid="v2-sign">
           {signed ? "Signed" : "Sign and issue"}
-        </button>
+        </Button>
       </div>
       <p className="text-xs text-slateish-400" data-testid="v2-contractor-line">
         The contractor file holds the failures code proved that you kept, and the points whose words are yours (edited or written by you). A kept point with no words of yours is not issued. It is a working copy until you sign and issue.

@@ -14,6 +14,7 @@ import { groupRunsByDocument, truncationNote, whenLabel } from "../reviewFormat"
 import {
   FILTERS, type InboxFilter, type ReadyCounts, inFilter, inboxStateOf, stateLabel,
 } from "./inboxState";
+import { Button } from "../../kit/Kit";
 
 interface Row {
   documentId: string;
@@ -133,14 +134,13 @@ export function InboxList(
       </div>
       {onReviewAll && notReviewed.length > 0 && (
         <p className="flex flex-wrap items-center gap-3 text-sm text-slateish-300">
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             disabled={reviewingAll}
             onClick={() => onReviewAll(notReviewed.map((row) => ({ documentId: row.documentId, filename: row.filename })))}
-            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:opacity-50"
           >
             {reviewingAll ? "Queuing reviews…" : `Review all not reviewed (${notReviewed.length})`}
-          </button>
+          </Button>
           <span className="text-xs text-slateish-400">
             Each runs in the background, one at a time, on this computer only (nothing is sent to Claude; open a paper to choose Claude and see what will be sent); this list shows where each stands.
             New datasheets are uploaded on the Documents page, several at once.
@@ -166,14 +166,13 @@ export function InboxList(
                   {row.latest && row.state.kind !== "signed" ? ` · ${whenLabel(row.latest.created_at)}` : ""}
                 </p>
               </div>
-              <button
-                type="button"
+              <Button variant="primary"
+               
                 onClick={() => onReview(row.documentId)}
                 disabled={startingDocumentId === row.documentId}
-                className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
               >
                 {startingDocumentId === row.documentId ? "Starting…" : "Review"}
-              </button>
+              </Button>
             </div>
             {row.earlier.length > 0 && onOpenRun && (
               <details className="mt-2 text-xs text-slateish-300">
@@ -183,14 +182,13 @@ export function InboxList(
                     <li key={run.review_run_id} className="flex flex-wrap items-center gap-2">
                       <span>{whenLabel(run.created_at) || "date not recorded"}</span>
                       <span>· {stateLabel(inboxStateOf(run))}</span>
-                      <button
-                        type="button"
+                      <Button variant="secondary"
+                       
                         onClick={() => onOpenRun(run.review_run_id)}
-                        className="underline"
                         aria-label={`Open the run of ${whenLabel(run.created_at) || "unknown date"}`}
                       >
                         Open
-                      </button>
+                      </Button>
                     </li>
                   ))}
                 </ul>

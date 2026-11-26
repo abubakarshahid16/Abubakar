@@ -22,6 +22,7 @@ import { dayTimeWords } from "./landing/dateWords";
 import { CompareReviews } from "./compare/CompareReviews";
 import type { PastReview, PastReviewsListProps } from "./contract";
 import { PAST_COUNTS_NOTE, type PastReviewRow, loadPastReviewCounts, pastCountsLabel, signedWords } from "./pastReviews";
+import { Button } from "../../kit/Kit";
 
 export interface PastReviewsListWithCompareProps extends PastReviewsListProps {
   /** The review on screen. Absent: no compare buttons (the landing page). */
@@ -70,27 +71,25 @@ export function PastReviewsList({ reviews, onOpenRun, currentRunId = null }: Pas
           const words = own ? "This review" : review.signed ? "" : pastCountsLabel(counts[review.runId]);
           return (
             <li key={review.runId} className="flex items-stretch">
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 aria-current={own ? "true" : undefined}
                 onClick={() => onOpenRun(review.runId)}
-                className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-1 px-3 py-2 text-left text-xs text-slateish-300 hover:bg-ink-800 sm:grid-cols-4"
               >
                 <span data-field="date">{dayTimeWords(review.createdAt)}</span>
                 <span data-field="result" className="font-semibold text-slateish-100">{review.result}</span>
                 <span data-field="findings">{words}</span>
                 <span data-field="signed">{signedWords(review as PastReviewRow)}</span>
-              </button>
+              </Button>
               {currentRunId && canCompare.has(review.runId) && (
-                <button
-                  type="button"
+                <Button variant="secondary" size="sm"
+                 
                   data-testid="compare-with"
                   aria-label={`Compare with this one (review of ${dayTimeWords(review.createdAt) || "an earlier date"})`}
                   onClick={(e) => { opener.current = e.currentTarget; setComparing(review); }}
-                  className="shrink-0 px-3 text-xs text-signal-300 underline-offset-2 hover:underline"
                 >
                   Compare with this one
-                </button>
+                </Button>
               )}
             </li>
           );

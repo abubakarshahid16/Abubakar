@@ -16,6 +16,7 @@ import { useEffect, useRef } from "react";
 
 import type { FinishedReview, FinishedReviewNoticeProps } from "./contract";
 import { useFinishedReviews } from "./reviewWatch";
+import { Button } from "../../kit/Kit";
 
 function noticeWords(review: FinishedReview): string {
   const of = review.filename ? ` of ${review.filename}` : "";
@@ -64,8 +65,8 @@ export function FinishedReviewNotice({ onOpenRun, panelOpen = false, openRunId =
         >
           <p>{noticeWords(review)}</p>
           <div className="mt-2 flex gap-3">
-            <button
-              type="button"
+            <Button variant="secondary"
+             
               onClick={() => {
                 // The app may refuse to leave (unsaved decisions, and the
                 // reader chose to stay): it says so by returning false, and
@@ -73,17 +74,15 @@ export function FinishedReviewNotice({ onOpenRun, panelOpen = false, openRunId =
                 const opened: unknown = onOpenRun(review.runId);
                 if (opened !== false) dismiss(review.runId);
               }}
-              className="font-medium text-signal-400 hover:underline"
             >
               Open it
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button variant="secondary"
+             
               onClick={() => dismiss(review.runId)}
-              className="text-slateish-300 hover:underline"
             >
               Dismiss
-            </button>
+            </Button>
           </div>
         </div>
       ))}

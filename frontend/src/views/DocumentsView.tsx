@@ -30,6 +30,7 @@ import {
   typeOf,
 } from "./documentTypeGroups";
 import { NOT_IN_REGISTER_LABEL } from "../components/classification/registerLabels";
+import { Button } from "../components/kit/Kit";
 
 type Load =
   | { state: "loading" }
@@ -484,7 +485,7 @@ export function DocumentsView({
             <option value="uploaded_at">Newest</option><option value="filename">Filename</option><option value="status">Status</option>
           </select>
         </label>
-        <button type="button" className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm" onClick={() => setDirection((d) => d === "asc" ? "desc" : "asc")}>Order: {direction === "asc" ? "A–Z" : "Newest"}</button>
+        <Button variant="secondary" onClick={() => setDirection((d) => d === "asc" ? "desc" : "asc")}>Order: {direction === "asc" ? "A–Z" : "Newest"}</Button>
       </div>
   );
   const workerPanel = (
@@ -564,25 +565,23 @@ export function DocumentsView({
               ))}
             </select>
           </label>
-          <button
-            type="button"
+          <Button variant="secondary"
+           
             // Disabled until a role is chosen. The empty option is not a role
             // and must not be sendable: an "apply" that clears forty roles
             // because the select was left alone is not a mistake anybody
             // should be able to make in one click.
             disabled={!bulkRole || bulkBusy}
             onClick={() => void applyBulkRole()}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm disabled:opacity-40"
           >
             {bulkBusy ? "Applying..." : `Apply to ${selectedIds.length}`}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button variant="secondary"
+           
             onClick={() => setSelectedIds([])}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm"
           >
             Clear selection
-          </button>
+          </Button>
         </div>
       )}
 
@@ -661,13 +660,12 @@ export function DocumentsView({
             // Repeating it here would be noise, so this is a short pointer.
             <p className="text-sm text-warn-500">
               Document list unavailable while the backend is unreachable.{" "}
-              <button
-                type="button"
+              <Button variant="secondary"
+               
                 onClick={onRetryConnection}
-                className="underline decoration-dotted"
               >
                 Retry
-              </button>
+              </Button>
             </p>
           ) : (
             <ErrorState error={load.error} onRetry={refresh} />
@@ -781,7 +779,7 @@ export function DocumentsView({
                   {totalMatching !== null && totalMatching > load.documents.length && (
                     <div className="flex items-center justify-between border-t border-ink-700 pt-4">
                       <p className="text-sm text-slateish-400">Showing {load.documents.length} of {totalMatching} documents.</p>
-                      <button type="button" onClick={() => void loadMore()} className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm">Load next 100</button>
+                      <Button variant="secondary" onClick={() => void loadMore()}>Load next 100</Button>
                     </div>
                   )}
                 </>

@@ -4,7 +4,7 @@
  * styles none of them itself. The parts take no colour, size or className for their look: a new need is added HERE first.
  * Styling lives in kit.css; status colours are fixed per word in chipWords.ts.
  */
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { forwardRef, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 
 import "./kit.css";
 import { toneOfWord } from "./chipWords";
@@ -27,14 +27,17 @@ export function SectionTitle({ children, id }: { children: ReactNode; id?: strin
   return <h2 id={id} className="kit-section-title">{children}</h2>;
 }
 
-type Variant = "primary" | "secondary";
+/** primary: the page's decision; secondary: everything else; danger: an action that removes or revokes (red words and edge). */
+type Variant = "primary" | "secondary" | "danger";
 type Size = "md" | "sm";
 const buttonClass = (variant: Variant, size: Size) => `kit-btn kit-btn--${variant}${size === "sm" ? " kit-btn--sm" : ""}`;
 
 /** The one button. `primary` is the page's main decision (one per area); everything else is `secondary`. */
-export function Button({ variant = "secondary", size = "md", type = "button", ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> & { variant?: Variant; size?: Size }) {
-  return <button type={type} className={buttonClass(variant, size)} {...rest} />;
-}
+export const Button = forwardRef<HTMLButtonElement, Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> & { variant?: Variant; size?: Size }>(
+  function Button({ variant = "secondary", size = "md", type = "button", ...rest }, ref) {
+    return <button ref={ref} type={type} className={buttonClass(variant, size)} {...rest} />;
+  },
+);
 
 /** A link that looks like the one button (a download, a page to open). */
 export function ButtonLink({ variant = "secondary", size = "md", ...rest }: Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "style"> & { variant?: Variant; size?: Size }) {

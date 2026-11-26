@@ -17,6 +17,7 @@
 import { citationWhere } from "./citationWhere";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AnswerPassage } from "../../types/api";
+import { Button } from "../kit/Kit";
 
 export type ProvenanceSource = Pick<AnswerPassage, "text_source" | "ocr_min_conf" | "ocr_alphabet_violations"> & { ocr_alphabet_sample?: string | null };
 
@@ -150,16 +151,15 @@ export function CitationInspector({ passage, children }: { passage: CitationSour
   }, [open]);
   return (
     <span className="relative inline-flex max-w-full flex-wrap items-center">
-      <button
+      <Button variant="secondary"
         ref={trigger}
-        type="button"
+       
         aria-expanded={open}
         aria-label={`Inspect citation for ${passage.filename}, ${citationWhere(passage)}`}
         onClick={() => setOpen((value) => !value)}
-        className="rounded-[var(--radius-xs)] text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-signal-400"
       >
         {children}
-      </button>
+      </Button>
       {open && (
         <span role="dialog" aria-label="Citation details" className="absolute start-0 top-full z-30 mt-2 w-[min(28rem,calc(100vw-2rem))] rounded-[var(--radius-sm)] border border-signal-500/40 bg-ink-900 p-3 text-left shadow-[var(--shadow-floating)]">
           <span className="block text-xs font-semibold text-slateish-100">{provenanceLabel(passage)}</span>

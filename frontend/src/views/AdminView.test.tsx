@@ -154,9 +154,7 @@ describe("destructive actions confirm first", () => {
 
   it("a revoke control is not styled as a neutral button", () => {
     render(<AdminView {...props()} />);
-    expect(screen.getByRole("button", { name: "Revoke" }).className).toMatch(
-      /hover:text-danger-500/,
-    );
+    expect(screen.getByRole("button", { name: "Revoke" }).className).toContain("kit-btn--danger"); // the kit's danger button (red words and edge)
   });
 });
 

@@ -17,6 +17,7 @@
  */
 import type { AnalysisResult, DocumentedFinding } from "../../types/analysis";
 import { summaryBoundary } from "./summaryBoundary";
+import { Button } from "../kit/Kit";
 
 /**
  * WHY THE MARKER READS "S4" AND NOT "4".
@@ -255,13 +256,12 @@ export function SummaryCard({
 
       {onSuggestCorrection && (
         <div className="mt-3 border-t border-ink-700/60 pt-3">
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             onClick={onSuggestCorrection}
-            className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700"
           >
             Suggest correction
-          </button>
+          </Button>
         </div>
       )}
     </section>

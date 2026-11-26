@@ -11,6 +11,7 @@
 import { useId, useState } from "react";
 
 import type { ChatStep, ChatVerification } from "../../types/api";
+import { Button } from "../kit/Kit";
 
 export function verificationText(v: ChatVerification): string {
   return `${v.verified} of ${v.total} point${v.total === 1 ? "" : "s"} found on the page`;
@@ -82,15 +83,14 @@ export function UsedLine({
           {label && <span className="text-slateish-400">{label}</span>}
         </div>
         {hasDetail && (
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             aria-expanded={open}
             aria-controls={panel}
             onClick={() => setOpen((o) => !o)}
-            className="text-xs text-signal-400 underline decoration-signal-500/40 underline-offset-2 hover:text-signal-300"
           >
             How I got this {open ? "▴" : "▾"}
-          </button>
+          </Button>
         )}
       </div>
       {hasDetail && open && (
