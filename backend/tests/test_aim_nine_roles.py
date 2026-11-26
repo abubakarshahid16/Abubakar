@@ -57,9 +57,7 @@ def _rows(conn, table):
 
 
 def test_off_the_run_is_main_no_table_is_made_and_the_model_is_the_runs_own(aim_db):
-    assert (
-        settings.aim_u13_enabled is False
-    )  # off by default (the record rides on update 13's switch)
+    assert settings.agent_review_nine_roles_enabled is False  # off by default
     marker = object()
     assert updates.nine_wrap(marker, RUN, PAPER) is marker
     _run(aim_db)
@@ -69,7 +67,7 @@ def test_off_the_run_is_main_no_table_is_made_and_the_model_is_the_runs_own(aim_
 def test_on_nine_rows_every_call_is_recorded_answered_and_each_role_ends_with_its_state(
     aim_db, monkeypatch
 ):
-    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", True)
     _r, model = _run(aim_db)
     rows = {r["role_no"]: r for r in _rows(aim_db, roles.ROLES)}
     assert sorted(rows) == list(range(1, 10))
@@ -96,7 +94,7 @@ def test_the_read_rows_are_the_documents_each_call_declared_and_the_paper_pages_
 ):
     """The record is written from the request itself: each call's read rows name exactly its declared documents (the gate's
     `carries`), and the paper's pages are those whose marked text is in the request, with the checksum of that text."""
-    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", True)
     sent = []
 
     class Spy(E.FakeModel):
@@ -133,7 +131,7 @@ def test_the_read_rows_are_the_documents_each_call_declared_and_the_paper_pages_
 def test_a_request_holding_the_paper_that_does_not_declare_it_is_refused_before_it_leaves(
     aim_db, monkeypatch
 ):
-    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", True)
     from app.aim_review import steps as S
     from app.aim_review.engine import StepFailed
     from app.aim_review.paper import load_paper
@@ -148,7 +146,7 @@ def test_a_request_holding_the_paper_that_does_not_declare_it_is_refused_before_
 
 
 def test_a_failed_call_makes_its_role_ran_partly_with_the_code(aim_db, monkeypatch):
-    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", True)
     _run(
         aim_db,
         E.FakeModel(

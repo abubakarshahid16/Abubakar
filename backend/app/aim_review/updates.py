@@ -10,7 +10,7 @@ Code-only and screen-only parts stay on.
   * AIM_U8_ENABLED: the second-model rule approvals in the rule pool, the cross-document check.
   * AIM_FORMULA_CHECKS_ENABLED (update 9, ON by default): the formula checks, out of AIM_U8_ENABLED.
   * AIM_U13_ENABLED: the always-on items G2 and G3 read the app's own consistency pairs and form entries (planner, 26 Nov 2026).
-    With it on, also the nine-role read record (`roles`: what each role sent and produced; lead-4 26 Nov: no new switch)."""
+  * AGENT_REVIEW_NINE_ROLES_ENABLED: the nine-role record on the general review (`roles`); off: nothing imported."""
 
 from __future__ import annotations
 
@@ -79,8 +79,7 @@ def checklist_method() -> str:
 
 
 def nine_roles() -> bool:
-    """The nine-role read record rides on update 13's switch (lead-4, 26 Nov 2026: no new switch)."""
-    return u13()
+    return bool(settings.agent_review_nine_roles_enabled)
 
 
 def nine_wrap(model, run_id: str, paper_id: str):
