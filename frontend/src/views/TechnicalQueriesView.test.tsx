@@ -89,17 +89,21 @@ describe("Technical Queries screen", () => {
     expect(container.textContent).not.toMatch(/not covered|weak match/i);
   });
 
-  it("tells the engineer that a kept passage counts once its source document is confirmed (F's live check, 26 Nov 2026)", async () => {
+  it("tells the engineer, before and after keeping, that a passage counts once its source document is confirmed (F's live check, 26 Nov 2026)", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query,
       evidence: [
         { id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" },
         { id: "e2", document_id: "c2", page_start: 5, exact_quote: "y", evidence_state: "verified", supersession_state: "current" },
         { id: "e3", document_id: "c3", page_start: 6, exact_quote: "z", evidence_state: "proposed", supersession_state: "unknown" },
+        { id: "e4", document_id: "c4", page_start: 7, exact_quote: "w", evidence_state: "rejected", supersession_state: "unknown" },
       ] } });
     render(<TechnicalQueriesView />);
-    const notes = await screen.findAllByTestId("evidence-needs-confirm");
-    expect(notes).toHaveLength(1);  // only the kept passage whose source is not confirmed
-    expect(notes[0].textContent).toContain("source document is confirmed");
+    const notes = (await screen.findAllByTestId("evidence-needs-confirm")).map((node) => node.textContent);
+    // the kept passage and the one not yet kept, both with an unconfirmed source; not the confirmed one, not the rejected one
+    expect(notes).toEqual([
+      "Counts for a draft once its source document is confirmed: Documents, Details, Save metadata.",
+      "To count for a draft: keep it as evidence, and confirm its source document (Documents, Details, Save metadata).",
+    ]);
   });
 
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
