@@ -48,11 +48,16 @@ function tooWide() {
 
 /** Runs in the page: every visible text with its contrast, the short labels that wrap, and the main heading. */
 function readPage(EXEMPT_DISABLED) {
+  // ANY CSS colour, read by the browser itself (owner's live walk, 27 Nov 2026: Tailwind's see-through colours, such as bg-ink-850/60,
+  // compute to oklab()/color-mix(), which a pattern for rgb() could not read, so those layers were skipped and Ingestion's 2.8 : 1 passed)
+  const paint = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
   const parse = (c) => {
-    const m = c.match(/rgba?\(([^)]+)\)/);
-    if (!m) return null;
-    const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
-    return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+    if (!c || c === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
+    const m = c.match(/^rgba?\(([^)]+)\)$/);
+    if (m) { const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; }
+    paint.clearRect(0, 0, 1, 1); paint.fillStyle = "#000"; paint.fillStyle = c; paint.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = paint.getImageData(0, 0, 1, 1).data;
+    return { r, g, b, a: a / 255 };
   };
   const over = (top, under) => ({
     r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1,

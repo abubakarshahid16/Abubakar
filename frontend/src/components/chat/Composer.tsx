@@ -146,7 +146,7 @@ export function Composer({
         aria-describedby="chat-question-count"
         className="block w-full resize-none bg-transparent text-[15px] leading-6 text-slateish-100 outline-none placeholder:text-slateish-500 disabled:opacity-50"
       />
-      <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <div className="relative flex items-center gap-2">
           <button
             type="button"
@@ -233,7 +233,7 @@ export function Composer({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span
             id="chat-question-count"
             aria-live="polite"
@@ -253,13 +253,13 @@ export function Composer({
             </span>
           ))}
           {models && model && (
-            <label className="flex items-center gap-1 rounded-[var(--radius-full)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300">
+            <label className="flex max-w-full min-w-0 items-center gap-1 rounded-[var(--radius-full)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300">
               <span>Answered by:</span>
               <select
                 aria-label="Who answers"
                 value={model}
                 onChange={(e) => onModelChange(e.target.value as ModelChoice)}
-                className="bg-transparent text-slateish-200 outline-none"
+                className="min-w-0 max-w-full bg-transparent text-slateish-200 outline-none"
               >
                 {models.models.map((m) => (
                   <option key={m.id} value={m.id} disabled={!m.available} title={m.reason ?? undefined}>

@@ -404,16 +404,22 @@ export function mailboxChip(
 }
 
 /** The count line, which is also a filter: only the states that exist right now, each with its number. */
-export type QuickView = "waiting" | "progress" | "person" | "approved" | "sent" | "closed";
+export type QuickView = "waiting" | "progress" | "person" | "approved" | "sent" | "closed" | "stopped";
 /** Each bucket holds exactly the rows whose status chip says its word (review of #1938: "2 approved" must never show a row chipped "Sent"). */
 const BUCKET_WORDS: Record<Exclude<QuickView, "person">, string[]> = {
   waiting: ["Waiting for approval"], progress: ["In progress"], approved: ["Approved"], sent: ["Sent"], closed: ["Closed", "Duplicate", "Cancelled"],
+  stopped: ["Stopped by an error"],
 };
 export function quickMatch(view: QuickView, q: { status: string; needs_person?: number | null; ref_type?: string | null }): boolean {
   if (view === "person") return Boolean(q.needs_person) || !q.ref_type;
   return BUCKET_WORDS[view].includes(statusChip(q.status).words);
 }
-export function countLine(items: Array<{ status: string; needs_person?: number | null; ref_type?: string | null }>): { total: number; parts: Array<{ view: QuickView; n: number; words: string }> } {
+/** The count line (owner's live walk, 27 Nov 2026: "34 queries: 16 waiting, 18 in progress, 1 needs a person" made 35). `parts` are the
+ *  status buckets: every query is in exactly one, so they always add up to the total. `ofThem` is the queries among those that need a
+ *  person (a problem, not a status): said apart, as "N of them", so it is never added to the status counts. */
+export function countLine(items: Array<{ status: string; needs_person?: number | null; ref_type?: string | null }>): {
+  total: number; parts: Array<{ view: QuickView; n: number; words: string }>; ofThem: { view: QuickView; n: number; words: string } | null;
+} {
   const n = (v: QuickView) => items.filter((q) => quickMatch(v, q)).length;
   const parts: Array<{ view: QuickView; n: number; words: string }> = [
     { view: "waiting", n: n("waiting"), words: "waiting for approval" },
@@ -421,9 +427,10 @@ export function countLine(items: Array<{ status: string; needs_person?: number |
     { view: "approved", n: n("approved"), words: "approved" },
     { view: "sent", n: n("sent"), words: "sent" },
     { view: "closed", n: n("closed"), words: "closed" },
-    { view: "person", n: n("person"), words: n("person") === 1 ? "needs a person" : "need a person" },
+    { view: "stopped", n: n("stopped"), words: "stopped by an error" },
   ];
-  return { total: items.length, parts: parts.filter((p) => p.n > 0) };
+  const person = n("person");
+  return { total: items.length, parts: parts.filter((p) => p.n > 0), ofThem: person ? { view: "person", n: person, words: person === 1 ? "needs a person" : "need a person" } : null };
 }
 
 /** A passage's match in plain words (owner's live walk, 27 Nov 2026 01:15: "8 of 22 key words" reads as machine talk); the counts stay
