@@ -181,7 +181,12 @@ export function notReadWhy(a: QueryAttachment): string | null {
   if (a.document_id && a.parse_status === "ready") return null;
   if (/^(xlsm|xltm|docm|dotm|pptm|potm|ppsm|xlam|ppam)$/.test(ext) || /macroenabled/i.test(a.media_type ?? "")) return "macro file, not opened";
   if ((a.media_type ?? "").startsWith("image/") || /^(png|jpe?g|gif|bmp|tiff?|webp|heic)$/.test(ext)) return "picture, not read";
-  if (/^(docx?|dotx|rtf|odt)$/.test(ext)) return "Word, not read yet";
+  if (ext === "docx") {
+    if (a.scan_status === "static_check_flagged") return "Word with active content, its text is not used";
+    if (a.scan_status === "static_check_unreadable") return "Word, could not be checked";
+    return a.parse_status === "failed" ? "Word, could not be read" : "Word, not read yet";
+  }
+  if (/^(doc|dotx|rtf|odt)$/.test(ext)) return `older Word format (.${ext}), not read: save it as .docx`;
   if (ext === "pdf") return a.parse_status === "failed" ? "PDF, could not be read" : a.scan_status === "static_check_flagged" ? "PDF with active content, its text is not used" : "PDF, not read yet";
   return `${ext ? ext.toUpperCase() + " file" : "file"}, not read`;
 }

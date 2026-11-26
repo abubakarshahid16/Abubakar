@@ -140,7 +140,8 @@ def _process_message(
     for source, stored in zip(
         message.attachments, stored_message["attachments"], strict=True
     ):
-        if stored["document_id"] or not source["filename"].lower().endswith(".pdf"):
+        # a PDF or a Word (.docx) attachment is read; a picture, a macro file or another format is not (the page names each one not read)
+        if stored["document_id"] or not source["filename"].lower().endswith((".pdf", ".docx")):
             continue
         if source.get("attachment_id"):
             content = client.attachment(

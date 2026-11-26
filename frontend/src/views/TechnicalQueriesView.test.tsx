@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { notReadWhy } from "../api/technicalQueries";
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -241,6 +242,8 @@ describe("Technical Queries screen", () => {
     expect(box.textContent).toContain("answer.docx: Word, not read yet");
     expect(box.textContent).toContain("calc.xlsm: macro file, not opened");
     expect(box.textContent).not.toContain("query.pdf");
+    expect(notReadWhy({ filename: "old.doc", document_id: null, parse_status: "pending", scan_status: "pending" })).toBe("older Word format (.doc), not read: save it as .docx");
+    expect(notReadWhy({ filename: "x.docx", document_id: null, parse_status: "pending", scan_status: "static_check_flagged" })).toBe("Word with active content, its text is not used");
   });
 
   it("marks our own reply in a query's thread 'Sent by us'", async () => {
