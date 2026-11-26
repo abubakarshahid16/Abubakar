@@ -73,7 +73,7 @@ describe("ReportsView: list states", () => {
 
 describe("ReportsView: attribution and suppression", () => {
   it("never shows who made a report, by name or address, on its card (H's audit, 27 Nov 2026)", () => {
-    render(<ReportsView reports={[makeReport({ owner_username: "someone@example.com" })]} />);
+    renderView([makeReport({ owner_username: "someone@example.com" })]);
     expect(screen.queryByText(/someone@example\.com/)).toBeNull();
     expect(screen.queryByText(/authentication disabled/)).toBeNull();
   });
