@@ -21,7 +21,9 @@ def _clause(c) -> str:
     return str(c or "").strip().rstrip(".")
 
 
-def cited(it: dict, batch: list[dict]) -> bool:
+def cited(
+    it: dict, batch: list[dict]
+) -> bool:  # `batch`: every rule row of the run (review of update 11, N1)
     """True when the item's clause resolves (see the module); may re-cite the item to the one clause whose rule holds it."""
     if not is_local():
         return True
@@ -29,8 +31,10 @@ def cited(it: dict, batch: list[dict]) -> bool:
     if not rules:
         return True  # a book read by its pages: the page and quote are the citation
     q = str(it.get("rule_quote") or "")
-    holds = {
-        _clause(r["clause"]) for r in rules if quote_in(q, r["text"].removesuffix(_CUT))
+    holds = {  # a rule with no clause number never resolves a citation (review of update 11, N2)
+        _clause(r["clause"])
+        for r in rules
+        if _clause(r["clause"]) and quote_in(q, r["text"].removesuffix(_CUT))
     }
     if _clause(it.get("clause")) in holds:
         return True

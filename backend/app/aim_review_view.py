@@ -27,7 +27,7 @@ from . import (
 )
 from .aim_review import references as aim_review_references
 from .aim_review import unread
-from .aim_review.faults import NOT_APPLIED_WORDS, counted
+from .aim_review.faults import LEGACY_WORDS, NOT_APPLIED_WORDS, counted
 from .aim_review.updates import group_mark, u7b
 
 #: The boundary every count carries.
@@ -779,7 +779,7 @@ def steps_not_applied(calls) -> list[dict]:
             if ":" in str(c.get("code"))
             else "no reason recorded"
         )
-        words = NOT_APPLIED_WORDS.get(
+        words = LEGACY_WORDS.get((step, why)) or NOT_APPLIED_WORDS.get(
             step, "The step " + step + " did not run on this sheet ({why})."
         )
         # a counted step is counted per cause (its sentence holds "{n}"); any other step once

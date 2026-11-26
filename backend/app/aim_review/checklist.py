@@ -497,9 +497,9 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
         dropped += aside
 
         def kept(
-            it: dict, batch=batch
-        ) -> bool:  # local: its clause must resolve too (`citing.cited`)
-            return check_rule_quote(text, it, alias_to_book) and CI.cited(it, batch)
+            it: dict,
+        ) -> bool:  # local: its clause must resolve too, against every rule row (`citing.cited`)
+            return check_rule_quote(text, it, alias_to_book) and CI.cited(it, rows)
 
         bad = [it for it in got if it["source"] == HELD and not kept(it)]
         if bad:  # one retry: ask for the exact words of those items only
@@ -510,12 +510,16 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
             fixed, ask = RT.by_code(
                 bad, batch, kept
             )  # local: stored words first, no call
+            n_code = len(fixed)
             why = lambda it: CI.cause(it, text, alias_to_book)  # noqa: E731 - the count's cause
             for k in range(
                 0, len(ask := RT.capped(ask, size, why)), size
             ):  # local: one retry call per batch
                 fixed += RT.retried(model, ask[k : k + size], batch, carries, lead)
             ok_fixed = [it for it in fixed if it["source"] == HELD and kept(it)]
+            RT.unfound(
+                ask, [it for it in fixed[n_code:] if it in ok_fixed], why
+            )  # local: counted by cause
             dropped += [
                 {"topic": it["topic"], "why": "rule quote not found on the book page"}
                 for it in bad

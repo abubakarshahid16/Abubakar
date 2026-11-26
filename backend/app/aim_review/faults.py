@@ -100,6 +100,9 @@ NOT_APPLIED_WORDS = {
     "answer when asked again for the rule's exact words was not used ({why}).",
     "aim_retry_capped": "{n} checklist item{s} {was} left out without a second ask (the local model makes one retry call "
     "per batch): {why}.",
+    "aim_retry_not_found": "{n} checklist item{s} {was} left out after a second ask: {why}.",
+    "aim_attack_not_shown": "{n} checklist item{s} {was} not attacked ({why}) and {was} kept as the first engineer wrote "
+    "{it}.",
     "aim_attack_item_cut": "{n} checklist item{s} {was} not attacked ({why}) and {was} kept as the first engineer wrote "
     "{it}.",
     "aim_attack_no_verdict": "{n} checklist item{s} got no attack verdict ({why}) and {was} kept as the first engineer "
@@ -111,6 +114,17 @@ NOT_APPLIED_WORDS = {
 #: The count words of the local set-asides' sentences, as (one, more than one).
 _COUNT_WORDS = {"{es}": ("", "es"), "{s}": ("", "s"), "{was}": ("was", "were"), "{it}": ("it", "them"), "{its}": ("its", "their"),
                 "{itself}": ("itself", "themselves")}  # fmt: skip
+
+
+#: A local review recorded before its set-asides were counted by cause gave one fixed reason; said once, never twice (review of
+#: update 11, N7).
+LEGACY_WORDS = {
+    (
+        "aim_retry_capped",
+        "the local model makes one retry call per batch",
+    ): "{n} checklist item{s} {was} left out without a "
+    "second ask (the local model makes one retry call per batch).",
+}
 
 
 def counted(words: str, n: int) -> str:

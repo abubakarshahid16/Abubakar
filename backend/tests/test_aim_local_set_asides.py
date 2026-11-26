@@ -452,3 +452,108 @@ def test_a_full_local_attack_answer_stays_under_the_answer_limit_even_at_one_tok
         shape["maxItems"] == AL.ATTACK_ITEMS
         and AL.ATTACK_ITEMS * one + 40 < budget.LOCAL.max_tokens
     )
+
+
+class _RemoveAll:
+    """The update 11 reviewer's probe: the local attack answers "remove" for every item it is shown."""
+
+    def __init__(self):
+        self.calls = []
+
+    def ask(self, **kw):
+        import re
+
+        self.calls.append(kw)
+        shown = kw["prompt"].split("THE ITEMS:")[-1].split("Books:")[0]
+        return {"verdicts": [{"id": i, "verdict": "remove", "why": "invented", "what_to_check": ""}
+                             for i in re.findall(r'"id": "(C[0-9]+)"', shown)]}  # fmt: skip
+
+
+def _item(n: int, clause: str, source: str = "held standard") -> dict:
+    held = source == "held standard"
+    return {"id": f"C{n:03d}", "topic": f"t{n}", "what_to_check": "w", "book": "B1" if held else "", "clause": clause if held else "",
+            "page": 1, "rule_quote": "q" if held else "", "applies_when": "always", "paper_fields": [], "kind": "limit",
+            "source": source}  # fmt: skip
+
+
+def test_the_local_attack_removes_only_items_whose_own_rule_it_was_shown_and_never_touches_knowledge_items():
+    """Review of update 11, B1: a fixed group of 12 under the 9,000-character material cut showed 11 of 12 rules, knowledge items
+    got no material, and "remove" (the clause does not say it) was applied to items whose clause was never shown."""
+    import re
+
+    sel = _sel(40)
+    shown = [
+        _item(k + 1, f"4.{k}") for k in range(30)
+    ]  # each cites a stored rule (about 470 characters)
+    unheld = [
+        _item(31, "9.9"),
+        _item(32, "9.8"),
+    ]  # held items whose clause has no stored rule: never shown
+    knowledge = [
+        _item(33, "", "not from a held standard"),
+        _item(34, "", "engineering knowledge (book not held)"),
+    ]
+    made = {"items": shown + unheld + knowledge}
+    calls: list = []
+    model = _RemoveAll()
+    with faults.recording(calls), budget.using(budget.LOCAL):
+        got = CL.s3_attack(model, IDENT, sel, made, None, "local")
+    kept = {i["id"] for i in got["items"]}
+    assert {i["id"] for i in unheld + knowledge} <= kept  # kept as written
+    assert not kept & {
+        i["id"] for i in shown
+    }  # each removed only after its own rule was shown
+    for c in (
+        model.calls
+    ):  # every item in a prompt has its own clause's rule in that prompt's material
+        items = c["prompt"].split("THE ITEMS:")[-1].split("Books:")[0]
+        material = c["prompt"].split("THE CLAUSES:")[-1]
+        for clause in re.findall(r'"clause": "([0-9.]+)"', items):
+            assert f'"clause": "{clause}"' in material, clause
+        assert (
+            "C033" not in items and "C034" not in items
+        )  # knowledge items are not in the local attack
+    said = _said(calls)["aim_attack_not_shown"]
+    assert said["count"] == 2 and said["sentence"] == (
+        "2 checklist items were not attacked (its rule could not be shown) and were kept as the first engineer wrote them."
+    )
+
+
+def test_a_rule_with_no_clause_number_never_resolves_a_citation():
+    from app.aim_review import citing
+
+    rows = [
+        _rule("R1", "B1", "", 1, "Words of an invented rule with no clause number.")
+    ]
+    it = {
+        "book": "B1",
+        "clause": "4.1",
+        "rule_quote": "Words of an invented rule with no clause number.",
+    }
+    with budget.using(budget.LOCAL):
+        assert (
+            citing.cited(it, rows) is False and it["clause"] == "4.1"
+        )  # treated as not found, never re-cited to ""
+
+
+def test_items_asked_again_and_still_not_found_are_counted_by_cause():
+    asked = [{"topic": "a"}, {"topic": "b"}, {"topic": "c", "_cut": True}]
+    calls: list = []
+    with faults.recording(calls), budget.using(budget.LOCAL):
+        RT.unfound(
+            asked,
+            [{"topic": "a"}],
+            lambda it: "the quote is not in the book's words (paraphrased)",
+        )
+    said = _said(calls)["aim_retry_not_found"]
+    assert said["count"] == 1 and said["sentence"] == (
+        "1 checklist item was left out after a second ask: the quote is not in the book's words (paraphrased)."
+    )  # "b" only: "a" was fixed and "c" is counted as cut, never twice
+
+
+def test_an_old_local_review_says_its_one_fixed_reason_once():
+    old = [{"step": "aim_retry_capped", "ok": False,
+            "code": "a checklist retry item not applied: the local model makes one retry call per batch"}] * 3  # fmt: skip
+    assert _said(old)["aim_retry_capped"]["sentence"] == (
+        "3 checklist items were left out without a second ask (the local model makes one retry call per batch)."
+    )
