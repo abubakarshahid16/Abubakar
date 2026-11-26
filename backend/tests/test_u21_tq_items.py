@@ -263,3 +263,33 @@ def test_each_item_is_searched_with_its_lead_line_so_the_search_carries_the_subj
     assert (
         items.lead_of("1. a\n2. b") == ""
     )  # no lead line: the item is searched on its own
+
+
+def test_evidence_found_by_an_older_search_is_out_of_date_and_is_searched_again_at_the_next_start(
+    monkeypatch,
+):
+    """Lead-4 (27 Nov 2026): after the per-item search changed, the live queries kept the old single search's evidence and nothing on
+    the page said so, nor offered "Find the sources again". The search version is stamped like a draft's prompt version."""
+    from app.technical_query_items import SEARCH_VERSION
+
+    q = "Please confirm the coating."
+    old = {
+        "proposed_question": q,
+        "evidence_question": q,
+        "evidence_search_version": None,
+        "evidence": [],
+        "drafts": [],
+    }
+    ready = auto.ready(old)
+    assert (
+        ready["evidence_outdated"]
+        and not ready["evidence_fresh"]
+        and auto.OUTDATED_MARK in ready["marks"]
+    )
+    now = {**old, "evidence_search_version": str(SEARCH_VERSION)}
+    assert (
+        not auto.ready(now)["evidence_outdated"] and auto.ready(now)["evidence_fresh"]
+    )
+    assert not auto.evidence_outdated(
+        {**old, "evidence_question": None}
+    )  # never prepared: nothing out of date

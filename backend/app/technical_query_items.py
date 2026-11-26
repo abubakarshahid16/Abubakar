@@ -20,6 +20,11 @@ _ITEM_START = re.compile(rf"^\s*{ITEM_MARK}\s+(?=\S)")
 #: An item's own text, wrapped lines included, is cut past this with a visible mark (never silently).
 ITEM_CAP = 2000
 ITEM_CUT = " [cut here: the rest of this item is in the request]"
+#: The version of the evidence SEARCH, stamped on each preparation (technical_queries.evidence_search_version), like a draft's
+#: prompt version: 1 = one search for the whole request; 2 = each numbered item searched on its own (o14 update 21); 3 = each item
+#: searched with its request's lead line. Evidence from an older search is marked out of date, the page offers "Find the sources
+#: again", and the next server start searches it again by itself (lead-4, 27 Nov 2026).
+SEARCH_VERSION = 3
 #: Per item, its best passages listed before the rest.
 PER_ITEM = 3
 #: At most this many items are searched one by one (a longer list: the rest are covered by the whole-question search, and counted).

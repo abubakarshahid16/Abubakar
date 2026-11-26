@@ -233,6 +233,7 @@ def _ensure_schema() -> None:
             "edited_question",  # an engineer's own wording, saved but not confirmed (technical_query_auto)
             "evidence_question",  # the wording the current evidence was found for
             "draft_note",  # why the system wrote no draft, in plain words
+            "evidence_search_version",  # the search that found the current evidence (technical_query_items.SEARCH_VERSION)
         ):
             if column not in columns:
                 conn.execute(f"ALTER TABLE technical_queries ADD COLUMN {column} TEXT")
@@ -1463,7 +1464,7 @@ def prepare_evidence(
     with connect() as conn:
         conn.execute(
             "UPDATE technical_queries SET extracted_question=?,attachment_context=?,"
-            "proposed_question=?,proposed_questions=?,proposal_note=?,evidence_coverage=?,attachment_reading=?,evidence_question=?,status='drafting',updated_at=? WHERE id=?",
+            "proposed_question=?,proposed_questions=?,proposal_note=?,evidence_coverage=?,attachment_reading=?,evidence_question=?,evidence_search_version=?,status='drafting',updated_at=? WHERE id=?",
             (
                 email_question or None,
                 json.dumps(context),
@@ -1473,6 +1474,7 @@ def prepare_evidence(
                 json.dumps(coverage),
                 json.dumps(reading),
                 question or None,
+                str(technical_query_items.SEARCH_VERSION),
                 now(),
                 query_id,
             ),
