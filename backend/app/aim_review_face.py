@@ -12,7 +12,10 @@ from __future__ import annotations
 import sqlite3
 
 SIGNED, CHANGED, NOT_SIGNED = "signed", "changed", "not_signed"
-CLAUDE, LOCAL = "claude", "local"
+CLAUDE, LOCAL, UNKNOWN = "claude", "local", "unknown"
+#: A run counts as FINISHED only when it ended with a whole review (review of update 12, N7): a failed or stopped run is never
+#: preferred as a file's face over a finished review.
+FINISHED = "done"
 #: The face row's note when a newer review of the paper exists (lead-4, 26 Nov 2026: so the signed-first face never hides it).
 NEWER_UNSIGNED = "A newer review exists, not signed"
 
@@ -21,11 +24,9 @@ def engine_words(engine: str) -> str:
     """The row's engine words: "Claude", or the local model's rough-draft label (`aim_review_gate.LOCAL_ROUGH_DRAFT`)."""
     from . import aim_review_gate
 
-    return (
-        f"Local model: {aim_review_gate.LOCAL_ROUGH_DRAFT}"
-        if engine == LOCAL
-        else "Claude"
-    )
+    if engine == LOCAL:
+        return f"Local model: {aim_review_gate.LOCAL_ROUGH_DRAFT}"
+    return "engine not recorded" if engine == UNKNOWN else "Claude"
 
 
 def engine_of(conn, run: dict) -> str:
@@ -39,7 +40,7 @@ def engine_of(conn, run: dict) -> str:
             else CLAUDE
         )
     except (sqlite3.Error, KeyError, TypeError):
-        return CLAUDE
+        return UNKNOWN  # an unreadable run is never called Claude (review of update 12, N7)
 
 
 def signoff_state(conn, run_id: str) -> str:
@@ -56,8 +57,10 @@ def signoff_state(conn, run_id: str) -> str:
 
 
 def face_ids(rows: list[dict]) -> set[str]:
-    """The face run id of each paper among `rows` (dicts with review_run_id, submittal_document_id, created_at, engine and
-    general_signoff), by THE RULE."""
+    """The face run id of each paper among `rows` (dicts with review_run_id, submittal_document_id, created_at, status, engine
+    and general_signoff), by THE RULE, among FINISHED runs first: newest signed, else newest finished on Claude, else newest
+    finished (a local draft). A paper with no finished run shows its newest run still going, else its newest run (a failure is
+    shown, never hidden)."""
 
     def newest(xs: list[dict]) -> dict | None:
         return max(
@@ -71,9 +74,12 @@ def face_ids(rows: list[dict]) -> set[str]:
         by_paper.setdefault(str(r["submittal_document_id"]), []).append(r)
     out = set()
     for runs in by_paper.values():
+        done = [r for r in runs if r.get("status") == FINISHED]
         face = (
-            newest([r for r in runs if r.get("general_signoff") == SIGNED])
-            or newest([r for r in runs if r.get("engine") != LOCAL])
+            newest([r for r in done if r.get("general_signoff") == SIGNED])
+            or newest([r for r in done if r.get("engine") == CLAUDE])
+            or newest(done)
+            or newest([r for r in runs if r.get("status") in ("queued", "running")])
             or newest(runs)
         )
         out.add(str(face["review_run_id"]))
@@ -91,8 +97,9 @@ def newer_words(rows: list[dict], face_id: str) -> str | None:
         r
         for r in rows
         if r["submittal_document_id"] == face["submittal_document_id"]
+        and r.get("status") not in ("failed", "cancelled")
         and key(r) > key(face)
     ]
     if not newer:
         return None
-    return f"{NEWER_UNSIGNED} ({engine_words(max(newer, key=key).get('engine') or CLAUDE)})"
+    return f"{NEWER_UNSIGNED} ({engine_words(max(newer, key=key).get('engine') or UNKNOWN)})"

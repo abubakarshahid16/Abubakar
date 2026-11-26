@@ -125,6 +125,7 @@ def entries(
             "review_run_id": str(r["run_id"]),
             "submittal_document_id": r["paper_document_id"],
             "created_at": r["created_at"],
+            "status": str(r["status"]),
             "engine": aim_review_face.engine_of(conn, r),
             "general_signoff": aim_review_face.signoff_state(conn, str(r["run_id"]))
             if str(r["status"]) == "done"

@@ -89,14 +89,31 @@ def test_an_unreadable_block_file_withholds_everything(library):
     assert got["documents"] == [] and got["withheld_count"] == 4
 
 
+def _face(monkeypatch, engine: str, words: str) -> None:
+    """The paper's face review (`aim_review_face` through the runs list), as the tool reads it."""
+    from app import aim_review_runs
+
+    monkeypatch.setattr(
+        aim_review_runs,
+        "entries",
+        lambda conn, allowed, document_id=None, *, newest_only=False: [
+            {
+                "review_run_id": "run_x",
+                "status": "completed",
+                "engine": engine,
+                "engine_words": words,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        aim_review_store, "run", lambda conn, run_id: {"run_id": run_id}
+    )
+
+
 def test_the_latest_review_gives_counts_and_comments_with_page_never_the_papers_quote(
     library, monkeypatch
 ):
-    monkeypatch.setattr(
-        aim_review_store,
-        "latest_run",
-        lambda conn, paper, ended=True: {"run_id": "run_x"},
-    )
+    _face(monkeypatch, "claude", "Claude")
     view = {
         "status": "completed",
         "finished_at": "2026-11-25T00:00:00Z",
@@ -194,3 +211,37 @@ def test_local_only_and_the_local_engine_send_nothing(library, monkeypatch, tmp_
         json={"question": "List the contracts we hold", "model": "local"},
     )
     assert calls == []  # not one request reached Claude
+
+
+def test_the_latest_review_is_the_files_face_and_names_a_local_rough_draft(
+    library, monkeypatch
+):
+    """Review of update 12, N9: the tool gives the review the paper's row opens (its face) and names the engine, so a local
+    rough draft is never handed over as if it were the review."""
+    words = "Local model: rough draft, not scored as reliable"
+    _face(monkeypatch, "local", words)
+    view = {"status": "completed", "finished_at": None, "mark": "AI, to be checked",
+            "counts": {"points": 1, "comments": 0, "by_shown_label": {}}, "comments": []}  # fmt: skip
+    monkeypatch.setattr(aim_review_view, "build", lambda conn, run, scope: view)
+    got = chat_db_tools.latest_review({"document_id": "doc_c1"}, allowed=library)
+    assert got["engine"] == "local" and got["engine_words"] == words
+
+
+@pytest.mark.parametrize(
+    "question, records",
+    [
+        ("List the contracts we hold", True),
+        ("Which documents do we have?", True),
+        ("How many datasheets are there", True),
+        ("Show me all the procedures", True),
+        ("What is the latest review of the pump paper", True),
+        ("What is the design pressure in the datasheet", False),
+        ("What does the contract say about payment", False),
+        ("Which standards does this datasheet cite", False),
+        ("What is the set pressure", False),
+    ],
+)
+def test_only_a_question_about_the_librarys_records_takes_the_records_path(
+    library, question, records
+):
+    assert chat_db_tools.asks_the_records(question) is records

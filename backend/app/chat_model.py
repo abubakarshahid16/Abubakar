@@ -106,18 +106,20 @@ def _local_review_note() -> str | None:
         return None
 
 
-#: How long a credit refusal is remembered when nothing has succeeded since (the same day as the review plan's note, M4).
-CREDIT_REFUSAL_HOURS = 24
+#: How long a credit refusal hides Claude in Chat's picker when nothing has succeeded since (review of update 12, N6: Chat
+#: cannot itself make the call that would clear it, so after a top-up the picker offers Claude again within this many minutes;
+#: a refusal on that call hides it again).
+CREDIT_REFUSAL_MINUTES = 15
 
 
-def credit_refused_now(hours: int = CREDIT_REFUSAL_HOURS) -> bool:
-    """True when, within the last `hours`, the LATEST Claude call that reached the API was refused for no credit and no later
+def credit_refused_now(minutes: int = CREDIT_REFUSAL_MINUTES) -> bool:
+    """True when, within the last `minutes`, the LATEST Claude call that reached the API was refused for no credit and no later
     call succeeded (the review plan's rule, M4: a later success clears it at once; credit may have been added). Read from the
     spend ledger's own lines: a refusal is a line whose reason or finish ends with `claude_spend.NO_CREDIT`, a success a settled
     line not marked failed; a cache hit or a reservation is neither. Read only."""
     from datetime import UTC, datetime, timedelta
 
-    since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    since = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat(timespec="seconds")
     for line in reversed(claude_spend._raw_lines()):
         if str(line.get("at") or "") < since:
             return False

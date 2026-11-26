@@ -5,8 +5,9 @@ By code, no model:
   * `selected_block`: the first message lists every selected paper (title, status, pages) and asks for ONE pass PER PAPER, so
     Claude opens each of them; a paper still being read is named as such and is not opened.
   * `tool_cap`: a turn on N selected papers allows at least N + 2 tool calls (at most `MAX_TOOL_CALLS`).
-  * `coverage`: the line under the answer, "read 8 of 10; 2 still processing", from what the turn's tools actually returned
-    (a paper counts as read only when a tool brought back its text), never from the model's words.
+  * `coverage`: the line under the answer, "Passages read from 8 of 10 selected papers; 2 still processing", from what the
+    turn's tools actually returned (a paper counts only when a tool brought back some of its text), never from the model's
+    words. Above `MAX_PAPERS` it says the per-paper pass did not apply, with no count.
   * `review_offer`: "review / check these" offers the real Review engine for each selected paper (the comment sheet), never a
     chat summary in its place.
 Only the papers the caller selected AND may read are ever named (rule 5: the caller's selection narrows, never widens). No
@@ -84,9 +85,21 @@ def selected_block(selected) -> str:
     )
 
 
+#: Above `MAX_PAPERS` the per-paper pass does not apply; the answer says so instead of counting (review of update 12, N8).
+OVER_LIMIT = (
+    "You selected {n} papers. Up to {most} are each searched on their own; with more, this answer is one search over all of them, "
+    "so it does not count which papers it read."
+)
+
+
 def coverage(selected, read_ids) -> dict | None:
     """{"selected", "read", "processing", "not_read": [ids], "sentence"} for N selected papers (the answer's `paper_coverage`);
-    None for fewer than two."""
+    None for fewer than two. The count is of papers passages were READ from (a search brings back a few passages of each, not
+    the whole paper: review of update 12, N8). Above `MAX_PAPERS`: the sentence says the pass did not apply, with no count."""
+    if len(selected or ()) > MAX_PAPERS:
+        n = len(selected)
+        return {"selected": n, "read": None, "processing": None, "not_read": [],
+                "sentence": OVER_LIMIT.format(n=n, most=MAX_PAPERS)}  # fmt: skip
     if not applies(selected):
         return None
     rows = _rows(selected)
@@ -97,7 +110,7 @@ def coverage(selected, read_ids) -> dict | None:
     not_read = [
         r["id"] for r in rows if r["id"] not in read and r["id"] not in processing
     ]
-    sentence = f"Read {len(read)} of {len(rows)} selected papers"
+    sentence = f"Passages read from {len(read)} of {len(rows)} selected papers"
     if processing:
         sentence += f"; {len(processing)} still processing"
     if not_read:

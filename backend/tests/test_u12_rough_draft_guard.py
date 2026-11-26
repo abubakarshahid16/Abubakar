@@ -74,9 +74,9 @@ def test_a_newer_local_draft_does_not_hide_the_claude_review_and_each_row_names_
 
 
 def test_the_face_rule_signed_then_claude_then_newest():
-    def row(run_id, created, engine, signoff=None):
+    def row(run_id, created, engine, signoff=None, status="done"):
         return {"review_run_id": run_id, "submittal_document_id": "p", "created_at": created, "engine": engine,
-                "general_signoff": signoff}  # fmt: skip
+                "general_signoff": signoff, "status": status}  # fmt: skip
 
     claude_old = row("c1", "2026-11-01", "claude", aim_review_face.SIGNED)
     claude_new = row("c2", "2026-11-10", "claude")
@@ -156,9 +156,9 @@ def test_a_sign_off_of_a_local_draft_decided_one_by_one_says_it_was_made_from_a_
 def test_the_face_row_says_when_a_newer_review_exists_not_signed():
     """Lead-4, 26 Nov 2026: the signed-first face never hides a newer review; its row names it with its engine."""
     rows = [
-        {"review_run_id": "signed", "submittal_document_id": "p", "created_at": "2026-11-01", "engine": "claude",
+        {"review_run_id": "signed", "submittal_document_id": "p", "created_at": "2026-11-01", "status": "done", "engine": "claude",
          "general_signoff": aim_review_face.SIGNED},
-        {"review_run_id": "newer", "submittal_document_id": "p", "created_at": "2026-11-20", "engine": "local",
+        {"review_run_id": "newer", "submittal_document_id": "p", "created_at": "2026-11-20", "status": "done", "engine": "local",
          "general_signoff": None},
     ]  # fmt: skip
     (face,) = aim_review_face.face_ids(rows)
@@ -180,3 +180,41 @@ def test_the_runs_list_carries_the_note_on_the_face_row_only(temp_db):
     rows = {e["review_run_id"]: e for e in _entries()}
     assert rows[RUN]["newer_note"].startswith(aim_review_face.NEWER_UNSIGNED)
     assert rows[LOCAL_RUN]["newer_note"] is None
+
+
+def test_a_failed_claude_run_is_never_the_face_over_a_finished_local_draft():
+    """Review of update 12, N7: the face is a finished review; a failed or stopped run is never preferred; a paper with no
+    finished run shows its run still going, else its newest run (a failure is shown, never hidden)."""
+
+    def row(run_id, created, engine, status):
+        return {"review_run_id": run_id, "submittal_document_id": "p", "created_at": created, "engine": engine,
+                "general_signoff": None, "status": status}  # fmt: skip
+
+    failed_claude = row("c-failed", "2026-11-01", "claude", "failed")
+    stopped_claude = row("c-stopped", "2026-11-05", "claude", "stopped")
+    local_done = row("l-done", "2026-11-20", "local", "done")
+    assert aim_review_face.face_ids([failed_claude, stopped_claude, local_done]) == {
+        "l-done"
+    }
+    running = row("c-running", "2026-11-25", "claude", "running")
+    assert aim_review_face.face_ids([failed_claude, running]) == {"c-running"}
+    assert aim_review_face.face_ids([failed_claude]) == {"c-failed"}
+    newer_failed = row("c-newer-failed", "2026-11-26", "claude", "failed")
+    assert (
+        aim_review_face.newer_words([local_done, newer_failed], "l-done") is None
+    )  # a failure is not "a newer review"
+
+
+def test_an_unreadable_run_is_never_called_claude(monkeypatch):
+    import sqlite3
+
+    from app import aim_review_local_view
+
+    def unreadable(conn, run):
+        raise sqlite3.OperationalError("invented")
+
+    monkeypatch.setattr(aim_review_local_view, "engine_of", unreadable)
+    assert aim_review_face.engine_of(None, {"run_id": "x"}) == aim_review_face.UNKNOWN
+    assert (
+        aim_review_face.engine_words(aim_review_face.UNKNOWN) == "engine not recorded"
+    )
