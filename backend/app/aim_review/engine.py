@@ -443,6 +443,8 @@ def to_line(n: int, d: dict) -> dict:
 def _steps(
     conn, state: _RunState, mdl, allowed_books: frozenset[str], store, say, cancelled
 ) -> None:
+    from app import document_groups as DG
+
     from . import library as L
     from . import steps as S
     from . import unread as U
@@ -457,8 +459,7 @@ def _steps(
     if not paper.pages:
         raise StepFailed("no_pages: the paper has no stored page text")
     say(5, "name the paper")
-    ident = S.s1_identify(mdl, paper, _known_keys(store), lead)
-    state.identity = _identity_record(ident)
+    ident = DG.route(conn, state, S.s1_identify(mdl, paper, _known_keys(store), lead), _identity_record)  # fmt: skip
     if state.cited is None:
         state.cited = L.cited_company(conn, state.paper_id)
     state.key = L.cited_key(
@@ -476,8 +477,6 @@ def _steps(
     state.book_why = _book_reasons(checklist)
     state.book_fallback = BN.fallback_reasons(conn, state.paper_id, ident, allowed_books, state.cited)  # fmt: skip
     # the standards the paper itself cites (S1, each verified in its quote) that no held document answers: said as not held
-    from . import book_names as BN
-
     state.not_held = BN.with_cited_not_held(
         conn, state.paper_id, ident.get("cited"), state.not_held
     )

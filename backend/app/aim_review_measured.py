@@ -164,6 +164,11 @@ def for_run(identity: dict | None) -> dict | None:
     """What a run's page and file say about the measured score of its kind, or None when the run names no kind."""
     if not isinstance(identity, dict):
         return None
+    # a paper not placed by its kind: "not yet scored for this kind" (L3)
+    from . import document_groups
+
+    if (unscored := document_groups.not_scored(identity)) is not None:
+        return unscored
     kind = _word(identity.get("kind"))
     if not kind:
         return None
@@ -213,7 +218,7 @@ def for_local_run(identity: dict | None, models: list[str]) -> dict:
     """What a run made on the LOCAL model says in place of its kind's score: the measured scores are of Claude reviews, so they do
     not apply; `aim_review_gate.LOCAL_NOT_SCORED` until local runs are scored (planner 25 Nov 2026 22:35). `models`: the model names
     the local engine itself reported in the run's calls (never the setting); none recorded is said so."""
-    from . import aim_review_gate
+    from . import aim_review_gate, document_groups
 
     kind = _word((identity or {}).get("kind"))
     named = ", ".join(models) if models else "its name was not recorded"
@@ -225,5 +230,8 @@ def for_local_run(identity: dict | None, models: list[str]) -> dict:
         "sentence": (
             f"Reviewed on the local model on this computer ({named}): {aim_review_gate.LOCAL_NOT_SCORED}. "
             "The scores of this kind were measured on Claude reviews and do not apply to it."
+        )
+        + "".join(
+            " " + x["sentence"] for x in [document_groups.not_scored(identity)] if x
         ),
     }

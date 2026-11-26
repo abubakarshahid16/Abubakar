@@ -386,6 +386,8 @@ EGRESS_SAFE: dict[str, object] = {
     "rulebook_v2_enabled": False,
     # --- local only, no model or socket: the edition register on a database copy (STEP 5, off by default)
     "standard_editions_enabled": False,
+    # --- local only, no model or socket: L3 routing by document family (way-back switch, on by default)
+    "kind_family_route_enabled": True,
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,

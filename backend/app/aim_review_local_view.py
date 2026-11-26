@@ -125,4 +125,10 @@ def measured(identity: dict | None, local: dict) -> dict | None:
         return out | {"sentence": " ".join([out["sentence"], *extra])}
     return aim_review_measured.for_run(
         {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
+        # L3: where the paper was placed (a run made before has none, and keeps its old line)
+        | {
+            k: identity[k]
+            for k in ("kind_placed", "family", "document_group")
+            if k in identity
+        }
     )
