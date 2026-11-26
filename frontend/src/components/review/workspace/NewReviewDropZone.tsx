@@ -17,7 +17,7 @@ import type { NewReviewDropZoneProps, NewReviewPhase } from "./contract";
 import { StartReviewStep } from "../panels/StartReviewStep";
 import { type AskFirst, type OfferMark, continueNewReview, markAndReview, markOfferWords, startNewReview } from "./newReview";
 import { priorDecisionWords } from "./priorDecisionWords";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 function phaseWords(phase: NewReviewPhase, filename: string | null): string | null {
   const name = filename ?? "your file";
@@ -127,13 +127,10 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
       >
         <p className="text-sm text-slateish-300">
           Drop a contractor's PDF or Word file here, or{" "}
-          <Button variant="secondary"
-           
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-          >
+          {/* a choice inside a sentence is the kit's link, not a boxed button (H's gate, 27 Nov 2026) */}
+          <LinkButton disabled={busy} onClick={() => inputRef.current?.click()}>
             choose a file
-          </Button>
+          </LinkButton>
           . After the upload you choose who reviews it and see what will be sent.
         </p>
         <input

@@ -872,7 +872,7 @@ function FilterChip({
   count,
   on,
   onClick,
-  amber: _amber, // the kit decides the look; the count beside the label says what needs attention
+  amber,
 }: {
   label: string;
   count?: number;
@@ -887,6 +887,7 @@ function FilterChip({
       variant="secondary"
       role="checkbox"
       aria-checked={on}
+      data-tone={amber ? "check" : undefined}
       onClick={onClick}
     >
       {label}
