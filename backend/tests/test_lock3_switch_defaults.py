@@ -40,7 +40,6 @@ STAYS_OFF = (
     "recommendation_queries_enabled",
     "session_expired_notice_enabled",
     "rule_auto_use_enabled",
-    "tested_cards_decide_enabled",
     "one_checked_definition_enabled",
     "pdf_heading_detection_enabled",
     "answer_judge_enabled",

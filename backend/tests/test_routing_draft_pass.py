@@ -42,7 +42,6 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "draft-pass.sqlite")
     monkeypatch.setattr(settings, "rule_auto_use_enabled", False)
-    monkeypatch.setattr(settings, "tested_cards_decide_enabled", False)
     monkeypatch.setattr(settings, "crs_routing_by_hold_reason_enabled", False)
     monkeypatch.setattr(settings, "crs_compliance_list_enabled", False)
     db.reset_connection()
@@ -806,7 +805,6 @@ def _listed_clauses(monkeypatch, equipment_type, rows, combo):
     auto_use, routing, compliance, presence = combo
     monkeypatch.setattr(settings, "rule_auto_use_enabled", auto_use)
     monkeypatch.setattr(settings, "presence_not_pass_enabled", presence)
-    monkeypatch.setattr(settings, "tested_cards_decide_enabled", True)
     monkeypatch.setattr(settings, "owner_approved_rules_decide_enabled", True)
     for kit in ("pump", "vessel", "exchanger"):
         monkeypatch.setattr(settings, f"{kit}_kit_draft_enabled", True)

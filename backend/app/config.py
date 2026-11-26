@@ -486,7 +486,6 @@ class Settings(SettingsExt, BaseSettings):
     recommendation_queries_enabled: bool = False
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
-    tested_cards_decide_enabled: bool = False  # order 306.1
     deferred_value_is_query_enabled: bool = True  # D2, #1475
     rule_trust_reference_path: Path = BACKEND_DIR / "app" / "reference" / "rule_trust.json"
 

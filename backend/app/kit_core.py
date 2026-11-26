@@ -10,19 +10,27 @@ A kit is preparation only: no engineer sign-off, no real document of that type y
   * `Kit.kit_report()`             - each card run through the real `datasheet_checks.evaluate` (via `rule_cards`).
   * `rows(...)` / `with_kit(...)`  - the two hooks `datasheet_checks` calls; they serve every kit in `KITS`.
 
-Cards never decide: `card_trust.why_not` answers "not a committed card" for every id here, and no kit type is in
-`card_trust.DECIDING_TYPES`. A kit row is ALWAYS held for the engineer (`held`), whatever `rule_auto_use_enabled` says.
+Cards never decide: no kit card ever decides (the tested-cards switch that let a card decide is retired, 26 Nov 2026). A kit row is ALWAYS held for the engineer (`held`), whatever `rule_auto_use_enabled` says.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import hold_reason
 
 REFERENCE = Path(__file__).resolve().parent / "reference"
 
+
+#: A card's source names a clause NUMBER ("4.2.1", "PSV-3"), not a definition or a placeholder (was `card_trust`, retired 26 Nov 2026).
+_CLAUSE = re.compile(r"^(?:\d+(?:\.\d+)*|[A-Za-z]{1,5}-\d+(?:\.\d+)*)$")
+
+
+def has_clause_number(item: dict) -> bool:
+    """True when the card's source clause is a clause number."""
+    return bool(_CLAUSE.match(str((item.get("source") or {}).get("clause") or "").strip()))
 
 def _same_rule(a: dict, b: dict) -> bool:
     return (

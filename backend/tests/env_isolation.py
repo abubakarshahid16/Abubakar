@@ -287,7 +287,6 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: numbered blocks and hashes for every file (off by default)
     "intake_blocks_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
-    "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
     # --- local only, no model or socket: a recommendation is raised as a query (order 288.2, off by default)
     "recommendation_queries_enabled": False,

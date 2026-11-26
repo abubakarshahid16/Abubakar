@@ -348,9 +348,8 @@ def test_the_planted_totals_are_every_defect_caught_and_zero_false_passes():
 
 @pytest.fixture
 def live_trust(monkeypatch):
-    """The owner's trust switches ON: an unproven rule never decides, a tested card does."""
+    """The owner's trust switch ON: an unproven rule never decides (a tested card no longer does either: the switch tested_cards_decide_enabled is retired with its OFF behaviour (lead-4, 26 Nov 2026))."""
     monkeypatch.setattr(settings, "rule_auto_use_enabled", True)
-    monkeypatch.setattr(settings, "tested_cards_decide_enabled", True)
 
 
 def _after_trust(rule_id, equipment_type, base, changes):
@@ -359,10 +358,19 @@ def _after_trust(rule_id, equipment_type, base, changes):
     )
 
 
-def test_a_tested_card_fail_survives_the_trust_gate(live_trust):
+def test_a_tested_card_fail_is_held_for_the_engineer_with_the_rules_own_verdict(
+    live_trust,
+):
     out = _after_trust("PSV-24", PSV, PSV_BASE, {"set_pressure": ("13", "barg")})
-    assert out["status"] == "NON_COMPLIANT"
-    assert out["trust_label"] == rule_trust.TESTED_CARD
+    assert (
+        out["status"] == "NEEDS_ENGINEER_REVIEW"
+    )  # was NON_COMPLIANT: the switch tested_cards_decide_enabled is retired with its OFF behaviour (lead-4, 26 Nov 2026)
+    assert (
+        out["trust_label"] == rule_trust.UNPROVEN
+    )  # was TESTED_CARD, for the same reason
+    assert (
+        out["rule_said"] == "NON_COMPLIANT"
+    )  # the planted fault is still found, as the rule's own verdict
 
 
 @pytest.mark.parametrize(

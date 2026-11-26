@@ -2,8 +2,7 @@
 
 The mechanism is shared (`kit_core`, also used by `vessel_kit`); this module only names the pump kit and keeps its
 public names. Everything is a draft (no engineer sign-off, no real pump document yet) and OFF unless
-`settings.pump_kit_draft_enabled` is on. Cards never decide: `card_trust.why_not` answers "not a committed card"
-for every id here, and the pump type is not in `card_trust.DECIDING_TYPES`.
+`settings.pump_kit_draft_enabled` is on. Cards never decide (the tested-cards switch that let a card decide is retired, 26 Nov 2026).
 """
 
 from __future__ import annotations
