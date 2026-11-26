@@ -184,11 +184,21 @@ def drawing_context() -> tuple[str, str]:
     from pathlib import Path
 
     try:
-        data = json.loads((Path(__file__).resolve().parent.parent / "reference" / "drawing_checks.json").read_text(encoding="utf-8"))
+        data = json.loads(
+            (
+                Path(__file__).resolve().parent.parent
+                / "reference"
+                / "drawing_checks.json"
+            ).read_text(encoding="utf-8")
+        )
     except (OSError, ValueError) as exc:
         log.info("drawing checks not read (%s)", type(exc).__name__)
         return "", ""
-    pairs = "\n".join(f"- {c['text']}" for c in data.get("consistency") or [] if isinstance(c, dict) and c.get("text"))
+    pairs = "\n".join(
+        f"- {c['text']}"
+        for c in data.get("consistency") or []
+        if isinstance(c, dict) and c.get("text")
+    )
     names = [str(n) for n in data.get("required_entries") or [] if n]
     return (
         "\n".join(x for x in ("PAIRS THAT MUST AGREE on a drawing set, wherever it states both:\n" + pairs if pairs else "",

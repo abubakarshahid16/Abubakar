@@ -26,8 +26,17 @@ class _Paper:
 
 
 def _lines(monkeypatch, text: str):
-    monkeypatch.setattr(F, "_carried", lambda conn, ids: {"bk-invented": ("INVENTED-BOOK", {7: "Invented intro. " + CLAUSE + "."})})
-    return [(ln["item_id"], ln["label"]) for ln in F.lines(None, _Paper(text), ["bk-invented"])]
+    monkeypatch.setattr(
+        F,
+        "_carried",
+        lambda conn, ids: {
+            "bk-invented": ("INVENTED-BOOK", {7: "Invented intro. " + CLAUSE + "."})
+        },
+    )
+    return [
+        (ln["item_id"], ln["label"])
+        for ln in F.lines(None, _Paper(text), ["bk-invented"])
+    ]
 
 
 @pytest.fixture
@@ -39,25 +48,47 @@ def test_off_the_new_check_and_the_drawing_context_do_not_exist(monkeypatch):
     monkeypatch.setattr(settings, "aim_u13_enabled", False)
     assert "hydrotest_design" not in [c.id for c in F.checks()]
     assert always.form_context({"kind": "drawing"}) == ("", "")
-    assert updates.with_always(["c1", "c2"], ["G1"]) == ["c1", "c2", "G1"]  # as main: the checklist first
+    assert updates.with_always(["c1", "c2"], ["G1"]) == [
+        "c1",
+        "c2",
+        "G1",
+    ]  # as main: the checklist first
 
 
-def test_a_test_pressure_below_the_factor_times_the_design_pressure_is_not_met_by_code(monkeypatch, u13):
+def test_a_test_pressure_below_the_factor_times_the_design_pressure_is_not_met_by_code(
+    monkeypatch, u13
+):
     rows = "Hydrostatic test pressure   10 barg\nDesign pressure   9 barg"
     got = _lines(monkeypatch, rows)  # 10 < 1.3 x 9 = 11.7
     assert got == [("F-hydrotest_design", "Not met")]
 
 
-def test_never_met_and_left_to_the_stronger_check_when_the_page_states_an_mawp(monkeypatch, u13):
-    assert _lines(monkeypatch, "Hydrostatic test pressure   12 barg\nDesign pressure   9 barg") == []  # 12 >= 11.7: nothing proven
-    both = "Hydrostatic test pressure   10 barg\nDesign pressure   9 barg\nMAWP   9 barg"
-    assert _lines(monkeypatch, both) == [("F-hydrotest", "Not met")]  # the MAWP check decides; no second line on the design pressure
+def test_never_met_and_left_to_the_stronger_check_when_the_page_states_an_mawp(
+    monkeypatch, u13
+):
+    assert (
+        _lines(
+            monkeypatch, "Hydrostatic test pressure   12 barg\nDesign pressure   9 barg"
+        )
+        == []
+    )  # 12 >= 11.7: nothing proven
+    both = (
+        "Hydrostatic test pressure   10 barg\nDesign pressure   9 barg\nMAWP   9 barg"
+    )
+    assert _lines(monkeypatch, both) == [
+        ("F-hydrotest", "Not met")
+    ]  # the MAWP check decides; no second line on the design pressure
 
 
 def test_a_drawing_gets_its_own_pairs_and_entries_and_judges_them_first(u13):
     pairs, entries = always.form_context({"kind": "Drawing"})
-    assert "PAIRS THAT MUST AGREE on a drawing set" in pairs and "the date and the revision of the same sheet" in pairs.lower()
+    assert (
+        "PAIRS THAT MUST AGREE on a drawing set" in pairs
+        and "the date and the revision of the same sheet" in pairs.lower()
+    )
     assert "drawing number" in entries and "revision and its date" in entries
     datasheet_pairs, _ = always.form_context({"kind": "datasheet"})
-    assert "on a drawing set" not in datasheet_pairs  # another kind keeps the datasheet pairs
+    assert (
+        "on a drawing set" not in datasheet_pairs
+    )  # another kind keeps the datasheet pairs
     assert updates.with_always(["c1", "c2"], ["G1", "G2"]) == ["G1", "G2", "c1", "c2"]
