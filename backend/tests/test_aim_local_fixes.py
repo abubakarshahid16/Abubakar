@@ -535,3 +535,35 @@ def test_a_no_rule_books_long_pages_split_only_where_a_page_begins_with_a_clause
         [0, 1],
         [2, 3],
     ]  # only before the page that opens clause 4.1
+
+
+def test_a_group_whose_next_level_has_one_key_keeps_descending_to_single_clauses_and_nothing_is_lost():
+    """Review of update 10, M2: 60 rules under "6.2.x" came back as one unit against the size, as "6" -> "6.2" has one key."""
+    rows = _rules("b1", [f"6.2.{i}" for i in range(60)], chars=300)
+    with budget.using(budget.LOCAL):
+        batches = MT._batches(rows)
+    limit = budget.LOCAL.batch_chars
+    assert len(batches) > 1 and all(
+        sum(len(MT._material_line(r)) for r in b) <= limit for b in batches
+    )
+    where = {}
+    for i, b in enumerate(batches):
+        for r in b:
+            where.setdefault(r["clause"], set()).add(i)
+    assert all(len(v) == 1 for v in where.values())  # each clause in one call
+    assert sum(len(b) for b in batches) == len(rows) and {
+        r["rule"] for b in batches for r in b
+    } == {r["rule"] for r in rows}
+
+
+def test_rules_with_no_clause_number_are_split_by_rows_and_all_sent():
+    rows = _rules("b1", [""] * 40, chars=600)
+    with budget.using(budget.LOCAL):
+        batches = MT._batches(rows)
+    limit = budget.LOCAL.batch_chars
+    assert len(batches) > 1 and all(
+        sum(len(MT._material_line(r)) for r in b) <= limit for b in batches
+    )
+    assert [r["rule"] for b in batches for r in b] == [
+        r["rule"] for r in rows
+    ]  # rules in = rules sent, in order

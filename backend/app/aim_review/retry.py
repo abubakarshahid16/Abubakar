@@ -48,40 +48,64 @@ def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> lis
 _CUT = " [CUT: rule text longer than shown]"
 
 
-#: The share of a quote's words a stored rule must hold to be taken as the rule the quote means (F's 14B run e19e3d8a: a clause
-#: often holds several stored rules, and the model's page or clause was off, so "one rule per clause" fixed almost none).
+#: The share of a quote's content words a stored rule must hold to be taken as the rule the quote means (F's 14B run e19e3d8a: a
+#: clause often holds several stored rules, and the model's page was off, so "one rule per clause" fixed almost none).
 COVER = 0.6
+#: Words that say nothing about what a rule is about: they never count towards COVER (review of update 10, M1: "the", "shall"
+#: and "for" made a coating quote match a gasket rule). Plain English grammar words only.
+_GRAMMAR = (
+    "the and for are was were shall should must may can will with without from into onto upon this that these those such "
+    "than then any all each every other its their his her our your not nor but per via has have had been being where when "
+    "which who whom what how also only both either neither more most less least same very"
+)
+_STOP = frozenset(re.findall(r"[a-z]+", _GRAMMAR))
 
 
 def _words(s) -> set[str]:
-    return {
-        w
-        for w in re.findall(r"[a-z0-9]+", str(s or "").lower())
-        if len(w) > 2 or w.isdigit()
-    }
+    """The content words of `s`: words of 3 letters or more that are not grammar words, and numbers."""
+    found = re.findall(r"[a-z0-9]+", str(s or "").lower())
+    return {w for w in found if w.isdigit() or (len(w) >= 3 and w not in _STOP)}
+
+
+def _clause_parts(c) -> tuple[str, ...]:
+    return tuple(p for p in str(c or "").strip().rstrip(".").split(".") if p.strip())
+
+
+def _in_cited(rule_clause, cited) -> bool:
+    """The rule's clause is the cited clause, one under it ("4.1" -> "4.1.2"), or the cited clause's parent ("4.1.2" -> "4.1")."""
+    r, c = _clause_parts(rule_clause), _clause_parts(cited)
+    return bool(r and c) and (r[: len(c)] == c or r == c[:-1])
 
 
 def _rule_for(it: dict, rules: list[dict]) -> dict | None:
-    """The batch's rule the item's quote means: the one holding the largest share (at least COVER) of the quote's words, the
-    item's own book and clause first on a tie; with a quote too short to tell (under 4 words), the one rule of its book and
-    clause, if there is exactly one."""
-    q = _words(it.get("rule_quote"))
-    if len(q) >= 4:
-        score = lambda i, r: (len(q & _words(r["text"])) / len(q), r["book"] == it.get("book"),  # noqa: E731
-                              _same(r["clause"], it.get("clause")), -i)  # fmt: skip
-        i, r = max(enumerate(rules), key=lambda x: score(*x), default=(0, None))
-        return r if r is not None and score(i, r)[0] >= COVER else None
-    same = [
+    """The rule the item's quote means, looked for ONLY in the item's own book and within its cited clause (`_in_cited`):
+    the one holding the largest share (at least COVER) of the quote's content words, its exact clause first on a tie. With a
+    quote of under 4 content words, the one rule of its book and exact clause, if there is exactly one. A rule of another
+    book or clause is never taken (review of update 10, M1: code compared the paper against the wrong rule's limit)."""
+    mine = [
         r
         for r in rules
-        if r["book"] == it.get("book") and _same(r["clause"], it.get("clause"))
+        if r["book"] == it.get("book") and _in_cited(r["clause"], it.get("clause"))
     ]
+    q = _words(it.get("rule_quote"))
+    if len(q) >= 4:
+
+        def score(i: int, r: dict) -> tuple:
+            return (
+                len(q & _words(r["text"])) / len(q),
+                _same(r["clause"], it.get("clause")),
+                -i,
+            )
+
+        i, r = max(enumerate(mine), key=lambda x: score(*x), default=(0, None))
+        return r if r is not None and score(i, r)[0] >= COVER else None
+    same = [r for r in mine if _same(r["clause"], it.get("clause"))]
     return same[0] if len(same) == 1 else None
 
 
 def by_code(bad: list[dict], batch, found) -> tuple[list[dict], list[dict]]:
     """(fixed, still to ask). On the local model, an item whose quote was not found takes the stored words (as shown, without
-    the cut mark), book, clause and page of the batch's rule its quote means (`_rule_for`), and is kept only if `found` then
+    the cut mark), clause and page of the rule of its own book and cited clause its quote means (`_rule_for`), and is kept only if `found` then
     finds those words on the book page. No call is made for it (F's 14B runs 09105c4b and e19e3d8a, 26 Nov 2026: the retry
     calls ran the review past the swap rule). The others are asked again as before. On Claude: nothing fixed by code."""
     if not is_local():
@@ -91,8 +115,11 @@ def by_code(bad: list[dict], batch, found) -> tuple[list[dict], list[dict]]:
     for it in bad:
         r = _rule_for(it, rules)
         if r is not None:
-            got = it | {"rule_quote": r["text"].removesuffix(_CUT).strip(), "book": r["book"], "clause": r["clause"],
-                        "page": r["page"]}  # fmt: skip
+            got = it | {
+                "rule_quote": r["text"].removesuffix(_CUT).strip(),
+                "clause": r["clause"],
+                "page": r["page"],
+            }
             if found(got):
                 fixed.append(got)
                 continue

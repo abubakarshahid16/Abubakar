@@ -224,34 +224,47 @@ def test_a_clause_that_names_no_rule_or_two_rules_is_still_asked_again():
     )  # Claude: nothing by code
 
 
-def test_a_quote_with_a_wrong_page_or_clause_takes_the_stored_rule_holding_most_of_its_words():
+def _rule(rule, book, clause, page, text):
+    return {"rule": rule, "book": book, "clause": clause, "page": page, "text": text}
+
+
+BATCH = [
+    _rule(
+        "R0001",
+        "B1",
+        "5.2",
+        4,
+        "The invented gasket shall be rated for the flange class.",
+    ),
+    _rule(
+        "R0002",
+        "B1",
+        "5.2",
+        4,
+        "The invented bolting shall be coated against rust in salt air.",
+    ),
+    _rule(
+        "R0003",
+        "B1",
+        "5.2.1",
+        5,
+        "The invented bolting nuts shall carry the heat number stamp.",
+    ),
+    _rule(
+        "R0004",
+        "B2",
+        "7.3",
+        9,
+        "The invented coating of the gasket shall be applied for the flange in three coats.",
+    ),
+]
+
+
+def test_a_quote_with_a_wrong_page_takes_the_rule_of_its_own_book_and_clause_holding_most_of_its_words():
     """F's 14B run e19e3d8a: 126 quotes not found and almost none fixed by code, as a clause often holds several stored rules."""
-    batch = [
-        {
-            "rule": "R0001",
-            "book": "B1",
-            "clause": "5.2",
-            "page": 4,
-            "text": "The invented gasket shall be rated for the flange class.",
-        },
-        {
-            "rule": "R0002",
-            "book": "B1",
-            "clause": "5.2",
-            "page": 4,
-            "text": "The invented bolting shall be coated against rust in salt air.",
-        },
-        {
-            "rule": "R0003",
-            "book": "B2",
-            "clause": "1.1",
-            "page": 9,
-            "text": "The invented paint shall be applied in three coats.",
-        },
-    ]
     near = {
         "book": "B1",
-        "clause": "5.3",
+        "clause": "5.2.1",
         "page": 2,
         "rule_quote": "invented bolting shall be coated against rust",
     }
@@ -262,8 +275,45 @@ def test_a_quote_with_a_wrong_page_or_clause_takes_the_stored_rule_holding_most_
         "rule_quote": "gaskets and bolts must suit the service conditions",
     }
     with budget.using(budget.LOCAL):
-        fixed, ask = RT.by_code([near, loose], batch, lambda it: True)
-    assert [(i["clause"], i["page"], i["rule_quote"]) for i in fixed] == [
-        ("5.2", 4, batch[1]["text"])
+        fixed, ask = RT.by_code([near, loose], BATCH, lambda it: True)
+    # the cited "5.2.1" is under "5.2": its parent's rule is taken, with the book unchanged
+    assert [(i["book"], i["clause"], i["page"], i["rule_quote"]) for i in fixed] == [
+        ("B1", "5.2", 4, BATCH[1]["text"])
     ]
-    assert ask == [loose]  # too few of its words in any stored rule: asked again
+    assert ask == [
+        loose
+    ]  # too few of its content words in any rule of its clause: asked again
+
+
+def test_a_rule_of_another_book_or_clause_is_never_taken():
+    """The update 10 reviewer's case: a coating item cited to book 1 clause 4.1 took a gasket rule of book 2 clause 7.3, and
+    code then compared the paper against that rule's limit."""
+    coating = {
+        "book": "B1",
+        "clause": "4.1",
+        "page": 3,
+        "rule_quote": "the invented coating of the gasket shall be applied for the flange",
+    }
+    other_clause = {
+        "book": "B1",
+        "clause": "6.1",
+        "page": 4,
+        "rule_quote": "invented bolting shall be coated against rust",
+    }
+    with budget.using(budget.LOCAL):
+        assert RT.by_code([coating, other_clause], BATCH, lambda it: True) == (
+            [],
+            [coating, other_clause],
+        )
+
+
+def test_grammar_words_alone_never_make_a_match():
+    words = {
+        "book": "B1",
+        "clause": "5.2",
+        "page": 4,
+        "rule_quote": "the shall be for the and with all of it",
+    }
+    with budget.using(budget.LOCAL):
+        assert RT.by_code([words], BATCH, lambda it: True) == ([], [words])
+    assert RT._words("The shall be for and of it") == set()

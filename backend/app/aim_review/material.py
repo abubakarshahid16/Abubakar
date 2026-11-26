@@ -181,14 +181,40 @@ def _pages(group: list[dict], most: int | None) -> list[list[dict]]:
     return [*runs, cur] if cur else runs
 
 
+def _parts(r: dict) -> tuple[str, ...]:
+    return tuple(p.strip() for p in str(r.get("clause") or "").split(".") if p.strip())
+
+
 def _deeper(group: list[dict], level: int, most: int | None) -> list[list[dict]]:
+    """A group of one clause prefix: whole when within `most`; else taken by its next clause level, descending while one key
+    remains too (review of update 10, M2: 60 rules under "6.2.x" stayed one unit), down to a single clause number, which goes
+    whole (a clause is never split). Rules with no clause number are not clauses: they are split by rows."""
     if group and "rule" not in group[0]:
         return _pages(group, most)
     size = sum(len(_material_line(r)) for r in group)
-    finer = _by_clause(group, level + 1)
-    if most is None or size <= most or len(finer) < 2:
-        return [group]  # within the size, one clause number, or pages: whole
-    return [g for sub in finer.values() for g in _deeper(sub, level + 1, most)]
+    if most is None or size <= most:
+        return [group]
+    if not any(_parts(r) for r in group):
+        return _rows(group, most)
+    if all(len(_parts(r)) <= level for r in group):
+        return [group]  # one clause number: whole
+    return [
+        g
+        for sub in _by_clause(group, level + 1).values()
+        for g in _deeper(sub, level + 1, most)
+    ]
+
+
+def _rows(group: list[dict], most: int) -> list[list[dict]]:
+    out, cur, size = [], [], 0
+    for r in group:
+        ln = len(_material_line(r))
+        if cur and size + ln > most:
+            out.append(cur)
+            cur, size = [], 0
+        cur.append(r)
+        size += ln
+    return [*out, cur] if cur else out
 
 
 def halves(batch: list[dict]) -> tuple[list[dict], list[dict]]:
