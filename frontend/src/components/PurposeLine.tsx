@@ -16,7 +16,7 @@ export function PurposeLine({ view }: { view: ViewId }) {
   const line = PURPOSE[view];
   if (!line) return null;
   return (
-    <p role="note" className="border-b border-ink-700 bg-ink-850 px-6 py-2 text-sm text-slateish-300" data-testid="screen-purpose">
+    <p className="border-b border-ink-700 bg-ink-850 px-6 py-2 text-sm text-slateish-300" data-testid="screen-purpose">
       {line}
     </p>
   );

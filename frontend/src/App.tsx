@@ -34,7 +34,10 @@ import { PurposeLine } from "./components/PurposeLine";
 
 // V1b: the pages the reader opens less often are loaded when first opened, not with the first screen.
 const AdminScreen = lazy(() => import("./views/AdminScreen").then((m) => ({ default: m.AdminScreen })));
+/** The way-back switch of the new look (owner, 26 Nov 2026, G9): off unless the web page is started with VITE_UI_NEW_LOOK=true. */
+const NEW_LOOK = import.meta.env.VITE_UI_NEW_LOOK === "true";
 const HomeView = lazy(() => import("./views/HomeView").then((m) => ({ default: m.HomeView })));
+const PreviewView = lazy(() => import("./views/PreviewView").then((m) => ({ default: m.PreviewView })));
 const StandardsView = lazy(() => import("./views/StandardsView").then((m) => ({ default: m.StandardsView })));
 const AnalysisModeScreen = lazy(() => import("./views/AnalysisModeScreen").then((m) => ({ default: m.AnalysisModeScreen })));
 const ReportsScreen = lazy(() => import("./views/ReportsScreen").then((m) => ({ default: m.ReportsScreen })));
@@ -391,6 +394,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    // THE LOOK (owner, 26 Nov 2026, G9): the new design system applies when the way-back switch VITE_UI_NEW_LOOK is "true" (off by
+    // default, off on live) and always on the preview page, which shows invented data only.
+    document.documentElement.setAttribute("data-look", NEW_LOOK || view === "preview" ? "new" : "classic");
     // A forgotten preference is a nuisance; a crash on a blocked storage API
     // is a broken app. The theme still applies for this session either way.
     try {
@@ -398,7 +404,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
     } catch {
       /* storage unavailable - not worth telling the reader about */
     }
-  }, [theme]);
+  }, [theme, view]);
 
   // `/api/auth/me`'s answer, reassembled. `checking` and `unknown` are null:
   // the question has not been answered, and an unanswered question grants
@@ -499,6 +505,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
         <Suspense fallback={<Spinner />}>
           <CommandPalette onNavigate={guardedNavigate} auth={authStatus} connection={connection} />
           {view === "home" && <HomeView auth={authStatus} onNavigate={guardedNavigate} />}
+          {view === "preview" && (
+            <PreviewView journey={route.kind === "view" ? route.recordId : undefined} onNavigate={guardedNavigate} />
+          )}
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin}
               initialDocumentId={route.kind === "view" ? route.recordId : undefined} />

@@ -92,6 +92,7 @@ export function panelForReviewScreen(
 
 const titles: Record<ViewId, string> = {
   home: "Home",
+  preview: "Preview of the new look",
   dashboard: "System",
   documents: "Documents",
   chat: "Chat",
