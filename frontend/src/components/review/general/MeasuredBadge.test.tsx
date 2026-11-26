@@ -46,4 +46,11 @@ describe("MeasuredBadge", () => {
       false_alarm: { wrong: 23, of: 124, percent: 19, target_percent: 10, within_target: false, sentence: wrong } }} />);
     expect(screen.getByTestId("general-measured-sentence")).toHaveTextContent("23 of 124 comments wrong across those test copies (19%; target 10% or less)");
   });
+  it("says the score in plain words first, the full sentence with its version one click away (H's audit, 27 Nov 2026)", () => {
+    render(<MeasuredBadge measured={{ ...BELOW, found: 5.79, sentence: "Measured on 1 planted test copy (measured 18 Nov 2026, version 0000abcd). Update 9 round cut short." }} />);
+    expect(screen.getByTestId("general-measured-plain").textContent).toBe("On test copies with planted mistakes, this kind of paper found 5.7 of 10 (the target is 7).");
+    expect(screen.getByTestId("general-measured-plain").textContent).not.toMatch(/version|round|strict reader/);
+    expect(screen.getByText("How this was measured")).toBeTruthy();
+    expect(screen.getByTestId("general-measured-sentence").textContent).toContain("version 0000abcd");
+  });
 });
