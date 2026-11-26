@@ -76,6 +76,13 @@ contractor copy issued only after that sign-off. Until then every file is the te
    through `standards_lane` (its figure-reading user) and `reader_transport.py` under the `claude_spend` caps; never a
    datasheet, procedure, contract, CRS, submittal or the register; each rule read is marked "from a figure, page N", goes
    to a file first, and joins the library only after a judged sample whose error rate is reported to the owner.
+   CHAT DATABASE TOOLS (owner, 25 Nov 2026, #1584 comment 7171320073: "Yes, allow it"): Chat in Claude mode may call
+   the database tools (`chat_db_tools.py`: documents by kind or role, a paper's latest review with its counts and top
+   comments with page, the open items of a technical query) behind `CHAT_DATABASE_TOOLS_ENABLED` (on by default since
+   update 14, 27 Nov 2026; the way back is CHAT_DATABASE_TOOLS_ENABLED=false); their answers go to Claude only through
+   `reader_transport.py` under the `claude_spend` caps, hold only documents the caller may read (one outside the caller's
+   grants is counted, never named), never name or give the client's register or any blocked file, and never carry
+   document text; each call is logged with ids only; Local only and the local Chat engine send nothing.
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only six modules may open a
    socket, each behind a gate (the two Gmail modules, `gmail_auth.py` and `gmail_client.py`, read-only behind
