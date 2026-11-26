@@ -5,16 +5,12 @@
  * browser's locale) so every screen and every machine says it the same way.
  * Unknown or unreadable values give "" (nothing), never a made-up date.
  */
-import { parseWhen } from "../../../../format/when";
+import { formatWhen, parseWhen } from "../../../../format/when";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function parsed(value: string | null | undefined): Date | null {
   return value ? parseWhen(value) : null;
-}
-
-function pad(n: number): string {
-  return n < 10 ? `0${n}` : String(n);
 }
 
 /** "19 Oct 2026"; "" when not known. */
@@ -23,8 +19,8 @@ export function dayWords(value: string | null | undefined): string {
   return d ? `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}` : "";
 }
 
-/** "19 Oct 2026, 12:20" (24-hour, local time); "" when not known. */
+/** "19 Oct 2026, 12:20 GMT+3": the app's ONE date-time format (`formatWhen`), in the reader's zone WITH the zone named (lead-4,
+ *  26 Nov 2026: "Started 07:00" with no zone was read as PKT); "" when not known. */
 export function dayTimeWords(value: string | null | undefined): string {
-  const d = parsed(value);
-  return d ? `${dayWords(value)}, ${pad(d.getHours())}:${pad(d.getMinutes())}` : "";
+  return parsed(value) ? formatWhen(value) : "";
 }

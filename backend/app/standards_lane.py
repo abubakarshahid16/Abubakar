@@ -100,9 +100,12 @@ def check(conn, document_ids) -> Checked:
     return Checked(ids)
 
 
-#: The lane's users, each named at its call site (owner, 3 Nov and 25 Nov 2026, #1584): the standards converter (the rule
-#: label job's two passes) and the rule approval step with its blind sample judge. Nothing else opens the lane.
-USERS = frozenset({"standards converter", "rule approval", "rule approval judge"})
+#: The lane's users, each named at its call site (owner, 3 Nov, 25 Nov and 26 Nov 2026, #1584): the standards converter (the rule
+#: label job's two passes), the rule approval step with its blind sample judge, and the reading of a held book's FIGURE pages as
+#: pictures (the tool `scripts/standards_figures.py`, #1584 7189065710). Nothing else opens the lane.
+USERS = frozenset(
+    {"standards converter", "rule approval", "rule approval judge", "figure reading"}
+)
 
 
 @contextlib.contextmanager

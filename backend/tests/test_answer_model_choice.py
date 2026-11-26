@@ -114,23 +114,32 @@ def test_a_model_that_is_not_a_file_here_falls_back(
     assert choice.name == CODE_DEFAULT and reason in choice.why
 
 
-def test_a_list_read_that_times_out_uses_the_code_default_and_is_never_kept(
+def test_a_list_read_that_times_out_uses_the_code_default_and_is_kept_only_for_a_moment(
     monkeypatch,
 ):
-    """Review of update 11, N3: fail closed. While the engine's list cannot be read nothing is proven usable, so the 9B is used,
-    never the configured model (on live that was the 35B), and the failed read is asked again next time."""
+    """Review of update 11, N3 and R2-2: fail closed. While the engine's list cannot be read nothing is proven usable, so the 9B
+    is used, never the configured model (on live that was the 35B). A hung engine costs its timeout once: the failure is kept
+    `FAILED_SECONDS`, still meaning the 9B, and the list is asked again after it."""
     asked: list[str] = []
+    clock = [1000.0]
 
     def timed_out(path, *, timeout, required=True):
         asked.append(path)
         raise TimeoutError("invented")
 
     monkeypatch.setattr(model_transport, "get_json", timed_out)
+    monkeypatch.setattr(answer_model_choice.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(settings, "answer_model", HUGE)
     choice = answer_model_choice.resolve()
     assert choice.name == CODE_DEFAULT and answer_model_choice.LIST_UNREAD in choice.why
-    assert rp.OllamaProvider().requested_model == CODE_DEFAULT
-    assert len(asked) == 2  # the failed read was not kept: asked again
+    assert (
+        rp.OllamaProvider().requested_model == CODE_DEFAULT
+    )  # the kept failure still means the 9B
+    assert len(asked) == 1  # a hung engine is asked once, not on every call
+    clock[0] += answer_model_choice.FAILED_SECONDS + 1
+    assert (
+        answer_model_choice.name() == CODE_DEFAULT and len(asked) == 2
+    )  # asked again after the moment
 
 
 def test_a_configured_model_the_engine_does_not_list_is_not_used(engine, monkeypatch):
@@ -170,3 +179,60 @@ def test_the_administrators_saved_default_still_wins(engine, monkeypatch):
     monkeypatch.setattr(settings, "answer_model", HUGE)
     monkeypatch.setattr(review_model_setting, "default_choice", lambda: FITS)
     assert local_model.model_name() == FITS
+
+
+def test_the_ai_steps_warning_names_the_model_that_would_really_run_never_the_35b(
+    engine, monkeypatch
+):
+    """Planner note 26 Nov 2026 15:15, item 7: with ANSWER_MODEL naming the 35B and the small AI-steps model missing, the
+    dashboard warning names the model the steps would really run on (the 9B), never the 35B."""
+    from app import ai_task_runner
+
+    def listed(path, *, timeout, required=True):
+        return {
+            "models": [
+                {"name": HUGE, "size": 24_000_000_000, "digest": "d1"},
+                {"name": CODE_DEFAULT, "size": 6_000_000_000, "digest": "d2"},
+            ]
+        }
+
+    monkeypatch.setattr(model_transport, "get_json", listed)
+    monkeypatch.setattr(settings, "answer_model", HUGE)
+    monkeypatch.setattr(settings, "ai_task_model", "invented-small:2b")
+    ai_task_runner._tags_cache.clear()
+    (warning,) = ai_task_runner.warnings()
+    assert CODE_DEFAULT in warning["message"] and HUGE not in warning["message"]
+
+
+def test_a_stored_scope_reading_counts_from_the_model_in_use_or_the_configured_one_unless_proven_unusable(
+    engine, monkeypatch
+):
+    """Review of update 11, R2-4: `rule_part_scope` asks `answer_model_choice.trusted_reader`, not the configured ANSWER_MODEL
+    alone. The model in use counts; the configured model counts unless it is PROVEN unusable (too large here: the 35B's stored
+    readings do not set scope); an engine that cannot be asked proves nothing, so stored readings keep counting."""
+    import inspect
+
+    from app import rule_part_scope
+
+    source = inspect.getsource(rule_part_scope)
+    assert (
+        "settings.answer_model" not in source and "trusted_reader(model[0])" in source
+    )
+    monkeypatch.setattr(
+        settings, "answer_model", HUGE
+    )  # listed by `engine`, 24 GB: proven too large
+    assert answer_model_choice.trusted_reader(CODE_DEFAULT) is True  # the model in use
+    assert answer_model_choice.trusted_reader(HUGE) is False
+    assert answer_model_choice.trusted_reader("invented-other:1b") is False
+    monkeypatch.setattr(settings, "answer_model", FITS)
+    assert answer_model_choice.trusted_reader(FITS) is True
+
+    def down(*_a, **_k):
+        raise ConnectionError("invented")
+
+    answer_model_choice.forget()
+    monkeypatch.setattr(model_transport, "get_json", down)
+    monkeypatch.setattr(settings, "answer_model", "invented-reader:4b")
+    assert (
+        answer_model_choice.trusted_reader("invented-reader:4b") is True
+    )  # nothing proven: its stored readings stand

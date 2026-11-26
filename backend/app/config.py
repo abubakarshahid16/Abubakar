@@ -466,6 +466,8 @@ class Settings(SettingsExt, BaseSettings):
     #: The formula checks (`aim_review/formulas.py`), their own switch since update 9 (lead-4: proven by the free code-only replay,
     #: found unchanged, 3 new Not met lines all true, no comment duplicated). Off: no formula lines, as main 475adb91.
     aim_formula_checks_enabled: bool = True
+    #: Page pictures in a review (owner, 26 Nov 2026, #1584 7188761254; `aim_review.pictures`): off until a scored run.
+    aim_page_pictures_enabled: bool = False
     #: Discipline reviewers (owner 25 Nov 2026): the judge with a mechanical or contract section and worked examples
     #: (`aim_review/disciplines.py`, `reference/discipline_reviewers.json`). OFF until scored against the general judge.
     aim_discipline_reviewers_enabled: bool = False

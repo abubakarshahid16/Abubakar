@@ -112,4 +112,22 @@ describe("SignBar", () => {
     expect(screen.queryByTestId("contractor-download")).toBeNull();
     expect(screen.getByTestId("sign-button")).toHaveTextContent("Sign off again");
   });
+
+  it("offers no Accept the rest on a rough draft from the local model and says why; each comment is decided one by one", () => {
+    const words = "This review is a rough draft from the local model: decide each comment one by one. There is no Accept the rest.";
+    mount(status({ undecided_count: 3, bulk_accept: false, rough_draft_words: words }));
+    expect(screen.queryByRole("button", { name: /Accept the rest/ })).toBeNull();
+    expect(screen.getByTestId("sign-rough-draft")).toHaveTextContent(words);
+  });
+
+  it("keeps Accept the rest on a Claude review", () => {
+    mount(status({ undecided_count: 3, bulk_accept: true, rough_draft_words: null }));
+    expect(screen.getByRole("button", { name: "Accept the rest (3)" })).toBeInTheDocument();
+    expect(screen.queryByTestId("sign-rough-draft")).toBeNull();
+  });
+
+  it("says a sign-off was made from a rough draft", () => {
+    mount(status({ state: "signed", signed: { ...signed, rough_draft: "made from a rough draft (local model)" } }));
+    expect(screen.getByTestId("sign-made-from")).toHaveTextContent("Sign-off made from a rough draft (local model).");
+  });
 });

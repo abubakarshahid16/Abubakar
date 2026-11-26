@@ -1763,3 +1763,39 @@ def test_a_checking_step_that_did_not_run_is_said_on_the_page_and_the_first_shee
         c.startswith("The second reader did not run on this sheet (no_json)")
         for c in cells
     )
+
+
+
+def test_a_paper_of_a_new_kind_says_not_yet_scored_for_this_kind_on_the_page_and_the_first_sheet(
+    world,
+):
+    """L3 (planner 26 Nov 2026 14:45): a run whose paper was placed by the nearest family (a kind no list holds) says "Not yet scored
+    for this kind" in the page data and in the "Measured score of this kind" row of the team file."""
+    with db.connect() as conn:
+        conn.execute(
+            f"UPDATE {aim_review_store.RUNS} SET identity_json = ? WHERE run_id = ?",
+            (
+                json.dumps(
+                    {
+                        "kind": "other",
+                        "kind_placed": "nearest",
+                        "family": "list_register",
+                        "new_kind_seen": True,
+                    }
+                ),
+                RUN,
+            ),
+        )
+    page = client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general").json()
+    assert page["measured"]["sentence"].startswith("Not yet scored for this kind: ")
+    ws = _sheet(client(PAPER, BOOK).get(f"/api/reviews/papers/{PAPER}/general/sheet"))[
+        aim_review_sheet.SUMMARY
+    ]
+    row = next(
+        r
+        for r in ws.iter_rows(values_only=True)
+        if r[0] == "Measured score of this kind"
+    )
+    assert str(row[1]).startswith(
+        "Not yet scored for this kind: "
+    ) and "new kind seen" in str(row[1])

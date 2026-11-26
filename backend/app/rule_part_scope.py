@@ -26,7 +26,7 @@ more reading, checked the same way: two readings that disagree leave the rule UN
             a "no" whose text does not say "all", no type, no page text, or a rule that cannot be placed. Never treated
             as in scope: the checklist says it is not paired, a review writes a Query with the reason.
 
-A READING SETS SCOPE ONLY FROM THE READER MODEL (`settings.answer_model`) OR THE CLAUDE READ. Another model's stored answer
+A READING SETS SCOPE ONLY FROM THE READER MODEL (the answer model in use, `answer_model_choice`) OR THE CLAUDE READ. Another model's stored answer
 can only hold one back by disagreeing. A stored row that is not a reading is no reading.
 
 A rule's Part is where its sentence stands (`division_text.division_of`). A cross-reference inside a Part breaks that
@@ -46,13 +46,13 @@ from dataclasses import dataclass, replace
 from . import (
     ai_applicability,
     ai_task_runner,
+    answer_model_choice,
     compiled_rule_proof,
     division_text,
     rule_equipment_scope,
     scope_quote,
     subject_scope,
 )
-from .config import settings
 
 STANDARD, GENERAL, NAMED, OUTSIDE, UNKNOWN = (
     "standard",
@@ -281,7 +281,8 @@ def _readings(conn, passage: str) -> list[dict]:
                     (ai_task_runner.cache_key(spec, model[0], passage),),
                 ).fetchone()
                 sets_scope = (
-                    spec is CLAUDE_READ_TASK or model[0] == settings.answer_model
+                    spec is CLAUDE_READ_TASK
+                    or answer_model_choice.trusted_reader(model[0])
                 )
                 if row and (reading := _reading(row, sets_scope)):
                     found.append(reading)

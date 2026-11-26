@@ -4,7 +4,8 @@ A page counts as read only when text came back for it: the PDF's text layer, or 
 `ocr`, of a scan or of a page that is a picture). A page with neither is NOT read, and the review says so on the results page and
 on the team file; it is never silently left out. A page whose picture reading has not run yet is only NAMED as waiting (the upload's
 own recognition reads it; the review never runs recognition itself). A Word file's pictures count the same way: a picture with no
-stored reading is a picture not read.
+stored reading is a picture not read. With the page-pictures switch on (`aim_review.pictures`, owner 26 Nov 2026), a review on
+Claude first reads the paper's no-text pages as pictures inside its run; this list then names only what is still not read.
 
 The record is ids and codes only ("page 7: no_text"), never document text. No model, no network.
 """
@@ -29,6 +30,8 @@ NO_TEXT, WAITING, FAILED, NO_TEXT_AFTER = (
 PICTURE_NOT_READ, PICTURE_FAILED = "picture_not_read", "picture_reading_failed"
 #: A page Claude's picture reading was not given: past the per-review limit, or refused (a cap, the lane, the approval).
 CAPPED, REFUSED = "picture_reading_capped", "picture_reading_refused"
+#: A page the upload's picture stage was reading while the review started (`picture_stage.reading_now`; lead-4, 26 Nov 2026).
+BEING_READ = "picture_being_read_at_upload"
 
 #: The plain words of each code (the same on the page and in the file).
 WHY_WORDS = {
@@ -40,6 +43,7 @@ WHY_WORDS = {
     PICTURE_FAILED: "its picture reading failed",
     CAPPED: "it is past the limit of pages Claude reads as pictures in one review",
     REFUSED: "Claude's picture reading of it was refused (a spending cap, the lane or the approval)",
+    BEING_READ: "it is being read at upload, not read in this review",
 }
 
 STEP = "aim_unread_pages"
@@ -120,11 +124,14 @@ def _pdf_unread(conn, paper_id: str, paper, total: int) -> list[dict]:
     looked_at = picture_stage.recorded(
         conn, paper_id
     )  # the upload's own picture reading (never run inside a review)
+    busy = picture_stage.reading_now(paper_id)  # the upload is reading it now
     out = []
     for n in range(1, last + 1):
         if len(str(paper.pages.get(n) or "").strip()) >= MIN_PAGE_CHARS:
             continue
-        if n in looked_at and looked_at[n] != picture_stage.READ:
+        if busy and n not in looked_at:
+            why = BEING_READ
+        elif n in looked_at and looked_at[n] != picture_stage.READ:
             why = {
                 picture_stage.FAILED: PICTURE_FAILED,
                 picture_stage.REFUSED: REFUSED,

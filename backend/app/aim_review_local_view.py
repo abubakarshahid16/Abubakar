@@ -126,6 +126,12 @@ def measured(identity: dict | None, local: dict) -> dict | None:
         return out | {"sentence": " ".join([out["sentence"], *extra])}
     return aim_review_measured.for_run(
         {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
+        # L3: where the paper was placed (a run made before has none, and keeps its old line)
+        | {
+            k: identity[k]
+            for k in ("kind_placed", "family", "document_group")
+            if k in identity
+        }
     )
 
 
@@ -187,7 +193,9 @@ def progress_note(conn, run_id: str) -> str | None:
     record = record if isinstance(record, dict) else {}
     kind = record.get("kind")
     # the models this run started with, from its own record (`aim_review_jobs` writes them at the start), never today's settings
-    models = sorted({str(m) for m in record.get("local_models") or [] if str(m).strip()})
+    models = sorted(
+        {str(m) for m in record.get("local_models") or [] if str(m).strip()}
+    )
     minutes = measured_minutes(conn, kind, models[0]) if len(models) == 1 else None
     named = ", ".join(models) or "(not recorded yet)"
     if minutes is None:

@@ -21,15 +21,11 @@ FAILED = "the run failed"
 
 
 def signoff_state(conn, run_id: str) -> str:
-    """ "signed" while the sign-off still matches the engineer's decisions, "changed" when a decision came after it, else "not_signed"."""
-    from . import aim_review_signoff as so
+    """ "signed" while the sign-off still matches the engineer's decisions, "changed" when a decision came after it, else "not_signed"
+    (`aim_review_face.signoff_state`, its one home)."""
+    from . import aim_review_face
 
-    if not so._has(conn):
-        return NOT_SIGNED
-    row = so.latest(conn, run_id)
-    if row is None:
-        return NOT_SIGNED
-    return SIGNED if row["decisions_digest"] == so.digest(conn, run_id) else CHANGED
+    return aim_review_face.signoff_state(conn, run_id)
 
 
 @dataclass

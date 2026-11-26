@@ -221,6 +221,7 @@ EGRESS_SAFE: dict[str, object] = {
     "aim_u6b_enabled": False,
     "aim_u7b_enabled": False,
     "aim_u8_enabled": False,
+    "aim_page_pictures_enabled": False,  # J3: page pictures in a review, off by default (owner 26 Nov, #1584 7188761254)
     "aim_formula_checks_enabled": True,  # the formula checks, ON by default (update 9); "all off = main" pins it off itself
     "aim_discipline_reviewers_enabled": False,  # discipline reviewers on Claude, off; the local route gives their examples
     "ai_review_calculator_enabled": False,  # 12 Nov: the calculator step of the AI review, off
@@ -235,6 +236,8 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_requirement_extraction_resume_enabled": False,
     # #141: a local model call per division of a standard a review holds.
     "ai_division_scope_enabled": False,
+    # Owner, 25 Nov 2026 (#1584): Chat's database tools send titles and review results to Claude: off in the suite.
+    "chat_database_tools_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
     "scope_type_words_rule_enabled": False,
     # Order 205: a cache that only SKIPS a local model call; on is the code
@@ -386,6 +389,8 @@ EGRESS_SAFE: dict[str, object] = {
     "rulebook_v2_enabled": False,
     # --- local only, no model or socket: the edition register on a database copy (STEP 5, off by default)
     "standard_editions_enabled": False,
+    # --- local only, no model or socket: L3 routing by document family (off by default, update 12 review B1)
+    "kind_family_route_enabled": False,
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,

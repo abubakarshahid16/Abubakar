@@ -32,6 +32,18 @@ export function isGeneral(m: Pick<Message, "answer_type">): boolean {
   return m.answer_type === "general";
 }
 
+/** "Review these papers" (`chat_coverage.review_offer`): the real Review for each selected paper is started on the Reviews page,
+ *  which writes the comment sheet; a chat answer is no review. */
+export function ReviewOffer({ offer }: { offer: NonNullable<Message["review_offer"]> }) {
+  if (offer.length === 0) return null;
+  return (
+    <div data-testid="chat-review-offer" className="mt-2 text-xs text-slateish-300">
+      <a href="/review" className="font-medium text-signal-300 underline">Open Reviews</a> and choose New review on each:
+      <ul className="ml-4 list-disc">{offer.map((o) => <li key={o.document_id}>{o.title}</li>)}</ul>
+    </div>
+  );
+}
+
 function Notices({ notices }: { notices: string[] }) {
   if (notices.length === 0) return null;
   return (
@@ -182,6 +194,7 @@ export function AssistantAnswer({
         <div className="mt-2"><ProviderNotice note={providerNoteFor(view)} /></div>
       )}
       {!withheld && <Notices notices={m.notices ?? []} />}
+      {!withheld && <ReviewOffer offer={m.review_offer ?? []} />}
       {answered && (
         <AnswerActions
           text={draftText ? null : m.text}

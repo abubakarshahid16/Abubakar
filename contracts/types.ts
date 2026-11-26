@@ -1273,6 +1273,10 @@ export interface ChatPresentation {
   suggestions?: string[];
   draft?: Record<string, unknown> | null;
   notices?: string[];
+  /** Several selected papers (`chat_coverage`): how many were read, counted by code from what the tools returned. */
+  paper_coverage?: { selected: number; read: number | null; processing: number | null; not_read: string[]; sentence: string } | null;
+  /** "Review these": the real Review offered for each selected paper (never a chat summary in its place). */
+  review_offer?: { document_id: string; title: string; status: string }[];
   provider?: string | null;
   /** audit 101: "claude" when the reader chose Claude and the local model answered */
   requested_provider?: string | null;
@@ -2319,6 +2323,10 @@ export interface CorpusMetrics {
   chunks_excluded: number;
   chunks_indexed_keyword: number;
   chunks_embedded: number;
+  /** Update 12: technical-query attachments nobody filed into the library, counted APART from every number above (corpus-wide views
+   * only; null for a scoped view, which never holds them). */
+  technical_query_attachments?: number | null;
+  technical_query_attachment_passages?: number | null;
 }
 
 export interface StageThroughput {

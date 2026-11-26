@@ -144,7 +144,8 @@ def get_document_kinds(scope: access.AccessScope = Depends(access.current_scope)
     """The document types the router knows, and how many of the caller's OWN
     documents are in each routing state (rule 5: a count states whose
     documents it counts)."""
-    allowed = None if scope.unrestricted else scope.allowed_document_ids
+    # an unfiled technical-query attachment is never counted among the library's documents (update 12)
+    allowed = None if scope.unrestricted and not scope.query_attachment_ids else scope.allowed_document_ids
     return {"kinds": doc_router_mod.kinds(), "counts": doc_router_mod.counts(allowed)}
 
 

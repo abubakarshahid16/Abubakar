@@ -30,9 +30,9 @@ def _own_rows(it: dict, rows: list[dict]) -> list[dict]:
     from .retry import _in_cited, _same
 
     rules = [r for r in rows if "rule" in r and r["book"] == it.get("book")]
-    if not str(
-        it.get("clause") or ""
-    ).strip():  # cited by page (`citing.cited`): the no-clause rules of its book holding its quote
+    # cited by page (`citing.cited`): the no-clause rules of its book holding its quote; a book read by its pages: its page
+    # (recheck of update 11, R2-1: with no rules the page branch below was never reached)
+    if rules and not str(it.get("clause") or "").strip():
         from .verify import quote_in
 
         q = str(it.get("rule_quote") or "")

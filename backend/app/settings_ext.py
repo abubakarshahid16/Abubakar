@@ -52,6 +52,11 @@ class SettingsExt(BaseModel):
     #: (`standard_editions.py`), on a database COPY. The pure choice of edition needs no switch. OFF: nothing is read,
     #: created or written. Env: STANDARD_EDITIONS_ENABLED.
     standard_editions_enabled: bool = False
+    #: L3 (planner 26 Nov 2026 14:45): the switch of the routing by document family (`document_groups`). OFF (default; update 12
+    #: review B1, the owner's baseline: nothing may change what a Claude review produces until a scored read says better): a paper
+    #: the method calls `other` is reviewed as `other`, as before. On: with its family's rule labels, method books and checklist
+    #: floor. Either way the paper is placed, logged "new kind seen" when no list holds it, and labelled "not yet scored for this kind".
+    kind_family_route_enabled: bool = False
     #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
@@ -683,3 +688,7 @@ class SettingsExt(BaseModel):
     #: refused before the start, as before the local route, and a queued local run stops before it loads a model.
     #: Env: GENERAL_REVIEW_LOCAL_ENABLED.
     general_review_local_enabled: bool = True
+    #: Chat in Claude mode may call the database tools (list documents, a paper's latest review, technical-query open items)
+    #: whose answers go to Claude: titles, ids, counts and review comments of documents the caller may read; never the
+    #: register or a blocked file; never document text (owner, 25 Nov 2026, #1584). Env: CHAT_DATABASE_TOOLS_ENABLED.
+    chat_database_tools_enabled: bool = False

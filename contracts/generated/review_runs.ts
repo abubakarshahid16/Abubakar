@@ -76,6 +76,14 @@ export interface ReviewRunSummary {
   general_counts?: Record<string, unknown> | null;
   /** A general review's sign-off: "signed", "changed" (a decision came after the sign-off) or "not_signed"; null for an earlier review and for a general run that has not ended. */
   general_signoff?: string | null;
+  /** A general review's engine: "claude" or "local" (a rough draft, `aim_review_gate.LOCAL_ROUGH_DRAFT`); null for an earlier review. */
+  engine?: string | null;
+  /** The row's engine words: "Claude", or the local model's rough-draft label (`aim_review_gate.LOCAL_TEAM_NOTE` words). Null for an earlier review. */
+  engine_words?: string | null;
+  /** True for the run the paper's row shows and opens (`aim_review_face`: newest signed, else newest on Claude, else newest). */
+  face?: boolean | null;
+  /** The face row's note when a newer review of the paper exists, not signed ("A newer review exists, not signed (Claude)"). */
+  newer_note?: string | null;
   /** Every distinct equipment tag the run's findings name, in order; empty (shown as nothing, never a guess) when the datasheet states none. */
   equipment_tags: string[];
   status: string;

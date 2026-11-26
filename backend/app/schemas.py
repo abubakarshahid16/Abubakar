@@ -2882,6 +2882,16 @@ class ReviewRunSummary(BaseModel):
     #: A general review's sign-off: "signed", "changed" (a decision came after the sign-off) or "not_signed"; null for an earlier review and
     #: for a general run that has not ended.
     general_signoff: str | None = None
+    #: A general review's engine: "claude" or "local" (a rough draft, `aim_review_gate.LOCAL_ROUGH_DRAFT`); null for an earlier
+    #: review.
+    engine: str | None = None
+    #: The row's engine words: "Claude", or the local model's rough-draft label (`aim_review_gate.LOCAL_TEAM_NOTE` words). Null for an
+    #: earlier review.
+    engine_words: str | None = None
+    #: True for the run the paper's row shows and opens (`aim_review_face`: newest signed, else newest on Claude, else newest).
+    face: bool | None = None
+    #: The face row's note when a newer review of the paper exists, not signed ("A newer review exists, not signed (Claude)").
+    newer_note: str | None = None
     #: Every distinct equipment tag the run's findings name, in order; empty
     #: (shown as nothing, never a guess) when the datasheet states none.
     equipment_tags: list[str] = []
@@ -3564,6 +3574,11 @@ class ChatPresentation(BaseModel):
     suggestions: list[str] = []
     draft: dict | None = None
     notices: list[str] = Field([], description="plain notices above the answer, e.g. the engineer notice")
+    paper_coverage: dict | None = Field(
+        None, description="several selected papers (note A, 25 Nov 2026): how many the answer's tools read, how many are "
+        "still processing, which were not opened, and the sentence, by code (`chat_coverage`)")
+    review_offer: list[dict] = Field(
+        [], description="'review / check these': the selected papers to start the real Review on (the comment sheet)")
     model: str | None = None
     provider: str | None = None
     requested_provider: str | None = Field(
@@ -3829,6 +3844,10 @@ class CorpusMetrics(BaseModel):
     chunks_excluded: int
     chunks_indexed_keyword: int
     chunks_embedded: int
+    #: Update 12: technical-query attachments nobody filed into the library, counted APART from every number above (corpus-wide views
+    #: only; null for a scoped view, which never holds them).
+    technical_query_attachments: int | None = None
+    technical_query_attachment_passages: int | None = None
 
 
 class StageThroughput(BaseModel):

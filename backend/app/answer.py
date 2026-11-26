@@ -27,7 +27,7 @@ from . import fts_index
 from . import condition_choice as cc
 from . import context_budget
 from . import claims as claims_mod
-from . import coverage, errors
+from . import coverage, errors, verified_passages as vp
 from . import front_matter
 from . import numparse
 from . import progress
@@ -311,7 +311,7 @@ def _past_front_matter(question: str, gate_question: str, hits: list[dict], *, l
     hits, verdict, index) with those hits first, or None when none passes.
     """
     documents = {h["document_id"] for h in hits if front_matter.demoted(h, question)}
-    results = search_mod.search(
+    results = vp.search_or_given(search_mod.search)(
         question, limit=2 * limit, document_id=document_id,
         allowed_document_ids=allowed_document_ids, progress_id=progress_id,
         soft_identifiers=soft_identifiers)
@@ -1815,7 +1815,7 @@ def _answer_from_documents(
     # AT LEAST THE ONE TOP-K. The gate examines gate_candidates() hits, so
     # retrieval must return that many however few the caller will display -
     # `max(limit, 3)` here is what capped the chat at 3 while the gate claimed 5.
-    results = search_mod.search(
+    results = vp.search_or_given(search_mod.search)(
         question, limit=max(limit, gate_candidates()), document_id=document_id,
         allowed_document_ids=allowed_document_ids,
         progress_id=progress_id,
@@ -1905,7 +1905,7 @@ def _answer_from_documents(
     # question without it - asked with it, it reports "insufficient evidence"
     # for a passage that answers everything else.
     qualifiers = list(lexical_verdict.get("unmatched_qualifiers") or [])
-    model_question = question
+    model_question = vp.relax(base, lexical_verdict) or question
     if qualifiers:
         base["lexical"]["unmatched_qualifiers"] = qualifiers
         base["notices"] = [qualifier_notice(qualifiers)]
@@ -2178,9 +2178,9 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "insufficient_evidence",
-            # An EMPTY reply is a model that did not answer, not a report that
-            # the sources lack it (absence.py): only the second is an absence.
+            # An EMPTY reply is no answer; only "not in the sources" is an absence. The model that said so is named.
             "absence_kind": "not_found" if text else None,
+            "model": raw.get("model"),
             "answer": None,
             "reason": ("the model reported the sources do not contain the answer"
                        if text else "the answer model returned no text"),

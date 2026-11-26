@@ -238,6 +238,11 @@ def _ensure_schema() -> None:
         for column in ("filed_at", "filed_by"):  # set when an engineer files the attachment into the library on purpose
             if column not in attachment_columns:
                 conn.execute(f"ALTER TABLE query_attachments ADD COLUMN {column} TEXT")
+        # a picture inside the mail body (a signature logo): never an attachment to read
+        if "inline_picture" not in attachment_columns:
+            conn.execute(
+                "ALTER TABLE query_attachments ADD COLUMN inline_picture INTEGER NOT NULL DEFAULT 0"
+            )
         evidence_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(query_evidence)")
         }
@@ -335,7 +340,8 @@ def _static_check_for(conn, document_id: str) -> dict[str, Any]:
     local = stored_paths.local(row["stored_path"]) if row else None
     if not local or not Path(local).is_file():
         return {"status": attachment_safety.NOT_SCANNED, "findings": []}
-    return attachment_safety.check_pdf(local)
+    with open(local, "rb") as stored:  # the check picks itself by the file's first bytes: a Word file is not read as a PDF
+        return attachment_safety.check_before_library(stored)
 
 
 def _source_pages(conn, document_id: str, start: int, end: int):
@@ -398,7 +404,8 @@ def _insert_attachments(
 ) -> None:
     for attachment in attachments:
         conn.execute(
-            "INSERT INTO query_attachments(id,message_id,filename,media_type,size_bytes,sha256,storage_ref,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_attachments(id,message_id,filename,media_type,size_bytes,sha256,storage_ref,created_at,inline_picture)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 str(uuid.uuid4()),
                 message_id,
@@ -408,6 +415,7 @@ def _insert_attachments(
                 attachment.get("sha256"),
                 attachment.get("storage_ref"),
                 now(),
+                1 if attachment.get("inline_picture") else 0,
             ),
         )
 
@@ -557,8 +565,11 @@ def import_message(
             return get(
                 threaded["query_id"], actor_user_id, is_admin, unrestricted
             ) or {}, False
-        contractor, department, routed_by = _routed(
-            conn, data["from_address"], data.get("contractor_name"), data.get("department")
+        from . import technical_query_routing
+
+        # the codes in the number first (contractor, discipline), then the sender's address / domain rule
+        contractor, department, routed_by = technical_query_routing.routed(
+            conn, data, data.get("contractor_name"), data.get("department"), _routed
         )
         conn.execute(
             "INSERT INTO technical_queries(id,owner_user_id,contractor_name,department,routing_source,subject,extracted_question,status,priority,received_at,created_at,updated_at,ref_key,ref_type,ref_number,discipline_code,title_short,needs_person) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -808,7 +819,15 @@ def get(
                 (query_id,),
             )
         ]
+        from .technical_query_mail import split_body
+
+        main, folded = split_body(result.get("extracted_question"))
+        result["extracted_question_main"] = main
+        result["extracted_question_folded"] = folded
         for message in result["messages"]:
+            # the message itself and, folded on the page, its signature, notices and quoted mail (the stored body is unchanged)
+            main, folded = split_body(message.get("body"))
+            message["body_main"], message["body_folded"] = main, folded
             message["to_addresses"], message["cc_addresses"] = (
                 json.loads(message["to_addresses"] or "[]"),
                 json.loads(message["cc_addresses"] or "[]"),
@@ -1199,9 +1218,13 @@ def prepare_evidence(
         raise ValueError("evidence cannot be prepared in the current query state")
     with connect() as conn:
         invalidate_attachment_evidence(conn, query_id)
+    from .technical_query_mail import message_itself
+
     message = (current.get("messages") or [{}])[0]
-    body = (message.get("body") or "").strip()
-    saved_question = original_email_question(current.get("extracted_question"))
+    # the question finder reads the message itself: never its signature, legal notices or quoted earlier mail
+    body = message_itself(message.get("body")).strip()
+    saved = original_email_question(current.get("extracted_question"))
+    saved_question = message_itself(saved).strip() or None
     email_question = saved_question or body
     marker = body.upper().find("QUESTION")
     if not saved_question and marker >= 0:
@@ -1678,13 +1701,15 @@ def _routed(conn, from_address: str, contractor: str | None, department: str | N
 
 
 def list_routing_rules() -> list[dict[str, Any]]:
+    from . import technical_query_routing
+
     with connect() as conn:
         return [
             dict(row)
             for row in conn.execute(
                 "SELECT * FROM query_routing_rules ORDER BY match_type,match_value"
             )
-        ]
+        ] + technical_query_routing.rules(conn)
 
 
 def set_routing_rule(
@@ -1697,6 +1722,14 @@ def set_routing_rule(
 ) -> list[dict[str, Any]]:
     if not is_admin:
         raise PermissionError("an administrator is required to change routing rules")
+    from . import technical_query_routing
+
+    # a code in the document number: its own map
+    if match_type in technical_query_routing.KINDS:
+        rule = (match_type, match_value, contractor_name, department, actor_user_id)
+        with connect() as conn:
+            technical_query_routing.set_rule(conn, *rule)
+        return list_routing_rules()
     value = (match_value or "").strip().casefold().lstrip("@")
     if match_type not in {"address", "domain"} or not value:
         raise ValueError("a rule names an address or a domain")
@@ -1725,6 +1758,9 @@ def set_routing_rule(
 def delete_routing_rule(rule_id: str, is_admin: bool) -> list[dict[str, Any]]:
     if not is_admin:
         raise PermissionError("an administrator is required to change routing rules")
+    from . import technical_query_routing
+
     with connect() as conn:
         conn.execute("DELETE FROM query_routing_rules WHERE id=?", (rule_id,))
+        technical_query_routing.delete_rule(conn, rule_id)
     return list_routing_rules()

@@ -1,0 +1,28 @@
+{
+  "_about": "THE DOCUMENT GROUPS (order 14, planner 26 Nov 2026 14:45, lane L3; builder H). DATA, not code: `app/document_groups.py` reads it, no model. Each group is one kind of document a contractor sends, in ONE of the six review families of the one kind list (`kind_list.json`, builder G). `kind`: the kind on that list the group is (null when the list has no kind for it). `words`: the names code matches, as whole words, against what the review already holds (the AI's subject of the paper and the paper's file name); a name is lower case, plain words, and never a client's word. A paper whose kind is on the kind list keeps that kind and its family. A paper of no listed kind is placed by its group's words; with no group either it goes to the NEAREST family by shared words (or `default_family`), is logged 'new kind seen' and is labelled 'not yet scored for this kind' on its comment sheet: it is never refused. `families.<id>.route_kind`: the method kind whose rules and method books a paper of that family is reviewed with when its own kind is not one the method knows, only while KIND_FAMILY_ROUTE_ENABLED is on (off by default: a Claude review stays as before until a scored read) (an unscored kind stays unscored: no switch opens Automatic for it). Filling in the client's document list (93 groups) adds rows under `groups` and changes nothing else.",
+  "version": "1",
+  "default_family": "written_document",
+  "families": {
+    "written_document": {"route_kind": "other"},
+    "study_calculation": {"route_kind": "calculation"},
+    "drawing_diagram": {"route_kind": "drawing"},
+    "list_register": {"route_kind": "other"},
+    "certificate_record": {"route_kind": "test record"},
+    "datasheet": {"route_kind": "datasheet"}
+  },
+  "groups": {
+    "specification": {"label": "Specification", "family": "written_document", "kind": "specification", "words": ["specification", "technical specification", "scope of work"]},
+    "transmittal": {"label": "Transmittal", "family": "list_register", "kind": "transmittal", "words": ["transmittal", "document transmittal"]},
+    "contract": {"label": "Contract document", "family": "written_document", "kind": "contract", "words": ["contract", "agreement", "terms and conditions"]},
+    "drawing": {"label": "Drawing", "family": "drawing_diagram", "kind": "drawing", "words": ["drawing", "general arrangement", "layout", "isometric", "diagram", "sketch"]},
+    "datasheet": {"label": "Datasheet", "family": "datasheet", "kind": "datasheet", "words": ["datasheet", "data sheet"]},
+    "procedure": {"label": "Procedure", "family": "written_document", "kind": "procedure", "words": ["procedure", "method statement", "work instruction"]},
+    "study": {"label": "Study", "family": "study_calculation", "kind": "study", "words": ["study", "analysis", "assessment"]},
+    "report": {"label": "Report", "family": "written_document", "kind": "report", "words": ["report"]},
+    "feed": {"label": "Front-end design document", "family": "written_document", "kind": "feed", "words": ["basis of design", "design basis", "front end design"]},
+    "standard": {"label": "Standard", "family": "written_document", "kind": "standard", "words": ["standard", "code of practice"]},
+    "letter": {"label": "Letter", "family": "written_document", "kind": "letter", "words": ["letter", "memorandum"]},
+    "test_record": {"label": "Test record", "family": "certificate_record", "kind": "test_record", "words": ["test record", "test report", "certificate", "inspection record"]},
+    "calculation": {"label": "Calculation", "family": "study_calculation", "kind": "calculation", "words": ["calculation", "sizing", "calc"]}
+  }
+}

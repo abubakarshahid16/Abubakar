@@ -60,6 +60,8 @@ class ReviewModelOptions(BaseModel):
     answer_model_why: str | None = None
     stored: Stored
     history: list[Change] = Field(default_factory=list)
+    history_since: str | None = None
+    history_since_update: str | None = None
     used_by: str
 
 

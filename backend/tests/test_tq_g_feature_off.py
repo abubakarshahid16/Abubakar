@@ -370,7 +370,7 @@ def test_claude_for_the_draft_is_refused_while_the_engine_setting_is_local_and_f
 ):
     item, scope = draft_ready(monkeypatch)
     monkeypatch.setattr(
-        "app.api.technical_queries.answer.answer",
+        "app.answer.answer",
         lambda *a, **k: pytest.fail("no answer is asked"),
     )
     assert settings.technical_query_draft_engine == "local"
@@ -399,7 +399,7 @@ def test_the_default_draft_runs_on_the_local_model(monkeypatch):
         seen.append((k["model"], k["allowed_document_ids"]))
         raise RuntimeError("stop here")
 
-    monkeypatch.setattr("app.api.technical_queries.answer.answer", fake)
+    monkeypatch.setattr("app.answer.answer", fake)
     with pytest.raises(HTTPException):
         api.generate_query_draft(item["id"], scope)
     assert seen == [("local", frozenset({"d1", "d2"}))]
@@ -430,7 +430,7 @@ def test_a_claude_draft_needs_the_chosen_documents_records_the_choice_first_and_
             assert [e["document_ids"] for e in C.entries(conn, item["id"])] == [["d1"]]
         raise RuntimeError("stop here")
 
-    monkeypatch.setattr("app.api.technical_queries.answer.answer", fake)
+    monkeypatch.setattr("app.answer.answer", fake)
     with pytest.raises(HTTPException) as nothing_chosen:
         api.generate_query_draft(
             item["id"], scope, api.GenerateDraftIn(engine="claude")
@@ -1075,7 +1075,7 @@ def test_a_chosen_document_that_is_not_a_contract_is_not_sent_and_no_consent_is_
     )
     monkeypatch.setattr(settings, "technical_query_draft_engine", "claude")
     monkeypatch.setattr(
-        "app.api.technical_queries.answer.answer",
+        "app.answer.answer",
         lambda *a, **k: pytest.fail("nothing may be sent"),
     )
     with pytest.raises(HTTPException) as refused:

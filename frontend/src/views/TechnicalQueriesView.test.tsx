@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { attachmentsRead, notReadWhy } from "../api/technicalQueries";
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -36,7 +37,7 @@ const api = vi.hoisted(() => ({
   fileIntoLibrary: vi.fn(),
   gmailLabels: vi.fn(),
   activateGmailLabel: vi.fn(),
-  checkNow: vi.fn(),
+  checkNow: vi.fn(), importAgain: vi.fn(), prepareAllPlan: vi.fn(), prepareAllStart: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
@@ -175,9 +176,149 @@ describe("Technical Queries screen", () => {
     expect(api.activateGmailLabel).not.toHaveBeenCalled(); // an in-page question first, never the browser's box
     fireEvent.click(await screen.findByText("Yes, save and start the import"));
     await waitFor(() => expect(api.activateGmailLabel).toHaveBeenCalledWith("mb", "L1"));
-    expect((await screen.findByTestId("import-progress")).textContent).toContain("imported 12 of 35, 1 failed");
+    expect((await screen.findByTestId("import-progress")).textContent).toContain("read 12 of 35 messages, 12 imported, 1 failed");
     expect(screen.getByTestId("import-failures").textContent).toContain("Invented subject one");
     expect(screen.getByTestId("last-checked").textContent).toMatch(/26 Nov 2026, \d{2}:\d{2}( \S+)?/);
+  });
+
+  it("says the finished import with every count's boundary: messages, queries, imported, our replies kept apart (first live import said 'imported 77 of 77' for 36)", async () => {
+    const job = { id: "j", kind: "import", state: "done", total: 7, done: 7, failed: 0, error: null, failures: [], imported: 3, queries: 2,
+      skipped: { "our replies, added to their query (sent by us)": 3, "sent from this mailbox, with no query of its thread or number yet": 1 } };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: job }] } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("import-done")).textContent).toBe(
+      "Import finished: 7 messages in 2 queries: 3 imported, 3 our replies, added to their query (sent by us), 1 sent from this mailbox, with no query of its thread or number yet.",
+    );
+  });
+
+  it("never says 'imported 77 of 77' for an import that ran before the reasons were counted: it says what is stored", async () => {
+    const old = { id: "j", kind: "import", state: "done", total: 77, done: 77, failed: 0, error: null, failures: [], imported: 77, skipped: {}, queries: 33, messages: 36, reasons_recorded: false };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: old }] } });
+    render(<TechnicalQueriesView />);
+    const said = (await screen.findByTestId("import-done")).textContent;
+    expect(said).toBe("Import finished: processed 77 messages; 36 stored as messages of 33 queries; the reason the other 41 were not stored was not recorded for this import (it ran before this was counted).");
+    expect(said).not.toMatch(/imported 77/);
+  });
+
+  it("hides 'Gmail is connected. Choose the label...' once a label is active (owner's screenshot during the import)", async () => {
+    api.completeGmail.mockResolvedValue({ ok: true, data: { result: "connected", mailbox_id: "mb" } });
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: null }] } });
+    window.history.replaceState(null, "", "/technicalQueries/gmail-return?code=one-time&state=abc");
+    render(<TechnicalQueriesView queryId="gmail-return" />);
+    await waitFor(() => expect(api.completeGmail).toHaveBeenCalled());
+    await screen.findByTestId("mailbox-status");
+    expect(screen.queryByText("Gmail is connected. Choose the label to import below.")).toBeNull();
+  });
+
+  it("fills the list while the import runs, and never says nothing was imported then", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const running = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null,
+        import_job: { id: "j", kind: "import", state: "running", total: 77, done: 12, failed: 0, error: null, failures: [], imported: 12 } };
+      api.mailboxes.mockResolvedValue({ ok: true, data: { items: [running] } });
+      api.list.mockResolvedValue({ ok: true, data: { items: [] } });
+      render(<TechnicalQueriesView />);
+      expect(await screen.findByText("The import is running: queries appear here as their messages arrive.")).toBeTruthy();
+      expect(screen.queryByText("No technical queries have been imported.")).toBeNull();
+      api.list.mockClear();
+      api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q-new", subject: "Arrived during the import" }] } });
+      await vi.advanceTimersByTimeAsync(3100);
+      await waitFor(() => expect(api.list).toHaveBeenCalled());
+      expect(await screen.findByText("Arrived during the import")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says how many of the query's attachments were read and names each one not read with why (nothing silently missing)", async () => {
+    const att = (filename: string, media_type: string, read: boolean) => ({ id: filename, filename, media_type, size_bytes: 1, document_id: read ? "d" : null, scan_status: read ? "static_check_clean" : "pending", parse_status: read ? "ready" : "pending" });
+    const message = { id: "m", from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null,
+      attachments: [att("query.pdf", "application/pdf", true), att("logo.png", "image/png", false), att("answer.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", false), att("calc.xlsm", "application/vnd.ms-excel.sheet.macroenabled.12", false)] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message] } });
+    render(<TechnicalQueriesView />);
+    const box = await screen.findByTestId("attachments-read");
+    expect(box.textContent).toContain("1 of 4 attachments read.");
+    expect(box.textContent).toContain("logo.png: picture, not read");
+    expect(box.textContent).toContain("answer.docx: Word, not read yet");
+    expect(box.textContent).toContain("calc.xlsm: macro file, not opened");
+    expect(box.textContent).not.toContain("query.pdf");
+    expect(attachmentsRead([{ attachments: [att("query.pdf", "application/pdf", true), { ...att("logo1.png", "image/png", false), inline_picture: 1 }, { ...att("logo2.gif", "image/gif", false), inline_picture: 1 }] }])?.line)
+      .toBe("1 of 1 attachment read; 2 signature pictures, not attachments");
+    expect(notReadWhy({ filename: "old.doc", document_id: null, parse_status: "pending", scan_status: "pending" })).toBe("older Word format (.doc), not read: save it as .docx");
+    expect(notReadWhy({ filename: "x.docx", document_id: null, parse_status: "pending", scan_status: "static_check_flagged" })).toBe("Word with active content, its text is not used");
+  });
+
+  it("folds a mail's signature and notices behind 'show', and says each attachment's true state (never 'pending upload' for a picture)", async () => {
+    const message = { id: "m", from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", raw_message_hash: null,
+      body: "Invented question?\n\nBest regards,\nInvented notice", body_main: "Invented question?", body_folded: "Best regards,\nInvented notice",
+      attachments: [{ id: "a", filename: "logo.png", media_type: "image/png", size_bytes: 1, document_id: null, scan_status: "pending", parse_status: "pending" }] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message] } });
+    render(<TechnicalQueriesView />);
+    const folded = await screen.findByTestId("mail-folded");
+    expect(folded.tagName).toBe("DETAILS");
+    expect(folded.hasAttribute("open")).toBe(false);
+    expect(folded.textContent).toContain("Invented notice");
+    expect(screen.getByTestId("attachment-state").textContent).toBe("not read: picture, not read");
+    expect(document.body.textContent).not.toContain("pending upload");
+  });
+
+  it("keeps the detail inside the window and brings it into view on a narrow screen when a query is clicked", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const narrow = vi.fn().mockReturnValue({ matches: true });
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: narrow });
+    api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "First" }, { ...query, id: "q2", subject: "Second" }] } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("Second"));
+    await waitFor(() => expect(narrow).toHaveBeenCalledWith("(max-width: 1023px)"));
+    expect(scroll.mock.calls.length).toBeGreaterThanOrEqual(2); // the page top on arrival, then the detail
+    const region = screen.getByRole("region", { name: "Technical Queries" });
+    expect(region.className).toContain("minmax(0,1fr)");
+  });
+
+  it("marks our own reply in a query's thread 'Sent by us'", async () => {
+    const message = (id: string, inbound: number) => ({ id, is_inbound: inbound, from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null, attachments: [] });
+    api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message("in", 1), message("ours", 0)] } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findAllByTestId("sent-by-us")).length).toBe(1);
+  });
+
+  it("imports the label again only after saying what it will do, in the page", async () => {
+    const active = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: { id: "j", kind: "import", state: "done", total: 77, done: 77, failed: 0, error: null, failures: [] } };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });
+    api.importAgain.mockResolvedValue({ ok: true, data: { import_job: "j2" } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("Import the label again"));
+    expect(api.importAgain).not.toHaveBeenCalled();
+    expect(screen.getByTestId("confirm-import-again").textContent).toContain("reads all 77 messages of the label again and adds only what is not stored yet");
+    fireEvent.click(screen.getByText("Yes, read the label again"));
+    await waitFor(() => expect(api.importAgain).toHaveBeenCalledWith("mb"));
+  });
+
+  it("offers the contractor code in the number first and says 'contractor not set' instead of 'Unknown'", async () => {
+    api.routingRules.mockResolvedValue({ ok: true, data: { items: [] } });
+    api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "Unmapped", contractor_name: null }] } });
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText(/contractor not set: add its code under Routing rules/)).toBeTruthy();
+    expect(screen.queryByText(/Unknown contractor/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    const options = Array.from((screen.getByLabelText("Rule type") as HTMLSelectElement).options).map((o) => o.textContent);
+    expect(options[0]).toBe("Contractor code in the number");
+    expect(options).toContain("Discipline code");
+  });
+
+  it("prepares every unprepared query only after saying how many and how long, then shows how many are left", async () => {
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [] } });
+    api.prepareAllPlan.mockResolvedValue({ ok: true, data: { unprepared: 33, minutes_each: 5, waiting_or_running: 0 } });
+    api.prepareAllStart.mockResolvedValue({ ok: true, data: { unprepared: 0, minutes_each: 5, waiting_or_running: 33, queued_now: 33 } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("Prepare evidence for all unprepared queries"));
+    expect((await screen.findByTestId("confirm-prepare-all")).textContent).toContain(
+      "33 queries are not prepared yet: about 5 min each (measured on the last prepared queries), one at a time in the background. Prepared queries are skipped.",
+    );
+    expect(api.prepareAllStart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Yes, prepare them"));
+    expect((await screen.findByTestId("prepare-all-progress")).textContent).toContain("33 still waiting or running");
   });
 
   it("has a Check now button that queues one poll", async () => {
@@ -185,7 +326,7 @@ describe("Technical Queries screen", () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });
     api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j2" } });
     render(<TechnicalQueriesView />);
-    expect((await screen.findByTestId("import-done")).textContent).toContain("imported 3 of 3");
+    expect((await screen.findByTestId("import-done")).textContent).toBe("Import finished: 3 messages: 3 imported.");
     fireEvent.click(await screen.findByText("Check now"));
     await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
   });
