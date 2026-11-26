@@ -31,6 +31,7 @@ from .aim_review import unread
 from .aim_review.faults import LEGACY_WORDS, NOT_APPLIED_WORDS, counted
 from .aim_review.updates import group_mark, u7b
 from .aim_review_learner import split as learner_split
+from .aim_review_signed_groups import groups as signed_groups
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
@@ -679,7 +680,7 @@ def build(conn, run: dict, scope=None) -> dict:
         line_view(r, i, book_hidden(conn, r, scope)) for i, r in enumerate(rows, 1)
     ]
     # a "not judged" Question stays a point, never a comment; one point's lines make ONE comment; each comment gets its card
-    comments, confirmations = comments_and_confirmations(points)
+    comments, confirmations = signed_groups(conn, run, points)
     by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
     aim_review_decisions.attach(conn, run["run_id"], comments, confirmations)
     comments, rejected_before = learner_split(conn, run, comments, scope, by_severity)
