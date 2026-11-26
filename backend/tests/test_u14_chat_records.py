@@ -214,3 +214,21 @@ def test_a_records_question_it_cannot_answer_says_so_never_an_essay(
         json={"question": "which TQs are open", "model": "local"},
     ).json()
     assert got["answer"].startswith(R.CANNOT) and calls == []
+
+
+def test_the_coverage_line_counts_the_passages_an_answer_quotes():
+    """Found on the practice copy (26 Nov 2026): an extract answer quoting one selected paper said "Passages read from 0 of 10"."""
+    from app import chat_coverage
+
+    for doc, name in (("doc_q1", "INV-Q1.pdf"), ("doc_q2", "INV-Q2.pdf")):
+        _doc(doc, name, "datasheet")
+    result = {"passages": [], "answer_passages": [{"document_id": "doc_q1"}]}
+    got = chat_coverage.attach(
+        result,
+        "what is the invented value",
+        frozenset({"doc_q1", "doc_q2"}),
+        chat_coverage.sources_of(result),
+    )
+    assert got["paper_coverage"]["read"] == 1 and got["paper_coverage"][
+        "sentence"
+    ].startswith("Passages read from 1 of 2")
