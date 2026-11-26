@@ -196,7 +196,8 @@ def team_note(p: dict) -> str | None:
 def cut_words(cut: dict) -> str:
     """The mark of a side-claim cut (owner's completeness rule: no text cut without a visible mark and the full text beside it):
     the page the paper answers the part on and the comment's full text before the cut. Team file only."""
-    if cut.get("kind") == "replaced":  # a firm formula line took this AI comment's place (`aim_review.formulas.join_into`)
+    # a firm formula line took this AI comment's place (`aim_review.formulas.join_into`)
+    if cut.get("kind") == "replaced":
         return f'This comment was replaced by a reading proven by code. Full text before: "{cut.get("before")}"'
     pages = ", ".join(str(x) for x in cut.get("pages") or [cut.get("page")])
     return f'A part the paper answers (page {pages}) was taken out of this comment. Full text before: "{cut.get("before")}"'

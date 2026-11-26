@@ -442,7 +442,10 @@ def _line(check, decided, a: Field, av: Val, b: Field, bv: Val, hit: Hit) -> dic
         "code_compare": compare,
         "deferred": False,
         "ask": "",
-        "read_keys": [a.key, b.key],  # the label keys of the two rows read: `join_into` upgrades only a comment about one of them
+        "read_keys": [
+            a.key,
+            b.key,
+        ],  # the label keys of the two rows read: `join_into` upgrades only a comment about one of them
     }
 
 
@@ -566,5 +569,5 @@ def add_lines(conn, paper, state) -> None:
     try:
         new = lines(conn, paper, sorted(state.books - state.reference_ids))
         state.decided += join_into(state.decided, new)
-    except Exception as exc:  # noqa: BLE001 - never stops a finished review
+    except Exception as exc:  # noqa: BLE001 - never stops a finished review: recorded as a step that did not run
         _fault(exc)
