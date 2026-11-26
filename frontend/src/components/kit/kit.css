@@ -1,0 +1,114 @@
+/* THE SHARED KIT (owner, 27 Nov 2026 03:30: "extreme broken inconsistency"; standing rule R1: one shared kit, no one-offs).
+   The ONLY place a page title, a button, a status chip, a card, a table, a select, an input, a notice box or a tile is styled. A page
+   uses these parts and never styles them itself (kitOnly.test.ts fails the build when a rebuilt page does).
+   Colours are the theme's own tokens, so light and dark follow the theme. Every pair below is measured >= 4.5 : 1.
+   TYPE: five sizes only: 13 (small), 15 (body), 18 (section), 22 (page title), 34 (a tile's big number).
+   SPACE: 4, 8, 12, 16, 24, 32 px (the --kit-space-* scale). */
+
+:root {
+  --kit-space-1: 4px; --kit-space-2: 8px; --kit-space-3: 12px; --kit-space-4: 16px; --kit-space-6: 24px; --kit-space-8: 32px;
+  --kit-radius: 8px; --kit-radius-lg: 12px;
+  /* the one primary action colour: white on teal 5.2 : 1, hover 7.0 : 1 */
+  --kit-primary-bg: #0b7a75; --kit-primary-hover: #0a6460; --kit-primary-fg: #ffffff;
+  /* done (green) and late (red) words on a card or the page ground (their own values: the theme's pill text is white on a solid pill) */
+  --kit-ok-fg: #0b6b3a; --kit-late-fg: #a61b1b;
+  /* the secondary button's outline, visible on a white card (3.0 : 1 for a control's edge) */
+  --kit-edge: #8a97a6;
+  /* THE FIVE TONES, one style each (pale fill, dark words, a border), the kit's own: the theme's pill colours are solid in places.
+     Measured (text on its fill): done 7.2, check 7.8, late 7.7, info 7.8 : 1. */
+  --kit-done-bg: #ddf5ea; --kit-done-fg: #0b5a3e; --kit-done-bd: #7cc6a5;
+  --kit-check-bg: #fff1cc; --kit-check-fg: #6b4200; --kit-check-bd: #d9a93b;
+  --kit-late-bg: #fde4e4; --kit-late-tone-fg: #8a1c24; --kit-late-bd: #e08a90;
+  --kit-info-bg: #ddeefb; --kit-info-fg: #0b4a7a; --kit-info-bd: #86b8e0;
+}
+/* dark: dark ink on the light teal, 9.6 : 1, hover 6.4 : 1 */
+:root[data-theme="dark"] {
+  --kit-primary-bg: #5fd3c9; --kit-primary-hover: #2bafa6; --kit-primary-fg: #0f1b2d;
+  --kit-ok-fg: #7ee2b8; --kit-late-fg: #ffb4ab;
+  --kit-edge: #5b6b80;
+  --kit-done-bg: #10302a; --kit-done-fg: #a7f3d0; --kit-done-bd: #2f7a62;
+  --kit-check-bg: #3b2f14; --kit-check-fg: #fcd58a; --kit-check-bd: #8a6a22;
+  --kit-late-bg: #3d1c1f; --kit-late-tone-fg: #ffc2c2; --kit-late-bd: #9b3b42;
+  --kit-info-bg: #12293d; --kit-info-fg: #bae0fd; --kit-info-bd: #3d6e99;
+}
+
+/* ---- page header: ONE title size and weight on every page ---- */
+.kit-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--kit-space-4); margin-bottom: var(--kit-space-6); }
+.kit-header__text { min-width: 0; }
+.kit-title, :root[data-look="new"] main h1.kit-title { font-size: 22px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; color: var(--color-slateish-100); margin: 0; }
+.kit-lead { font-size: 15px; line-height: 1.5; color: var(--color-slateish-300); margin: var(--kit-space-1) 0 0; }
+.kit-header__actions { display: flex; flex-wrap: wrap; gap: var(--kit-space-2); }
+.kit-section-title, :root[data-look="new"] main h2.kit-section-title { font-size: 18px; line-height: 1.35; font-weight: 600; color: var(--color-slateish-100); margin: var(--kit-space-6) 0 var(--kit-space-3); }
+.kit-card > .kit-section-title:first-child, .kit-header + .kit-section-title,
+:root[data-look="new"] main .kit-card > h2.kit-section-title:first-child { margin-top: 0; }
+
+/* ---- spacing: a stack of parts with one of the scale's gaps; a row that wraps ---- */
+.kit-stack { display: flex; flex-direction: column; min-width: 0; }
+.kit-row { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; }
+.kit-gap-2 { gap: var(--kit-space-2); } .kit-gap-3 { gap: var(--kit-space-3); } .kit-gap-4 { gap: var(--kit-space-4); } .kit-gap-6 { gap: var(--kit-space-6); }
+
+/* ---- buttons: one primary, one secondary (and a small size of each) ---- */
+.kit-btn, :root[data-look="new"] main button.kit-btn, :root[data-look="new"] main a.kit-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--kit-space-2); min-height: 40px;
+  border-radius: var(--kit-radius); border-width: 1px; border-style: solid; padding: var(--kit-space-2) var(--kit-space-4);
+  font-size: 15px; font-weight: 600; line-height: 1.2; white-space: nowrap; text-decoration: none; cursor: pointer; opacity: 1;
+}
+.kit-btn--sm, :root[data-look="new"] main button.kit-btn--sm, :root[data-look="new"] main a.kit-btn--sm { min-height: 32px; padding: var(--kit-space-1) var(--kit-space-3); font-size: 13px; }
+.kit-btn--primary { background: var(--kit-primary-bg); color: var(--kit-primary-fg); border-color: var(--kit-primary-bg); }
+.kit-btn--primary:hover:not(:disabled) { background: var(--kit-primary-hover); }
+.kit-btn--secondary { background: var(--color-ink-800); color: var(--color-slateish-100); border-color: var(--kit-edge); }
+.kit-btn--secondary:hover:not(:disabled) { background: var(--color-ink-700); }
+.kit-btn:disabled, :root[data-look="new"] main button.kit-btn:disabled {
+  background: var(--color-ink-800); color: var(--color-slateish-400); border-color: var(--color-ink-600); cursor: not-allowed;
+}
+.kit-btn:focus-visible, .kit-tile:focus-visible, .kit-input:focus-visible, .kit-select:focus-visible { outline: 2px solid var(--kit-primary-bg); outline-offset: 2px; }
+
+/* ---- status chips: ONE shape, a FIXED colour per status word (chipWords.ts) ---- */
+.kit-chip { display: inline-flex; align-items: center; white-space: nowrap; border-radius: 999px; border: 1px solid; padding: 1px 10px; font-size: 13px; font-weight: 600; line-height: 1.5; }
+.kit-chip--done { background: var(--kit-done-bg); color: var(--kit-done-fg); border-color: var(--kit-done-bd); }
+.kit-chip--check { background: var(--kit-check-bg); color: var(--kit-check-fg); border-color: var(--kit-check-bd); }
+.kit-chip--late { background: var(--kit-late-bg); color: var(--kit-late-tone-fg); border-color: var(--kit-late-bd); }
+.kit-chip--info { background: var(--kit-info-bg); color: var(--kit-info-fg); border-color: var(--kit-info-bd); }
+.kit-chip--plain { background: var(--color-ink-800); color: var(--color-slateish-300); border-color: var(--kit-edge); }
+
+/* ---- card ---- */
+.kit-card { background: var(--color-ink-800); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); padding: var(--kit-space-4); min-width: 0; }
+
+/* ---- table: scrolls inside its own box, never widens the page ---- */
+.kit-table-wrap { overflow-x: auto; border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); }
+.kit-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.kit-table th { text-align: left; font-size: 13px; font-weight: 600; color: var(--color-slateish-300); padding: var(--kit-space-2) var(--kit-space-3); border-bottom: 1px solid var(--color-ink-600); background: var(--color-ink-850); }
+.kit-table td { padding: var(--kit-space-2) var(--kit-space-3); border-bottom: 1px solid var(--color-ink-600); color: var(--color-slateish-200); vertical-align: top; }
+.kit-table tr:last-child td { border-bottom: 0; }
+
+/* ---- form controls: one input, one select, one label ---- */
+.kit-field { display: block; min-width: 0; }
+.kit-label { display: block; font-size: 13px; font-weight: 600; color: var(--color-slateish-300); margin-bottom: var(--kit-space-1); }
+.kit-input, .kit-select, :root[data-look="new"] main input.kit-input, :root[data-look="new"] main select.kit-select {
+  display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 40px; font-size: 15px; padding: var(--kit-space-2) var(--kit-space-3);
+  border-radius: var(--kit-radius); border: 1px solid var(--color-ink-500); background: var(--color-ink-900); color: var(--color-slateish-100);
+}
+.kit-hint { display: block; font-size: 13px; color: var(--color-slateish-300); margin-top: var(--kit-space-1); }
+
+/* ---- notice box: info, warn, problem ---- */
+.kit-notice { border: 1px solid; border-left-width: 4px; border-radius: var(--kit-radius-lg); padding: var(--kit-space-3) var(--kit-space-4); font-size: 15px; line-height: 1.5; }
+.kit-notice__title { font-weight: 600; margin: 0 0 var(--kit-space-1); }
+.kit-notice--info { background: var(--kit-info-bg); color: var(--kit-info-fg); border-color: var(--kit-info-bd); }
+.kit-notice--warn { background: var(--kit-check-bg); color: var(--kit-check-fg); border-color: var(--kit-check-bd); }
+.kit-notice--problem { background: var(--kit-late-bg); color: var(--kit-late-tone-fg); border-color: var(--kit-late-bd); }
+
+/* ---- tile: a whole card that is one button to its list (the Dashboard's three tiles, owner 03:34) ---- */
+.kit-tiles { display: grid; gap: var(--kit-space-4); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.kit-tile, :root[data-look="new"] main button.kit-tile, :root[data-look="new"] main a.kit-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--kit-space-1); min-height: 0; text-align: left; text-decoration: none;
+  background: var(--color-ink-800); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); padding: var(--kit-space-4);
+  color: var(--color-slateish-200); cursor: pointer; opacity: 1;
+}
+.kit-tile:hover { border-color: var(--kit-primary-bg); }
+.kit-tile__name { font-size: 15px; font-weight: 600; color: var(--color-slateish-100); }
+.kit-tile__number { font-size: 34px; line-height: 1.1; font-weight: 700; color: var(--color-slateish-100); }
+.kit-tile__label { font-size: 13px; color: var(--color-slateish-300); }
+.kit-tile__figures { display: flex; flex-wrap: wrap; gap: var(--kit-space-3); font-size: 13px; margin-top: var(--kit-space-2); color: var(--color-slateish-300); }
+.kit-ok { color: var(--kit-ok-fg); font-weight: 600; }
+.kit-late { color: var(--kit-late-fg); font-weight: 600; }
+.kit-small { font-size: 13px; color: var(--color-slateish-300); }

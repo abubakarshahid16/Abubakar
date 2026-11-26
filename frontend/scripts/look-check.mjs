@@ -29,6 +29,8 @@ export const PAGES = [
   ["/ingestion", "Ingestion"], ["/technicalQueries", "Technical Queries and CFCs"], ["/admin", "Administration"],
 ];
 export const MIN_CONTRAST = 4.5;
+// LOOK_CHECK_ONLY="/kit.html|Shared kit": measure just that page (the kit's preview) instead of the 11 menu pages
+if (process.env.LOOK_CHECK_ONLY) PAGES.splice(0, PAGES.length, process.env.LOOK_CHECK_ONLY.split("|"));
 const OPEN_FOLDS = process.env.LOOK_CHECK_FOLDS !== "closed";
 const EXEMPT_DISABLED = process.env.LOOK_CHECK_DISABLED === "exempt";
 /** A narrow window (a small laptop, or a split screen): no page may scroll sideways at this width (owner's live walk, 27 Nov 2026). */
