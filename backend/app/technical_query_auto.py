@@ -588,7 +588,7 @@ def backlog(conn) -> list[str]:
     return ids
 
 
-OUTDATED_MARK = "These sources were found by an older search: press Find the sources again (or they are found again at the next start)."
+OUTDATED_MARK = "These sources were found by an older search: press Find the sources again (under Redo), or they are found again at the next start."
 
 
 def _search_version(row) -> int:
