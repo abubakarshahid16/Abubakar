@@ -29,11 +29,15 @@ ENDED_WITH_LINES = ("done", "stopped")
 
 
 def _waiting(conn, status: str, paper_id: str) -> str | None:
-    """"waiting: its paper is still being read" for a queued run parked behind its paper's reading, else None."""
+    """ "waiting: its paper is still being read" for a queued run parked behind its paper's reading, else None."""
     from . import review_jobs
 
     try:
-        return review_jobs.WAITING_FOR_PAPER_WORDS if status == "queued" and review_jobs.paper_still_being_read(conn, paper_id) else None
+        return (
+            review_jobs.WAITING_FOR_PAPER_WORDS
+            if status == "queued" and review_jobs.paper_still_being_read(conn, paper_id)
+            else None
+        )
     except sqlite3.Error:
         return None
 
@@ -110,16 +114,29 @@ def entries(
     *,
     newest_only: bool = False,
 ) -> list[dict]:
-    """The general runs the caller may read, as rows of the runs list (`ReviewRunSummary`), newest first; `newest_only` keeps the
-    newest run of each paper (the older ones are not even counted: reading a run's counts builds its whole page)."""
-    from . import review_jobs
+    """The general runs the caller may read, as rows of the runs list (`ReviewRunSummary`), newest first, each with its engine and
+    whether it is its paper's FACE (`aim_review_face`: newest signed, else newest on Claude, else newest); `newest_only` keeps the
+    face of each paper (the others are not even counted: reading a run's counts builds its whole page)."""
+    from . import aim_review_face, review_jobs
 
-    out, seen = [], set()
-    for r in _rows(conn, allowed, document_id):
-        if newest_only:
-            if r["paper_document_id"] in seen:
-                continue
-            seen.add(r["paper_document_id"])
+    rows = _rows(conn, allowed, document_id)
+    meta = {
+        str(r["run_id"]): {
+            "review_run_id": str(r["run_id"]),
+            "submittal_document_id": r["paper_document_id"],
+            "created_at": r["created_at"],
+            "engine": aim_review_face.engine_of(conn, r),
+            "general_signoff": aim_review_face.signoff_state(conn, str(r["run_id"]))
+            if str(r["status"]) == "done"
+            else None,
+        }
+        for r in rows
+    }
+    faces = aim_review_face.face_ids(list(meta.values()))
+    out = []
+    for r in rows:
+        if newest_only and str(r["run_id"]) not in faces:
+            continue
         run_id, status = str(r["run_id"]), str(r["status"])
         doc = conn.execute(
             "SELECT filename FROM documents WHERE id = ?", (r["paper_document_id"],)
@@ -137,7 +154,9 @@ def entries(
                 "review_run_id": run_id,
                 "submittal_document_id": r["paper_document_id"],
                 "submittal_filename": doc["filename"] if doc else None,
-                "status": "failed" if _account_stop(r) else STATUS_SHOWN.get(status, status),
+                "status": "failed"
+                if _account_stop(r)
+                else STATUS_SHOWN.get(status, status),
                 "created_at": r["created_at"],
                 "completed_at": r["finished_at"],
                 "waiting_reason": _waiting(conn, status, r["paper_document_id"]),
@@ -149,6 +168,13 @@ def entries(
                 "failure_reason": _account_stop(r)
                 or ((r["stop_reason"] or None) if status == "failed" else None),
                 "job": job,
+                "engine": meta[run_id]["engine"],
+                "engine_words": aim_review_face.engine_words(meta[run_id]["engine"]),
+                "face": run_id in faces,
+                "newer_note": aim_review_face.newer_words(list(meta.values()), run_id)
+                if run_id in faces
+                else None,
+                "general_signoff": meta[run_id]["general_signoff"],
             }
         )
     return out

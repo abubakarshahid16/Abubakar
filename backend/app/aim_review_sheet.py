@@ -307,7 +307,9 @@ def signoff_words(signoff) -> str | None:
         return None
     signed = signoff.get("signed") or {}
     if signoff.get("state") == "signed":
-        return f"Signed by {signed.get('by')}, {str(signed.get('at') or '')[:10]}, {signed.get('code')}"
+        # a sign-off of a local run says so
+        made = f"; {signed['rough_draft']}" if signed.get("rough_draft") else ""
+        return f"Signed by {signed.get('by')}, {str(signed.get('at') or '')[:10]}, {signed.get('code')}{made}"
     if signoff.get("state") == "changed":
         return (
             "Changed since the sign-off by "

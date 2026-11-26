@@ -21,7 +21,11 @@ log = logging.getLogger(__name__)
 #: Seconds the engine's model list is reused (a Chat answer or a plan never waits on it twice). ONLY A LIST THAT WAS READ is
 #: kept (review of update 11, N3): a failed read is asked again next time, never remembered.
 LIST_SECONDS = 60.0
+#: A FAILED read is kept this long (review of update 11, R2-2): a hung engine costs its 3 s timeout once, not on every call. A kept
+#: failure still means the code's default, never the configured model.
+FAILED_SECONDS = 10.0
 _LIST: dict[str, tuple[float, dict]] = {}
+_FAILED: dict[str, float] = {}
 _SAID: dict[str, str] = {}
 
 FELL_BACK = "ANSWER_MODEL names {configured}, which cannot be used here ({reason}), so the code's default {default} is used"
@@ -57,8 +61,9 @@ def code_default_ram_bytes() -> int:
 
 
 def forget() -> None:
-    """Drop the kept model list (tests; a model pulled or removed)."""
+    """Drop the kept model list and any kept failure (tests; a model pulled or removed)."""
     _LIST.clear()
+    _FAILED.clear()
 
 
 def _listed(body) -> dict | None:
@@ -76,24 +81,33 @@ def share_list(body) -> None:
     listed = _listed(body)
     if listed is not None:
         _LIST["list"] = (time.monotonic(), listed)
+        _FAILED.clear()
 
 
 def _list() -> dict | None:
     """The engine's model list, read at most once a minute; None when it cannot be read (not kept: asked again next time)."""
     from . import model_transport
 
+    now = time.monotonic()
     kept = _LIST.get("list")
-    if kept and time.monotonic() - kept[0] < LIST_SECONDS:
+    if kept and now - kept[0] < LIST_SECONDS:
         return kept[1]
+    if now - _FAILED.get("at", -FAILED_SECONDS) < FAILED_SECONDS:
+        return None  # a read failed a moment ago: not asked again yet (still the code's default)
     try:
         body = model_transport.get_json("/api/tags", timeout=3.0, required=False)
     except Exception as exc:  # noqa: BLE001 - unread: the code's default is used and the log says why
         log.info(
             "answer model: the engine's list was not read (%s)", type(exc).__name__
         )
+        body = None
+    listed = _listed(body)
+    if listed is None:
+        _FAILED["at"] = now
         return None
+    _FAILED.clear()
     share_list(body)
-    return _listed(body)
+    return listed
 
 
 def _why_not(name: str) -> str | None:
@@ -135,6 +149,25 @@ def resolve() -> Choice:
 
 def name() -> str:
     return resolve().name
+
+
+#: The reasons that PROVE a model unusable here (an unread list or a missing model proves nothing about a stored reading).
+PROOF = (TOO_LARGE, NOT_A_FILE)
+
+
+def trusted_reader(model: str) -> bool:
+    """True when a STORED reading by `model` may set scope (review of update 11, R2-4): the model in use, or the configured
+    ANSWER_MODEL unless it is PROVEN unusable here (too large, a cloud name, not a model file). Reading stored answers asks the
+    engine nothing new; an engine that is down does not void them."""
+    from .config import settings
+
+    model = str(model or "").strip()
+    if not model:
+        return False
+    if model == name():
+        return True
+    configured = str(settings.answer_model or "").strip()
+    return model == configured and _why_not(configured) not in PROOF
 
 
 def ram_bytes() -> int:

@@ -55,7 +55,11 @@ export interface SignoffStatus {
   /** The admin capability ("super user"): only that reader signs, and fetches the contractor copy, until engineer accounts are named. */
   may_sign: boolean;
   may_sign_words: string | null;
-  signed: { by: string; at: string; code: string; statement: string | null; copy_statement: string } | null;
+  signed: { by: string; at: string; code: string; statement: string | null; copy_statement: string; rough_draft?: string | null } | null;
+  /** False for a rough draft from the local model: each comment is decided one by one (no "Accept the rest"). */
+  bulk_accept?: boolean;
+  /** The server's sentence for a rough draft (why there is no "Accept the rest"); null otherwise. */
+  rough_draft_words?: string | null;
 }
 
 export interface SignoffRefusal { message: string; blockers: { part: string; n: number; title?: string; why?: string }[] }
