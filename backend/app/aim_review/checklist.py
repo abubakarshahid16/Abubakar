@@ -41,6 +41,7 @@ from .material import (  # noqa: F401 - the clause material S3 and the attack re
     TEXT_BOOK_BUDGET,
     _batches,
     _material_line,
+    halves,
     material,
 )
 from .updates import checklist_method
@@ -470,10 +471,10 @@ def _answers(
         log.info(
             "general review: a checklist answer was cut; its batch is asked again in two halves"
         )
-        h = len(batch) // 2
+        one, two = halves(batch)  # local: at a clause-group boundary
         return _answers(
-            model, ident, sel, batch[:h], first, carries, lead, depth + 1
-        ) + _answers(model, ident, sel, batch[h:], False, carries, lead, depth + 1)
+            model, ident, sel, one, first, carries, lead, depth + 1
+        ) + _answers(model, ident, sel, two, False, carries, lead, depth + 1)
     return [(out, batch)]
 
 
