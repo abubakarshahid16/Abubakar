@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
+import { formatWhen } from "../format/when";
 import { NO_QUERIES, TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -429,5 +430,15 @@ describe("Technical Queries screen", () => {
     expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attachment text below and write the question\./);
     expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI on this computer was not available/);
     expect(proposalNoteWords(null, true)).toBeNull();
+  });
+
+  it("shows the mail's received time and the confirmation time with their zone, never the stored UTC text (lead-4, 26 Nov 2026)", async () => {
+    const at = "2026-11-20T08:30:00Z";
+    const mail = { id: "m1", received_at: at, from_address: "contractor@example.test", to_addresses: [], cc_addresses: [], subject: "Invented", body: "Invented.", attachments: [] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, confirmed_question: "Invented?", confirmed_question_at: at, messages: [mail] } });
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText(`Received: ${formatWhen(at)}`)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Confirmed by an engineer on ${formatWhen(at).replace(/[+]/g, "\\+")}`))).toBeTruthy();
+    expect(screen.queryByText(new RegExp(at))).toBeNull();
   });
 });
