@@ -137,8 +137,10 @@ def test_one_set_aside_is_said_in_the_singular_and_other_steps_keep_their_words(
 
 
 def test_the_run_page_score_line_of_a_local_run_holds_the_local_models_measured_note():
-    local = {"local": True, "models": ["invented-local:1b"], "by_step": {}}
-    line = aim_review_local_view.measured({"kind": "datasheet"}, local)["sentence"]
+    """The note is the run's OWN model's (review of update 10, M4): the 9B's numbers on a 9B run, "not yet scored" on any
+    other model, never another model's numbers."""
+    nine = {"local": True, "models": ["qwen3.5:9b-q4_K_M"], "by_step": {}}
+    line = aim_review_local_view.measured({"kind": "datasheet"}, nine)["sentence"]
     assert (
         aim_review_gate.LOCAL_NOT_SCORED in line
         and aim_review_gate.LOCAL_TEST_NOTE in line
@@ -146,6 +148,10 @@ def test_the_run_page_score_line_of_a_local_run_holds_the_local_models_measured_
     assert line.index(aim_review_gate.LOCAL_NOT_SCORED) < line.index(
         aim_review_gate.LOCAL_TEST_NOTE
     )
+    other = {"local": True, "models": ["invented-local:1b"], "by_step": {}}
+    line = aim_review_local_view.measured({"kind": "datasheet"}, other)["sentence"]
+    assert aim_review_gate.LOCAL_TEST_NOTE not in line
+    assert "Local model (invented-local:1b): not yet scored." in line
     claude = aim_review_local_view.measured({"kind": "datasheet"}, {"local": False})
     assert claude is None or aim_review_gate.LOCAL_TEST_NOTE not in (
         claude.get("sentence") or ""

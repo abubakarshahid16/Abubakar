@@ -37,14 +37,32 @@ LOCAL_SWITCHED_OFF = (
     "The local model is switched off for the general review on this install, so with Local only nothing is sent and nothing "
     "is reviewed."
 )
-#: The one line the plan and the sheet show for the local model: its measured time and score (on the
-#: 9B qwen3.5:9b-q4_K_M, lead-4 26 Nov 2026: valve copy A 32.5 minutes, 2 of 10 planted mistakes found; contract copy A 5 of 10 with
-#: the lead's reading). Change it with the next measured score.
+#: What a local model did in our measured runs on this Mac, BY MODEL NAME (lead-4, 26 Nov 2026; review of update 10, M4): the plan,
+#: the sheet and the Review model section show a model's own line, and any other model (or a run whose steps use more than one
+#: model) only "not yet scored", never another model's numbers. Change a line with the next measured score.
+#: The 9B: valve copy A 32.5 minutes, 2 of 10 planted mistakes found; contract copy A 5 of 10 with the lead's reading.
 LOCAL_TEST_NOTE = "Local model (9B): about 33 minutes; found 2 of 10 planted datasheet mistakes and 5 of 10 contract mistakes in our test."
+#: The 14B: 3 of 3 valve runs stopped by the swap rule at 26 to 29 minutes; its contract review finished.
+LOCAL_14B_NOTE = "Local model (14B): did not finish a valve review on this Mac (3 of 3 runs stopped by the swap rule)."
+LOCAL_MEASURED = {
+    "qwen3.5:9b-q4_K_M": LOCAL_TEST_NOTE,
+    "ministral-3:14b": LOCAL_14B_NOTE,
+}
 #: The score line of a review made on the local model (page and file), in place of the kind's score measured on Claude.
 LOCAL_NOT_SCORED = "local model, not yet scored"
 #: A model with no measured score of the general review (the Review model section of the Administration page).
 NOT_YET_SCORED = "not yet scored"
+
+
+def local_measured_note(models) -> str:
+    """The measured line of the local model a run uses (`LOCAL_MEASURED`), only when every step uses that one model; otherwise
+    "Local model (<names>): not yet scored." with no numbers."""
+    names = sorted({str(m).strip() for m in models or () if str(m).strip()})
+    if len(names) == 1 and names[0] in LOCAL_MEASURED:
+        return LOCAL_MEASURED[names[0]]
+    return f"Local model ({', '.join(names) or 'its name was not recorded'}): {NOT_YET_SCORED}."
+
+
 #: The contractor copy of a general review is refused (409) with these words.
 NO_CONTRACTOR_COPY_WORDS = "No contractor copy yet: this review is not signed off. This file is for the team: AI, to be checked."
 #: The rule-check part of the plan while the general review is on.

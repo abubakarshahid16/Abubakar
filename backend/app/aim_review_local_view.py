@@ -105,7 +105,7 @@ def _blank(value):
 
 def measured(identity: dict | None, local: dict) -> dict | None:
     """The score line of the run: its kind's measured score (`aim_review_measured.for_run`), or for a local run the not-scored
-    words (`aim_review_measured.for_local_run`) followed by the local model's measured note (`aim_review_gate.LOCAL_TEST_NOTE`;
+    words (`aim_review_measured.for_local_run`) followed by the measured note of the model the run used (`aim_review_gate.local_measured_note`;
     the page draws this line, review of update 9, M6). None when a Claude run names no kind."""
     identity = identity if isinstance(identity, dict) else {}
     if local.get("local"):
@@ -116,7 +116,7 @@ def measured(identity: dict | None, local: dict) -> dict | None:
         extra = [
             x
             for x in (
-                aim_review_gate.LOCAL_TEST_NOTE,
+                aim_review_gate.local_measured_note(local.get("models")),
                 steps.get("sentence") and f"Model by step: {steps['sentence']}.",
                 steps.get("paper"),
             )

@@ -24,11 +24,27 @@ from tests.test_aim_dry_run import PAPERS, dry  # noqa: F401 - fixture
 from tests.test_p3_review_jobs import temp_storage  # noqa: F401 - fixture
 
 SMALL, OTHER, HUGE = "invented-small:14b", "invented-other:9b", "invented-huge:35b"
+REMOTE = "invented-remote:cloud"
+STUB = "invented-stub:9b"  # a remote entry with an ordinary name: only its list entry shows it is not a file here
 INSTALLED = {
     "models": [
-        {"name": SMALL, "size": 9_000_000_000},
-        {"name": OTHER, "size": 6_000_000_000},
-        {"name": HUGE, "size": 24_000_000_000},
+        {"name": SMALL, "size": 9_000_000_000, "digest": "invented-1"},
+        {"name": OTHER, "size": 6_000_000_000, "digest": "invented-2"},
+        {"name": HUGE, "size": 24_000_000_000, "digest": "invented-3"},
+        # a remote stub as the engine lists one: a few hundred bytes and a remote host
+        {
+            "name": REMOTE,
+            "size": 380,
+            "digest": "invented-4",
+            "remote_host": "https://invented.example",
+            "remote_model": "x",
+        },
+        {
+            "name": STUB,
+            "size": 412,
+            "digest": "invented-5",
+            "remote_host": "https://invented.example",
+        },
     ]
 }
 
@@ -223,8 +239,8 @@ def test_the_default_is_marked_and_the_14b_says_it_did_not_finish_a_valve_review
         "get_json",
         lambda *a, **k: {
             "models": [
-                {"name": "qwen3.5:9b-q4_K_M", "size": 6_500_000_000},
-                {"name": "ministral-3:14b", "size": 9_000_000_000},
+                {"name": "qwen3.5:9b-q4_K_M", "size": 6_500_000_000, "digest": "d1"},
+                {"name": "ministral-3:14b", "size": 9_000_000_000, "digest": "d2"},
             ]
         },
     )
@@ -232,13 +248,11 @@ def test_the_default_is_marked_and_the_14b_says_it_did_not_finish_a_valve_review
     rows = {m["name"]: m for m in review_model_setting.options()["local"]}
     assert (
         rows["qwen3.5:9b-q4_K_M"]["is_default"] is True
-        and rows["qwen3.5:9b-q4_K_M"]["measured"] is None
+        and rows["qwen3.5:9b-q4_K_M"]["measured"]
+        == aim_review_gate.LOCAL_TEST_NOTE  # its own numbers (M4)
     )
     assert rows["ministral-3:14b"]["is_default"] is False
-    assert (
-        rows["ministral-3:14b"]["measured"]
-        == review_model_setting.MEASURED["ministral-3:14b"]
-    )
+    assert rows["ministral-3:14b"]["measured"] == aim_review_gate.LOCAL_14B_NOTE
     assert (
         "did not finish a valve review on this Mac"
         in rows["ministral-3:14b"]["measured"]
@@ -246,3 +260,93 @@ def test_the_default_is_marked_and_the_14b_says_it_did_not_finish_a_valve_review
     assert (
         rows["ministral-3:14b"]["selectable"] is True
     )  # still offered: its contract review finished
+
+
+# --- review of update 10, M3: a model that is not a file on this computer is never offered, saved or started
+
+
+def test_a_remote_entry_or_a_cloud_name_is_never_offered_or_saved(engine, world):
+    rows = {m["name"]: m for m in review_model_setting.options()["local"]}
+    assert rows[REMOTE]["selectable"] is False
+    assert rows[REMOTE]["why"] == review_model_setting.NOT_LOCAL_FILE
+    assert (
+        rows[STUB]["selectable"] is False
+        and rows[STUB]["why"] == review_model_setting.NOT_LOCAL_FILE
+    )
+    for name in (REMOTE, STUB, "invented-other-cloud:1b", "invented:cloud"):
+        with pytest.raises(
+            review_model_setting.Refused,
+            match=re.escape(review_model_setting.NOT_LOCAL_FILE),
+        ):
+            review_model_setting.save({"steps": {"judge": name}}, "u1")
+    assert review_model_setting.stored()["steps"] == {}
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"size": 380, "digest": "d", "remote_host": "https://invented.example"},
+        {"size": 380, "digest": "d", "remote_model": "invented"},
+        {"size": 0, "digest": "d"},
+        {"size": 6_000_000_000},  # no digest: no local file proven
+    ],
+)
+def test_a_run_never_starts_on_a_model_that_is_not_a_local_file(monkeypatch, entry):
+    name = "invented-model:9b"
+    tags = {"models": [{"name": name, **entry}]}
+    monkeypatch.setattr(
+        model_transport,
+        "get_json",
+        lambda path, *, timeout, required=True: (
+            tags if path == "/api/tags" else {"models": []}
+        ),
+    )
+    assert local_model.readiness([name]) == local_model.NOT_LOCAL.format(name=name)
+
+
+def test_a_cloud_name_never_starts_even_when_the_engine_does_not_list_it(monkeypatch):
+    monkeypatch.setattr(model_transport, "get_json", lambda *a, **k: {"models": []})
+    for name in ("invented:cloud", "invented-model-cloud:1b"):
+        assert local_model.readiness([name]) == local_model.NOT_LOCAL.format(name=name)
+
+
+# --- M4: a model's measured numbers are shown only for that model
+
+
+@pytest.mark.parametrize(
+    "models, note",
+    [
+        (["qwen3.5:9b-q4_K_M"], aim_review_gate.LOCAL_TEST_NOTE),
+        (["ministral-3:14b"], aim_review_gate.LOCAL_14B_NOTE),
+        (["invented-other:9b"], "Local model (invented-other:9b): not yet scored."),
+        (
+            ["qwen3.5:9b-q4_K_M", "ministral-3:14b"],
+            "Local model (ministral-3:14b, qwen3.5:9b-q4_K_M): not yet scored.",
+        ),
+        ([], "Local model (its name was not recorded): not yet scored."),
+    ],
+)
+def test_the_measured_note_is_the_models_own_or_not_yet_scored(models, note):
+    assert aim_review_gate.local_measured_note(models) == note
+
+
+def test_a_plan_on_another_saved_model_shows_no_numbers(engine, world):
+    review_model_setting.save({"default": OTHER}, "u1")
+    r = TestClient(app).get(
+        "/api/reviews/plan",
+        params={"submittal_document_id": PAPERS["datasheet"][0], "engine": "local"},
+        headers=world["headers"],
+    )
+    notes = r.json()["notes"]
+    assert f"Local model ({OTHER}): {aim_review_gate.NOT_YET_SCORED}." in notes
+    assert aim_review_gate.LOCAL_TEST_NOTE not in notes
+    assert not any("of 10" in n for n in notes if n.startswith("Local model"))
+
+
+def test_the_plan_line_names_a_step_set_only_in_env(engine, world, monkeypatch):
+    monkeypatch.setattr(settings, "general_review_local_step_models", f"judge={SMALL}")
+    line = review_model_setting.plan_line(OTHER, local_model.step_models())
+    assert (
+        line
+        == f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_NOT_SCORED})."
+    )

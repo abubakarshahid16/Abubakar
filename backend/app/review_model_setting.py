@@ -8,8 +8,9 @@ THE RULES (each one tested):
     GENERAL_REVIEW_STRONG_MODEL), the models the measured scores were made with. This setting never changes them, and Automatic
     never picks a local model (`review_engine_general.decide_general`).
   * A MODEL MAY BE CHOSEN only when its vendor is approved (`aim_review.model_socket`), its price is known (Claude: the price
-    table of `claude_spend`; local: USD 0) and, for a local model, it is installed and fits this computer (its file at most
-    `local_model.MAX_MODEL_BYTES`: the 35B is refused, owner 25 Nov 2026). A model with no measured score for a kind says
+    table of `claude_spend`; local: USD 0) and, for a local model, it is a model FILE on this computer (no cloud name, no
+    remote host or model, a size and a digest: `local_model.is_local_file`, checked again at every run start) and fits this
+    computer (its file at most `local_model.MAX_MODEL_BYTES`: the 35B is refused, owner 25 Nov 2026). A model with no measured score for a kind says
     "not yet scored": a Claude model is offered only with a measured score; a local model only for Local only, whose plan, page and
     file carry `aim_review_gate.LOCAL_NOT_SCORED`.
   * NOTHING LEAVES THIS COMPUTER and no model is loaded here: the installed models come from the local engine's own list
@@ -39,11 +40,7 @@ TOO_LARGE = "too large for this computer (its file is over 15 GB)"
 ENGINE_DOWN = "the local engine did not answer, so the installed models are not known"
 CLAUDE_FIXED = "the method's own Claude model, as scored; Claude stays the main engine and this page does not change it"
 UNKNOWN_STEP = "no such step"
-#: What a local model did in our measured runs on this Mac, shown beside it (lead-4, 26 Nov 2026). It is still offered: a
-#: contract review on it finished.
-MEASURED = {
-    "ministral-3:14b": "did not finish a valve review on this Mac (3 of 3 runs stopped by the swap rule)",
-}
+NOT_LOCAL_FILE = "not a model file on this computer: the engine would pass the paper's text to another computer"
 
 
 def steps() -> tuple[str, ...]:
@@ -83,7 +80,8 @@ def stored(conn=None) -> dict:
 
 
 def installed() -> list[dict] | None:
-    """[{"name", "bytes"}] of the models the local engine holds, or None when it does not answer. Loads no model."""
+    """[{"name", "bytes", "local_file"}] of the models the local engine lists, or None when it does not answer. `local_file`:
+    the entry is a model file on this computer (`local_model.is_local_file`). Loads no model."""
     from . import model_transport
 
     try:
@@ -97,7 +95,15 @@ def installed() -> list[dict] | None:
     for m in body["models"]:
         name = str((m or {}).get("name") or (m or {}).get("model") or "").strip()
         if name:
-            out.append({"name": name, "bytes": int((m or {}).get("size") or 0)})
+            from .aim_review import local_model
+
+            out.append(
+                {
+                    "name": name,
+                    "bytes": int((m or {}).get("size") or 0),
+                    "local_file": local_model.is_local_file(name, m or {}),
+                }
+            )
     return sorted(out, key=lambda m: m["name"])
 
 
@@ -128,11 +134,15 @@ def _local_why(name: str, models: list[dict] | None) -> str | None:
     ok, words = model_socket.selectable(model_socket.LOCAL)
     if not ok:
         return words
+    if local_model.is_cloud_name(name):
+        return NOT_LOCAL_FILE
     if models is None:
         return ENGINE_DOWN
     found = next((m for m in models if m["name"] == name), None)
     if found is None:
         return NOT_INSTALLED
+    if not found.get("local_file"):
+        return NOT_LOCAL_FILE
     if found["bytes"] > local_model.MAX_MODEL_BYTES:
         return TOO_LARGE
     return None
@@ -192,7 +202,7 @@ def options(conn=None) -> dict:
             "selectable": _local_why(m["name"], models) is None,
             "why": _local_why(m["name"], models),
             "is_default": m["name"] == default,
-            "measured": MEASURED.get(m["name"]),
+            "measured": aim_review_gate.LOCAL_MEASURED.get(m["name"]),
         }
         for m in models or []
     ]
@@ -256,12 +266,23 @@ def default_choice() -> str | None:
     return stored()["default"]
 
 
-def plan_line(default_name: str) -> str:
-    """The plan's line for a Local only run: the models it will use, with the not-yet-scored words."""
+def plan_line(default_name: str, per_step: dict[str, str] | None = None) -> str:
+    """The plan's line for a Local only run: the default and each step group whose model differs (`local_model.step_models()`:
+    the saved picks and the env setting alike), with the not-yet-scored words."""
     from . import aim_review_gate
+    from .aim_review import local_model
 
-    per = sorted(step_choices().items())
-    head = f"Review model: {default_name}"
-    if per:
-        head += "; " + ", ".join(f"{g}: {m}" for g, m in per)
+    per_step = per_step or {}
+    per = []
+    for group, names in local_model.STEP_GROUPS.items():
+        models = sorted(
+            {
+                per_step[n]
+                for n in names
+                if per_step.get(n) and per_step[n] != default_name
+            }
+        )
+        if models:
+            per.append(f"{group}: {', '.join(models)}")
+    head = f"Review model: {default_name}" + ("; " + ", ".join(per) if per else "")
     return f"{head} ({aim_review_gate.LOCAL_NOT_SCORED})."

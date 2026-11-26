@@ -285,7 +285,12 @@ def _engine(
 ):
     def get_json(path, *, timeout, required=True):
         return {
-            "/api/tags": {"models": [{"name": n, "size": size} for n in installed]},
+            # the engine lists a digest for every model file it holds (a remote entry is tested on its own)
+            "/api/tags": {
+                "models": [
+                    {"name": n, "size": size, "digest": "invented"} for n in installed
+                ]
+            },
             "/api/ps": {"models": loaded},
         }[path]
 

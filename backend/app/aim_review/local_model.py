@@ -423,6 +423,29 @@ LOW_MEMORY = (
     "6 GB to spare, so the review did not start; close other work and start it again"
 )
 ENGINE_DOWN = "the local model engine is not answering on this computer, so the review did not start"
+NOT_LOCAL = (
+    "the model {name} is not a model file on this computer (the engine would pass the paper's text to another computer), "
+    "so the review did not start"
+)
+
+
+def is_cloud_name(name: str) -> bool:
+    """A name the engine uses for a model that runs elsewhere (":cloud", "-cloud")."""
+    low = str(name or "").lower()
+    return ":cloud" in low or "-cloud" in low
+
+
+def is_local_file(name: str, entry: dict) -> bool:
+    """True only when the engine's list entry is a model FILE on this computer (review of update 10, M3): not a cloud name, no
+    remote host or remote model field, a size above zero and a digest. Anything else may pass text to another computer
+    (rule 1), so it is never offered and never started."""
+    if is_cloud_name(name) or not isinstance(entry, dict):
+        return False
+    if entry.get("remote_host") or entry.get("remote_model"):
+        return False
+    return _count(entry.get("size")) > 0 and bool(
+        str(entry.get("digest") or "").strip()
+    )
 
 
 def need_bytes(name: str, file_bytes: int, num_ctx: int) -> int:
@@ -448,15 +471,19 @@ def readiness(names=None, num_ctx: int = LOCAL.num_ctx) -> str | None:
     except Exception as exc:  # noqa: BLE001 - an engine that cannot be asked is not ready
         log.info("local readiness: engine not asked (%s)", type(exc).__name__)
         return ENGINE_DOWN
-    installed = {
-        str(m.get("name") or m.get("model") or ""): _count(m.get("size"))
+    entries = {
+        str(m.get("name") or m.get("model") or ""): m
         for m in tags.get("models") or []
         if isinstance(m, dict)
     }
     for name in names:
-        if name not in installed:
+        if is_cloud_name(name):
+            return NOT_LOCAL.format(name=name)
+        if name not in entries:
             return NOT_INSTALLED.format(name=name)
-        if installed[name] > MAX_MODEL_BYTES:
+        if not is_local_file(name, entries[name]):
+            return NOT_LOCAL.format(name=name)
+        if _count(entries[name].get("size")) > MAX_MODEL_BYTES:
             return TOO_LARGE.format(name=name)
     in_memory = set()
     for m in loaded.get("models") or []:
@@ -471,7 +498,7 @@ def readiness(names=None, num_ctx: int = LOCAL.num_ctx) -> str | None:
     for name in names:
         if name in in_memory or free is None:
             continue  # already in memory, or free memory unknown (the swap rule still holds)
-        need = need_bytes(name, installed[name], num_ctx)
+        need = need_bytes(name, _count(entries[name].get("size")), num_ctx)
         if free < need + MEMORY_MARGIN_BYTES:
             return LOW_MEMORY.format(
                 free=round(free / 1e9, 1),
