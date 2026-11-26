@@ -68,8 +68,11 @@ def working(item: dict[str, Any]) -> tuple[str, str]:
 def draft_passages(
     item: dict[str, Any], allowed, attachment_documents, *, unrestricted: bool = False
 ) -> list[dict[str, Any]]:
-    """The passages a draft is written from: the kept, current ones the caller may read; when none is kept, the best the system found FOR
-    THE CURRENT WORDING (not rejected, source not superseded), at most MAX_DRAFT_PASSAGES. A contractor's own attachment is never one."""
+    """The passages a draft is written from: the kept, current ones the caller may read FIRST, then the best the system found FOR THE
+    CURRENT WORDING that are close enough (RELEVANCE_FLOOR) and not rejected, up to MAX_DRAFT_PASSAGES in all (every kept one stays,
+    however many). Keeping one good source never narrows the draft to it alone (F's walk, 26 Nov 2026); rejecting the others ("keep the
+    sources the draft cites, reject the others") leaves exactly the kept set. A contractor's own attachment is never one; nor is a
+    superseded source."""
     question, _source = working(item)
     readable = [
         e for e in item.get("evidence", [])
@@ -80,14 +83,19 @@ def draft_passages(
         for e in readable
         if e["evidence_state"] == "verified" and e["supersession_state"] == "current"
     ]
-    if kept:
-        return kept
     found = [
         e for e in readable
-        if e["evidence_state"] in ("verified", "proposed") and e["supersession_state"] != "superseded"
-        and (e["evidence_state"] == "verified" or (e.get("found_for") == key(question) and close_enough(e)))
+        if e["evidence_state"] == "proposed" and e["supersession_state"] != "superseded"
+        and e.get("found_for") == key(question) and close_enough(e)
     ]  # fmt: skip
-    return found[:MAX_DRAFT_PASSAGES]
+    if not kept:  # nothing kept yet: a kept passage of an unconfirmed source still counts, as before
+        kept = [
+            e
+            for e in readable
+            if e["evidence_state"] == "verified"
+            and e["supersession_state"] != "superseded"
+        ]
+    return kept + found[: max(0, MAX_DRAFT_PASSAGES - len(kept))]
 
 
 def close_enough(row: dict[str, Any]) -> bool:

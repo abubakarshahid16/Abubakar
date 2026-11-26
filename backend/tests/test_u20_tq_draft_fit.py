@@ -139,3 +139,58 @@ def test_an_older_system_draft_awaiting_review_is_written_again_at_the_next_star
         conn.execute("INSERT INTO query_decisions(id,query_id,draft_id,actor_user_id,decision,comment,created_at) "
                      "VALUES ('x',?,NULL,'u1','request_changes',NULL,'x')", (item["id"],))  # fmt: skip
         assert auto.stale_system_drafts(conn) == []
+
+
+def test_keeping_one_source_never_narrows_the_draft_to_it_alone(query):
+    """F's walk (26 Nov 2026): with 1 of 5 good sources kept, the draft rested on that 1 only. Now: the kept ones first, then the system's
+    close-enough finds for this wording that nobody rejected, up to MAX_DRAFT_PASSAGES; a weak or a rejected find is never one."""
+    item, _scope, _asked = query
+    wording = "1. What flange rating applies?"
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET proposed_question=? WHERE id=?",
+            (wording, item["id"]),
+        )
+        rows = [("kept", "verified", "current", -3.0), ("f1", "proposed", "unknown", 2.0), ("f2", "proposed", "unknown", 0.5),
+                ("weak", "proposed", "unknown", -4.0), ("nope", "rejected", "unknown", 3.0)]  # fmt: skip
+        for eid, state, standing, score in rows:
+            conn.execute(
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,evidence_state,"
+                "supersession_state,created_at,found_for,rank_score) VALUES (?,?,'d1',3,3,'q',?,?,?,'x',?,?)",
+                (
+                    eid,
+                    item["id"],
+                    f"h-{eid}",
+                    state,
+                    standing,
+                    auto.key(wording),
+                    score,
+                ),
+            )
+        conn.execute(
+            "UPDATE document_classification SET confirmed_by='u1' WHERE document_id='d1'"
+        )
+    got = tq.get(item["id"], "u1", False, False)
+    with db.connect() as conn:
+        attachments = tq.query_attachment_document_ids(conn)
+    assert [
+        e["id"] for e in auto.draft_passages(got, frozenset({"d1"}), attachments)
+    ] == ["kept", "f1", "f2"]
+    # the engineer rejects the others ("keep the sources the draft cites, reject the others"): exactly the kept set
+    for eid in ("f1", "f2"):
+        tq.update_evidence(
+            item["id"],
+            eid,
+            "rejected",
+            "unknown",
+            None,
+            "u1",
+            "u1",
+            False,
+            False,
+            reviewer=True,
+        )
+    got = tq.get(item["id"], "u1", False, False)
+    assert [
+        e["id"] for e in auto.draft_passages(got, frozenset({"d1"}), attachments)
+    ] == ["kept"]
