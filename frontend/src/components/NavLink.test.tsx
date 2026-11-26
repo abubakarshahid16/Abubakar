@@ -11,6 +11,7 @@ import { NavLink, NavigationContext } from "./NavLink";
 import { ReviewWorkflowPanel } from "./analysis/ReviewWorkflowPanel";
 import { reviews } from "../api/client";
 import type { MetricWarning } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -52,9 +53,14 @@ describe("the two former plain-anchor sites", () => {
     expect(navigate).toHaveBeenCalledWith("documents", "doc-x");
   });
 
-  it("a warning's code sits on its own line, apart from the sentence (order 88c, #1097)", () => {
+  it("a warning's code sits on its own line, apart from the sentence (order 88c, #1097); the new look shows no code", () => {
     const warning = { code: "LOW_MEMORY", severity: "warning", message: "More memory is needed.", document_id: null } as MetricWarning;
     const { container } = render(<ul><MetricWarningRow warning={warning} /></ul>);
+    if (NEW_LOOK) { // owner's design audit, 26 Nov 2026 23:05: the setting code is not on the first screen
+      expect(screen.queryByText("LOW_MEMORY", { exact: false })).toBeNull();
+      expect(container.textContent?.trim()).toBe("More memory is needed.");
+      return;
+    }
     const code = screen.getByText("LOW_MEMORY", { exact: false });
     expect(code.textContent).toBe("Technical detail: LOW_MEMORY");
     expect(code).toHaveClass("block");

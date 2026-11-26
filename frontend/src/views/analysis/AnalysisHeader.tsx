@@ -5,7 +5,7 @@ import { MoreText } from "../../components/MoreText";
 export function AnalysisHeader() {
   return (
     <header className="border-b border-ink-700 pb-4">
-      <h1 className="text-xl font-semibold text-slateish-100">Analysis</h1>
+      <h1 className="text-xl font-semibold text-slateish-100">Analysis Hub</h1>
       <p className="mt-1 text-sm font-semibold text-signal-300">Ask about your documents</p>
       <MoreText className="mt-2 max-w-3xl" summary="Ask one engineering question about your documents; every answer shows the page it comes from.">
         <p className="text-sm text-slateish-300">
