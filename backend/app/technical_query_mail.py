@@ -360,7 +360,9 @@ REPEAT_CHARS = 80
 
 def _key(paragraph: str) -> str:
     """A paragraph as compared across mails: quote marks ("> ") and spacing do not count."""
-    return re.sub(r"\s+", " ", re.sub(r"(?m)^\s*(>\s*)+", "", paragraph)).strip().lower()
+    return (
+        re.sub(r"\s+", " ", re.sub(r"(?m)^\s*(>\s*)+", "", paragraph)).strip().lower()
+    )
 
 
 def page_bodies(texts: list[str | None]) -> list[tuple[str, str]]:
@@ -376,11 +378,17 @@ def page_bodies(texts: list[str | None]) -> list[tuple[str, str]]:
         moved: list[str] = []
         for paragraph in re.split(r"\n\s*\n", main):
             key = _key(paragraph)
-            (moved if len(key) >= REPEAT_CHARS and key in shown else kept).append(paragraph)
+            (moved if len(key) >= REPEAT_CHARS and key in shown else kept).append(
+                paragraph
+            )
         if moved:
             mark = f"({len(moved)} paragraph{'s' if len(moved) != 1 else ''} of earlier mail already shown above on this page: under show)"
             main = "\n\n".join([*kept, mark])
             folded = "\n\n".join(part for part in ("\n\n".join(moved), folded) if part)
-        shown.update(k for k in (_key(p) for p in re.split(r"\n\s*\n", main)) if len(k) >= REPEAT_CHARS)
+        shown.update(
+            k
+            for k in (_key(p) for p in re.split(r"\n\s*\n", main))
+            if len(k) >= REPEAT_CHARS
+        )
         out.append((main, folded))
     return out
