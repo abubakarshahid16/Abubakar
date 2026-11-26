@@ -37,7 +37,7 @@ const api = vi.hoisted(() => ({
   fileIntoLibrary: vi.fn(),
   gmailLabels: vi.fn(),
   activateGmailLabel: vi.fn(),
-  checkNow: vi.fn(), importAgain: vi.fn(),
+  checkNow: vi.fn(), importAgain: vi.fn(), prepareAllPlan: vi.fn(), prepareAllStart: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
@@ -305,6 +305,20 @@ describe("Technical Queries screen", () => {
     const options = Array.from((screen.getByLabelText("Rule type") as HTMLSelectElement).options).map((o) => o.textContent);
     expect(options[0]).toBe("Contractor code in the number");
     expect(options).toContain("Discipline code");
+  });
+
+  it("prepares every unprepared query only after saying how many and how long, then shows how many are left", async () => {
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [] } });
+    api.prepareAllPlan.mockResolvedValue({ ok: true, data: { unprepared: 33, minutes_each: 5, waiting_or_running: 0 } });
+    api.prepareAllStart.mockResolvedValue({ ok: true, data: { unprepared: 0, minutes_each: 5, waiting_or_running: 33, queued_now: 33 } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("Prepare evidence for all unprepared queries"));
+    expect((await screen.findByTestId("confirm-prepare-all")).textContent).toContain(
+      "33 queries are not prepared yet: about 5 min each (measured on the last prepared queries), one at a time in the background. Prepared queries are skipped.",
+    );
+    expect(api.prepareAllStart).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Yes, prepare them"));
+    expect((await screen.findByTestId("prepare-all-progress")).textContent).toContain("33 still waiting or running");
   });
 
   it("has a Check now button that queues one poll", async () => {

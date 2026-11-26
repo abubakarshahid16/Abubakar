@@ -138,6 +138,8 @@ export const technicalQueriesApi = {
   gmailLabels: (mailboxId: string): Promise<Result<{ items: GmailLabel[] }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/labels`, undefined, hasArrayField("items")),
   /** "Check now": queues one poll; answers at once. */
+  prepareAllPlan: (): Promise<Result<PrepareAll>> => request(`/technical-queries/prepare-all`),
+  prepareAllStart: (): Promise<Result<PrepareAll>> => request(`/technical-queries/prepare-all`, { method: "POST" }),
   importAgain: (mailboxId: string): Promise<Result<{ import_job: string }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/import-again`, { method: "POST" }),
   checkNow: (mailboxId: string): Promise<Result<{ import_job: string }>> =>
@@ -209,4 +211,13 @@ export function attachmentsRead(messages: Array<{ attachments: QueryAttachment[]
   const read = all.length ? `${all.length - notRead.length} of ${all.length} attachment${all.length === 1 ? "" : "s"} read` : "No attachments";
   const signs = pictures ? `; ${pictures} signature picture${pictures === 1 ? "" : "s"}, not attachments` : "";
   return { line: `${read}${signs}`, notRead };
+}
+
+/** "Prepare evidence for all unprepared queries": counts only. */
+export interface PrepareAll { unprepared: number; minutes_each?: number | null; waiting_or_running: number; queued_now?: number | null }
+
+/** The sentence said BEFORE the round starts: how many, how long each (measured, or said to be not measured), one at a time. */
+export function prepareAllWords(plan: PrepareAll): string {
+  const each = typeof plan.minutes_each === "number" ? `about ${plan.minutes_each} min each (measured on the last prepared queries)` : "the time per query is not measured yet";
+  return `${plan.unprepared} ${plan.unprepared === 1 ? "query is" : "queries are"} not prepared yet: ${each}, one at a time in the background. Prepared queries are skipped.`;
 }

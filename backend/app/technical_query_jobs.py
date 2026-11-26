@@ -45,12 +45,24 @@ def create_table(conn) -> None:
         "progress_done INTEGER NOT NULL DEFAULT 0, progress_total INTEGER NOT NULL DEFAULT 0, label TEXT, error TEXT, "
         "caller_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
     )
+    # when the preparation itself began (waiting in the queue is not counted): the measured minutes per query come from it
+    if "started_at" not in {
+        r["name"] for r in conn.execute(f"PRAGMA table_info({TABLE})")
+    }:
+        conn.execute(f"ALTER TABLE {TABLE} ADD COLUMN started_at TEXT")
 
 
 def enqueue(
-    query_id: str, allowed_document_ids, user_id, is_admin: bool, unrestricted: bool
+    query_id: str,
+    allowed_document_ids,
+    user_id,
+    is_admin: bool,
+    unrestricted: bool,
+    *,
+    start_thread: bool = True,
 ) -> str:
-    """Queue the preparation; one active job per query (the same one is returned while it is queued or running)."""
+    """Queue the preparation; one active job per query (the same one is returned while it is queued or running). `start_thread=False`
+    (the automatic preparation after an import) only queues it: the app's one job thread, started with the app, takes it in turn."""
     with connect() as conn:
         create_table(conn)
         active = conn.execute(
@@ -71,7 +83,7 @@ def enqueue(
             (job_id, query_id, json.dumps(caller), at, at),
         )
     _wake.set()
-    if AUTO_START:
+    if AUTO_START and start_thread:
         start()
     return job_id
 
@@ -125,7 +137,7 @@ def run_job(job_id: str, *, wait_for_review: bool = True) -> None:
     while wait_for_review and _review_running() and not _stop.is_set():
         _set(job_id, state="queued", label=WAITING_WORDS)
         _stop.wait(5)
-    _set(job_id, state="running", label="starting")
+    _set(job_id, state="running", label="starting", started_at=technical_queries.now())
 
     def progress(done: int, total: int, label: str) -> None:
         _set(job_id, progress_done=done, progress_total=total, label=label)
@@ -205,3 +217,56 @@ def recover_interrupted() -> int:
             (INTERRUPTED_WORDS, technical_queries.now()),
         ).rowcount
     return int(changed or 0)
+
+
+#: The states a query can be prepared in (as `technical_queries.prepare_evidence` accepts).
+PREPARABLE = ("received", "triage", "drafting", "changes_requested")
+
+
+def unprepared(conn) -> list[str]:
+    """The queries in a state that can be prepared with no preparation done, queued or running (a failed one counts as unprepared)."""
+    create_table(conn)
+    return [
+        r[0]
+        for r in conn.execute(
+            f"SELECT q.id FROM technical_queries q WHERE q.status IN ({','.join('?' * len(PREPARABLE))}) AND NOT EXISTS "
+            f"(SELECT 1 FROM {TABLE} j WHERE j.query_id=q.id AND j.state IN ('queued','running','done')) ORDER BY q.received_at",
+            PREPARABLE,
+        )
+    ]
+
+
+def minutes_each(conn) -> int | None:
+    """Whole minutes one preparation took, the median of the last 10 finished ones (from start to end, waiting not counted), or None."""
+    create_table(conn)
+    rows = conn.execute(
+        f"SELECT (julianday(updated_at) - julianday(started_at)) * 1440 FROM {TABLE} "
+        "WHERE state='done' AND started_at IS NOT NULL ORDER BY updated_at DESC LIMIT 10"
+    ).fetchall()
+    spans = sorted(r[0] for r in rows if r[0] is not None and r[0] >= 0)
+    return max(1, round(spans[len(spans) // 2])) if spans else None
+
+
+def all_plan(conn) -> dict:
+    """What "Prepare evidence for all unprepared queries" would do, and how far a started round has got (counts only)."""
+    create_table(conn)
+    waiting = conn.execute(
+        f"SELECT COUNT(*) FROM {TABLE} WHERE state IN ('queued','running')"
+    ).fetchone()[0]
+    return {
+        "unprepared": len(unprepared(conn)),
+        "minutes_each": minutes_each(conn),
+        "waiting_or_running": waiting,
+    }
+
+
+def queue_all(
+    allowed_document_ids, user_id, is_admin: bool, unrestricted: bool
+) -> dict:
+    """Queue every unprepared query (one at a time, by the one evidence thread), with the pressing administrator's read scope."""
+    with connect() as conn:
+        ids = unprepared(conn)
+    for query_id in ids:
+        enqueue(query_id, allowed_document_ids, user_id, is_admin, unrestricted)
+    with connect() as conn:
+        return {**all_plan(conn), "queued_now": len(ids)}

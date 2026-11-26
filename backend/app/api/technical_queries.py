@@ -548,6 +548,36 @@ def gmail_webhook(_payload: dict):
     raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
+class PrepareAllOut(BaseModel):
+    unprepared: int
+    minutes_each: int | None = None
+    waiting_or_running: int
+    queued_now: int | None = None
+
+
+@router.get("/api/technical-queries/prepare-all", response_model=PrepareAllOut)
+def prepare_all_plan(scope: access.AccessScope = Depends(access.current_scope)):
+    """What "Prepare evidence for all unprepared queries" would do (counts only), and how far a started round has got."""
+    if not scope.is_admin or not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    with connect() as conn:
+        return technical_query_jobs.all_plan(conn)
+
+
+@router.post("/api/technical-queries/prepare-all", response_model=PrepareAllOut)
+def prepare_all_start(scope: access.AccessScope = Depends(access.current_scope)):
+    """Queue every query not prepared yet; the one evidence thread prepares them one at a time in the background (prepared ones are skipped)."""
+    _require_identity_to_write(scope)
+    if not scope.is_admin or not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    return technical_query_jobs.queue_all(
+        scope.readable_with_attachments,
+        scope.user_id,
+        scope.is_admin,
+        scope.unrestricted,
+    )
+
+
 class StatusCountsOut(BaseModel):
     mailboxes: list[dict[str, Any]]
     boundary: str
