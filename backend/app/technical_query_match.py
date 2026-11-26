@@ -287,14 +287,12 @@ def table_item(terms: list[str], passage_text: str) -> str | None:
     return f"Item {best.group('num')}" + (f" (refers to {ref})" if ref else "")
 
 
-#: The end of a reference in brackets that names a part by a word and a plain number: "(Ref. Invented, Art 30)" -> "Art 30".
-_REF_TAIL = re.compile(
-    r"\(\s*ref\.?[^)]*?,\s*([A-Za-z][\w-]*\.?\s*\d+)\s*\)", re.IGNORECASE
-)
+#: The end of a bracket that names a part by a word and a plain number: "(Ref. Invented, Art 30)" -> "Art 30".
+_REF_TAIL = re.compile(r"\([^()]*,\s*([A-Za-z][\w-]*\.?\s*\d+)\s*\)")
 
 
 def _reference(text: str) -> str | None:
-    """The part an item refers to: a clause number ("7.1.15"), else the word and number closing a "(Ref. ..., Art 30)" bracket."""
+    """The part an item refers to: a clause number ("7.1.15"), else the word and number closing a bracket ("(Ref. ..., Art 30)")."""
     if dotted := CLAUSE_NUMBER.search(text):
         return dotted.group(1)
     tail = _REF_TAIL.search(text)
