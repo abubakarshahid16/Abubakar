@@ -336,7 +336,15 @@ def accept_rest(
     actor, conn, run, view = _signing_context(
         document_id, body.run_id, request, scope, sign=True
     )
-    n = aim_review_signoff.accept_rest(conn, run, view, actor)
+    try:
+        n = aim_review_signoff.accept_rest(conn, run, view, actor)
+    except aim_review_signoff.Refused as exc:  # a rough draft from the local model: decided one by one
+        detail = {
+            **errors.safe_error(errors.CRS_NOT_FINISHED, str(exc)),
+            "message": str(exc),
+            "blockers": exc.blockers,
+        }
+        raise HTTPException(status_code=409, detail=detail) from exc
     return {
         "run_id": run["run_id"],
         "accepted": n,

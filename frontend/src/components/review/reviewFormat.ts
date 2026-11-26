@@ -408,8 +408,11 @@ export function kindCounts(
 }
 
 /** Owner order section 3: runs grouped per document, latest first. The
- *  first run of each group is the one shown; the rest are "earlier runs". */
-export function groupRunsByDocument<T extends { submittal_document_id: string; created_at?: string | null; review_run_id: string }>(
+ *  first run of each group is the one shown; the rest are "earlier runs".
+ *  THE FACE (lead-4, 26 Nov 2026): when the server marks a run as its paper's face (`face`, `aim_review_face`: newest signed,
+ *  else newest on Claude, else newest), that run is the one shown and opened, so a newer local rough draft never hides the
+ *  Claude review; the rest stay "earlier runs", newest first. */
+export function groupRunsByDocument<T extends { submittal_document_id: string; created_at?: string | null; review_run_id: string; face?: boolean | null }>(
   runs: T[],
 ): { documentId: string; latest: T; earlier: T[] }[] {
   const groups = new Map<string, T[]>();
@@ -422,7 +425,9 @@ export function groupRunsByDocument<T extends { submittal_document_id: string; c
     (b.created_at ?? "").localeCompare(a.created_at ?? "") || b.review_run_id.localeCompare(a.review_run_id);
   return [...groups.entries()]
     .map(([documentId, list]) => {
-      const [latest, ...earlier] = [...list].sort(newestFirst);
+      const sorted = [...list].sort(newestFirst);
+      const face = sorted.find((r) => r.face === true);
+      const [latest, ...earlier] = face ? [face, ...sorted.filter((r) => r !== face)] : sorted;
       return { documentId, latest, earlier };
     })
     .sort((x, y) => newestFirst(x.latest, y.latest));

@@ -84,6 +84,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             {aiMark && !counts?.general && !counts?.aiLines && row.latest && row.latest.status === "completed" && <AiMark runId={row.latest.review_run_id}
               earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
             {generalChip && <span data-testid="row-general-chip" className="rounded-full border border-ink-500 px-2 py-0.5 text-slateish-200">{generalChip}</span>}
+            {row.latest?.engine_words && <span data-testid="row-engine" className="rounded-full border border-ink-500 px-2 py-0.5 text-slateish-200">{row.latest.engine_words}</span>}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
             {shownWhen && <span data-testid="row-date">{shownWhen}</span>}
