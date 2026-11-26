@@ -3,9 +3,14 @@ module stays under its size limit."""
 
 from __future__ import annotations
 
+import logging
+import re
+
 from . import prompts as P
 from .budget import is_local
 from .engine import StepFailed
+
+log = logging.getLogger(__name__)
 
 
 def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> list[dict]:
@@ -43,31 +48,60 @@ def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> lis
 _CUT = " [CUT: rule text longer than shown]"
 
 
+#: The share of a quote's words a stored rule must hold to be taken as the rule the quote means (F's 14B run e19e3d8a: a clause
+#: often holds several stored rules, and the model's page or clause was off, so "one rule per clause" fixed almost none).
+COVER = 0.6
+
+
+def _words(s) -> set[str]:
+    return {
+        w
+        for w in re.findall(r"[a-z0-9]+", str(s or "").lower())
+        if len(w) > 2 or w.isdigit()
+    }
+
+
+def _rule_for(it: dict, rules: list[dict]) -> dict | None:
+    """The batch's rule the item's quote means: the one holding the largest share (at least COVER) of the quote's words, the
+    item's own book and clause first on a tie; with a quote too short to tell (under 4 words), the one rule of its book and
+    clause, if there is exactly one."""
+    q = _words(it.get("rule_quote"))
+    if len(q) >= 4:
+        score = lambda i, r: (len(q & _words(r["text"])) / len(q), r["book"] == it.get("book"),  # noqa: E731
+                              _same(r["clause"], it.get("clause")), -i)  # fmt: skip
+        i, r = max(enumerate(rules), key=lambda x: score(*x), default=(0, None))
+        return r if r is not None and score(i, r)[0] >= COVER else None
+    same = [
+        r
+        for r in rules
+        if r["book"] == it.get("book") and _same(r["clause"], it.get("clause"))
+    ]
+    return same[0] if len(same) == 1 else None
+
+
 def by_code(bad: list[dict], batch, found) -> tuple[list[dict], list[dict]]:
-    """(fixed, still to ask). On the local model, an item whose quote was not found and whose book and clause name exactly ONE
-    rule of its batch takes that rule's stored words (as shown, without the cut mark) and page; it is kept only if `found`
-    then finds the quote on the book page. No call is made for it (F's 14B run 09105c4b, 26 Nov 2026: 18 retry calls of about
-    20 s each ran the run past the swap rule). The others are asked again as before. On Claude: nothing fixed by code."""
+    """(fixed, still to ask). On the local model, an item whose quote was not found takes the stored words (as shown, without
+    the cut mark), book, clause and page of the batch's rule its quote means (`_rule_for`), and is kept only if `found` then
+    finds those words on the book page. No call is made for it (F's 14B runs 09105c4b and e19e3d8a, 26 Nov 2026: the retry
+    calls ran the review past the swap rule). The others are asked again as before. On Claude: nothing fixed by code."""
     if not is_local():
         return [], bad
+    rules = [r for r in batch if "rule" in r]
     fixed, ask = [], []
     for it in bad:
-        rules = [
-            r
-            for r in batch
-            if "rule" in r
-            and r["book"] == it.get("book")
-            and _same(r["clause"], it.get("clause"))
-        ]
-        if len(rules) == 1:
-            got = it | {
-                "rule_quote": rules[0]["text"].removesuffix(_CUT).strip(),
-                "page": rules[0]["page"],
-            }
+        r = _rule_for(it, rules)
+        if r is not None:
+            got = it | {"rule_quote": r["text"].removesuffix(_CUT).strip(), "book": r["book"], "clause": r["clause"],
+                        "page": r["page"]}  # fmt: skip
             if found(got):
                 fixed.append(got)
                 continue
         ask.append(it)
+    log.info(
+        "general review: %d of %d rule quotes taken from the stored rule by code",
+        len(fixed),
+        len(bad),
+    )
     return fixed, ask
 
 
