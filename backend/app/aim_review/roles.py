@@ -61,6 +61,7 @@ ROLE_OF_STEP = {
     "aim_checklist": 5,
     "aim_checklist_knowledge": 5,
     "aim_checklist_retry": 5,
+    "aim_checklist_missed": 5,  # role 5 asks again, after the judge, what the judge left not judged (`missed`)
     "aim_attack": 6,
     "aim_attack_items": 6,
     "aim_second_read": 6,
@@ -546,6 +547,8 @@ def _produced(n: int, calls: list[dict], reads: list[dict], lines: list[dict]) -
         out["book_text_not_matched"] = sum(
             int(c.get("book_text_unmatched") or 0) for c in calls
         )
+    if n in (4, 5, 6):
+        out.update(_review_counts(n, lines))
     if n == 7:
         out["lines_compared_by_code"] = sum(
             1 for x in lines if x.get("code_compare_json") or x.get("code_compare")
@@ -555,3 +558,33 @@ def _produced(n: int, calls: list[dict], reads: list[dict], lines: list[dict]) -
             k = "lines " + str(x.get("label") or "Question")
             out[k] = out.get(k, 0) + 1
     return out
+
+
+def _review_counts(n: int, lines: list[dict]) -> dict:
+    """Roles 4, 5 and 6 from the run's lines (counts only): the judge's lines and those it left not judged; the lines the
+    checklist answered when it asked again after the judge; the lines the second reader checked and how they came out."""
+    from . import NOT_JUDGED, READERS_DIFFER, TWO_READERS_AGREE
+    from .missed import ASKED_AGAIN
+
+    def note(x: dict) -> str:
+        return str(x.get("code_note") or x.get("code") or "")
+
+    if n == 4:
+        return {
+            "items_judged": len(
+                {str(x.get("item_id")) for x in lines if x.get("item_id")}
+            ),
+            "lines_not_judged": sum(1 for x in lines if NOT_JUDGED in note(x)),
+        }
+    if n == 5:
+        return {
+            "lines_answered_after_the_judge": sum(
+                1 for x in lines if ASKED_AGAIN in note(x)
+            )
+        }
+    return {
+        "lines_two_readers_agree": sum(
+            1 for x in lines if TWO_READERS_AGREE in note(x)
+        ),
+        "lines_readers_differ": sum(1 for x in lines if READERS_DIFFER in note(x)),
+    }
