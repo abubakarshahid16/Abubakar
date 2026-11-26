@@ -1348,8 +1348,10 @@ def prepare_evidence(
         attachment_documents = query_attachment_document_ids(conn)
     allowed = frozenset(allowed_document_ids) - attachment_documents
     cut = question[:MAX_PROPOSED_QUESTION]
+    # the form's own citations (its Schedule and clause) are looked up first (owner's fault 4)
+    form_texts = [c["text"] for c in context]
     field = (
-        technical_query_contracts.search_all(cut, allowed, progress)
+        technical_query_contracts.search_all(cut, allowed, progress, form_texts)
         if question
         else {"coverage": {"line": NOT_SEARCHED}}
     )

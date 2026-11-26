@@ -1,0 +1,179 @@
+"""A technical query's evidence: what the FORM itself cites is looked up first (the owner's faults of 26 Nov 2026, fault 4;
+`technical_query_cited`). Invented contracts and forms; no model, no network (the general search is a stand-in)."""
+
+from __future__ import annotations
+
+import pytest
+
+from app import technical_query_cited as TC
+from app import technical_query_contracts as TQC
+from tests.test_aim_method_helpers import _doc, open_aim_db
+
+SCHED_C, SCHED_D = "doc_zq_sched_c", "doc_zq_sched_d"
+CLAUSE_PAGE = (
+    "4.1 Invented general\nThe invented general clause text stands here.\n"
+    "4.2 Invented coating thickness\nThe invented coating shall be at least 250 microns thick.\n"
+    "4.3 Invented next clause\nAnother invented clause."
+)
+
+
+@pytest.fixture
+def library(tmp_path, monkeypatch):
+    gen = open_aim_db(tmp_path, monkeypatch)
+    conn = next(gen)
+    with conn:
+        _doc(
+            conn,
+            SCHED_C,
+            "ZQ-SCHEDULE-C.pdf",
+            "CONTRACT_DOCUMENT",
+            {
+                1: "SCHEDULE C\nINVENTED TECHNICAL REQUIREMENTS\n1 Scope",
+                2: "Invented page two, see clause 4.2 below.",
+                3: CLAUSE_PAGE,
+            },
+        )
+        _doc(conn, SCHED_D, "ZQ-SCHEDULE-D.pdf", "CONTRACT_DOCUMENT", {1: "SCHEDULE D\nINVENTED PRICES\n1 Rates"})  # fmt: skip
+    yield conn
+    next(gen, None)
+
+
+def test_the_form_names_its_schedule_and_clause_and_a_clause_on_its_own_line_joins_the_one_schedule():
+    assert TC.cited(
+        [
+            "Subject: invented coating\nReference: Schedule C, Clause 4.2\nPlease confirm."
+        ]
+    ) == [(("schedule", "C"), "4.2")]
+    assert TC.cited(
+        ["Ref. Schedule C\nThe vendor asks about section 4.2 and article 7"]
+    ) == [
+        (("schedule", "C"), "4.2"),
+        (("schedule", "C"), "7"),
+    ]
+    two = TC.cited(
+        ["Schedule C and Schedule D apply", "clause 4.2"]
+    )  # two Schedules: a clause alone belongs to neither
+    assert two == [(("schedule", "C"), None), (("schedule", "D"), None)]
+    assert TC.cited(["An invented question with no reference at all, 25 microns"]) == []
+
+
+def test_the_cited_clause_of_the_cited_schedule_is_found_on_its_page_and_listed_first(
+    library,
+):
+    hits, said = TC.lookup(
+        ["Reference: Schedule C, Clause 4.2"], [SCHED_C, SCHED_D], lambda doc: []
+    )
+    assert [
+        (h["document_id"], h["page_start"], h["locator"], h["cited"]) for h in hits
+    ] == [(SCHED_C, 3, "Schedule C, clause 4.2", True)]
+    assert (
+        hits[0]["text"].startswith("4.2 Invented coating thickness")
+        and "250 microns" in hits[0]["text"]
+    )
+    assert (
+        hits[0]["text"] in CLAUSE_PAGE
+    )  # verbatim: checked on its page like any passage
+    assert said == ["Schedule C clause 4.2: found on page 3"]
+
+
+def test_a_mention_of_the_clause_is_not_its_heading(library):
+    """Page 2 mentions "clause 4.2"; only page 3 has a line that BEGINS with it."""
+    page, _text = TC.clause_passage(
+        {2: "Invented page two, see clause 4.2 below.", 3: CLAUSE_PAGE}, "4.2"
+    )
+    assert page == 3
+    assert (
+        TC.clause_passage({3: CLAUSE_PAGE}, "4.20") is None
+        and TC.clause_passage({3: CLAUSE_PAGE}, "4") is None
+    )
+
+
+def test_a_schedule_not_held_held_twice_or_a_clause_not_found_is_said_and_nothing_is_listed(
+    library,
+):
+    hits, said = TC.lookup(
+        ["Schedule F, clause 1.1"], [SCHED_C, SCHED_D], lambda doc: []
+    )
+    assert hits == [] and said == [
+        "Schedule F clause 1.1: not held among the contracts you may read"
+    ]
+    hits, said = TC.lookup(["Schedule C, clause 9.9"], [SCHED_C], lambda doc: [])
+    assert hits == [] and said == [
+        "Schedule C clause 9.9: the clause was not found in that contract"
+    ]
+    with library:
+        _doc(
+            library,
+            "doc_zq_sched_c2",
+            "ZQ-SCHEDULE-C-copy.pdf",
+            "CONTRACT_DOCUMENT",
+            {1: "SCHEDULE C\nINVENTED COPY"},
+        )
+    hits, said = TC.lookup(
+        ["Schedule C, clause 4.2"], [SCHED_C, "doc_zq_sched_c2"], lambda doc: []
+    )
+    assert hits == [] and said == [
+        "Schedule C clause 4.2: held more than once, not chosen"
+    ]
+
+
+def test_a_contract_the_caller_may_not_read_is_never_looked_at(library):
+    hits, said = TC.lookup(
+        ["Schedule C, clause 4.2"], [SCHED_D], lambda doc: []
+    )  # Schedule C is not among the readable ones
+    assert hits == [] and "not held among the contracts you may read" in said[0]
+
+
+def test_a_schedule_named_with_no_clause_is_searched_first(library):
+    asked = []
+
+    def one(doc):
+        asked.append(doc)
+        return [
+            {
+                "document_id": doc,
+                "page_start": 1,
+                "page_end": 1,
+                "text": "Invented passage of the cited schedule.",
+            }
+        ]
+
+    hits, said = TC.lookup(
+        ["Please see Schedule D for the invented rates"], [SCHED_C, SCHED_D], one
+    )
+    assert (
+        asked == [SCHED_D]
+        and hits[0]["cited"]
+        and said == ["Schedule D: searched first (1 passage)"]
+    )
+
+
+def test_search_all_lists_the_cited_passage_first_then_the_general_search_without_repeating_it(
+    library, monkeypatch
+):
+    general = {SCHED_C: [{"document_id": SCHED_C, "page_start": 2, "page_end": 2, "text": "Invented general hit.", "rerank_score": -8.3}],
+               SCHED_D: [{"document_id": SCHED_D, "page_start": 1, "page_end": 1, "text": "Invented rates hit.", "rerank_score": -9.0}]}  # fmt: skip
+    monkeypatch.setattr(TQC, "_one", lambda question, doc: list(general.get(doc, [])))
+    allowed = frozenset({SCHED_C, SCHED_D})
+    out = TQC.search_all(
+        "invented noisy question words",
+        allowed,
+        cited_from=["Ref: Schedule C, clause 4.2"],
+    )
+    assert out["hits"][0]["cited"] and out["hits"][0]["page_start"] == 3
+    assert [h.get("text") for h in out["hits"][1:]] == [
+        "Invented general hit.",
+        "Invented rates hit.",
+    ]
+    assert (
+        "Looked up first, as the form cites them: Schedule C clause 4.2: found on page 3."
+        in out["coverage"]["line"]
+    )
+    plain = TQC.search_all(
+        "invented noisy question words", allowed
+    )  # no form: as before
+    assert (
+        not any(h.get("cited") for h in plain["hits"])
+        and "Looked up first" not in plain["coverage"]["line"]
+    )
+    assert plain["coverage"]["cited_first"] == []

@@ -54,12 +54,51 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     return line
 
 
-def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[str, Any]:
-    """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, then
-    `fair_share` (every part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all). A search that fails is counted, logged by type, and never stops the others."""
+def _one(question: str, document_id: str) -> list[dict]:
+    """The general search of ONE contract (dense + rerank), its PER_CONTRACT best passages with text."""
     from . import search
 
+    res = search.search(
+        question,
+        limit=PER_CONTRACT,
+        document_id=document_id,
+        rerank=True,
+        dense=True,
+        allowed_document_ids=frozenset({document_id}),
+        candidates=WIDE_CANDIDATES,
+        rerank_candidates=WIDE_SHORTLIST,
+    )
+    return [h for h in (res.get("hits") or []) if (h.get("text") or "").strip()][
+        :PER_CONTRACT
+    ]
+
+
+def search_all(
+    question: str,
+    allowed: frozenset[str],
+    progress=None,
+    cited_from: list[str] | None = None,
+) -> dict[str, Any]:
+    """`{"hits": [...best passages...], "coverage": {...}}`. FIRST, what the form itself cites (`cited_from`: the form's page texts;
+    `technical_query_cited`): its Schedule's clause, or that Schedule's contract searched first. THEN one search per contract (dense +
+    rerank), PER_CONTRACT passages each, `fair_share` (every part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all), a
+    passage already listed first not again. A search that fails is counted, logged by type, and never stops the others."""
     contracts = contract_ids(allowed)
+    first: list[dict] = []
+    said: list[str] = []
+    if cited_from:
+        from . import technical_query_cited
+
+        try:
+            first, said = technical_query_cited.lookup(
+                cited_from, contracts, lambda doc: _one(question, doc)
+            )
+        except Exception as exc:  # noqa: BLE001 - the form's citations are a first look; the general search still runs
+            log.warning(
+                "technical query: the form's citations could not be looked up (%s)",
+                type(exc).__name__,
+            )
+            first, said = [], ["the form's citations could not be looked up"]
     hits: list[dict] = []
     per_part: list[list[dict]] = []
     searched = failed = hits_in = 0
@@ -69,19 +108,7 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
                 n - 1, len(contracts), f"searching contract {n} of {len(contracts)}"
             )
         try:
-            res = search.search(
-                question,
-                limit=PER_CONTRACT,
-                document_id=document_id,
-                rerank=True,
-                dense=True,
-                allowed_document_ids=frozenset({document_id}),
-                candidates=WIDE_CANDIDATES,
-                rerank_candidates=WIDE_SHORTLIST,
-            )
-            found = [
-                h for h in (res.get("hits") or []) if (h.get("text") or "").strip()
-            ][:PER_CONTRACT]
+            found = _one(question, document_id)
         except Exception as exc:  # noqa: BLE001 - counted as not searched and said in the coverage line; the other contracts go on
             log.warning(
                 "technical query: a contract could not be searched (%s)",
@@ -92,13 +119,33 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
         searched += 1
         hits_in += 1 if found else 0
         per_part.append(found)
-    hits = fair_share(per_part)
+    seen = {
+        (h.get("document_id"), h.get("page_start"), (h.get("text") or "").strip()[:200])
+        for h in first
+    }
+    hits = first + [
+        h
+        for h in fair_share(per_part)
+        if (
+            h.get("document_id"),
+            h.get("page_start"),
+            (h.get("text") or "").strip()[:200],
+        )
+        not in seen
+    ]
+    line = coverage_line(searched, len(contracts), hits_in, failed)
     coverage = {
         "searched": searched,
         "of": len(contracts),
         "hits_in": hits_in,
         "failed": failed,
-        "line": coverage_line(searched, len(contracts), hits_in, failed),
+        "line": line
+        + (
+            " Looked up first, as the form cites them: " + "; ".join(said) + "."
+            if said
+            else ""
+        ),
+        "cited_first": said,
     }
     return {"hits": hits, "coverage": coverage}
 
