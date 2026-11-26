@@ -37,7 +37,9 @@ AUTO_START = True
 #: prepared again by "Prepare evidence for all".
 #: 3 = a cover line whatever its punctuation, boilerplate and links ask nothing, the form's question SECTION, why nothing was proposed
 #: (lead-4's live walk on update 13): the queries re-proposed under 2 are proposed again.
-QUESTION_RULES = 3
+#: 4 = every page of an attachment is read (up to 60, was 5) and the papers of a LATER mail of the thread too (builder H, update 15;
+#: lead-4's live walk, 26 Nov 2026: queries prepared before them kept the old proposals): those prepared under 3 are proposed again.
+QUESTION_RULES = 4
 
 _wake = threading.Event()
 _stop = threading.Event()
