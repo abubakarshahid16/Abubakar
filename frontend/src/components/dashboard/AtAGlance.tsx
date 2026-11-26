@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 
+import { InfoFold } from "../look/LookParts";
 import { deliverables as deliverablesApi, reviews as reviewsApi } from "../../api/client";
 import { technicalQueriesApi } from "../../api/technicalQueries";
 import type { Deliverable, ReviewDashboard } from "../../types/api";
@@ -83,27 +84,17 @@ export function deliverablesRow(items: Deliverable[] | null, alerts: OverdueAler
   return { ...row, late, lateStatus: "counted", lateNote: `past the due date, of ${withDue} open with a due date` };
 }
 
-/** The one plain line above the table: what is waiting and what is late, the manager's first question. A late count is said only where
- *  it was counted; where nothing has a due date the line says so, never "nothing late" (rule 4). An unknown figure is said, never left out. */
+/** The one SHORT plain line above the table (owner, 26 Nov 2026: "one short plain line"): how much is waiting and whether anything is
+ *  late, as a total. The per-kind numbers are in the table; what each figure counts over is behind the info button. Never "none late"
+ *  where nothing could be late (rule 4), and an unknown figure is said, never left out. */
 export function glanceLine(rows: GlanceRow[]): string {
-  const NAMES: Record<string, [string, string]> = {
-    "Document reviews": ["document review", "document reviews"],
-    "Technical queries and CFCs": ["query or CFC", "queries and CFCs"],
-    Deliverables: ["deliverable", "deliverables"],
-  };
-  const name = (r: GlanceRow, n?: number | null) => (NAMES[r.label] ?? [r.label.toLowerCase(), r.label.toLowerCase()])[n === 1 ? 0 : 1];
-  const waiting = rows.map((r) => (r.waiting === null ? `${name(r)}: unknown` : `${r.waiting} ${name(r, r.waiting)}`)).join(", ");
+  const known = rows.filter((r) => r.waiting !== null);
+  const waiting = known.reduce((n, r) => n + (r.waiting ?? 0), 0);
+  const someUnknown = known.length < rows.length;
   const counted = rows.filter((r) => r.lateStatus === "counted");
-  const noDue = rows.filter((r) => r.lateStatus === "no_due_dates");
-  const unknown = rows.filter((r) => r.lateStatus === "unknown");
-  const parts: string[] = [];
-  if (counted.length) {
-    const late = counted.filter((r) => (r.late ?? 0) > 0);
-    parts.push(late.length ? late.map((r) => `${r.late} ${name(r, r.late)}`).join(", ") : `none of the ${counted.map((r) => name(r)).join(" or ")} with a due date`);
-  }
-  if (noDue.length) parts.push(`not counted for ${noDue.map((r) => name(r)).join(" or ")}: none has a due date`);
-  if (unknown.length) parts.push(`unknown for ${unknown.map((r) => name(r)).join(" or ")}`);
-  return `Waiting: ${waiting}. Late: ${parts.length ? parts.join("; ") : "not counted"}.`;
+  const late = counted.reduce((n, r) => n + (r.late ?? 0), 0);
+  const lateWords = late > 0 ? `${late} late` : counted.length ? "none late" : rows.some((r) => r.lateStatus === "unknown") ? "late unknown" : "nothing has a due date";
+  return `${waiting} waiting${someUnknown ? " (some figures could not be loaded)" : ""}, ${lateWords}.`;
 }
 
 function Cell({ value, tone, title }: { value: number | null; tone?: "late"; title?: string }) {
@@ -159,10 +150,12 @@ export function AtAGlance() {
           </tbody>
         </table>
       </div>
-      <ul className="mt-2 space-y-0.5 text-xs text-slateish-400">
-        {rows.map((r) => <li key={r.label}>{r.label}, late: {r.lateNote}.</li>)}
-        <li>These counts cover only what you may open.</li>
-      </ul>
+      <InfoFold title="What these numbers count" className="mt-2 text-xs">
+        <ul className="space-y-0.5">
+          {rows.map((r) => <li key={r.label}>{r.label}, late: {r.lateNote}.</li>)}
+          <li>These counts cover only what you may open.</li>
+        </ul>
+      </InfoFold>
     </section>
   );
 }
