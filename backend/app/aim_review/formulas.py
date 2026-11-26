@@ -132,7 +132,7 @@ def read_fields(pages: dict[int, str]) -> dict[int, dict[str, list[Field]]]:
                         and i + 2 < len(cells)
                         and _UNIT_CELL.fullmatch(cells[i + 2])
                         and not any(_BARE.fullmatch(c) for c in cells[i + 3 :])
-                    ):  # a further number cell on the row (an item or note column): which cell is the value is a guess, so none is read
+                    ):  # a further number cell on the row (an item or note cell): which cell is the value is a guess, so none is read
                         value = f"{value} {cells[i + 2]}"  # the value and its unit stand in two cells
                     if vals := parse_value(value):
                         found.setdefault(page, {}).setdefault(key, []).append(
