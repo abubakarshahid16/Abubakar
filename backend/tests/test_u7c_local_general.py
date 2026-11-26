@@ -465,6 +465,7 @@ def test_a_thinking_model_is_told_not_to_think(monkeypatch):
         max_tokens=8,
     )
     assert sent[0]["think"] is False
+    assert sent[0]["options"]["repeat_penalty"] == local_model.REPEAT_PENALTY == 1.1
 
 
 def test_the_model_socket_offers_claude_and_local_and_refuses_an_unapproved_vendor_without_any_network(
