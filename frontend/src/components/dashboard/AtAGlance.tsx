@@ -74,7 +74,8 @@ export function deliverablesRow(items: Deliverable[] | null, alerts: OverdueAler
   const done = items.filter((d) => d.status === "approved").length;
   const open = items.filter((d) => d.status !== "approved" && d.status !== "superseded");
   const row = { label: "Deliverables", inCount: items.length, waiting: open.length, done };
-  const withDue = open.filter((d) => (d.due_date ?? "").trim() !== "").length;
+  // a due date the server can read (YYYY-MM-DD...): its alerts skip any other, so only these can ever be late
+  const withDue = open.filter((d) => /^\d{4}-\d{2}-\d{2}/.test((d.due_date ?? "").trim())).length;
   if (withDue === 0) return { ...row, late: null, lateStatus: "no_due_dates", lateNote: "no open deliverable has a due date" };
   if (!alerts) return { ...row, late: null, lateStatus: "unknown", lateNote: "could not be loaded" };
   // past the due date, as for queries: an item due today is not late yet
@@ -115,7 +116,7 @@ export function AtAGlance() {
   const [review, setReview] = useState<ReviewDashboard | null | undefined>(undefined);
   const [queries, setQueries] = useState<Record<string, number> | null | "off" | undefined>(undefined);
   const [items, setItems] = useState<Deliverable[] | null | undefined>(undefined);
-  const [alerts, setAlerts] = useState<OverdueAlert[] | null>(null);
+  const [alerts, setAlerts] = useState<OverdueAlert[] | null | undefined>(undefined);
 
   useEffect(() => {
     void reviewsApi.dashboard().then((r) => setReview(r.ok ? r.data : null));
@@ -125,7 +126,8 @@ export function AtAGlance() {
     void deliverablesApi.alerts().then((r) => setAlerts(r.ok ? r.data.alerts : null));
   }, []);
 
-  if (review === undefined || queries === undefined || items === undefined) return null;
+  // drawn once every figure has answered: a figure still loading is never shown as "unknown"
+  if (review === undefined || queries === undefined || items === undefined || alerts === undefined) return null;
   const rows = [reviewsRow(review), queriesRow(queries), deliverablesRow(items, alerts)].filter((r): r is GlanceRow => r !== null);
 
   return (

@@ -33,6 +33,8 @@ describe("at a glance", () => {
     const row = deliverablesRow(items, [{ days_overdue: 3 }, { days_overdue: 0 }]);
     expect([row.inCount, row.waiting, row.late, row.done, row.lateStatus]).toEqual([4, 2, 1, 1, "counted"]);
     expect(row.lateNote).toBe("past the due date, of 1 open with a due date");
+    const unreadable = deliverablesRow([{ status: "planned", due_date: "not-a-date" }] as Deliverable[], []);
+    expect(unreadable.lateStatus).toBe("no_due_dates"); // a date the server cannot read can never be late: not in the boundary
     const undated = deliverablesRow([{ status: "planned", due_date: null }] as Deliverable[], []);
     expect([undated.late, undated.lateStatus]).toEqual([null, "no_due_dates"]);
   });
