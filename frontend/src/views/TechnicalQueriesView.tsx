@@ -1,5 +1,5 @@
 import { InfoFold } from "../components/look/LookParts";
-import { LIST_FOUND, boldSplit, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
@@ -47,6 +47,16 @@ function Folded({ text }: { text?: string | null }) {
 /** How many found questions start in the question box; the rest are folded under "N more found", to be ticked (lead-4, 26 Nov 2026). */
 export const BOX_FOUND = 6;
 
+/** A source passage, short: about three lines with the ask's words marked, and the whole passage one click away (never cut unmarked). */
+function Quote({ text, words }: { text: string; words: string[] }) {
+  const { short, cut } = shortQuote(text);
+  const pieces = (t: string) => markedPieces(t, words).map((p, i) => p.hit ? <strong key={i} data-testid="quote-mark" className="font-semibold text-slateish-100 underline decoration-signal-500 decoration-2 underline-offset-2">{p.text}</strong> : <span key={i}>{p.text}</span>);
+  return <>
+    <p data-testid="quote-short" className="text-slateish-300">{pieces(short)}{cut && <span aria-label="the quote goes on">{" \u2026"}</span>}</p>
+    {cut && <details data-testid="quote-full" className="mt-1"><summary className="cursor-pointer text-xs font-semibold text-signal-300">Show the whole quote</summary><p className="mt-1 whitespace-pre-wrap text-slateish-300">{pieces(text)}</p></details>}
+  </>;
+}
+
 export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: string; isAdmin?: boolean }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
   const [selected, setSelected] = useState<TechnicalQuery | null>(null);
@@ -80,6 +90,9 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const returnedOnce = useRef(false); // StrictMode runs an effect twice in development: the one-time code is posted once
   const [gmailReturn, setGmailReturn] = useState<"working" | "connected" | "admin_must_allow" | null>(null);
   const [engine, setEngine] = useState<"local" | "claude">("local");
+  /** "Send back with a note": the note box is open, and what it says. */
+  const [sendingBack, setSendingBack] = useState(false);
+  const [backNote, setBackNote] = useState("");
   const [fileRole, setFileRole] = useState("SUPPORTING_DOCUMENT");
   // IN-PAGE confirmation (house rule: never the browser's own confirm box)
   const [confirming, setConfirming] = useState<null | { kind: "activate" } | { kind: "file"; attachmentId: string } | { kind: "again"; mailboxId: string }>(null);
@@ -178,6 +191,17 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   };
   /** Save the wording without confirming it: the sources and a draft follow by themselves (builder A's POST /question). */
   const saveQuestion = () => act(() => technicalQueriesApi.saveQuestion(selected!.id, questionDraft.trim()));
+  /** WHO HANDLES IT, one Save (owner, 27 Nov 2026 00:02: two buttons for one job): the routing fields, then the person when it changed. */
+  const saveWho = () => {
+    const id = selected!.id;
+    const person = chosenAssignee;
+    const changed = Boolean(person) && person !== (selected!.assignee_user_id || "");
+    act(async () => {
+      const saved = await technicalQueriesApi.triage(id, { contractor_name: triageContractor.trim() || null, department: triageDepartment.trim() || null, priority: triagePriority, due_at: triageDue || null });
+      if (!saved.ok || !changed) return saved;
+      return technicalQueriesApi.assign(id, person);
+    });
+  };
 
   useEffect(() => {
     setTriageContractor(selected?.contractor_name || "");
@@ -463,6 +487,11 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           <ol data-testid="query-summary" aria-label="Where this query stands" className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {querySteps(selected, questionDraft).map((step) => <li key={step.label} className={step.state === "done" ? "text-slateish-100" : "text-slateish-400"}><span aria-hidden="true" className="mr-1 font-semibold">{step.state === "done" ? "✓" : step.state === "working" ? "…" : "○"}</span>{step.label}{step.state === "working" ? " (working)" : step.state === "todo" ? " (not yet)" : ""}</li>)}
           </ol>
+          {/* WHAT THE CONTRACTOR'S FORM CITES, first (owner via builder A, 27 Nov 2026): each citation and whether we hold it */}
+          {selected.ready?.cited?.length ? <div data-testid="contractor-cites" className="mt-3 text-sm">
+            <p className="font-semibold text-slateish-200">What the contractor&rsquo;s form cites</p>
+            <ul className="mt-1 space-y-0.5">{selected.ready.cited.map((c, i) => <li key={`${i}-${c.line}`} className={c.held ? "text-slateish-300" : "text-warn-500"}><span aria-hidden="true" className="mr-1 font-semibold">{c.held ? "\u2713" : "!"}</span>{c.line}</li>)}</ul>
+          </div> : null}
           {selected.source_access_revoked && <p role="alert" className="mt-3 text-sm text-warn-500">Access to a cited source changed. The draft is hidden until an authorised reviewer checks it again.</p>}
           {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the question, the proposed response and the decisions
               come first; the email, its attachments and the evidence are folded below. Reorder only: the same parts, words and actions. */}
@@ -520,7 +549,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             const cites = draftCitations(selected.drafts?.at(-1)?.citations_json);
             if (!cites.length) return <p className="mt-1 text-sm text-slateish-400">{currentSources(selected.evidence).length ? "The sources found are listed under \u201cAll sources found\u201d below; no reply cites any yet." : "No source found yet."}</p>;
             return <ul data-testid="reply-sources" className="mt-2 space-y-3">{cites.map((citation) => { const e = (citation as { evidence_id?: string }).evidence_id ? byId.get((citation as { evidence_id?: string }).evidence_id!) : undefined; return <li key={citation.label} className="border-l-2 border-signal-500 pl-3 text-sm">
-              <p className="text-slateish-100">{citation.exact_quote}</p>
+              <Quote text={citation.exact_quote} words={askWords(questionDraft)} />
               <p className="mt-1 text-xs text-slateish-400">[{citation.label}] {e?.source_name || e?.source_kind ? `${e?.source_name || "Unnamed document"}${e?.source_kind ? ` (${e.source_kind})` : ""} · ` : ""}<a className="underline" href={`/api/documents/${encodeURIComponent(citation.document_id)}/original#page=${citation.page}`} target="_blank" rel="noreferrer">{e?.locator ? `${e.locator}, ` : ""}page {citation.page}</a>
                 {e && e.supersession_state === "unknown" && isAdmin && <button type="button" data-testid="confirm-source" disabled={busy} onClick={() => confirmSource(e.document_id)} className="ml-2 rounded border border-ink-500 px-2 py-0.5 text-xs text-slateish-100 disabled:opacity-50">Confirm source document</button>}
                 {e && e.supersession_state === "unknown" && !isAdmin && <span className="ml-2 text-warn-500">its revision is not confirmed yet</span>}</p>
@@ -530,65 +559,104 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {readyLine(selected.ready) && <p role="status" data-testid="ready-line" className="mt-1 text-xs text-slateish-300">{readyLine(selected.ready)}</p>}
           {draftAuthor(selected.drafts?.at(-1)) && <p data-testid="draft-author" className="mt-1 text-xs text-slateish-400">{draftAuthor(selected.drafts?.at(-1))}</p>}
           {selected.drafts?.length ? <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.drafts.at(-1)?.answer}</p> : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
-          {/* ONE APPROVE (owner, 26 Nov 2026 22:41): it keeps the sources the reply cites and rejects the others found for this
-              question (lead-4's decision; said before the press, each still changeable under "All sources found"), then approves */}
-          {selected.status === "awaiting_review" && selected.can_review && (() => {
+          {!selected.drafts?.length && !searching && <div className="mt-3"><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, "local", []))} className="rounded border border-signal-500 px-3 py-1.5 text-sm text-slateish-100 disabled:opacity-50">Write the reply</button><p className="mt-1 text-xs text-slateish-400">The AI on this computer writes a reply from the sources found. Nothing is sent.</p></div>}
+          {/* THE DECISION FIRST (owner, 27 Nov 2026 00:02: "it is difficult to understand these buttons"): the one coloured button is the
+              decision (Approve, or Send back with a note); writing the reply again is quiet, in the Redo fold, and says it replaces the reply.
+              Approve keeps the sources the reply cites and rejects the others found for this question (lead-4's decision), then approves. */}
+          {(() => {
+            const decision = decisionFor(selected);
+            if (decision.kind === "no_role") return <p data-testid="decision-no-role" className="mt-4 text-sm text-slateish-300">{decision.hint}</p>;
+            if (decision.kind !== "decide") return null;
             const split = citedSplit(selected.evidence, selected.drafts?.at(-1)?.citations_json);
             return <div className="mt-4" data-testid="approve-once">
-              <button type="button" disabled={busy} onClick={approveOnce} className="rounded bg-signal-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Approve the reply</button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" disabled={busy} onClick={approveOnce} className="rounded bg-signal-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Approve the reply</button>
+                <button type="button" disabled={busy} onClick={() => setSendingBack(true)} className="rounded border border-ink-500 px-4 py-2 text-sm text-slateish-100 disabled:opacity-50">Send back with a note</button>
+              </div>
+              <p data-testid="decision-hint" className="mt-1 text-xs text-slateish-400">{decision.hint}</p>
               {split.keep.length + split.reject.length > 0 && <p className="mt-1 text-xs text-slateish-400">Approving keeps the {split.keep.length} source{split.keep.length === 1 ? "" : "s"} the reply cites and rejects the other {split.reject.length} found for this question. You can change any of them under &ldquo;All sources found&rdquo; first.</p>}
+              {sendingBack && <div data-testid="send-back" className="mt-2 rounded border border-ink-700 p-2">
+                <label htmlFor="technical-query-send-back" className="block text-xs text-slateish-300">What should change in the reply?</label>
+                <textarea id="technical-query-send-back" value={backNote} onChange={(event) => setBackNote(event.target.value)} rows={3} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <button type="button" disabled={busy || !backNote.trim()} onClick={() => { const note = backNote.trim(); setSendingBack(false); setBackNote(""); act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id, note)); }} className="rounded border border-signal-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Send back</button>
+                  <button type="button" onClick={() => { setSendingBack(false); setBackNote(""); }} className="rounded px-3 py-1.5 text-xs text-slateish-300">Cancel</button>
+                </div>
+                <p className="mt-1 text-xs text-slateish-400">The reply goes back to be written again, with your note kept beside it. Nothing is sent to the contractor.</p>
+              </div>}
             </div>;
           })()}
-          {selected.status === "awaiting_review" && selected.can_review === false && <p className="mt-4 text-xs text-slateish-400">Approving needs the technical-query reviewer role.</p>}
             {bulkNote && bulkNote.queryId === selected.id && <p role="status" data-testid="keep-cited-done" className="w-full text-xs text-slateish-300">Kept {bulkNote.kept} source{bulkNote.kept === 1 ? "" : "s"} the draft cites and rejected {bulkNote.rejected} other{bulkNote.rejected === 1 ? "" : "s"}. Each can still be changed below before you approve.</p>}
-          {["approved", "sent", "awaiting_confirmation"].includes(selected.status) && <div className="mt-4 flex flex-wrap items-center gap-2">
-            {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
-            {(selected.status === "approved" || selected.status === "sent" || selected.status === "awaiting_confirmation") && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
-            {selected.status === "approved" && <span className="text-xs text-warn-500">Sending is not approved by the owner: download the Word response, send it yourself, then confirm it resolved.</span>}
-          </div>}
-          {/* everything else, folded (owner: one Approve button, the rest away) */}
+          {/* THE WORD REPLY (owner, 27 Nov 2026 00:02): what it is, in one line, and why it cannot be downloaded yet */}
+          {selected.drafts?.length || ["approved", "sent", "awaiting_confirmation"].includes(selected.status) ? (() => {
+            const whyNot = wordReplyWhyNot(selected);
+            return <div className="mt-4" data-testid="word-reply">
+              <div className="flex flex-wrap items-center gap-2">
+                {whyNot
+                  ? <button type="button" disabled aria-describedby="word-reply-hint" className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200 disabled:opacity-50">Download the reply as a Word file</button>
+                  : <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download the reply as a Word file</a>}
+                {["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Mark as answered</button> : null}
+              </div>
+              <p id="word-reply-hint" className="mt-1 text-xs text-slateish-400">{whyNot ? `${whyNot} ` : ""}A Word file of the approved reply, for you to send to the contractor yourself: the app does not send email.{["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? " After you have sent it, press Mark as answered." : ""}</p>
+            </div>;
+          })() : null}
+          {/* REDO, folded and quiet (owner, 27 Nov 2026 00:02): each line says what it does and that it replaces the reply above */}
           <details data-testid="more-actions" className="mt-4 rounded border border-ink-700 p-2">
-            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">More: change the reply, ask for changes, write it again</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Redo: change the reply or write it again</summary>
+            <p className="mt-1 text-xs text-slateish-400">Each of these replaces the reply above. Nothing is sent.</p>
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-3">
-            <label htmlFor="technical-query-answer" className="block text-sm text-slateish-300">Write or revise the answer for engineer review</label>
+            <label htmlFor="technical-query-answer" className="block text-sm text-slateish-300">Write the reply yourself</label>
             <textarea id="technical-query-answer" value={editedAnswer} onChange={(event) => setEditedAnswer(event.target.value)} rows={8} className="mt-2 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-            <button type="button" disabled={busy || !editedAnswer.trim()} onClick={() => act(() => technicalQueriesApi.createDraft(selected.id, editedAnswer.trim()))} className="mt-2 rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Submit draft for review</button>
+            <button type="button" disabled={busy || !editedAnswer.trim()} onClick={() => act(() => technicalQueriesApi.createDraft(selected.id, editedAnswer.trim()))} className="mt-2 rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save my reply for approval</button>
+            <p className="mt-1 text-xs text-slateish-400">Your words replace the reply above and wait for a reviewer to approve them.</p>
           </div>}
-            <div className="mt-3 flex flex-wrap gap-2">
-            {/* not on the happy path (owner, 26 Nov 2026): the sources are found by themselves; this is for a query with none yet, or
-                when the ask was edited since they were found */}
-            {!searching && !refreshing && (!(selected.evidence?.length) || questionEdited || staleSources(selected) || selected.ready?.evidence_fresh === false || selected.ready?.evidence === "failed") && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">{selected.evidence?.length ? "Find the sources again for this question" : "Find the sources"}</button>}
-            <label className="flex items-center gap-1 text-xs text-slateish-300">Written by
-              <select value={engine} onChange={(event) => setEngine(event.target.value as "local" | "claude")} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100"><option value="local">The AI on this computer</option><option value="claude">Claude (the documents you choose go to Claude)</option></select></label>
-            {engine === "claude" && <fieldset className="w-full rounded border border-ink-700 p-2 text-xs text-slateish-300" aria-label="Documents Claude may read for this query"><legend className="px-1">Contract documents Claude may read for this one query</legend>
+            {(() => {
+              const claude = selected.draft_engines?.claude;
+              const claudeWhy = claude && !claude.available ? (claude.why || "it cannot be used on this computer now") : null;
+              return <fieldset className="mt-3 text-xs text-slateish-300" aria-label="Who writes the reply"><legend className="font-semibold text-slateish-200">Who writes the reply</legend>
+                <label className="mt-1 flex items-center gap-2"><input type="radio" name="tq-engine" value="local" checked={engine === "local"} onChange={() => setEngine("local")} />The AI on this computer (free)</label>
+                <label className="mt-1 flex items-center gap-2"><input type="radio" name="tq-engine" value="claude" checked={engine === "claude"} disabled={Boolean(claudeWhy)} onChange={() => setEngine("claude")} />Claude (paid, better: only the documents you tick go to Claude){claudeWhy && <span data-testid="claude-why" className="text-slateish-400">: not available now, {claudeWhy}</span>}</label>
+              </fieldset>;
+            })()}
+            {engine === "claude" && <fieldset className="mt-2 w-full rounded border border-ink-700 p-2 text-xs text-slateish-300" aria-label="Documents Claude may read for this query"><legend className="px-1">Contract documents Claude may read for this one query</legend>
               {[...new Set((selected.evidence ?? []).filter((e) => e.evidence_state === "verified").map((e) => e.document_id))].map((documentId) => <label key={documentId} className="mr-4 inline-flex items-center gap-1"><input type="checkbox" checked={claudeDocs.includes(documentId)} onChange={(event) => setClaudeDocs((current) => event.target.checked ? [...current, documentId] : current.filter((d) => d !== documentId))} />{documentId}</label>)}
               <p className="mt-1 text-slateish-400">Only the ticked documents and this query's question are sent. Choose none and nothing is sent.</p></fieldset>}
-            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine, engine === "claude" ? claudeDocs : []))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
+            <div className="mt-2">
+              <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine, engine === "claude" ? claudeDocs : []))} className="rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Write the reply again</button>
+              <p className="mt-1 text-xs text-slateish-400">The AI chosen above writes a new reply from the sources found and replaces the reply above.</p>
+            </div>
+            {/* not on the happy path (owner, 26 Nov 2026): the sources are found by themselves; this is for a query with none yet, or
+                when the ask was edited since they were found */}
+            {!searching && !refreshing && (!(selected.evidence?.length) || questionEdited || staleSources(selected) || selected.ready?.evidence_fresh === false || selected.ready?.evidence === "failed") && <div className="mt-2">
+              <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">{selected.evidence?.length ? "Find the sources again" : "Find the sources"}</button>
+              <p className="mt-1 text-xs text-slateish-400">Searches the contract and the standards again for this question. A new reply follows by itself and replaces the reply above.</p>
+            </div>}
             {(() => {
               const split = citedSplit(selected.evidence, selected.drafts?.at(-1)?.citations_json);
               const any = split.keep.length + split.reject.length > 0;
-              return selected.can_review && selected.drafts?.length && any ? <span className="flex w-full flex-wrap items-center gap-2" data-testid="keep-cited">
-                <button type="button" disabled={busy} onClick={keepCited} className="rounded border border-signal-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Keep the sources the draft cites, reject the others</button>
-                <span className="text-xs text-slateish-400">Keeps {split.keep.length} the draft cites and rejects the other {split.reject.length} found for this question. You can change any of them below before you approve.</span>
-              </span> : null;
+              return selected.can_review && selected.drafts?.length && any ? <div className="mt-2" data-testid="keep-cited">
+                <button type="button" disabled={busy} onClick={keepCited} className="rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Keep the sources the reply cites, reject the others</button>
+                <p className="mt-1 text-xs text-slateish-400">Keeps {split.keep.length} the reply cites and rejects the other {split.reject.length} found for this question. Approving does this too. You can change any of them below.</p>
+              </div> : null;
             })()}
-            {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
-            {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
-            </div>
           </details>
           {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
           {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
           {evidenceBlock}
-          <details data-testid="who-it-goes-to" className="mt-6 rounded border border-ink-700 p-2"><summary className="cursor-pointer text-sm font-semibold text-slateish-200">Who it goes to: contractor, department, due date</summary>
-          <div className="mt-2 grid gap-2 rounded border border-ink-700 p-3 sm:grid-cols-2" aria-label="Who it goes to">
-            <label className="text-xs text-slateish-300">Contractor<input value={triageContractor} onChange={(event) => setTriageContractor(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
-            <label className="text-xs text-slateish-300">Department<input value={triageDepartment} onChange={(event) => setTriageDepartment(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
+          {/* WHO HANDLES IT (owner, 27 Nov 2026 00:02): one form and one Save; an empty field says what the subject holds */}
+          <details data-testid="who-it-goes-to" className="mt-6 rounded border border-ink-700 p-2"><summary className="cursor-pointer text-sm font-semibold text-slateish-200">Who handles it: contractor, department, person, due date</summary>
+          <div className="mt-2 grid gap-2 rounded border border-ink-700 p-3 sm:grid-cols-2" aria-label="Who handles it">
+            <label className="text-xs text-slateish-300">Contractor<input value={triageContractor} onChange={(event) => setTriageContractor(event.target.value)} placeholder={selected.contractor_code ? `code ${selected.contractor_code} in the subject` : "not named in the subject"} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
+            <label className="text-xs text-slateish-300">Department<input value={triageDepartment} onChange={(event) => setTriageDepartment(event.target.value)} placeholder={selected.discipline_code ? `discipline ${selected.discipline_code} in the subject` : "not named in the subject"} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
+            {(!triageContractor.trim() || !triageDepartment.trim()) && fromSubjectHint(selected) && <p data-testid="from-subject" className="text-xs text-slateish-400 sm:col-span-2">{fromSubjectHint(selected)}</p>}
             <label className="text-xs text-slateish-300">Priority<select value={triagePriority} onChange={(event) => setTriagePriority(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
             <label className="text-xs text-slateish-300">Due date<input type="date" value={triageDue} onChange={(event) => setTriageDue(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
-            {selected.routing_source?.startsWith("rule:") && <p className="text-xs text-slateish-400">Contractor and department were filled from a rule. Save to confirm or change them.</p>}
-            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.triage(selected.id, { contractor_name: triageContractor.trim() || null, department: triageDepartment.trim() || null, priority: triagePriority, due_at: triageDue || null }))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save who it goes to</button>
-            {assignees.length > 0 && <label className="text-xs text-slateish-300">Responsible person<select value={chosenAssignee} onChange={(event) => setChosenAssignee(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="">Select a person</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>}
-            {assignees.length > 0 && <button type="button" disabled={busy || !chosenAssignee} onClick={() => act(() => technicalQueriesApi.assign(selected.id, chosenAssignee))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Assign person</button>}
+            {assignees.length > 0 && <label className="text-xs text-slateish-300">Responsible person<select value={chosenAssignee} onChange={(event) => setChosenAssignee(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="">Nobody yet</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>}
+            {selected.routing_source?.startsWith("rule:") && <p className="text-xs text-slateish-400 sm:col-span-2">Contractor and department were filled from a rule. Save to confirm or change them.</p>}
+            <div className="sm:col-span-2">
+              <button type="button" disabled={busy} onClick={saveWho} className="rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save who handles it</button>
+              <p className="mt-1 text-xs text-slateish-400">Saves everything above at once. Nothing is sent to anyone.</p>
+            </div>
           </div>
           </details>
           <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-email-question">
@@ -621,9 +689,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               </li>)}</ul>}
             </article>)}
           </details>
-          <details data-testid="review-history" className="mt-6 rounded border border-ink-700 p-2"><summary className="cursor-pointer text-sm font-semibold text-slateish-200">Review history</summary>
-
-          {selected.decisions?.length ? selected.decisions.map((decision) => <p key={decision.created_at} className="mt-2 text-sm text-slateish-300">{decision.decision}: {decision.comment || "No comment"}</p>) : <p className="mt-2 text-sm text-slateish-500">No engineer decision yet.</p>}
+          <details data-testid="review-history" className="mt-6 rounded border border-ink-700 p-2"><summary className="cursor-pointer text-sm font-semibold text-slateish-200">Approvals and notes</summary>
+          {historyWords(selected.decisions).map((line, index) => <p key={`${index}-${line}`} className="mt-2 text-sm text-slateish-300">{line}</p>)}
           </details>
         </>}
       </section>

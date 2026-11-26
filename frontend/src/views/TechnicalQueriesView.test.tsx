@@ -159,10 +159,10 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView />);
     await screen.findByText("Coating question", { selector: "h2" });
     expect(screen.queryByText("Send approved response")).toBeNull();
-    expect(screen.getByText(/Sending is not approved by the owner/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Written by"), { target: { value: "claude" } });
+    expect(screen.getByText(/the app does not send email/)).toBeTruthy(); // the owner has not approved sending (27 Nov wording)
+    fireEvent.click(screen.getByLabelText(/^Claude \(paid, better/)); // "Who writes the reply" (owner, 27 Nov 2026)
     fireEvent.click(screen.getByLabelText("contract-1"));
-    fireEvent.click(screen.getByText("Generate draft"));
+    fireEvent.click(screen.getByText("Write the reply again"));
     await waitFor(() => expect(api.generateDraft).toHaveBeenCalledWith("q1", "claude", ["contract-1"]));
   });
 
@@ -170,8 +170,8 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, confirmed_question: "What applies?" } });
     render(<TechnicalQueriesView />);
     await screen.findByText("Coating question", { selector: "h2" });
-    fireEvent.change(screen.getByLabelText("Written by"), { target: { value: "claude" } });
-    fireEvent.click(screen.getByText("Generate draft"));
+    fireEvent.click(screen.getByLabelText(/^Claude \(paid, better/)); // "Who writes the reply" (owner, 27 Nov 2026)
+    fireEvent.click(screen.getByText("Write the reply again"));
     await waitFor(() => expect(api.generateDraft).toHaveBeenCalledWith("q1", "claude", []));
     expect((await screen.findByRole("alert")).textContent).toContain("not enabled on this server");
   });
@@ -491,7 +491,7 @@ describe("Technical Queries screen", () => {
       expect(part.tagName).toBe("DETAILS");
       expect((part as HTMLDetailsElement).open).toBe(false); // folded on arrival
     }
-    expect(within(more).getByRole("button", { name: "Generate draft" })).toBeTruthy(); // the other actions are there, folded
+    expect(within(more).getByRole("button", { name: "Write the reply again" })).toBeTruthy(); // the other actions are there, folded
     expect(within(evidence).getByTestId("evidence-coverage")).toBeTruthy();
   });
 
@@ -585,8 +585,8 @@ describe("Technical Queries screen", () => {
     api.classifyEvidence.mockResolvedValue({ ok: true, data: drafted });
     render(<TechnicalQueriesView queryId="q1" />);
     const row = await screen.findByTestId("keep-cited");
-    expect(row.textContent).toContain("Keeps 1 the draft cites and rejects the other 2 found for this question.");
-    fireEvent.click(within(row).getByRole("button", { name: "Keep the sources the draft cites, reject the others" }));
+    expect(row.textContent).toContain("Keeps 1 the reply cites and rejects the other 2 found for this question.");
+    fireEvent.click(within(row).getByRole("button", { name: "Keep the sources the reply cites, reject the others" }));
     await waitFor(() => expect(api.classifyEvidence).toHaveBeenCalledTimes(3));
     expect(api.classifyEvidence.mock.calls.map((c) => [c[1], c[2]])).toEqual([["e1", "verified"], ["e2", "rejected"], ["e3", "rejected"]]); // never e4 (an earlier wording)
     expect((await screen.findByTestId("keep-cited-done")).textContent).toBe("Kept 1 source the draft cites and rejected 2 others. Each can still be changed below before you approve.");

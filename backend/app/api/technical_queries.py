@@ -275,10 +275,44 @@ def _hide_unreadable_attachment_text(item: dict, scope: access.AccessScope) -> d
     }
 
 
+#: Why Claude cannot write a query's reply now, in plain words, by the lane's own reason code (never the key, only whether one is set).
+_CLAUDE_WHY = {
+    "PROVIDER_OFF": "Claude is switched off on this computer",
+    "TASK_ENGINE_LOCAL": "Claude is switched off for query replies on this computer",
+    "EGRESS_OFF": "sending to Claude is switched off on this computer",
+    "KEY_MISSING": "no Claude key is set on this computer",
+}
+
+
+def _draft_engines() -> dict:
+    """Which engine may write a draft now (owner, 27 Nov 2026 00:02: "Claude shown unavailable + why"): the same two checks the draft
+    route makes before any request (the draft-engine setting, then the lane), read only. The account's own credit is not known here:
+    a press that the account refuses still shows the server's refusal."""
+    from .. import reasoning_provider
+
+    if settings.technical_query_draft_engine.strip().lower() != "claude":
+        return {"claude": {"available": False, "why": _CLAUDE_WHY["TASK_ENGINE_LOCAL"]}}
+    code, words = reasoning_provider.claude_unavailable_for_task(settings.technical_query_draft_engine)
+    if code is None:
+        return {"claude": {"available": True, "why": None}}
+    return {"claude": {"available": False, "why": _CLAUDE_WHY.get(code, words)}}
+
+
+def _subject_codes(item: dict) -> dict:
+    """The contractor code the subject's number holds (`technical_query_subject`, the same reading the routing rules use), so an empty
+    Contractor field can say what the subject holds; nothing when the subject carries no TQ/CFC number."""
+    from .. import technical_query_subject
+
+    ref = technical_query_subject.parse(item.get("subject")) or {}
+    return {"contractor_code": ref.get("contractor_code") or None}
+
+
 def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     """Hide source material retained after a document grant is revoked."""
     item = {
         **item,
+        **_subject_codes(item),
+        "draft_engines": _draft_engines(),
         "can_review": _reviewer(scope),
         "messages": [
             {key: value for key, value in message.items() if key != "raw_storage_ref"}
