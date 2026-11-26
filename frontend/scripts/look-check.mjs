@@ -119,7 +119,19 @@ function readPage(EXEMPT_DISABLED) {
   // labels written in capitals by style (the spec: sentence case, bold)
   const caps = [...document.querySelectorAll("main *")].filter((el) => getComputedStyle(el).textTransform === "uppercase" && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && shown(el)).map((el) => el.textContent.trim().slice(0, 30));
   const h1 = document.querySelector("main h1")?.textContent?.trim() ?? null;
-  return { low, wraps, h1, sizes, caps };
+  // SAMENESS (owner, 27 Nov 2026 03:30: five button looks, chips boxed here and plain there, three title styles): how many DIFFERENT
+  // looks this page uses for a button, a chip and a page title; the shared kit's target is 1 each (a disabled button is its own state)
+  const look = (el, keys) => { const st = getComputedStyle(el); return keys.map((k) => st[k]).join("|"); };
+  // a button's look is its fill, edge, corner, weight and words' colour (its size, small or normal, is not a different look); a tile
+  // is a card that opens a list, counted with the cards, not the buttons. The kit's target: 2 (one primary, one secondary).
+  const btnKeys = ["backgroundColor", "borderTopColor", "borderTopWidth", "borderTopLeftRadius", "fontWeight", "color"];
+  const buttons = [...document.querySelectorAll("main button, main a.kit-btn")].filter((el) => shown(el) && !el.matches(":disabled, [aria-disabled=true], [role=tab], summary, .kit-tile"));
+  const buttonLooks = new Set(buttons.map((el) => look(el, btnKeys)));
+  const chips = [...document.querySelectorAll("main span, main a")].filter((el) => { const st = getComputedStyle(el); return shown(el) && parseFloat(st.borderTopLeftRadius) >= 9 && parseFloat(st.borderTopWidth) > 0 && el.getBoundingClientRect().height < 32; });
+  const chipShapes = new Set(chips.map((el) => look(el, ["borderTopLeftRadius", "borderTopWidth", "fontSize", "fontWeight", "paddingLeft"])));
+  const titles = [...document.querySelectorAll("main h1")].filter(shown);
+  const titleLooks = new Set(titles.map((el) => look(el, ["fontSize", "fontWeight", "color"])));
+  return { low, wraps, h1, sizes, caps, sameness: { buttonLooks: buttonLooks.size, chipShapes: chipShapes.size, titleLooks: titleLooks.size, titles: titles.length } };
 }
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -143,7 +155,7 @@ for (const mode of ["light", "dark"]) {
     // every failure grouped by colour pair: one shared colour token usually explains many
     const pairs = {};
     for (const l of r.low) { const k = `${l.color} on ${l.background}`; pairs[k] = (pairs[k] ?? 0) + 1; }
-    report.push({ mode, path, menu, lowContrast: r.low.length, wraps: r.wraps, allCaps: r.caps, title: r.h1, titleMatchesMenu: titleOk, fontSizes: r.sizes, pairs, worst: r.low.sort((a, b) => a.ratio - b.ratio).slice(0, 8) });
+    report.push({ mode, path, menu, sameness: r.sameness, lowContrast: r.low.length, wraps: r.wraps, allCaps: r.caps, title: r.h1, titleMatchesMenu: titleOk, fontSizes: r.sizes, pairs, worst: r.low.sort((a, b) => a.ratio - b.ratio).slice(0, 8) });
   }
   await ctx.close();
 }
@@ -178,6 +190,7 @@ const summary = {
 };
 console.log(JSON.stringify(summary));
 for (const p of report) console.log(`${p.mode.padEnd(5)} ${p.menu.padEnd(28)} low contrast ${String(p.lowContrast).padStart(3)} · wraps ${p.wraps.length} · all caps ${p.allCaps.length} · title ${p.titleMatchesMenu ? "ok" : `"${p.title}"`}`);
+for (const p of report.filter((x) => x.mode === "light")) console.log(`looks ${p.menu.padEnd(28)} buttons ${p.sameness.buttonLooks} · chip shapes ${p.sameness.chipShapes} · title styles ${p.sameness.titleLooks} (${p.sameness.titles} h1)`);
 for (const w of wide) console.log(`narrow ${w.menu.padEnd(28)} ${w.overPx}px wider than a ${NARROW_WIDTH}px window: ${w.culprits[0] ?? ""}`);
 if (OUT) writeFileSync(OUT, JSON.stringify({ summary, report, wide }, null, 2));
 process.exit(failingCount ? 1 : 0);
