@@ -70,8 +70,12 @@ contractor copy issued only after that sign-off. Until then every file is the te
    refusals, consent records (`review_claude_consent`, `contract_yes`) and register block as text, only through
    `reader_transport.py` under the `claude_spend` caps, behind its own switch (off by default; on only after a scored run
    of a planted copy whose mistake shows only on a drawing or sketch page, and the five scored kinds not down); the plan
-   screen lists the pages whose pictures leave. Figures of rule books read outside a review are not covered (asked
-   separately).
+   screen lists the pages whose pictures leave.
+   FIGURES OF RULE BOOKS (owner, 26 Nov 2026, #1584 comment 7189065710, "Yes, allow it"): page pictures of the figure pages
+   of HELD rule books of the SAES, ISO, API, ASME and NACE families only may go to Claude to read their figures as rules,
+   through `standards_lane` (its figure-reading user) and `reader_transport.py` under the `claude_spend` caps; never a
+   datasheet, procedure, contract, CRS, submittal or the register; each rule read is marked "from a figure, page N", goes
+   to a file first, and joins the library only after a judged sample whose error rate is reported to the owner.
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only six modules may open a
    socket, each behind a gate (the two Gmail modules, `gmail_auth.py` and `gmail_client.py`, read-only behind
