@@ -64,9 +64,14 @@ contractor copy issued only after that sign-off. Until then every file is the te
    comes from."): the evidence search (local only, nothing sent) now searches the held standards the caller may read
    (a company standard by role, or an unroled public standard; never a contract or a submittal) together with the
    readable contracts, and a form's own cited standard is looked up by name first. Every passage shown names its
-   source (contract document / company standard / standard, an unroled public one / document, with its title or number). The Claude DRAFT lane above is
-   UNCHANGED: a draft still reads only the contract documents the engineer chooses; a non-contract document is refused
-   ("not a contract: not sent"). Widening the draft lane to standard text would need its own owner line here.
+   source (contract document / company standard / standard, an unroled public one / document, with its title or number).
+   THE CLAUDE DRAFT LANE NOW ALSO SENDS STANDARD TEXT (owner, 26 Nov 2026 23:00 PKT, in session chat: "Yes. Claude may
+   read standards passages to write a query reply, same as it does for reviews."): a draft may now also send the held
+   standard passages the evidence search above surfaces for this query (a company standard by role, or an unroled
+   public standard; never a contract, a submittal or the client's register), scoped exactly as that evidence search is
+   (the caller may read it) -- in addition to the contract documents the engineer already chooses for that query. Same
+   lane, same `reader_transport.py`, same `claude_spend` caps, same per-request consent record for the files sent. A
+   standard the caller may not read is still refused, counted never named, same as everywhere else in this file.
    THE RULE APPROVAL LANE (owner, 25 Nov 2026, #1584 comment 7169525003; `rule_second_approval.py`,
    `scripts/run_rule_second.py`): the second-model rule approval step and its blind sample judge send rule-book text of
    the SAES, ISO, API, ASME and NACE families only, through `standards_lane` and `reader_transport.py` under the
