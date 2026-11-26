@@ -131,14 +131,15 @@ export function GlanceTiles({ rows }: { rows: GlanceRow[] }) {
           <NavLink key={r.label} view={TILE_VIEW[r.label] ?? "dashboard"}
             className="block rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-5 shadow-[var(--shadow-resting)] hover:border-signal-500">
             <span data-testid="glance-tile" className="block">
-              <span className="block whitespace-nowrap text-base font-semibold text-slateish-200">{TILE_NAME[r.label] ?? r.label}</span>
+              <span className="block whitespace-nowrap text-base font-semibold text-slateish-200">{TILE_NAME[r.label] ?? r.label}</span>{" "}
+              {/* the spaces between the parts are real text: a screen reader and a copy read "Reviews 5 waiting", not "Reviews5waiting" */}
               <span className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-semibold text-slateish-100">{r.waiting ?? "—"}</span>
+                <span className="text-4xl font-semibold text-slateish-100">{r.waiting ?? "—"}</span>{" "}
                 <span className="text-sm text-slateish-300">{r.waiting === null ? "could not be loaded" : "waiting"}</span>
-              </span>
+              </span>{" "}
               <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                 <span data-testid="glance-late" title={r.lateStatus === "counted" ? undefined : r.lateNote}
-                  className={r.lateStatus === "counted" && (r.late ?? 0) > 0 ? "font-semibold text-danger-500" : "text-slateish-300"}>{lateWords}</span>
+                  className={r.lateStatus === "counted" && (r.late ?? 0) > 0 ? "font-semibold text-danger-500" : "text-slateish-300"}>{lateWords}</span>{" "}
                 <span data-testid="glance-done" className={r.done === null ? "text-slateish-300" : "font-semibold text-signal-300"}>{r.done === null ? "done: unknown" : `${r.done} done`}</span>
               </span>
             </span>
