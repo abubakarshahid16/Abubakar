@@ -95,6 +95,12 @@ G1_LIST = (
     "that list left blank?"
 )
 EACH_ENTRY = "Where the paper prints several entries of one kind (one per part or per side), check EACH of them: one finding per entry."
+#: Update 13 (planner, 26 Nov 2026: a wrong definition and an implausible test interval were never asked on a procedure).
+G2_MORE = (
+    "ALSO, on any kind of paper: a term the paper defines whose definition disagrees with the meaning the standards give it; an "
+    "interval, frequency or duration the paper sets (a test, inspection or review period) that is implausible for its purpose. "
+    "Check EACH definition and EACH such interval the paper gives; each wrong one is its own finding, quoting the paper."
+)
 
 
 def form_context(identity: dict) -> tuple[str, str]:
@@ -122,12 +128,17 @@ def form_context(identity: dict) -> tuple[str, str]:
         ) or []
         names = [str(m).replace("_", " ") for m in mandatory if m]
     return (
-        (
-            "PAIRS THAT MUST AGREE wherever the paper states both (the app's consistency rules):\n"
-            + pairs
-        )
-        if pairs
-        else "",
+        "\n".join(
+            x
+            for x in (
+                "PAIRS THAT MUST AGREE wherever the paper states both (the app's consistency rules):\n"
+                + pairs
+                if pairs
+                else "",
+                G2_MORE,
+            )
+            if x
+        ),
         (
             "THE FORM OF THIS KIND OF PAPER requires these entries: "
             + "; ".join(names)
