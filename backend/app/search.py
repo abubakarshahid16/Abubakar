@@ -342,9 +342,10 @@ def every_document_id() -> frozenset[str]:
     parameter to "everything" - is the same behaviour with nobody accountable
     for it, and it is what this refactor exists to make impossible.
     """
-    return frozenset(
-        r["id"] for r in connect().execute("SELECT id FROM documents")
-    )
+    from . import technical_queries
+
+    # never a technical-query attachment nobody filed into the library (update 12): it is kept out of every library path
+    return frozenset(r["id"] for r in connect().execute("SELECT id FROM documents")) - technical_queries.unfiled_attachment_ids(connect())
 
 
 # ---------------------------------------------------------------- fusion

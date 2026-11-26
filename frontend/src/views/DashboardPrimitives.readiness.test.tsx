@@ -42,3 +42,20 @@ describe("Uploads line", () => {
     expect(screen.getByText("new documents will be processed as they arrive")).toBeInTheDocument();
   });
 });
+
+describe("Your documents line (update 12)", () => {
+  const withCorpus = (corpus: Record<string, unknown>) =>
+    ({ ...metrics({}), corpus: { documents: 3, chunks_retrievable: 40, ...corpus } }) as unknown as Metrics;
+
+  it("says how many technical-query attachments are counted apart, never inside the library's numbers", () => {
+    render(<ReadinessPanel metrics={withCorpus({ technical_query_attachments: 2 })} />);
+    expect(
+      screen.getByText(/3 documents loaded, 40 passages a question can reach \(2 technical-query attachments counted apart/),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing more when there are none, or when the view is scoped (null)", () => {
+    render(<ReadinessPanel metrics={withCorpus({ technical_query_attachments: 0 })} />);
+    expect(screen.getByText("3 documents loaded, 40 passages a question can reach")).toBeInTheDocument();
+  });
+});

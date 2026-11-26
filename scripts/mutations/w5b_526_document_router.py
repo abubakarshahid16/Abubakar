@@ -55,7 +55,7 @@ MUTATIONS: tuple[Mutation, ...] = (
        "def route_document_kinds(_admin: dict | None = Depends(admin_mod.current_admin)):",
        "def route_document_kinds(_admin: dict | None = None):", "route_all_is_admin"),
     _m(4314, "the kinds route counts every document, not the caller's", "api/document_classification.py",
-       "    allowed = None if scope.unrestricted else scope.allowed_document_ids\n    return {\"kinds\"",
+       "    allowed = None if scope.unrestricted and not scope.query_attachment_ids else scope.allowed_document_ids\n    return {\"kinds\"",
        "    allowed = None\n    return {\"kinds\"", "vocabulary_route"),
     Mutation(id="M4315", phase=4315, runner="vitest", description="a suggestion is shown as a plain type",
              path=FRONTEND_SRC / "components" / "DocumentKindChip.tsx",

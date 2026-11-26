@@ -22,6 +22,11 @@ const STAGE_LABELS: Record<string, string> = {
   embed: "Embedding",
 };
 
+/** Update 12: the technical-query attachments nobody filed into the library are counted APART, never inside the library's numbers. */
+function attachmentsApart(n: number | null | undefined, nf: Intl.NumberFormat): string {
+  return n ? ` (${nf.format(n)} technical-query attachment${n === 1 ? "" : "s"} counted apart: not in search, Chat or reviews until filed)` : "";
+}
+
 export function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ["KB", "MB", "GB", "TB"];
@@ -192,6 +197,7 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
       ok: documentsReady,
       detail: documentsReady
         ? `${nf.format(metrics.corpus.documents)} document${metrics.corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(metrics.corpus.chunks_retrievable)} passages a question can reach`
+          + attachmentsApart(metrics.corpus.technical_query_attachments, nf)
         : "upload at least one PDF with readable text",
     },
     {

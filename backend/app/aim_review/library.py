@@ -144,6 +144,9 @@ def library(
     conn, *, exclude: frozenset[str] = frozenset(), within: frozenset[str] | None = None
 ) -> list[dict]:
     """Every held document that can serve as a book: not a contractor submittal, not in `exclude`; with `within`, only those."""
+    from app.technical_queries import unfiled_attachment_ids
+
+    exclude = exclude | unfiled_attachment_ids(conn)  # an unfiled attachment: no book
     rows = conn.execute(
         """SELECT d.id AS id, d.filename AS filename, d.page_count AS page_count, c.document_number AS document_number,
                   c.document_role AS document_role, c.discipline_canonical AS committee, c.title AS title
