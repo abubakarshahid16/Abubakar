@@ -9,13 +9,14 @@ and no model writes a word of it (the answer never goes to Claude either).
     for the local model, the rough-draft label; a newer unsigned review is named;
   * technical queries waiting for their evidence: the queries the reader may see (`technical_queries._visible_where`: their own
     or assigned to them; an administrator sees all) whose newest evidence job is queued or running;
-  * a list of papers BY KIND ("list the datasheets"): the papers of that kind the reader may read (always on: it replaces a count
-    of submittals that answered the question wrongly);
+  * a list of papers BY KIND ("list the datasheets"): the papers of that kind the reader may read (it replaces a count of
+    submittals that answered the question wrongly);
   * any other records-shaped question: "I cannot answer that from the records", with what can be answered; never an essay.
 
 Rule 5: every answer is drawn from the reader's own read set (`allowed`), never wider; a paper outside it is not named. The
 client's register and the block list stay withheld (`chat_db_tools._documents`). No document text: file names, kinds, counts.
-Reviews, queries and the "cannot answer" line are behind `CHAT_DATABASE_TOOLS_ENABLED` (off: Chat behaves exactly as before)."""
+EVERY records answer, the list by kind included, is behind `CHAT_DATABASE_TOOLS_ENABLED` (off: Chat behaves exactly as before;
+review of #1926)."""
 
 from __future__ import annotations
 
@@ -84,10 +85,10 @@ _STOP = frozenset(
 def kind_of(question: str) -> str | None:
     """Which records answer the question asks for, or None (not a records question: Chat goes on as before)."""
     q = question or ""
+    if not chat_db_tools.enabled():  # every records answer, the list by kind too, is behind the one switch (review of #1926)
+        return None
     if _LIST_KIND.search(q):
         return LIST_KIND
-    if not chat_db_tools.enabled():
-        return None
     if _EVIDENCE.search(q):
         return WAITING_EVIDENCE
     if _SIGNED.search(q):
