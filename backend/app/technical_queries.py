@@ -1318,6 +1318,20 @@ def _matched_clause(conn, passage: dict, quote: str, terms: list[str]) -> str | 
     return None
 
 
+def _titled(conn, passage: dict, locator: str | None) -> str | None:
+    """A bare clause number ("7.5") as its titled heading from the passage's own pages ("7.5 Invented Coating"), when they hold one."""
+    from . import technical_query_match
+
+    bare = locator and re.fullmatch(r"\d+(\.\d+)*\.?", locator.strip())
+    if not bare or not passage.get("page_start"):
+        return locator
+    start = passage["page_start"]
+    end = max(start, passage.get("page_end") or start)
+    pages = _source_pages(conn, passage["document_id"], start, end)
+    on = "\n".join(_page_text(r) for r in pages)
+    return technical_query_match.titled(locator.strip().rstrip("."), on) or locator
+
+
 def _locator_of(
     conn, passage: dict, quote: str, terms: list[str] | None = None
 ) -> str | None:
@@ -1518,6 +1532,8 @@ def prepare_evidence(
                 or passage.get("locator")
                 or _locator_of(conn, passage, quote, terms)
             )
+            # never a bare "7.5" when its page names the clause (review of update 14)
+            locator = _titled(conn, passage, locator)
             quote_hash = hashlib.sha256(quote.encode()).hexdigest()
             known = conn.execute(
                 "SELECT id,supersession_state FROM query_evidence WHERE query_id=? "
