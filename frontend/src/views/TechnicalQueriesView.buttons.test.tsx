@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
-import { askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
+import { rowLine, askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
 
 const LONG = "The coating system shall have a minimum dry film thickness of 250 microns on every external surface of the vessel, measured "
   + "after curing, and the contractor shall record each reading in the inspection sheet together with the batch number and the date. "
@@ -100,7 +100,7 @@ describe("the query page's lower half", () => {
     const who = screen.getByLabelText("Who handles it");
     expect(within(who).getAllByRole("button").map((b) => b.textContent)).toEqual(["Save who handles it"]);
     expect(screen.getByTestId("from-subject").textContent).toContain("contractor code ABC, discipline PRO");
-    fireEvent.change(within(who).getByLabelText("Responsible person"), { target: { value: "u2" } });
+    fireEvent.change(await within(who).findByLabelText("Responsible person"), { target: { value: "u2" } }); // the people load after the page
     fireEvent.click(within(who).getByRole("button", { name: "Save who handles it" }));
     await waitFor(() => expect(api.assign).toHaveBeenCalledWith("q1", "u2"));
     expect(api.triage).toHaveBeenCalledWith("q1", { contractor_name: null, department: null, priority: "normal", due_at: null });
@@ -177,5 +177,21 @@ describe("the lower half's words", () => {
     expect(fromSubjectHint({ discipline_code: "PRO" })).toContain("discipline PRO");
     expect(historyWords([])).toEqual(["Nobody has approved this yet."]);
     expect(historyWords([{ decision: "request_changes", comment: "Cite the clause." }])).toEqual(["Sent back: Cite the clause."]);
+  });
+});
+
+describe("the list rows (F's walk, 27 Nov 2026)", () => {
+  it("say where a query stands in plain words and who has it by name", () => {
+    expect(rowLine({ contractor_name: null, status: "awaiting_review", assignee_user_id: null })).toBe("Waiting for approval · nobody assigned");
+    expect(rowLine({ contractor_name: "Invented Builders", status: "changes_requested", assignee_user_id: "u2" }, [{ id: "u2", display_name: "Invented Engineer" }]))
+      .toBe("Invented Builders · Being changed · with Invented Engineer");
+    expect(rowLine({ status: "some_new_state" })).toBe("some new state · nobody assigned");
+  });
+  it("say a missing contractor once above the list, never on each row", async () => {
+    await open();
+    expect(screen.getByTestId("no-contractor-note").textContent).toBe("1 of 1 have no contractor yet: add its code once under \u201cRules for who it goes to\u201d and they fill themselves.");
+    const list = screen.getByLabelText("Technical query list");
+    expect(list.textContent).not.toContain("awaiting_review");
+    expect(list.textContent).not.toContain("contractor not set");
   });
 });

@@ -1,5 +1,5 @@
 import { InfoFold } from "../components/look/LookParts";
-import { LIST_FOUND, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, rowLine, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
@@ -458,11 +458,13 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
         </div>
         <div className="mt-5 space-y-2" aria-label="Technical query list">
           {items.length === 0 && <p className="text-sm text-slateish-500">{importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</p>}
+          {/* said ONCE above the list, not on every row (F's walk, 27 Nov 2026: the same long line 33 times) */}
+          {items.some((item) => !item.contractor_name) && <p data-testid="no-contractor-note" className="text-xs text-slateish-400">{items.filter((item) => !item.contractor_name).length} of {items.length} have no contractor yet: add its code once under &ldquo;Rules for who it goes to&rdquo; and they fill themselves.</p>}
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
               {item.needs_person ? <span className="mt-1 inline-block rounded border border-warn-500 px-1 text-xs text-warn-500" data-testid="needs-person">Needs a person: no full TQ or CFC number in the subject</span> : null}
-              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "contractor not set: add its code under Rules for who it goes to"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
+              <span className="mt-1 block text-xs text-slateish-400">{rowLine(item, assignees)}</span>
             </button>
           ))}
         </div>
