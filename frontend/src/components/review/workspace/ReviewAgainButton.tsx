@@ -46,8 +46,6 @@ export type ReviewAgainArgs = Pick<Props, "documentId" | "filename" | "onStarted
 
 const askWords = priorDecisionWords;
 
-const primary = "rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400 disabled:opacity-50";
-const secondary = "rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500 disabled:opacity-50";
 
 /** v2.1: the "Review again" rule in one place, so every button that starts
  *  a fresh review of a document (the workspace header, the missing
@@ -104,8 +102,8 @@ export function useReviewAgain({
       {askingNow && asking && (
         <span role="group" aria-label="Start a new review?" className="flex flex-wrap items-center justify-end gap-2 text-sm text-slateish-200">
           <span>{askWords(asking)}</span>
-          <button type="button" onClick={confirm} className={primary}>Yes, start a new review</button>
-          <button type="button" onClick={() => setAsking(null)} className={secondary}>Cancel</button>
+          <Button variant="primary" onClick={confirm}>Yes, start a new review</Button>
+          <Button onClick={() => setAsking(null)}>Cancel</Button>
         </span>
       )}
       {stepFor === documentId && (
@@ -141,12 +139,11 @@ export function ReviewAgainButton({
   return (
     <span className="inline-flex flex-col items-end gap-1">
       {!again.asking && (
-        <button
-          type="button" disabled={again.busy || disabled} onClick={again.press} className={isPrimary ? primary : secondary}
+        <Button variant={isPrimary ? "primary" : "secondary"} disabled={again.busy || disabled} onClick={again.press}
           aria-label={again.busy ? undefined : ariaLabel}
         >
           {again.busy ? "Starting…" : label}
-        </button>
+        </Button>
       )}
       {again.question}
     </span>

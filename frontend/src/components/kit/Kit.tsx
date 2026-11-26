@@ -191,3 +191,13 @@ export function MoreMenu({ label = "More", children, testId }: { label?: string;
     </details>
   );
 }
+
+/** A fold: a short title that opens to more (what a figure counts, how something was measured). */
+export function Fold({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
+  return (
+    <details className="kit-fold" data-testid={testId}>
+      <summary className="kit-fold__title">{title}</summary>
+      <div className="kit-fold__body">{children}</div>
+    </details>
+  );
+}

@@ -430,18 +430,9 @@ export function DocumentCard({
               </p>
             </>
           )}
-          <button
-            type="button"
-            onClick={() => actions.onExcluded(doc)}
-            className={[
-              "mt-2 rounded-[var(--radius-xs)] border px-3 py-1 text-xs",
-              (doc.pages_excluded_with_clause_headings ?? 0) > 0
-                ? "border-danger-500/60 text-danger-500 hover:bg-danger-500/15"
-                : "border-ink-500 text-slateish-300 hover:bg-ink-700",
-            ].join(" ")}
-          >
+          <Button size="sm" variant={(doc.pages_excluded_with_clause_headings ?? 0) > 0 ? "danger" : "secondary"} onClick={() => actions.onExcluded(doc)}>
             See which pages, and why
-          </button>
+          </Button>
         </div>
       )}
 
@@ -504,21 +495,9 @@ function Action({
   expanded?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-expanded={expanded}
-      className={[
-        "rounded-[var(--radius-xs)] border px-2.5 py-1 text-xs motion-safe:transition-colors disabled:opacity-40",
-        primary
-          ? "border-signal-500/60 text-signal-400 hover:bg-signal-500/15"
-          : danger
-            ? "border-danger-500/50 text-danger-500 hover:bg-danger-500/15"
-            : "border-ink-600 text-slateish-300 hover:bg-ink-700",
-      ].join(" ")}
-    >
+    // the shared kit's small button: danger for a removing action, secondary for the rest (a card is never a wall of filled buttons)
+    <Button size="sm" variant={danger ? "danger" : "secondary"} onClick={onClick} disabled={disabled} aria-expanded={expanded} data-primary={primary ? "true" : undefined}>
       {label}
-    </button>
+    </Button>
   );
 }

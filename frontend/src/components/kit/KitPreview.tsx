@@ -34,7 +34,6 @@ export function KitPreview() {
       <Card>
         <Stack gap={3}>
           {TONES.map((tone) => <Row key={tone} label={`${tone} words`}>{KIT_WORDS[tone].map((w) => <StatusChip key={w} word={w[0].toUpperCase() + w.slice(1)} />)}</Row>)}
-          <Row><StatusChip word="No query number" why="The subject has no full query number, so a person must check which query this is." /></Row>
         </Stack>
       </Card>
       <SectionTitle>Card, table and form</SectionTitle>

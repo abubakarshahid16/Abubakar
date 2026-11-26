@@ -47,6 +47,8 @@ describe.runIf(NEW_LOOK)("the three tiles on the Dashboard (new look)", () => {
       "Deliverables1waiting for you1 doneno due dates set",
     ]);
     expect(screen.queryByRole("table")).toBeNull(); // no table, no dashes (owner 03:34)
+    // every count states its boundary (rule 4), one click away
+    expect(screen.getByTestId("glance-boundary").textContent).toContain("These counts cover only what you may open.");
     fireEvent.click(tiles[1]);
     expect(navigate).toHaveBeenCalledWith("technicalQueries");
     fireEvent.click(tiles[0]);

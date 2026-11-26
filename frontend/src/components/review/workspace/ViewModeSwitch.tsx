@@ -5,25 +5,20 @@
  * design" switch on a narrow screen. The choice itself lives in useViewMode.
  */
 import type { ViewMode } from "./useViewMode";
+import { Button } from "../../kit/Kit";
 
 export function ViewModeSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode: ViewMode) => void }) {
   const button = (value: ViewMode, label: string) => (
-    <button
-      type="button"
-      aria-pressed={mode === value}
-      onClick={() => onMode(value)}
+    // the shared kit's small button; the chosen one shows the kit's "on" state (H's gate, 27 Nov 2026: the old pill was a third look)
+    <Button size="sm" aria-pressed={mode === value} onClick={() => onMode(value)}
       title={value === "simple"
         ? "Show only what you need to finish the review"
-        : "Also show the engineer pages: how it was reviewed, findings, standards"}
-      className={`px-3 py-1 text-xs font-semibold ${
-        mode === value ? "bg-ink-700 text-slateish-100" : "text-slateish-400 hover:text-slateish-200"
-      }`}
-    >
+        : "Also show the engineer pages: how it was reviewed, findings, standards"}>
       {label}
-    </button>
+    </Button>
   );
   return (
-    <div role="group" aria-label="View" className="inline-flex shrink-0 overflow-hidden rounded-full border border-ink-600" data-testid="view-mode-switch">
+    <div role="group" aria-label="View" className="kit-row kit-gap-2 shrink-0" data-testid="view-mode-switch">
       {button("simple", "Simple")}
       {button("detailed", "Detailed")}
     </div>

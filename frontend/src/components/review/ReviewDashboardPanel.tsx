@@ -363,14 +363,9 @@ export function ReviewDashboardPanel(
                       {NEW_LOOK ? <StatusChip tone={reviewStatusTone(rowStatus(run))}>{rowStatus(run)}</StatusChip> : rowStatus(run)}
                     </td>
                     <td className={NEW_LOOK ? "px-3 py-3.5 text-right" : "px-3 py-2"}>
-                      <button
-                        type="button" onClick={() => onOpenReview(run.review_run_id)}
-                        className={NEW_LOOK
-                          ? "min-h-9 rounded-[var(--radius-sm)] border border-ink-500 bg-ink-800 px-4 py-1.5 text-sm font-semibold text-signal-300 hover:bg-ink-700"
-                          : "font-medium text-signal-400 hover:underline"}
-                      >
+                      <Button size="sm" onClick={() => onOpenReview(run.review_run_id)}>
                         Open
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}

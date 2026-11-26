@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, authorize, reportResponseStatus } from "../api/client";
 import { roleSuggestionSwitch } from "../api/roleSuggestion";
+import { LinkButton } from "./kit/Kit";
 
 type Picker =
   | { s: "loading" }
@@ -239,14 +240,14 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
       >
         <p className="text-sm text-slateish-300">
           Drag PDF or Word (.docx) files here, or{" "}
-          <button
-            type="button"
+          <LinkButton
+            
             disabled={blocked}
             onClick={() => inputRef.current?.click()}
-            className="underline decoration-dotted underline-offset-4 hover:text-slateish-200"
+            
           >
             choose files
-          </button>
+          </LinkButton>
         </p>
         <p className="mt-1 text-xs text-slateish-400">
           Files are stored on this machine. Multiple files are uploaded one after another.

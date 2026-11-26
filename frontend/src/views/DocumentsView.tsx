@@ -872,7 +872,7 @@ function FilterChip({
   count,
   on,
   onClick,
-  amber,
+  amber: _amber, // the kit decides the look; the count beside the label says what needs attention
 }: {
   label: string;
   count?: number;
@@ -881,26 +881,18 @@ function FilterChip({
   amber?: boolean;
 }) {
   return (
-    <button
-      type="button"
+    // the shared kit's small button; its checked state is the kit's "on" look (owner, 27 Nov 2026: boxed and pill filters side by side)
+    <Button
+      size="sm"
+      variant="secondary"
       role="checkbox"
       aria-checked={on}
       onClick={onClick}
-      className={[
-        "inline-flex items-center gap-2 rounded-[var(--radius-full)] border px-2.5 py-1 text-[13px] motion-safe:transition-colors",
-        on
-          ? amber
-            ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
-            : "border-signal-500/40 bg-signal-500/10 text-signal-400"
-          : amber
-            ? "border-warn-500/30 bg-ink-800 text-warn-500 hover:bg-warn-500/10"
-            : "border-ink-600 bg-ink-800 text-slateish-300 hover:bg-ink-700",
-      ].join(" ")}
     >
       {label}
       {/* A COUNT ONLY WHEN COVERAGE ANSWERED. See TypeFilter.tsx: rendering 0
           for "we do not know" reads as "there are none of these". */}
       {count != null && <span className="font-mono text-xs text-slateish-300">{count}</span>}
-    </button>
+    </Button>
   );
 }
