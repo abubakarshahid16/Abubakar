@@ -3564,6 +3564,11 @@ class ChatPresentation(BaseModel):
     suggestions: list[str] = []
     draft: dict | None = None
     notices: list[str] = Field([], description="plain notices above the answer, e.g. the engineer notice")
+    paper_coverage: dict | None = Field(
+        None, description="several selected papers (note A, 25 Nov 2026): how many the answer's tools read, how many are "
+        "still processing, which were not opened, and the sentence, by code (`chat_coverage`)")
+    review_offer: list[dict] = Field(
+        [], description="'review / check these': the selected papers to start the real Review on (the comment sheet)")
     model: str | None = None
     provider: str | None = None
     requested_provider: str | None = Field(
@@ -3621,11 +3626,6 @@ class AnswerResult(ChatPresentation):
     )
     summary_coverage: dict | None = Field(
         None, description="collection-summary boundary: selected documents, readable chunks, and cited documents")
-    paper_coverage: dict | None = Field(
-        None, description="several selected papers (note A, 25 Nov 2026): how many the answer's tools read, how many are "
-        "still processing, which were not opened, and the sentence, by code (`chat_coverage`)")
-    review_offer: list[dict] = Field(
-        [], description="'review / check these': the selected papers to start the real Review on (the comment sheet)")
     examples: list[str] = Field(
         [], description="real questions drawn from the loaded documents"
     )

@@ -3,7 +3,7 @@ whose answers go to Claude. Behind ONE switch, `CHAT_DATABASE_TOOLS_ENABLED`, de
 
   * `list_documents(kind or role)`: title, kind, role and id of the documents the caller may read;
   * `latest_review(paper)`: the latest general review of a paper: its counts and its top comments, with page;
-  * `tq_open_items(query)`: the open items of a technical query (not on this install yet: it says so).
+  * `tq_open_items(query)`: Chat does not read technical queries yet: it says so and names the Technical Queries page.
 
 RULES (each one tested):
   * ONLY DOCUMENTS THE CALLER MAY READ (rule 5: the caller's grants narrow, never widen). A document outside them is counted,
@@ -68,7 +68,9 @@ NAMES = frozenset(t["name"] for t in TOOLS)
 
 #: At most this many documents and top comments go to Claude in one answer.
 MAX_DOCUMENTS, TOP_COMMENTS = 100, 10
-TQ_NOT_HERE = "technical queries are not on this install yet"
+#: Chat does not read technical queries (their mail and drafts stay on the Technical Queries page, under their own lane and
+#: grants): the tool says so, with no query's id, subject or text.
+TQ_NOT_HERE = "Chat does not read technical queries yet; open the Technical Queries page to see their open items"
 
 
 #: A question about the library's RECORDS rather than a document's words: which papers there are, their latest review, the
