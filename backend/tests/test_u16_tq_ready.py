@@ -321,3 +321,82 @@ def test_a_query_with_no_wording_has_no_evidence_for_it_even_with_older_finds(qu
         got["ready"]["question_source"] == "none" and got["ready"]["evidence"] == "none"
     )
     assert [e["for_current_question"] for e in got["evidence"]] == [False]
+
+
+def test_approval_needs_no_decision_on_an_earlier_wordings_finds_and_a_source_confirmed_with_sign_in_off_counts(
+    query,
+):
+    """Builder C's walk on the measured copy (26 Nov 2026): 27 passages found for an earlier wording blocked approval, and a source
+    confirmed on an install with sign-in off (no actor id: confirmed_at set, confirmed_by empty) stayed "unknown" for ever."""
+    item, scope, _asked = query
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    with db.connect() as conn:
+        for n, found_for in enumerate(
+            ("an-older-wording", None)
+        ):  # one known to be another wording's, one with no record
+            conn.execute(
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,evidence_state,"
+                "supersession_state,created_at,found_for) VALUES (?,?,'d1',3,3,?,?,'proposed','unknown','x',?)",
+                (f"old{n}", item["id"], QUOTE, f"h{n}", found_for),
+            )
+        conn.execute(
+            "UPDATE document_classification SET confirmed_by=NULL, confirmed_at='2026-11-26T20:00:00Z' WHERE document_id='d1'"
+        )
+    ready = tq.get(item["id"], "u1", False, False)
+    assert {e["id"]: e["supersession_state"] for e in ready["evidence"]}[
+        f"e-{auto.key('1. What flange rating applies?')}"
+    ] == "current"
+    cited = next(e["id"] for e in ready["evidence"] if e["for_current_question"])
+    tq.update_evidence(
+        item["id"],
+        cited,
+        "verified",
+        "current",
+        None,
+        "u1",
+        "u1",
+        False,
+        False,
+        reviewer=True,
+    )
+    with pytest.raises(
+        ValueError, match="before approval"
+    ):  # the row with no record of its wording still needs a decision
+        tq.decide(
+            item["id"],
+            "approve",
+            "u1",
+            None,
+            ready["drafts"][-1]["id"],
+            "u1",
+            False,
+            False,
+            reviewer=True,
+        )
+    tq.update_evidence(
+        item["id"],
+        "old1",
+        "rejected",
+        "unknown",
+        None,
+        "u1",
+        "u1",
+        False,
+        False,
+        reviewer=True,
+    )
+    approved = tq.decide(
+        item["id"],
+        "approve",
+        "u1",
+        None,
+        ready["drafts"][-1]["id"],
+        "u1",
+        False,
+        False,
+        reviewer=True,
+    )
+    assert (
+        approved["status"] == "approved"
+    )  # the other wording's untouched find did not block it
