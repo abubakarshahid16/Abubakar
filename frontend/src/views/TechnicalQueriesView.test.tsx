@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
 import { formatWhen } from "../format/when";
-import { BOX_FOUND, TechnicalQueriesView } from "./TechnicalQueriesView";
+import { BOX_FOUND, TechnicalQueriesView, contractorWords } from "./TechnicalQueriesView";
 
 const query = {
   id: "q1",
@@ -567,5 +567,13 @@ describe("Technical Queries screen", () => {
     expect(within(more).getByText("3 more requests")).toBeTruthy();
     expect(within(readable).getAllByRole("listitem")).toHaveLength(9); // all on the page, the last three folded
     expect((more as HTMLDetailsElement).open).toBe(false);
+  });
+});
+
+describe("the queue's contractor words (lead-4, 26 Nov 2026)", () => {
+  it("names the contractor, else the code in the number and what to do, else 'not set'; never a guessed name", () => {
+    expect(contractorWords({ contractor_name: "Invented Contractor", contractor_code: "INVCO" })).toBe("Invented Contractor");
+    expect(contractorWords({ contractor_name: null, contractor_code: "INVCO" })).toBe("contractor code INVCO, not named yet: name it once under Rules for who it goes to");
+    expect(contractorWords({ contractor_name: null, contractor_code: null })).toBe("contractor not set: add its code under Rules for who it goes to");
   });
 });

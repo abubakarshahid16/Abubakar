@@ -4,6 +4,8 @@ export interface TechnicalQuery {
   id: string;
   subject: string;
   contractor_name: string | null;
+  /** The contractor code printed in the reference number (server: `contractor_code_of`); shown while no rule names it. */
+  contractor_code?: string | null;
   department: string | null;
   /** Read from the subject by code: TQ (technical query) or CFC (conflict finding clarification), the running number, the discipline code, the short title. */
   ref_type?: string | null;

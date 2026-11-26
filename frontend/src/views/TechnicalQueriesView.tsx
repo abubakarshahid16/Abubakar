@@ -48,6 +48,14 @@ function Folded({ text }: { text?: string | null }) {
 /** How many found questions start in the question box; the rest are folded under "N more found", to be ticked (lead-4, 26 Nov 2026). */
 export const BOX_FOUND = 6;
 
+/** The queue's contractor words: the name a rule gave, else the code printed in the reference number with what to do, else "not set". The
+ *  code is read from the number, never a guessed name (lead-4, 26 Nov 2026: 32 of 33 carried a code while every row said "not set"). */
+export function contractorWords(q: { contractor_name?: string | null; contractor_code?: string | null }): string {
+  if (q.contractor_name) return q.contractor_name;
+  if (q.contractor_code) return `contractor code ${q.contractor_code}, not named yet: name it once under Rules for who it goes to`;
+  return "contractor not set: add its code under Rules for who it goes to";
+}
+
 export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: string; isAdmin?: boolean }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
   const [selected, setSelected] = useState<TechnicalQuery | null>(null);
@@ -407,7 +415,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
               {item.needs_person ? <span className="mt-1 inline-block rounded border border-warn-500 px-1 text-xs text-warn-500" data-testid="needs-person">Needs a person: no full TQ or CFC number in the subject</span> : null}
-              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "contractor not set: add its code under Rules for who it goes to"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
+              <span className="mt-1 block text-xs text-slateish-400">{contractorWords(item)} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
             </button>
           ))}
         </div>
