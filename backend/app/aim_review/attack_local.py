@@ -30,6 +30,13 @@ def _own_rows(it: dict, rows: list[dict]) -> list[dict]:
     from .retry import _in_cited, _same
 
     rules = [r for r in rows if "rule" in r and r["book"] == it.get("book")]
+    if not str(
+        it.get("clause") or ""
+    ).strip():  # cited by page (`citing.cited`): the no-clause rules of its book holding its quote
+        from .verify import quote_in
+
+        q = str(it.get("rule_quote") or "")
+        return [r for r in rules if not str(r["clause"] or "").strip() and quote_in(q, r["text"].removesuffix(" [CUT: rule text longer than shown]"))]  # fmt: skip
     exact = [r for r in rules if _same(r["clause"], it.get("clause"))]
     if exact or rules:
         return exact or [r for r in rules if _in_cited(r["clause"], it.get("clause"))]
@@ -132,6 +139,10 @@ def attack(
     groups, off = _groups(
         [s for s in shown if s.get("source") == HELD], rows
     )  # knowledge items: not attacked here
+    for _ in [
+        s for s in shown if s.get("source") != HELD
+    ]:  # said on the page (review of update 11, recheck)
+        faults.record("aim_attack_knowledge", "a knowledge item", "no held rule")
     for _ in off:  # kept as written, counted
         faults.record(
             "aim_attack_not_shown", "an attack item", "its rule could not be shown"

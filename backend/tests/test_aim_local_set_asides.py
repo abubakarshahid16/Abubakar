@@ -513,27 +513,65 @@ def test_the_local_attack_removes_only_items_whose_own_rule_it_was_shown_and_nev
         assert (
             "C033" not in items and "C034" not in items
         )  # knowledge items are not in the local attack
+    knowledge_said = _said(calls)["aim_attack_knowledge"]
+    assert (
+        knowledge_said["count"] == 2
+        and knowledge_said["sentence"]
+        == "2 knowledge items were not attacked (no held rule)."
+    )
     said = _said(calls)["aim_attack_not_shown"]
     assert said["count"] == 2 and said["sentence"] == (
         "2 checklist items were not attacked (its rule could not be shown) and were kept as the first engineer wrote them."
     )
 
 
-def test_a_rule_with_no_clause_number_never_resolves_a_citation():
+def test_a_quote_held_only_by_a_rule_with_no_clause_number_is_kept_and_cited_by_page():
+    """Review of update 11, B2 (recheck at e152317c): most stored rules have no clause number (78,104 of 116,716 in the live
+    library), and N2 dropped every item whose only holding rule was one of them. Such an item is kept, cited by its page, and
+    never re-cited to a numbered clause; a numbered clause that holds the quote still wins."""
     from app.aim_review import citing
 
+    words = "Words of an invented rule with no clause number."
     rows = [
-        _rule("R1", "B1", "", 1, "Words of an invented rule with no clause number.")
+        _rule("R1", "B1", "", 1, words),
+        _rule("R2", "B1", "4.2", 1, "Other invented words of a numbered rule."),
     ]
-    it = {
-        "book": "B1",
-        "clause": "4.1",
-        "rule_quote": "Words of an invented rule with no clause number.",
-    }
+    it = {"book": "B1", "clause": "4.1", "rule_quote": words}
     with budget.using(budget.LOCAL):
         assert (
-            citing.cited(it, rows) is False and it["clause"] == "4.1"
-        )  # treated as not found, never re-cited to ""
+            citing.cited(it, rows) is True and it["clause"] == ""
+        )  # cited by page, not by the clause it gave nor by 4.2
+        both = [*rows, _rule("R3", "B1", "4.3", 1, words)]
+        numbered = {"book": "B1", "clause": "", "rule_quote": words}
+        assert (
+            citing.cited(numbered, both) is True and numbered["clause"] == "4.3"
+        )  # a numbered clause holding it wins
+        nowhere = {
+            "book": "B1",
+            "clause": "4.1",
+            "rule_quote": "words that no stored rule holds at all",
+        }
+        assert citing.cited(nowhere, rows) is False and nowhere["clause"] == "4.1"
+
+
+def test_the_local_attack_shows_an_item_cited_by_page_its_own_no_clause_rule():
+    import re
+
+    words = "The invented item shall carry a stamped invented plate."
+    sel = _sel(4)
+    sel["_pool"].append({"book": "b1", "subject": "s", "tagged": True, "page": 1, "clause": "", "id": "rX",
+                         "source_text": words, "requirement_text": ""})  # fmt: skip
+    item = {**_item(1, ""), "rule_quote": words}
+    model = _RemoveAll()
+    with budget.using(budget.LOCAL):
+        got = CL.s3_attack(model, IDENT, sel, {"items": [item]}, None, "local")
+    assert (
+        len(model.calls) == 1
+        and words in model.calls[0]["prompt"].split("THE CLAUSES:")[-1]
+    )  # its own rule was shown
+    assert got["items"] == [] and re.search(
+        r'"id": "C001"', model.calls[0]["prompt"]
+    )  # so its verdict applies
 
 
 def test_items_asked_again_and_still_not_found_are_counted_by_cause():
