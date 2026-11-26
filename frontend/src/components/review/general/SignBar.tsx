@@ -57,8 +57,10 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
       {todo > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <p data-testid="sign-undecided" className="text-sm text-slateish-200">{todo} comment{todo === 1 ? "" : "s"} still need{todo === 1 ? "s" : ""} your decision.</p>
-          {signoff.may_sign && <button type="button" disabled={busy} onClick={() => void acceptRest()}
+          {/* a rough draft from the local model is decided one by one: the server refuses a bulk accept, and none is offered */}
+          {signoff.may_sign && signoff.bulk_accept !== false && <button type="button" disabled={busy} onClick={() => void acceptRest()}
             className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1 text-sm text-slateish-100 disabled:opacity-50">Accept the rest ({todo})</button>}
+          {signoff.rough_draft_words && <p data-testid="sign-rough-draft" className="text-sm text-pill-review-fg">{signoff.rough_draft_words}</p>}
         </div>
       )}
       {!signoff.may_sign && <p data-testid="sign-super-user" className="text-sm text-slateish-300">{signoff.may_sign_words ?? "Only a super user can sign this review for now."}</p>}
@@ -87,6 +89,7 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
       {signoff.state === "signed" && signed && (
         <div className="space-y-1">
           <p data-testid="sign-signed" className="text-sm text-pill-pass-fg"><strong>Signed off</strong> by {signed.by}, {dayTimeWords(signed.at)}. Review code: {signed.code}.</p>
+          {signed.rough_draft && <p data-testid="sign-made-from" className="text-sm text-pill-review-fg">Sign-off {signed.rough_draft}.</p>}
           {signed.statement && <p className="text-sm text-slateish-200">{signed.statement}</p>}
           <p data-testid="sign-copy-statement" className="text-xs text-slateish-300">Contractor copy: {signed.copy_statement}.</p>
           {signoff.may_sign && <button type="button" onClick={() => void download()} data-testid="contractor-download"

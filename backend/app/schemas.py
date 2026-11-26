@@ -2882,6 +2882,12 @@ class ReviewRunSummary(BaseModel):
     #: A general review's sign-off: "signed", "changed" (a decision came after the sign-off) or "not_signed"; null for an earlier review and
     #: for a general run that has not ended.
     general_signoff: str | None = None
+    #: A general review's engine: "claude" or "local" (a rough draft, not scored as reliable); null for an earlier review.
+    engine: str | None = None
+    #: The row's engine words: "Claude", or "Local model: rough draft, not scored as reliable". Null for an earlier review.
+    engine_words: str | None = None
+    #: True for the run the paper's row shows and opens (`aim_review_face`: newest signed, else newest on Claude, else newest).
+    face: bool | None = None
     #: Every distinct equipment tag the run's findings name, in order; empty
     #: (shown as nothing, never a guess) when the datasheet states none.
     equipment_tags: list[str] = []

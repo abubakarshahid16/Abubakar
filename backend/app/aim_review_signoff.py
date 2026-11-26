@@ -28,6 +28,11 @@ AUDIT = "general_review_signed"
 AUDIT_ACCEPT_REST = "general_comments_accepted_rest"
 NOT_SIGNED, SIGNED, CHANGED = "not_signed", "signed", "changed"
 SUPER_USER_WORDS = "Only a super user can sign this review for now."
+#: A ROUGH DRAFT IS DECIDED ONE BY ONE (lead-4, 26 Nov 2026: a 9B draft held a line asking for a set pressure above the MAWP): a
+#: review made on the local model offers no "Accept the rest", and the server refuses it.
+ROUGH_DRAFT_NO_BULK = "This review is a rough draft from the local model: decide each comment one by one. There is no Accept the rest."
+#: The sign-off record of a review made on the local model says so (the page, the audit and the team file).
+ROUGH_DRAFT_SIGNED = "made from a rough draft (local model)"
 NOT_SIGNED_WORDS = NO_CONTRACTOR_COPY_WORDS
 CHANGED_WORDS = (
     "No contractor copy: a decision changed after the sign-off. Sign the review again."
@@ -129,6 +134,11 @@ def latest(conn, run_id: str):
     ).fetchone()
 
 
+def rough_draft(view: dict) -> bool:
+    """True for a review made on the local model (`aim_review_view`'s engine, from the run's own calls)."""
+    return bool((view.get("engine") or {}).get("local"))
+
+
 def status(conn, run: dict, view: dict, may_sign: bool = False) -> dict:
     """What the page's sign bar says: not signed / signed / changed since sign-off, the undecided list, and the four code labels."""
     from . import comparison
@@ -146,6 +156,7 @@ def status(conn, run: dict, view: dict, may_sign: bool = False) -> dict:
         "state": state, "undecided": todo, "undecided_count": len(todo), "codes": list(comparison.review_codes()),
         "can_sign": run.get("status") == "done" and not todo, "signed": None, "may_sign": may_sign,
         "may_sign_words": None if may_sign else SUPER_USER_WORDS,
+        "bulk_accept": not rough_draft(view), "rough_draft_words": ROUGH_DRAFT_NO_BULK if rough_draft(view) else None,
     }  # fmt: skip
     if row is not None:
         from . import aim_review_contractor
@@ -158,12 +169,16 @@ def status(conn, run: dict, view: dict, may_sign: bool = False) -> dict:
             "statement": row["statement"],
             "counts": counts,
             "copy_statement": aim_review_contractor.statement(counts),
+            "rough_draft": ROUGH_DRAFT_SIGNED if counts.get("rough_draft") else None,
         }
     return out
 
 
 def accept_rest(conn, run: dict, view: dict, actor: str) -> int:
-    """Accept every undecided comment and confirmation, each as its own decision row (the history shows it). Returns how many."""
+    """Accept every undecided comment and confirmation, each as its own decision row (the history shows it). Returns how many.
+    Refused for a rough draft from the local model (`ROUGH_DRAFT_NO_BULK`): nothing is written."""
+    if rough_draft(view):
+        raise Refused(ROUGH_DRAFT_NO_BULK)
     by_n = {
         "comment": {c["n"]: c for c in view["comments"]},
         "confirmation": {c["n"]: c for c in view.get("confirmations") or []},
@@ -220,6 +235,9 @@ def sign(
         raise Refused(
             "the contractor copy cannot be issued yet: " + str(exc), exc.blockers
         ) from exc
+    # the record says what the sign-off was made from (the contractor copy itself is unchanged)
+    if rough_draft(view):
+        counts = {**counts, "rough_draft": True}
     signoff_id = str(uuid.uuid4())
     with conn:
         if not conn.in_transaction:

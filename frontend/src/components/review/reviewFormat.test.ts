@@ -402,3 +402,23 @@ describe("a queued review parked behind its paper's reading says why", () => {
     expect(runStatusLabel("running", "waiting: its paper is still being read")).toBe("Running");
   });
 });
+
+describe("groupRunsByDocument: the face (lead-4, 26 Nov 2026)", () => {
+  it("shows the run the server marks as the face, so a newer local rough draft never hides the Claude review", () => {
+    const runs = [
+      { submittal_document_id: "d1", review_run_id: "claude", created_at: "2026-11-18T10:00:00Z", face: true },
+      { submittal_document_id: "d1", review_run_id: "local", created_at: "2026-11-26T08:00:00Z", face: false },
+    ];
+    const [group] = groupRunsByDocument(runs);
+    expect(group.latest.review_run_id).toBe("claude");
+    expect(group.earlier.map((r) => r.review_run_id)).toEqual(["local"]);
+  });
+
+  it("keeps newest first when no run is marked (earlier reviews)", () => {
+    const runs = [
+      { submittal_document_id: "d1", review_run_id: "a", created_at: "2026-11-18T10:00:00Z" },
+      { submittal_document_id: "d1", review_run_id: "b", created_at: "2026-11-26T08:00:00Z" },
+    ];
+    expect(groupRunsByDocument(runs)[0].latest.review_run_id).toBe("b");
+  });
+});

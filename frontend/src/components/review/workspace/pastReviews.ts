@@ -53,7 +53,8 @@ export function pastReviewsOf(documentId: string, runs: ReviewRunSummary[]): Pas
   return [group.latest, ...group.earlier].map((run) => ({
     runId: run.review_run_id,
     createdAt: run.created_at ?? null,
-    result: resultWords(run),
+    // a general review names its engine; a local one is a rough draft (the server's own words, `aim_review_face.engine_words`)
+    result: run.engine === "local" && run.engine_words ? `${run.engine_words} · ${resultWords(run)}` : resultWords(run),
     commentCount: null,
     signed: Boolean(run.crs_issued_at),
     finalCodeRecorded: Boolean(run.engineer_final_code),
