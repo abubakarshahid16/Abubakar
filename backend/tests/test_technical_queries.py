@@ -710,11 +710,12 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         seen_questions.append(question)
         return original_answer(question)
 
-    # Nothing is drafted from a question no engineer has confirmed.
+    # Nothing is drafted while the query has no question at all (none proposed, none written); confirming is not needed first
+    # (owner, 26 Nov 2026 21:36), so the refusal says to write the question, not to confirm it.
     with pytest.raises(HTTPException) as unconfirmed:
         generate_query_draft(item["id"], scope)
     assert unconfirmed.value.status_code == 409
-    assert "confirm the question" in unconfirmed.value.detail["message"]
+    assert "write it in the question box" in unconfirmed.value.detail["message"]
     confirm_question(
         item["id"],
         "What is the approved limit?",
@@ -872,9 +873,14 @@ def test_a_proposed_question_is_the_emails_own_or_the_models_numbered_questions_
         propose_question("Please confirm the thickness.", proposals)
         == "Please confirm the thickness.\n1. State the standard."
     )  # what the email already says is not said twice
+    # the email asks nothing: a lead-in makes the list read as a question (owner, 26 Nov 2026 21:29, item 2), with the title when known
+    assert (
+        propose_question("", proposals, "Fwd: Invented flange query")
+        == "About Invented flange query, the contractor asks for the following:\n1. Confirm the thickness.\n2. State the standard."
+    )
     assert (
         propose_question("", proposals)
-        == "1. Confirm the thickness.\n2. State the standard."
+        == "The contractor asks for the following:\n1. Confirm the thickness.\n2. State the standard."
     )
     assert propose_question("", []) == ""
     legacy = "Email part.\n\n[Attachment q.pdf, page 1]\nPDF text"
@@ -2192,47 +2198,6 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
     assert queued["evidence_job"]["state"] == "queued"  # the request only queues the job and answers at once
     from app import technical_query_jobs
 
-    technical_query_jobs.run_job(queued["evidence_job"]["id"], wait_for_review=False)
-    prepared = get(item["id"], "owner", True, False)
-    assert prepared["evidence_job"]["state"] == "done"
-    # a passage the search found is only PROPOSED: no person has judged that it answers the question
-    assert [
-        (e["document_id"], e["evidence_state"], e["supersession_state"])
-        for e in prepared["evidence"]
-    ] == [("lib-e2e", "proposed", "current")]
-    # a reviewer reads the passage and keeps it as evidence; only then can a draft rest on it
-    update_evidence(
-        item["id"],
-        prepared["evidence"][0]["id"],
-        "verified",
-        "current",
-        None,
-        "owner",
-        "owner",
-        True,
-        False,
-        reviewer=True,
-    )
-    # the cover note "See attached." is not a question (lead-4, 26 Nov 2026)
-    assert prepared["proposed_question"] == "1. What coating does carbon steel need?"
-    assert (
-        prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1. No held standard that you may read: none was searched."
-    )
-
-    # 3. nothing is drafted until a reviewer confirms the question
-    with pytest.raises(HTTPException) as early:
-        generate_query_draft(item["id"], reviewer)
-    assert "confirm the question" in early.value.detail["message"]
-    with pytest.raises(HTTPException) as not_reviewer:
-        confirm_query_question(
-            item["id"], QuestionIn(question="What coating applies?"), plain_admin
-        )
-    assert not_reviewer.value.status_code == 403
-    confirm_query_question(
-        item["id"],
-        QuestionIn(question="What coating applies to carbon steel?"),
-        reviewer,
-    )
     asked = {}
 
     def fake_answer(question, **kwargs):
@@ -2252,6 +2217,64 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
             "model": "synthetic-model",
         }
 
+    monkeypatch.setattr("app.answer.answer", fake_answer)
+    technical_query_jobs.run_job(queued["evidence_job"]["id"], wait_for_review=False)
+    prepared = get(item["id"], "owner", True, False)
+    assert prepared["evidence_job"]["state"] == "done"
+    # the query opens READY (owner, 26 Nov 2026 21:36): the local model wrote a draft from the passage the system found, for the proposed
+    # question, with no click; it says what no person has checked yet, and nothing is approved by it
+    assert prepared["status"] == "awaiting_review" and [d["system"] for d in prepared["drafts"]] == [True]
+    assert asked["question"] == "About Technical query, the contractor asks for the following:\n1. What coating does carbon steel need?"
+    assert prepared["ready"]["question_source"] == "proposed" and prepared["ready"]["draft"] == "ready"
+    assert prepared["ready"]["draft_fresh"] and prepared["ready"]["evidence_fresh"]
+    marks = json.loads(prepared["drafts"][-1]["unresolved_json"])
+    assert "The question was proposed by the system; no engineer has confirmed it yet." in marks
+    assert "Written by the local model from passages the system found; no engineer has kept them yet." in marks
+    # a passage the search found is only PROPOSED: no person has judged that it answers the question
+    assert [
+        (e["document_id"], e["evidence_state"], e["supersession_state"])
+        for e in prepared["evidence"]
+    ] == [("lib-e2e", "proposed", "current")]
+    # a reviewer reads the passage and keeps it as evidence; only then can a draft rest on it
+    update_evidence(
+        item["id"],
+        prepared["evidence"][0]["id"],
+        "verified",
+        "current",
+        None,
+        "owner",
+        "owner",
+        True,
+        False,
+        reviewer=True,
+    )
+    # the cover note "See attached." is not a question (lead-4, 26 Nov 2026)
+    assert prepared["proposed_question"] == "About Technical query, the contractor asks for the following:\n1. What coating does carbon steel need?"  # the lead-in: the email asks nothing
+    assert (
+        prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1. No held standard that you may read: none was searched."
+    )
+
+    # 3. confirming is an approval flag, never a gate: only a reviewer confirms, and confirming ANOTHER wording refreshes evidence and draft
+    with pytest.raises(HTTPException) as not_reviewer:
+        confirm_query_question(
+            item["id"], QuestionIn(question="What coating applies?"), plain_admin
+        )
+    assert not_reviewer.value.status_code == 403
+    confirm_query_question(
+        item["id"],
+        QuestionIn(question="What coating applies to carbon steel?"),
+        reviewer,
+    )
+    refreshed = get(item["id"], "owner", True, False)
+    assert refreshed["status"] == "drafting" and refreshed["evidence_job"]["state"] == "queued"  # the old draft answers another wording
+    assert refreshed["ready"]["draft"] == "refreshing" and not refreshed["ready"]["draft_fresh"]
+    technical_query_jobs.run_job(refreshed["evidence_job"]["id"], wait_for_review=False)
+    again = get(item["id"], "owner", True, False)
+    assert [d["question"] for d in again["drafts"]] == ["About Technical query, the contractor asks for the following:\n1. What coating does carbon steel need?", "What coating applies to carbon steel?"]
+    assert again["ready"]["draft_fresh"] and again["ready"]["question_source"] == "confirmed"
+    marks = json.loads(again["drafts"][-1]["unresolved_json"])
+    assert not any("found" in m or "proposed" in m for m in marks)  # the kept passage and the confirmed question: nothing to mark
+    asked.clear()
     monkeypatch.setattr("app.answer.answer", fake_answer)
     drafted = generate_query_draft(item["id"], reviewer)
     assert asked == {

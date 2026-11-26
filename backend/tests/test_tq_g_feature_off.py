@@ -322,7 +322,7 @@ def test_the_attachment_pages_are_not_copied_in_bulk_and_an_invented_question_is
     # the cover note is not a question (lead-4, 26 Nov 2026)
     assert (
         result["proposed_question"]
-        == "1. Q1 What is the minimum coating thickness for the tank?"
+        == "About Technical query, the contractor asks for the following:\n1. Q1 What is the minimum coating thickness for the tank?"
     )
     assert (
         result["confirmed_question"] is None

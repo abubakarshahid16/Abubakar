@@ -27,6 +27,7 @@ const query = {
 };
 
 const api = vi.hoisted(() => ({
+  saveQuestion: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   metrics: vi.fn(),
@@ -62,44 +63,45 @@ describe("Technical Queries screen", () => {
     expect((await screen.findByTestId("evidence-coverage")).textContent).toBe("Searched 19 of 20 contracts, hits in 6. 1 could not be searched.");
   });
 
-  it("places every question the model found in the text as a proposal, with its page, and one taken out can be added back", async () => {
+  it("opens with what the contractor is asking as one readable list: the lead-in, then each request numbered with where it was found (owner, 26 Nov 2026)", async () => {
     render(<TechnicalQueriesView />);
-    const box = within(await screen.findByLabelText("Questions found in the attachment")).getByRole("checkbox") as HTMLInputElement;
-    const text = screen.getByLabelText("Question the draft will answer") as HTMLTextAreaElement;
-    // owner, 26 Nov 2026: the found questions were listed but the box opened without them
-    await waitFor(() => expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?"));
-    expect(screen.getByText("query.pdf, page 2 · in the text below")).toBeTruthy();
-    expect(box.checked && box.disabled).toBe(true); // never added twice
-    fireEvent.change(text, { target: { value: "See attached." } }); // the engineer takes it out
-    expect(box.disabled).toBe(false);
-    fireEvent.click(box);
-    fireEvent.click(screen.getByText("Add ticked questions to the text"));
-    expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
+    const readable = await screen.findByTestId("question-readable");
+    expect(within(readable).getByText("See attached.")).toBeTruthy();
+    expect(within(readable).getByText("What is the minimum coating thickness?")).toBeTruthy();
+    expect(within(readable).getByText("found in query.pdf, page 2")).toBeTruthy();
+    expect(screen.queryByText(/each as printed/)).toBeNull();
+    // editing is one click away; the text is the same ask, numbered
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const text = screen.getByLabelText(/Edit what the contractor is asking/) as HTMLTextAreaElement;
+    expect(text.value).toBe("See attached.\n1. What is the minimum coating thickness?");
+    expect(screen.getByText(/Confirm means you have checked this is what the contractor is asking\. It does not send anything to the contractor\./)).toBeTruthy();
   });
 
-  it("puts only the first few found questions in the box and folds the rest under 'N more found', to tick", async () => {
+  it("lists only the first few found requests; the rest are marked as possibly missed and one can be added as the next number", async () => {
     const many = Array.from({ length: BOX_FOUND + 3 }, (_, i) => ({ question: `Please confirm invented item ${i + 1}?`, filename: "long.pdf", page: i + 1 }));
     api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: many } });
     render(<TechnicalQueriesView />);
-    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
-    await waitFor(() => expect(text.value.split("\n")).toHaveLength(BOX_FOUND));
-    expect(text.value).not.toContain(`item ${BOX_FOUND + 1}?`);
+    const readable = await screen.findByTestId("question-readable");
+    expect(within(readable).getAllByRole("listitem")).toHaveLength(BOX_FOUND);
+    expect(screen.getByTestId("question-mark").textContent).toBe("3 more lines were found on the form and are not in the list: one may be a request. Check below.");
     const more = screen.getByTestId("found-more");
-    expect(within(more).getByText("3 more found: show, tick to add")).toBeTruthy();
-    fireEvent.click(within(more).getAllByRole("checkbox")[0]);
-    fireEvent.click(screen.getByText("Add ticked questions to the text"));
-    expect(text.value.split("\n")).toHaveLength(BOX_FOUND + 1);
-    expect(text.value).toContain(`item ${BOX_FOUND + 1}?`);
+    fireEvent.click(within(more).getAllByText("Add to the list")[0]);
+    expect(within(screen.getByTestId("question-readable")).getAllByRole("listitem")).toHaveLength(BOX_FOUND + 1);
+    expect(screen.getByTestId("question-mark").textContent).toMatch(/^2 more lines/);
   });
 
-  it("opens the box with the found questions when the mail itself asks nothing (a forward of a form)", async () => {
-    api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: [
+  it("when the mail itself asks nothing, the lead-in is the subject and the requests found on the form follow, numbered", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, subject: "Fw: Invented tie-in", extracted_question: "", extracted_question_main: "", proposed_questions: [
       { question: "Please confirm the invented rating?", filename: "form.pdf", page: 1 },
       { question: "Please clarify the invented limit?", filename: "form.pdf", page: 3 },
     ] } });
     render(<TechnicalQueriesView />);
-    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
-    await waitFor(() => expect(text.value).toBe("Please confirm the invented rating?\nPlease clarify the invented limit?"));
+    const readable = await screen.findByTestId("question-readable");
+    expect(readable.textContent).toContain("About Invented tie-in, the contractor asks for the following:");
+    expect(within(readable).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "1.Please confirm the invented rating?found in form.pdf, page 1",
+      "2.Please clarify the invented limit?found in form.pdf, page 3",
+    ]);
   });
 
   it("shows the evidence job's progress, and which attachment pages were not read", async () => {
@@ -471,7 +473,7 @@ describe("Technical Queries screen", () => {
 
   it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
     render(<TechnicalQueriesView />);
-    const question = await screen.findByRole("heading", { name: /^(Question for the draft|The contractor asks)$/ }); // the new look names it as the spec does
+    const question = await screen.findByRole("heading", { name: "What the contractor is asking" }); // the new look names it as the spec does
     const response = screen.getByRole("heading", { name: /^Proposed response/ });
     const generate = screen.getByRole("button", { name: "Generate draft" });
     const email = screen.getByTestId("tq-folded-email-question");
@@ -501,7 +503,7 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, confirmed_question: "Invented?", confirmed_question_at: at, messages: [mail] } });
     render(<TechnicalQueriesView />);
     expect(await screen.findByText(`Received: ${formatWhen(at)}`)).toBeTruthy();
-    expect(screen.getByText(new RegExp(`Confirmed by an engineer on ${formatWhen(at).replace(/[+]/g, "\\+")}`))).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Checked by an engineer on ${formatWhen(at).replace(/[+]/g, "\\+")}`))).toBeTruthy();
     expect(screen.queryByText(new RegExp(at))).toBeNull();
   });
 
@@ -525,5 +527,45 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView queryId="q1" />);
     expect((await screen.findByTestId("evidence-needs-confirm")).textContent).toContain("Documents, Details, Save metadata");
     expect(screen.queryByTestId("confirm-source")).toBeNull();
+  });
+
+  it("with the server's ready state: says where the sources and the draft stand, who wrote the draft, and saves an edit without confirming", async () => {
+    const ready = { question: "See attached.\n1. What is the minimum coating thickness?", question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "ready", draft_fresh: true, draft_note: null, marks: ["Invented server mark"] };
+    const drafted = { ...query, ready, drafts: [{ id: "d1", version: 1, answer: "Invented answer.", assumptions_json: "[]", unresolved_json: "[]", citations_json: "[]", model: "invented-small:9b", system: true }] };
+    api.get.mockResolvedValue({ ok: true, data: drafted });
+    api.saveQuestion.mockResolvedValue({ ok: true, data: { ...drafted, ready: { ...ready, evidence: "refreshing" } } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    expect((await screen.findByTestId("draft-author")).textContent).toBe("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
+    expect(screen.getAllByTestId("question-mark").map((m) => m.textContent)).toContain("Invented server mark");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText(/Edit what the contractor is asking/), { target: { value: "See attached.\n1. An invented edited request?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and find the sources again" }));
+    await waitFor(() => expect(api.saveQuestion).toHaveBeenCalledWith("q1", "See attached.\n1. An invented edited request?"));
+    expect((await screen.findByTestId("ready-line")).textContent).toBe("Finding the sources for this question; a draft follows.");
+  });
+
+  it("sources found for an earlier wording are folded apart, never mixed with the current ones (builder A's for_current_question)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, evidence: [
+      { id: "e1", document_id: "c1", page_start: 4, exact_quote: "Invented current quote.", evidence_state: "proposed", supersession_state: "current", for_current_question: true },
+      { id: "e2", document_id: "c2", page_start: 9, exact_quote: "Invented earlier quote.", evidence_state: "proposed", supersession_state: "current", for_current_question: false },
+    ] } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    const earlier = await screen.findByTestId("evidence-earlier");
+    expect(within(earlier).getByText(/1 source found for an earlier wording of the question/)).toBeTruthy();
+    expect(within(earlier).getByText("Invented earlier quote.")).toBeTruthy();
+    expect((earlier as HTMLDetailsElement).open).toBe(false);
+    expect(screen.getByText("Invented current quote.").closest("[data-testid=evidence-earlier]")).toBeNull();
+  });
+
+  it("a long ask from the server folds after six with 'N more requests', none dropped", async () => {
+    const asks = Array.from({ length: 9 }, (_, i) => `${i + 1}. Invented request ${i + 1}`).join("\n");
+    const ready = { question: `About Invented, the contractor asks for the following:\n${asks}`, question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "none", draft_fresh: true, draft_note: null, marks: [] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, ready } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    const readable = await screen.findByTestId("question-readable");
+    const more = within(readable).getByTestId("question-more");
+    expect(within(more).getByText("3 more requests")).toBeTruthy();
+    expect(within(readable).getAllByRole("listitem")).toHaveLength(9); // all on the page, the last three folded
+    expect((more as HTMLDetailsElement).open).toBe(false);
   });
 });
