@@ -387,7 +387,7 @@ describe("Technical Queries screen", () => {
     api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "Unmapped", contractor_name: null }] } });
     render(<TechnicalQueriesView />);
     // a short chip on the row, the full sentence on hover (owner, 27 Nov 2026)
-    const noContractor = (await screen.findAllByTestId("problem-chip")).find((c) => c.textContent === "No contractor")!;
+    const noContractor = (await screen.findAllByTestId("problem-chip")).find((c) => c.getAttribute("data-words") === "No contractor")!;
     expect(noContractor.getAttribute("title")).toMatch(/add its code once under .Rules for who it goes to./);
     expect(screen.queryByText(/Unknown contractor/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
@@ -455,7 +455,7 @@ describe("Technical Queries screen", () => {
     expect((await screen.findAllByTestId("query-tag")).map((t) => t.textContent)).toEqual(["TQ-12"]);
     expect(screen.getByText("PIPING")).toBeTruthy();
     expect(within(screen.getByLabelText("Technical query list")).getByText("Coating question")).toBeTruthy();
-    const noNumber = screen.getAllByTestId("problem-chip").find((c) => c.textContent === "No query number")!;
+    const noNumber = screen.getAllByTestId("problem-chip").find((c) => c.getAttribute("data-words") === "No query number")!;
     expect(noNumber.getAttribute("title")).toContain("no full TQ or CFC number");
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "CFC" } });

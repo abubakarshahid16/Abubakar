@@ -348,11 +348,11 @@ export function historyWords(decisions: Array<{ decision: string; comment?: stri
 
 // ------------------------------------------------------------------ the list page (owner, 27 Nov 2026: "the same pattern as a tidy list")
 
-/** The short tag a query is known by ("CFC-7"), from the number read in its subject; null when the subject carries none. */
+/** The short tag a query is known by ("CFC-7"), from the number read in its subject, exactly as written there (review of #1938: leading
+ *  zeros are kept, so CFC-7 and CFC-007 never look like one query); null when the subject carries none. */
 export function queryTag(q: { ref_type?: string | null; ref_number?: string | null }): string | null {
   if (!q.ref_type || !q.ref_number) return null;
-  const n = /^\d+$/.test(q.ref_number) ? String(Number(q.ref_number)) : q.ref_number;
-  return `${q.ref_type}-${n}`;
+  return `${q.ref_type}-${q.ref_number}`;
 }
 
 /** One status chip per row, in four plain words (and the closed ones), with its tone. */
@@ -404,13 +404,14 @@ export function mailboxChip(
 }
 
 /** The count line, which is also a filter: only the states that exist right now, each with its number. */
-export type QuickView = "waiting" | "progress" | "person" | "approved";
+export type QuickView = "waiting" | "progress" | "person" | "approved" | "sent" | "closed";
+/** Each bucket holds exactly the rows whose status chip says its word (review of #1938: "2 approved" must never show a row chipped "Sent"). */
+const BUCKET_WORDS: Record<Exclude<QuickView, "person">, string[]> = {
+  waiting: ["Waiting for approval"], progress: ["In progress"], approved: ["Approved"], sent: ["Sent"], closed: ["Closed", "Duplicate", "Cancelled"],
+};
 export function quickMatch(view: QuickView, q: { status: string; needs_person?: number | null; ref_type?: string | null }): boolean {
   if (view === "person") return Boolean(q.needs_person) || !q.ref_type;
-  const tone = statusChip(q.status);
-  if (view === "waiting") return q.status === "awaiting_review";
-  if (view === "approved") return tone.tone === "done";
-  return tone.words === "In progress";
+  return BUCKET_WORDS[view].includes(statusChip(q.status).words);
 }
 export function countLine(items: Array<{ status: string; needs_person?: number | null; ref_type?: string | null }>): { total: number; parts: Array<{ view: QuickView; n: number; words: string }> } {
   const n = (v: QuickView) => items.filter((q) => quickMatch(v, q)).length;
@@ -418,6 +419,8 @@ export function countLine(items: Array<{ status: string; needs_person?: number |
     { view: "waiting", n: n("waiting"), words: "waiting for approval" },
     { view: "progress", n: n("progress"), words: "in progress" },
     { view: "approved", n: n("approved"), words: "approved" },
+    { view: "sent", n: n("sent"), words: "sent" },
+    { view: "closed", n: n("closed"), words: "closed" },
     { view: "person", n: n("person"), words: n("person") === 1 ? "needs a person" : "need a person" },
   ];
   return { total: items.length, parts: parts.filter((p) => p.n > 0) };

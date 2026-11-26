@@ -522,7 +522,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                 <span data-testid="status-chip" className={`whitespace-nowrap rounded border px-1.5 ${chip.tone === "wait" ? "border-signal-500 text-slateish-100" : chip.tone === "done" ? "border-ink-500 text-slateish-100" : chip.tone === "problem" ? "border-danger-500 text-danger-500" : "border-ink-600 text-slateish-300"}`}>{chip.words}</span>
                 <span className="whitespace-nowrap">{item.contractor_name ? `${item.contractor_name} \u00b7 ` : ""}{who}</span>
                 {item.due_at && <span className="whitespace-nowrap">due {formatWhen(item.due_at).split(",")[0]}</span>}
-                {problemChips(item).map((p) => <span key={p.words} data-testid="problem-chip" title={p.why} className="whitespace-nowrap rounded border border-warn-500 px-1.5 text-warn-500">{p.words}</span>)}
+                {problemChips(item).map((p) => <span key={p.words} data-testid="problem-chip" data-words={p.words} title={p.why} className="whitespace-nowrap rounded border border-warn-500 px-1.5 text-warn-500">{p.words}<span className="sr-only">: {p.why}</span></span>)}
               </span>
             </button>;
           })}
@@ -536,6 +536,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           <p data-testid="query-headline" className="text-xl font-semibold leading-snug text-slateish-100">{queryHeadline(selected, questionDraft)}</p>
           <h2 className="mt-1 text-sm font-medium text-slateish-400">{selected.subject}</h2>
           <p data-testid="query-status" className="mt-1 text-sm text-slateish-300">{plainStatus(selected.status, selected.priority)}</p>
+          {problemChips(selected).map((p) => <p key={p.words} data-testid="query-problem" className="mt-1 text-sm text-warn-500"><strong className="font-semibold">{p.words}.</strong> {p.why}</p>)}
           <ol data-testid="query-summary" aria-label="Where this query stands" className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {querySteps(selected, questionDraft).map((step) => <li key={step.label} className={step.state === "done" ? "text-slateish-100" : "text-slateish-400"}><span aria-hidden="true" className="mr-1 font-semibold">{step.state === "done" ? "✓" : step.state === "working" ? "…" : "○"}</span>{step.label}{step.state === "working" ? " (working)" : step.state === "todo" ? " (not yet)" : ""}</li>)}
           </ol>

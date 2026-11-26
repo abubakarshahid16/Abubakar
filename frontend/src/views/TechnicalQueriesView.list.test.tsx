@@ -81,14 +81,36 @@ describe("the query list page", () => {
     const [first, second, third] = within(list).getAllByRole("button");
     expect(within(first).getByTestId("query-tag").textContent).toBe("CFC-7");
     expect(within(first).getByTestId("status-chip").textContent).toBe("Waiting for approval");
-    expect(within(second).getByTestId("query-tag").textContent).toBe("TQ-12");
+    expect(within(second).getByTestId("query-tag").textContent).toBe("TQ-00012"); // the number as written (review of #1938)
     expect(second.textContent).toContain("Invented Builders · Invented Engineer");
     expect(second.textContent).toContain("due 3 Dec 2026");
     expect(within(second).queryAllByTestId("problem-chip")).toEqual([]);
     expect(within(third).queryByTestId("query-tag")).toBeNull();
-    expect(within(third).getAllByTestId("problem-chip").map((c) => c.textContent)).toEqual(["No query number", "No contractor"]);
+    expect(within(third).getAllByTestId("problem-chip").map((c) => c.getAttribute("data-words"))).toEqual(["No query number", "No contractor"]);
     expect(within(third).getAllByTestId("problem-chip")[0].getAttribute("title")).toContain("no full TQ or CFC number");
+    // the full sentence is in the row's own text for a screen reader and a keyboard user, not only on hover (review of #1938)
+    expect(third.textContent).toContain("No query number: The subject has no full TQ or CFC number");
     for (const row of [first, second, third]) expect(row.textContent).not.toMatch(/_|awaiting_review|drafting/);
+  });
+
+  it("clicking 'approved' lists only rows chipped Approved", async () => {
+    api.list.mockResolvedValue({ ok: true, data: { items: [{ ...rows[0], status: "approved" }, { ...rows[1], status: "sent" }] } });
+    render(<TechnicalQueriesView />);
+    const line = await screen.findByTestId("count-line");
+    expect(line.textContent).toBe("2 queries: 1 approved, 1 sent");
+    fireEvent.click(within(line).getByRole("button", { name: "1 approved" }));
+    expect(within(screen.getByLabelText("Technical query list")).getAllByTestId("status-chip").map((c) => c.textContent)).toEqual(["Approved"]);
+  });
+
+  it("says a row's problems in full inside the query too", async () => {
+    api.get.mockResolvedValue({ ok: true, data: rows[2] });
+    api.list.mockResolvedValue({ ok: true, data: { items: [rows[2]] } });
+    render(<TechnicalQueriesView />);
+    const problems = await screen.findAllByTestId("query-problem");
+    expect(problems.map((p) => p.textContent)).toEqual([
+      "No query number. The subject has no full TQ or CFC number, so a person must check which query this is.",
+      "No contractor. No contractor yet: add its code once under \u201cRules for who it goes to\u201d (in More) and every query with that code fills itself.",
+    ]);
   });
 
   it("says a stopped mailbox in red on the chip", async () => {
@@ -100,7 +122,7 @@ describe("the query list page", () => {
 
 describe("the list page's words", () => {
   it("tags a query by its short number", () => {
-    expect(queryTag({ ref_type: "TQ", ref_number: "00012" })).toBe("TQ-12");
+    expect(queryTag({ ref_type: "TQ", ref_number: "00012" })).toBe("TQ-00012"); // kept as written: CFC-7 and CFC-007 are not one query
     expect(queryTag({ ref_type: "CFC", ref_number: "7" })).toBe("CFC-7");
     expect(queryTag({ ref_type: null, ref_number: null })).toBeNull();
   });
@@ -127,6 +149,15 @@ describe("the list page's words", () => {
     expect(mailboxChip([{ connection_state: "pending" }], true)?.words).toBe("Mailbox needs a label");
     expect(mailboxChip([{ connection_state: "active", import_job: { state: "running", kind: "import", done: 12, total: 77 } }], true)?.words).toBe("Mailbox: importing, 12 of 77 read");
     expect(mailboxChip([{ connection_state: "active", import_job: { state: "failed", kind: "import", done: 1, total: 77, error: "x" } }], true)?.tone).toBe("problem");
+  });
+  it("puts each row in the bucket whose word its chip says, never 'approved' for a sent one (review of #1938)", () => {
+    const rows = ["approved", "send_pending", "sent", "awaiting_confirmation", "resolved", "duplicate", "cancelled", "drafting"].map((status) => ({ status, ref_type: "TQ" }));
+    expect(countLine(rows).parts.map((p) => `${p.n} ${p.words}`)).toEqual(["1 in progress", "1 approved", "3 sent", "3 closed"]);
+    for (const view of ["waiting", "progress", "approved", "sent", "closed"] as const) {
+      const words = rows.filter((r) => quickMatch(view, r)).map((r) => statusChip(r.status).words);
+      expect(new Set(words).size).toBeLessThanOrEqual(view === "closed" ? 3 : 1);
+    }
+    expect(rows.filter((r) => quickMatch("approved", r)).map((r) => statusChip(r.status).words)).toEqual(["Approved"]);
   });
   it("counts only the states that exist", () => {
     expect(countLine([]).parts).toEqual([]);
