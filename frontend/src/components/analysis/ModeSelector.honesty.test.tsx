@@ -69,6 +69,6 @@ describe("analysis mode descriptions make no false promise", () => {
 
   it("keeps the quote mode claim, which is true and model-free", () => {
     const [quote] = descriptions();
-    expect(quote).toMatch(/no model involved/i);
+    expect(quote).toMatch(/no AI involved/i);
   });
 });

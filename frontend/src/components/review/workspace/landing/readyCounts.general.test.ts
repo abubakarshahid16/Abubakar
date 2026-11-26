@@ -27,14 +27,14 @@ describe("loadReadyCounts with a general review", () => {
 describe("what a general review's line says", () => {
   it("states the new method's numbers, labelled, never the earlier method's words", () => {
     const line = foundLine({ findings: null, needs_you: null, general: { points: 129, comments: 66, confirmations: 20 } });
-    expect(line).toBe("General review: 129 points reviewed, 66 comments sent (20 confirmations not sent)");
+    expect(line).toBe("Review: 129 points reviewed, 66 comments sent (20 confirmations not sent)");
     expect(line).not.toMatch(/findings|needing your judgement/);
   });
 
   it("leaves out a count it does not have, says 0 only when it is 0, and says a run stopped early", () => {
-    expect(generalLine({ points: 10, comments: 0 })).toBe("General review: 10 points reviewed, 0 comments sent");
+    expect(generalLine({ points: 10, comments: 0 })).toBe("Review: 10 points reviewed, 0 comments sent");
     expect(generalLine({ points: 1, comments: 1, confirmations: 1, stopped: true })).toBe(
-      "General review: 1 point reviewed, 1 comment sent (1 confirmation not sent); stopped early");
+      "Review: 1 point reviewed, 1 comment sent (1 confirmation not sent); stopped early");
   });
 
   it("a count that is not known renders as nothing", () => {

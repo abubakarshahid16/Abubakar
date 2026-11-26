@@ -20,7 +20,7 @@ export function ProviderNotice({ note }: { note: string | null }) {
   return (
     <p
       role="note"
-      aria-label="Which model answered"
+      aria-label="Which AI answered"
       className="rounded-[var(--radius-sm)] border border-info-500/30 bg-info-500/[0.06] px-2.5 py-1.5 text-xs text-slateish-300"
     >
       {note}

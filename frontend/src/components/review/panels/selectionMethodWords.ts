@@ -23,7 +23,7 @@ export const SELECTION_METHOD_WORDS: Record<string, string> = {
   project: "Required by the contract or project",
   manual: "Added by an engineer",
   model: "Suggested by the AI (a guess until an engineer confirms it)",
-  scope: "Its scope covers this document",
+  scope: "It covers this document",
   equipment_rules: "Holds rules our rule sorting tagged for this kind of equipment",
 };
 

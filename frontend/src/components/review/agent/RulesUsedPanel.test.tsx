@@ -94,7 +94,7 @@ describe("RulesUsedView", () => {
   });
   it("honest empty states", () => {
     render(<RulesUsedView data={data({ paper_kind: "unknown", equipment_type: null, asked: [], left_out: [], left_out_counts: {}, missing_books: [] })} />);
-    expect(screen.getByTestId("asked-empty")).toHaveTextContent("No rule was asked: the paper kind could not be decided.");
+    expect(screen.getByTestId("asked-empty")).toHaveTextContent("No rule was asked: the type of paper could not be decided.");
     expect(screen.getByTestId("left-empty")).toHaveTextContent("No rule was left out.");
     expect(screen.getByTestId("missing-empty")).toBeInTheDocument();
     expect(screen.queryByText(/Equipment type/)).toBeNull();
@@ -248,7 +248,7 @@ describe("RulesUsedView: percentage and warning agree", () => {
 describe("Rules used for a general review", () => {
   it("says no rule was asked, lists the books not held, and shows no asked or left-out table", () => {
     render(<RulesUsedView general data={data({ asked: [], left_out: [], left_out_counts: {} })} />);
-    expect(screen.getByTestId("rules-general")).toHaveTextContent("General review: no rule was asked. Rule books the paper cites that we do not hold are listed below.");
+    expect(screen.getByTestId("rules-general")).toHaveTextContent("Review without rule books: no rule was asked. Rule books the paper cites that we do not hold are listed below.");
     expect(screen.getByText("Book Q: not in the library")).toBeInTheDocument();
     expect(screen.queryByTestId("asked-empty")).toBeNull();
     expect(screen.queryByTestId("left-empty")).toBeNull();

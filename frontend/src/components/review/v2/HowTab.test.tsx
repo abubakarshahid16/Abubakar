@@ -15,7 +15,7 @@ describe("the method words come from the route", () => {
   it("draws the route's mark and Local-only sentence, whatever they say", async () => {
     vi.stubGlobal("fetch", answer(info()));
     render(<HowTab top={null} sections={[]} />);
-    await waitFor(() => expect(screen.getByTestId("v2-how-method").textContent).toBe("Method: the general review. invented mark."));
+    await waitFor(() => expect(screen.getByTestId("v2-how-method").textContent).toBe("Method: the current review. invented mark."));
     expect(screen.getByTestId("v2-how-local").textContent).toBe("invented local sentence");
   });
 

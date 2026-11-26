@@ -70,7 +70,7 @@ export function ReportsView({
           <span aria-hidden="true">◌ </span>
           {nf.format(suppressedCount)} report{suppressedCount === 1 ? " is" : "s are"} not
           shown because a document {suppressedCount === 1 ? "it cites" : "they cite"} is no
-          longer in your scope.
+          longer open to you.
         </p>
       )}
 
@@ -176,8 +176,8 @@ function ReportRow({
                       {" "}
                       {d.passages_cited === 0
                         // Said plainly: "0 passages" next to a cited document reads as a contradiction.
-                        ? "· on the document list; no passage of it is quoted in this report"
-                        : `· ${nf.format(d.passages_cited)} passage${d.passages_cited === 1 ? "" : "s"}`}
+                        ? "· on the document list; no part of it is quoted in this report"
+                        : `· ${nf.format(d.passages_cited)} quoted part${d.passages_cited === 1 ? "" : "s"}`}
                     </span>
                     {d.text_source && d.text_source !== "extracted" && (
                       <span className="text-warn-500">

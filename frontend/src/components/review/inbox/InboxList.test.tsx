@@ -99,7 +99,7 @@ describe("InboxList", () => {
     await userEvent.click(screen.getByRole("button", { name: "Signed (1 of 3)" }));
     expect(screen.getByText("b.pdf")).toBeInTheDocument();
     expect(screen.queryByText("a.pdf")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Queued or running (1 of 3)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Waiting or running (1 of 3)" }));
     expect(screen.getByText("c.pdf")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "All (3 of 3)" }));
     expect(screen.getAllByTestId("inbox-state")).toHaveLength(3);

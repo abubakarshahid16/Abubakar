@@ -172,7 +172,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
           }
         />
         <Step
-          label="Split into passages"
+          label="Split into parts of pages"
           done={reached(doc, "indexing_keyword")}
           current={doc.status === "chunking"}
           detail={doc.chunk_count_total > 0 ? nf.format(doc.chunk_count_total) : undefined}
@@ -197,7 +197,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
       {answerable && doc.status !== "ready" && (
         <p className="mt-2 text-xs text-signal-400">
           You can ask questions about this document now. Answers will improve as the
-          remaining passages finish.
+          remaining parts of pages finish.
         </p>
       )}
     </div>
@@ -418,7 +418,7 @@ function WatchedFolderPanel() {
   return (
     <Section
       title="Watched folder"
-      hint="Documents dropped into this folder are ingested without anyone uploading them."
+      hint="Documents dropped into this folder are read without anyone uploading them."
     >
       <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
         {/* Reachability is rendered in ONE direction only.
@@ -490,9 +490,9 @@ function WatchedFolderPanel() {
 
 const STAGE_LABELS: Record<string, string> = {
   extract: "Reading pages",
-  chunk: "Splitting into passages",
+  chunk: "Splitting into parts of pages",
   keyword_index: "Building the keyword index",
-  embed: "Embedding passages",
+  embed: "Making the parts searchable",
   retrieval: "Answering questions",
 };
 
@@ -567,7 +567,7 @@ export function IngestionView({
   // this whole screen on `documents.filter`, which is the one thing a status
   // screen must never do - it is what you look at when things are wrong.
   if (!metrics || !worker || !Array.isArray(documents)) {
-    return <div>{pageIdentity}<Spinner label="Reading the queue" /></div>;
+    return <div>{pageIdentity}<Spinner label="Reading the waiting list" /></div>;
   }
 
   const inProgress = documents.filter(
@@ -604,7 +604,7 @@ export function IngestionView({
       <Section title="Right now">
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Tile
-            label="Worker"
+            label="Background reader"
             value={
               activeWorker?.current_document != null
                 ? "working"
@@ -623,16 +623,16 @@ export function IngestionView({
             }
             hint={currentName ?? "nothing in progress"}
           />
-          <Tile label="Waiting" value={activeWorker?.pending_count} hint="documents in the queue" />
+          <Tile label="Waiting" value={activeWorker?.pending_count} hint="documents waiting" />
           <Tile
             label="Oldest wait"
             value={formatAge((activeWorker?.oldest_pending_age_seconds ?? null))}
-            hint="how long the front of the queue has waited"
+            hint="how long the longest-waiting document has waited"
           />
           <Tile
             label="Finished"
             value={activeWorker?.documents_completed}
-            hint="since the worker started"
+            hint="since the background reader started"
           />
         </div>
       </Section>
@@ -662,7 +662,7 @@ export function IngestionView({
         <Section title="In progress">
           <EmptyState
             title="Nothing is being processed"
-            hint="Upload a document on the Documents screen and this is where you will watch it arrive — page by page, then passage by passage, with the moment it becomes searchable called out separately from the moment it finishes."
+            hint="Upload a document on the Documents screen and this is where you will watch it arrive — page by page, then part by part, with the moment it becomes searchable called out separately from the moment it finishes."
           />
         </Section>
       )}
@@ -679,7 +679,7 @@ export function IngestionView({
 
       <Section
         title="Throughput"
-        hint="Median of timed runs on this machine. A stage never timed long enough to measure reports nothing rather than zero."
+        hint="Median of timed runs on this machine. A step never timed long enough to measure reports nothing rather than zero."
       >
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           {Object.entries(metrics.throughput).map(([stage, t]) => (
@@ -709,7 +709,7 @@ export function IngestionView({
                 <span className="font-mono text-xs text-slateish-400">
                   {d.page_count != null ? `${nf.format(d.page_count)} pages` : ""}
                   {" · "}
-                  {nf.format(d.chunk_count)} searchable passages
+                  {nf.format(d.chunk_count)} searchable parts of pages
                 </span>
               </li>
             ))}

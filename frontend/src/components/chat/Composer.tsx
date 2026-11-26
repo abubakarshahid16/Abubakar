@@ -254,9 +254,9 @@ export function Composer({
           ))}
           {models && model && (
             <label className="flex items-center gap-1 rounded-[var(--radius-full)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300">
-              <span>Model:</span>
+              <span>Answered by:</span>
               <select
-                aria-label="Model"
+                aria-label="Who answers"
                 value={model}
                 onChange={(e) => onModelChange(e.target.value as ModelChoice)}
                 className="bg-transparent text-slateish-200 outline-none"

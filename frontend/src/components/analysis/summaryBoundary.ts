@@ -25,5 +25,5 @@ export function summaryBoundary(result: AnalysisResult): string | null {
   }
   const total = inScope as number;
   if (cited.size > total) return null;
-  return `Passages from ${cited.size} of the ${total} document${total === 1 ? "" : "s"} this search could reach (the ones you can read)`;
+  return `Parts of pages from ${cited.size} of the ${total} document${total === 1 ? "" : "s"} this search could reach (the ones you can read)`;
 }

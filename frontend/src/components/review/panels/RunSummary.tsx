@@ -29,7 +29,7 @@ export function RunSummary({ findings }: { findings: ReviewFinding[] }) {
         {" "}AI engineering check items are drafts and are not counted here.
       </p>
       <p className="text-xs text-slateish-300" data-testid="kind-counts">
-        By kind: A - checked against a standard {kinds.a} · B - datasheet check {kinds.b} ·
+        By type: A - checked against a standard {kinds.a} · B - datasheet check {kinds.b} ·
         {" "}C - AI engineering check {kinds.cConfirmed} confirmed, {kinds.cUnconfirmed} to confirm
         {(kinds.dConfirmed + kinds.dUnconfirmed) > 0 && (
           <> · D - public web check {kinds.dConfirmed} confirmed, {kinds.dUnconfirmed} to confirm</>

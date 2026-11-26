@@ -237,7 +237,7 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     localStorage.setItem(VIEW_MODE_KEY, "simple");
     renderLanding();
     const chip = await waitFor(() => within(rowOf("Pump")).getByTestId("row-general-chip"));
-    expect(chip).toHaveTextContent("General review: 73 comments");
+    expect(chip).toHaveTextContent("Review: 73 comments");
     expect(within(rowOf("Pump")).queryByTestId("row-counts")).toBeNull(); // the long line stays folded away in Simple
   });
 
@@ -245,7 +245,7 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     loadCounts.mockResolvedValue({ "run-1": { findings: null, needs_you: null, general: { points: 129, comments: 66, confirmations: 20 } } });
     renderLanding();
     await waitFor(() => expect(within(rowOf("Pump")).getByTestId("row-counts"))
-      .toHaveTextContent("General review: 129 points reviewed, 66 comments sent (20 confirmations not sent)"));
+      .toHaveTextContent("Review: 129 points reviewed, 66 comments sent (20 confirmations not sent)"));
     expect(within(rowOf("Pump")).getByTestId("row-counts")).not.toHaveTextContent(/0 findings|needing your judgement/);
     expect(within(rowOf("Pump")).getByTestId("status-chip")).toHaveTextContent(/^Review ready$/); // no tiers: nothing "waiting for you"
   });
@@ -286,7 +286,7 @@ describe("WorkspaceLanding: All reviews and Review all (L5, L7)", () => {
     expect(screen.getByTestId("review-all-question")).toHaveTextContent("Start 2 reviews? They run one after another, on this computer only: nothing is sent to Claude.");
     expect(startReviewRun).not.toHaveBeenCalled();
     await userEvent.click(within(screen.getByRole("group", { name: "Start all the reviews?" })).getByRole("button", { name: "Yes" }));
-    expect(await screen.findByText("Queued 1 of 2 reviews asked for.")).toBeInTheDocument();
+    expect(await screen.findByText("Waiting to start: 1 of 2 reviews asked for.")).toBeInTheDocument();
     expect(screen.getByText(/Compressor sheet.pdf: A review of this document is already running./)).toBeInTheDocument();
     expect(watchRun).toHaveBeenCalledTimes(1);
     expect(watchRun).toHaveBeenCalledWith("run-doc-4", "Heat exchanger sheet.pdf");

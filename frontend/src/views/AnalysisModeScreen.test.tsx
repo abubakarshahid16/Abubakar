@@ -199,7 +199,7 @@ describe("AnalysisModeScreen: four states, four renderings", () => {
     });
     render(<AnalysisModeScreen />);
     await ask(user);
-    expect(await screen.findByText("The local answer model is not running")).toBeInTheDocument();
+    expect(await screen.findByText("The AI on this computer is not running")).toBeInTheDocument();
     expect(screen.getByText(/the local answer model could not be reached/)).toBeInTheDocument();
     // The other half of the same distinction.
     expect(screen.queryByText("The backend is not running")).toBeNull();

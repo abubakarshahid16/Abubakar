@@ -274,7 +274,7 @@ export function WorkspaceLanding({
       )}
       {batch && (
         <div role="status" className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-200">
-          <p>Queued {batch.queued} of {batch.asked} reviews asked for.</p>
+          <p>Waiting to start: {batch.queued} of {batch.asked} reviews asked for.</p>
           {batch.refused.length > 0 && (
             <ul className="mt-1 list-disc pl-5 text-danger-500">
               {batch.refused.map((r) => <li key={r.filename}>{r.filename}: {r.message}</li>)}

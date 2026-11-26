@@ -66,7 +66,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   // The Simple view folds the long counts line away; a general review still says what it found, as a chip (like the AI review's), so a
   // reader of the default view can tell the new method's reviews from the earlier ones.
   const generalChip = simple && row.state.kind === "ready" && counts?.general
-    ? `General review: ${counts.general.comments.toLocaleString("en-US")} comment${counts.general.comments === 1 ? "" : "s"}${counts.general.stopped ? " (stopped early)" : ""}`
+    ? `Review: ${counts.general.comments.toLocaleString("en-US")} comment${counts.general.comments === 1 ? "" : "s"}${counts.general.stopped ? " (stopped early)" : ""}`
     : "";
   const moving = row.state.kind === "queued" || row.state.kind === "running";
 

@@ -83,7 +83,7 @@ describe("AgentSummary: mode and project papers", () => {
   });
   it("a general review says so in plain words and names the project papers, or says none was given", () => {
     const { rerender } = render(<AgentSummary summary={summary({ mode: "general review", project_papers_used: [{ document_id: "d1", name: "Paper A" }, { document_id: "d2", name: "Paper B" }] })} />);
-    expect(screen.getByTestId("agent-mode")).toHaveTextContent("General review: no rule book held; AI notes and queries only, internal");
+    expect(screen.getByTestId("agent-mode")).toHaveTextContent("No rule book held: AI notes and questions only, internal");
     expect(screen.getByTestId("agent-project-papers")).toHaveTextContent("Project papers used: Paper A, Paper B");
     rerender(<AgentSummary summary={summary({ mode: "general review" })} />);
     expect(screen.getByTestId("agent-project-papers")).toHaveTextContent("No project paper was given to check against");

@@ -35,7 +35,7 @@ function wordingFor(failure: DownloadFailure): { title: string; detail: string }
         detail:
           "The download was refused because this browser has no valid session — " +
           "signing in again is enough, and a page reload always ends a session " +
-          "because the token is never stored. Nothing has been saved.",
+          "because the sign-in is never stored. Nothing has been saved.",
       };
     case "forbidden":
       return {
@@ -49,8 +49,8 @@ function wordingFor(failure: DownloadFailure): { title: string; detail: string }
         title: "No file came back for this report",
         detail:
           "The backend returned no PDF. That is the same answer it gives for a " +
-          "report that has been removed and for one that is no longer in your " +
-          "scope, so this screen cannot tell you which applies. Nothing has been saved.",
+          "report that has been removed and for one that is no longer open to " +
+          "you, so this screen cannot tell you which applies. Nothing has been saved.",
       };
     case "server":
       return { title: "The download failed", detail: `${failure.message} Nothing has been saved.` };

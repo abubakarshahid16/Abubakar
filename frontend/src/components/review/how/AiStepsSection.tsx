@@ -11,7 +11,7 @@ import { HowSection, type HowSectionMeta } from "./HowPrimitives";
 
 export const AI_META: HowSectionMeta = {
   id: "ai-steps", number: 4, title: "AI steps",
-  explains: "Which AI steps ran on this review, on which model, and how often each one was asked, answered, was confirmed by code or was refused. Code verifies every AI answer; the AI never decides a verdict.",
+  explains: "Which AI steps ran on this review, on which AI, and how often each one was asked, answered, was confirmed by code or was refused. Code verifies every AI answer; the AI never decides a verdict.",
 };
 
 /** Which stored count stands for each column, per step. A step with no key
@@ -108,7 +108,7 @@ function StepRow({ step }: { step: StepView }) {
         <span className="font-medium text-slateish-100">{meta?.label ?? step.key}</span>
         <span className="ml-2 text-xs text-slateish-400">
           {step.state ? `${step.state}${step.where ? `, ${step.where}` : ""}` : NOT_RECORDED}
-          {" · model: "}{step.model ?? NOT_RECORDED}
+          {" · which AI: "}{step.model ?? NOT_RECORDED}
         </span>
       </p>
       <div className="overflow-x-auto">

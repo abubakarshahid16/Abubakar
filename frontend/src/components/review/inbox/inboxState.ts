@@ -33,7 +33,7 @@ export type InboxFilter = "needs_me" | "in_progress" | "signed" | "not_reviewed"
 /** The chips, in order; "Needs me" is the default (order 95). */
 export const FILTERS: readonly { id: InboxFilter; label: string }[] = [
   { id: "needs_me", label: "Needs me" },
-  { id: "in_progress", label: "Queued or running" },
+  { id: "in_progress", label: "Waiting or running" },
   { id: "signed", label: "Signed" },
   { id: "not_reviewed", label: "Not reviewed" },
   { id: "all", label: "All" },
@@ -103,7 +103,7 @@ export function generalLine(g: GeneralRunCounts): string {
   const plural = (x: number, word: string) => `${n(x)} ${word}${x === 1 ? "" : "s"}`;
   const held = typeof g.confirmations === "number" ? ` (${plural(g.confirmations, "confirmation")} not sent)` : "";
   const early = g.stopped ? "; stopped early" : "";
-  return `General review: ${plural(g.points, "point")} reviewed, ${plural(g.comments, "comment")} sent${held}${early}`;
+  return `Review: ${plural(g.points, "point")} reviewed, ${plural(g.comments, "comment")} sent${held}${early}`;
 }
 
 /** "Found by the review: 12 findings, 3 needing your judgement": the
@@ -132,7 +132,7 @@ export function stateLabel(state: InboxState, counts: ReadyCounts | null = null)
     case "not_reviewed":
       return "Not reviewed";
     case "queued":
-      return "Queued";
+      return "Waiting";
     case "running":
       return state.words ? `Running: ${state.words}` : "Running";
     case "ready":

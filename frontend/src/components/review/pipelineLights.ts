@@ -79,7 +79,7 @@ function standardsStep(trace: ReviewTrace | null): PipelineStep {
   const missing = num(step.counts.cited_not_held);
   if (chosen === 0) return { ...base, light: "red", reason: "no standard was chosen" };
   if (missing) return { ...base, light: "amber", reason: `${missing} cited standard(s) not in the library` };
-  return { ...base, light: "green", reason: `${chosen} standard(s) in scope` };
+  return { ...base, light: "green", reason: `${chosen} standard(s) apply` };
 }
 
 function matchStep(run: ReviewRunSummary, trace: ReviewTrace | null): PipelineStep {

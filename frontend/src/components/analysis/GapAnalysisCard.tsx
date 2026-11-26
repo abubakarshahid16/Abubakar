@@ -203,8 +203,8 @@ function hasRenderableBody(item: GapItem): boolean {
  *  the wording already used for the summary's dropped sentences. */
 function withheldLine(n: number): string {
   return n === 1
-    ? "One of them was reported with no facet, no passage, no evidence and no note, so it is not shown here."
-    : `${n} of them were reported with no facet, no passage, no evidence and no note, so they are not shown here.`;
+    ? "One of them was reported with no facet, no part of a page, no evidence and no note, so it is not shown here."
+    : `${n} of them were reported with no facet, no part of a page, no evidence and no note, so they are not shown here.`;
 }
 
 /**
@@ -329,7 +329,7 @@ function BaselineHeader({
       </p>
       {filename === null && baseline.document_id !== null && (
         <p className="mt-1 text-xs text-slateish-500">
-          Shown as an identifier: this run cited no passage from that document, so its filename
+          Shown as an identifier: this run cited no part of that document, so its filename
           is not among the evidence returned.
         </p>
       )}
@@ -435,7 +435,7 @@ function ItemRow({
                 onClick={() => onCite(item.baseline_citation_id as string)}
                 className="underline decoration-ink-500 underline-offset-2 hover:decoration-slateish-300"
               >
-                Show baseline passage
+                Show the baseline part of the page
               </button>
             </div>
           )}

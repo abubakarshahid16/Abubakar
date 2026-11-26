@@ -19,7 +19,7 @@ const STAGE_LABELS: Record<string, string> = {
   extract: "Extraction",
   chunk: "Chunking",
   keyword_index: "Keyword index",
-  embed: "Embedding",
+  embed: "Making searchable",
 };
 
 /** Update 12: the technical-query attachments nobody filed into the library are counted APART, never inside the library's numbers. */
@@ -196,7 +196,7 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
       label: "Your documents",
       ok: documentsReady,
       detail: documentsReady
-        ? `${nf.format(metrics.corpus.documents)} document${metrics.corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(metrics.corpus.chunks_retrievable)} passages a question can reach`
+        ? `${nf.format(metrics.corpus.documents)} document${metrics.corpus.documents === 1 ? "" : "s"} loaded, ${nf.format(metrics.corpus.chunks_retrievable)} parts of pages a question can reach`
           + attachmentsApart(metrics.corpus.technical_query_attachments, nf)
         : "upload at least one PDF with readable text",
     },
@@ -204,8 +204,8 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
       label: "Answering",
       ok: localModelsReady,
       detail: localModelsReady
-        ? "search and the answer model are running on this computer"
-        : "a model is missing or not running - answers will be limited",
+        ? "search and the AI are running on this computer"
+        : "the AI on this computer is missing or not running - answers will be limited",
     },
     {
       label: "Uploads",

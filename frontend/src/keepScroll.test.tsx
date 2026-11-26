@@ -60,13 +60,13 @@ describe("Choose kind on a long list", () => {
     const page = document.scrollingElement as HTMLElement;
     page.scrollTop = 1200;
     render(<DocumentKindChip classification={CLS} kinds={KINDS} isAdmin onConfirm={() => null} />);
-    const button = screen.getByText("Choose kind");
+    const button = screen.getByText("Choose type");
     page.scrollTop = 1200;
     // the browser's jump happens as the button disappears
     button.addEventListener("click", () => { queueMicrotask(() => { page.scrollTop = 0; }); });
     await userEvent.click(button);
     run();
     expect(page.scrollTop).toBe(1200);
-    expect(screen.getByLabelText("Document kind")).toHaveFocus();
+    expect(screen.getByLabelText("Document type")).toHaveFocus();
   });
 });

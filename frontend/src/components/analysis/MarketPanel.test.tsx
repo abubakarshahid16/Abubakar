@@ -381,7 +381,7 @@ describe("MarketPanel: the exact payload is shown before anything is sent", () =
     mount();
     const dialog = await openPreview(user);
     await within(dialog).findByText(
-      "The backend could not be reached, so the exact outbound payload cannot be shown here.",
+      "The backend could not be reached, so exactly what would be sent cannot be shown here.",
     );
 
     await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
@@ -390,7 +390,7 @@ describe("MarketPanel: the exact payload is shown before anything is sent", () =
     expect(searchMock).not.toHaveBeenCalled();
     expect(
       within(panel()).getByText(
-        "Nothing was sent. The exact outbound payload was never shown, and this panel does not send what it cannot show.",
+        "Nothing was sent. What would be sent was never shown, and this panel does not send what it cannot show.",
       ),
     ).toBeInTheDocument();
   });
@@ -711,7 +711,7 @@ describe("MarketPanel: the offline sample presentation", () => {
 
     render(<MarketPanel findings={FINDINGS} egress={EGRESS_OFF} />);
     expect(within(panel()).getByRole("note")).toHaveTextContent(
-      "Public egress is blocked in this build.",
+      "Sending outside this computer is blocked here.",
     );
   });
 
@@ -771,7 +771,7 @@ describe("MarketPanel: the offline sample presentation", () => {
     expect(within(dialog).getByRole("button", { name: "Confirm and send" })).toBeDisabled();
     expect(
       within(dialog).getByText(
-        "Web search and public egress are both off in this build. Nothing can be sent until it is on.",
+        "Web search and sending outside this computer are both off here. Nothing can be sent until it is on.",
       ),
     ).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
@@ -789,7 +789,7 @@ describe("MarketPanel: the offline sample presentation", () => {
     render(<MarketPanel findings={[]} egress={OFFLINE} />);
     const p = panel();
     expect(within(p).getByText(/web search off/i)).toBeInTheDocument();
-    expect(within(p).getByText(/public egress blocked/i)).toBeInTheDocument();
+    expect(within(p).getByText(/sending outside blocked/i)).toBeInTheDocument();
   });
 
   it("renders no dialog until the preview is opened", () => {

@@ -276,7 +276,7 @@ describe("chat navigation", () => {
       },
     });
     await openChat();
-    await screen.findByRole("combobox", { name: "Model" });
+    await screen.findByRole("combobox", { name: "Who answers" });
     await userEvent.type(screen.getByLabelText("Your question"), "Explain the coating requirement");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
@@ -295,7 +295,7 @@ describe("chat navigation", () => {
       },
     });
     await openChat();
-    await screen.findByRole("combobox", { name: "Model" });
+    await screen.findByRole("combobox", { name: "Who answers" });
     // Claude is listed, but cannot be chosen, and says why not
     const option = screen.getByRole("option", { name: /Claude/ }) as HTMLOptionElement;
     expect(option.disabled).toBe(true);
@@ -309,7 +309,7 @@ describe("chat navigation", () => {
     }));
     // and the footer says honestly where the question goes - and makes no
     // machine-wide promise: other lanes (market, email) may be on (#482)
-    expect(screen.getByText(/local model writes these answers on this machine; your question is not sent to Claude/i)).toBeInTheDocument();
+    expect(screen.getByText(/AI on this computer writes these answers; your question is not sent to Claude/i)).toBeInTheDocument();
     expect(screen.queryByText(/nothing you type leaves this machine/i)).toBeNull();
   });
 
@@ -897,7 +897,7 @@ describe("insufficient evidence", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
 
     expect(await screen.findByText(/Entropy measures disorder/)).toBeInTheDocument();
-    const note = screen.queryByRole("note", { name: /which model answered/i });
+    const note = screen.queryByRole("note", { name: /which AI answered/i });
     if (shown) expect(note).toHaveTextContent(/written by the local model/);
     else expect(note).toBeNull();
   });

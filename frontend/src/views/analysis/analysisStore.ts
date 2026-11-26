@@ -482,7 +482,7 @@ export function nominateBaseline(b: BaselineSelection) {
     // says it cannot take it.
     patch({
       baselineRefusal:
-        "This build's gap route takes a baseline DOCUMENT only. A stated requirement " +
+        "The gap check takes a baseline DOCUMENT only. A stated requirement " +
         "cannot be sent, so nothing was run - the requirement you typed has not been used.",
     });
     return;

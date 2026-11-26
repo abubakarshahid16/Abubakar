@@ -83,7 +83,7 @@ describe("ReportsView: attribution and suppression", () => {
     renderView([makeReport()], { suppressedCount: 2 });
     const line = screen.getByRole("status");
     expect(line).toHaveTextContent(/2 reports are not shown/);
-    expect(line).toHaveTextContent(/no longer in your scope/);
+    expect(line).toHaveTextContent(/no longer open to you/);
   });
 
   it("suppressedCount: 0 renders no suppression line", () => {
@@ -157,13 +157,13 @@ describe("V1: one date format and a plain word for a document with no passage", 
   it("does not print '0 passages' for a cited document; it says no passage is quoted", () => {
     const doc = makeReport().documents[0];
     renderView([makeReport({ documents: [{ ...doc, passages_cited: 0 }] })]);
-    expect(screen.queryByText(/\b0 passages?\b/)).toBeNull();
-    expect(screen.getByText(/no passage of it is quoted in this report/)).toBeInTheDocument();
+    expect(screen.queryByText(/\b0 quoted parts?\b/)).toBeNull();
+    expect(screen.getByText(/no part of it is quoted in this report/)).toBeInTheDocument();
   });
 
   it("still counts passages when there are some", () => {
     renderView([makeReport()]);
-    expect(screen.getByText(/· 2 passages/)).toBeInTheDocument();
+    expect(screen.getByText(/· 2 quoted parts/)).toBeInTheDocument();
   });
 });
 

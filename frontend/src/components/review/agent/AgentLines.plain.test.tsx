@@ -34,7 +34,7 @@ describe("the AI review tab, rendered", () => {
     api.lines.mockResolvedValue({ ok: true, data: { lines: LINES, next: null } });
     const { container } = render(<AgentReviewPanel runId="r1" />);
     await waitFor(() => expect(screen.getByTestId("agent-lines-boundary")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /Checklist point 4 \(Book A 4\.2\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Check 4 \(Book A 4\.2\)/ })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Rule: Book A 4\.2/ })).toHaveLength(2);
     // the id is still there for engineers: tooltip and grey column
     expect(screen.getByTestId("id-S-EQ-04")).toHaveTextContent("S-EQ-04");
@@ -47,7 +47,7 @@ describe("the AI review tab, rendered", () => {
     expect(text).not.toMatch(/R-614e60d6/);
     expect(hasBannedWord(text.replace(/AI thinks: not met/g, ""))).toBe(false);
     expect(text).toContain("pressure relief");
-    expect(text).toContain("The second check could not be shown to come from a different model, so this stays an opinion.");
+    expect(text).toContain("The second check could not be shown to come from a different AI, so this stays an opinion.");
     expect(text).toContain("The value and its unit were not found together in the quoted text.");
   });
 });

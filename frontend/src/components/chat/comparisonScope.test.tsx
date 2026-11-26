@@ -222,7 +222,7 @@ describe("the notice on the card", () => {
     const n = notice();
     expect(n).not.toBeNull();
     expect(n!.textContent).toMatch(/answered from 1 document\b/i);
-    expect(n!.textContent).toMatch(/not performed in Chat/i);
+    expect(n!.textContent).toMatch(/not done in Chat/i);
   });
 
   it("states the count, not a bare word", () => {

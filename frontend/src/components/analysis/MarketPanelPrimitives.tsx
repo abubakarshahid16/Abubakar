@@ -112,9 +112,9 @@ export const NO_SEARCH_YET = "No search has been run yet.";
 export function sampleReason(egress: EgressState): string {
   const webOff = egress.web_search_enabled === false;
   const egressOff = egress.allow_public_egress === false;
-  if (webOff && egressOff) return "Web search and public egress are both off in this build.";
+  if (webOff && egressOff) return "Web search and sending outside this computer are both off here.";
   if (webOff) return "Web search is off in this build.";
-  if (egressOff) return "Public egress is blocked in this build.";
+  if (egressOff) return "Sending outside this computer is blocked here.";
   return NO_SEARCH_YET;
 }
 
@@ -147,11 +147,11 @@ export const NO_SAFE_PHRASE =
 /** The preview is a read on this machine. If it cannot be read, the payload
  *  cannot be shown, and this panel does not send what it cannot show. */
 export const PREVIEW_UNREACHABLE =
-  "The backend could not be reached, so the exact outbound payload cannot be shown here.";
+  "The backend could not be reached, so exactly what would be sent cannot be shown here.";
 
 /** Confirm was pressed while the payload was unknown. Nothing left. */
 export const NOTHING_SENT_UNSHOWN =
-  "Nothing was sent. The exact outbound payload was never shown, and this panel does not send what it cannot show.";
+  "Nothing was sent. What would be sent was never shown, and this panel does not send what it cannot show.";
 
 /** Cancel's own promise, next to the button, so it does not have to be taken
  *  on trust. */

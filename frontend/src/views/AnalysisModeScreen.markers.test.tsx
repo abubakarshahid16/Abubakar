@@ -491,12 +491,12 @@ describe("Quote mode: the reader can tell that Quote ran and what it produced", 
     // Two separate statements, both required: the eyebrow names the mode on the
     // heading, and the note under it says what that mode actually produced.
     expect(
-      within(section).getByText("the documents' own words — no model"),
+      within(section).getByText("the documents' own words — no AI"),
     ).toBeInTheDocument();
     expect(within(section).getByText(/Quote mode shows the cited document evidence/)).toBeInTheDocument();
     // #607: the Gap analysis section is NOT part of a Quote run.
     expect(screen.queryByRole("region", { name: "Gap analysis" })).toBeNull();
-    expect(within(section).getByText(/no model wrote any of it/i)).toBeInTheDocument();
+    expect(within(section).getByText(/no AI wrote any of it/i)).toBeInTheDocument();
   });
 
   it("does NOT claim quote mode in Focused, where a model did write the summary", async () => {
@@ -531,7 +531,7 @@ describe("Quote mode: the reader can tell that Quote ran and what it produced", 
 
     const section = await gapSection();
     expect(within(section).queryByText(/quote mode/i)).toBeNull();
-    expect(within(section).queryByText(/no model wrote any of it/i)).toBeNull();
+    expect(within(section).queryByText(/no AI wrote any of it/i)).toBeNull();
     expect(within(section).getByText("baseline-controlled")).toBeInTheDocument();
   });
 });
