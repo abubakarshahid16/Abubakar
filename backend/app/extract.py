@@ -331,7 +331,7 @@ def _non_pdf_rows(path: str, doc_id: str | None = None) -> tuple[list[tuple] | N
     WORD_PAGE_MARKERS_ENABLED: one numbering wherever a Word file is read, and its
     pictures go to the local OCR engine first, so their text is on the pages below.
     """
-    if settings.word_page_markers_enabled and doc_id:
+    if (settings.word_page_markers_enabled or settings.word_pictures_local_enabled) and doc_id:
         from . import datasheet_inputs, word_pictures
 
         if datasheet_inputs.office_kind(path) == datasheet_inputs.KIND_DOCX:

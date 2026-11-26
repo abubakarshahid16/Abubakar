@@ -712,8 +712,10 @@ def read_structure(
     if toc_lines:
         furniture.append(Furniture(FURNITURE_TOC, "\n".join(toc_lines), "table of contents", 1))
     notes.extend(walk.finish(root))
-    if figures and not walk.on:
-        notes.append(f"{figures} picture(s) or drawing(s) not read")
+    # pictures without pages (`PageWalk._pictures_only`): a picture whose local reading came back is read; none read: as before
+    read = sum(1 for p in walk.pictures if (walk.readings.get(p.no) or PictureReading()).text) if walk.pictures_only else 0
+    if figures - read > 0 and not walk.on:
+        notes.append(f"{figures - read} picture(s) or drawing(s) not read")
     if text_boxes:
         notes.append(f"{text_boxes} text box(es) not read")
     if has_notes:
@@ -727,7 +729,7 @@ def read_structure(
     for f in furniture:
         f.page = dense.get(f.page, 1)
     return Structure(blocks=blocks, furniture=furniture, pages=_render_pages(blocks, len(dense), walk.real),
-                     notes=notes, pagination=walk.plan.pagination if walk.plan else None,
+                     notes=notes, pagination=walk.plan.pagination if walk.plan and not walk.pictures_only else None,
                      proof=walk.proof, pictures=walk.pictures)
 
 

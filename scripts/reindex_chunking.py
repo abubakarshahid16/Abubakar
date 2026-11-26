@@ -29,6 +29,13 @@ before it is stale.
     python scripts/reindex_chunking.py                    # report only
     python scripts/reindex_chunking.py --apply            # rebuild the stale ones
     python scripts/reindex_chunking.py --apply --doc ID   # one document
+    python scripts/reindex_chunking.py --word-pictures    # ONLY the Word files holding a picture
+
+WORD PICTURES (WORD_PICTURES_LOCAL_ENABLED, builder C, 26 Nov 2026): a Word file read before its pictures were
+read locally is not stale by its stored pages (they change only when it is re-read). `--word-pictures` takes ONLY
+the Word documents that hold an embedded picture (no other stale document is touched); `--apply` then re-extracts it (the extraction gives its pictures to
+the local OCR engine first) and re-chunks it, with the same backup and orphan guard. A file whose pictures give no
+text keeps its text exactly (`test_c_word_pictures_local.py`).
 
 REPORT (the default) reads a WAL-safe diagnostic copy of the database and
 writes nothing. It prints, per stale document, how many requirement rows a
@@ -69,15 +76,32 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "backend"))
 
 
-def _survey(conn: sqlite3.Connection, only: list[str] | None) -> list[dict]:
+def _holds_pictures(row) -> bool:
+    """A Word document whose stored file holds an embedded picture (read from the file; never fails the survey)."""
+    if not str(row["filename"] or "").lower().endswith((".docx", ".dotx")):
+        return False
+    try:
+        from app import agent_review_pages, docx_pages
+        from app.config import settings
+
+        path = agent_review_pages.pdf_path({"stored_path": row["stored_path"]}, settings.data_dir)
+        return docx_pages.picture_counts(path)[0] > 0
+    except Exception:  # noqa: BLE001 - a file that cannot be opened is not added; the plain survey still runs
+        return False
+
+
+def _survey(conn: sqlite3.Connection, only: list[str] | None, word_pictures: bool = False) -> list[dict]:
     from app import chunker
 
-    rows = conn.execute("SELECT id, filename, status FROM documents ORDER BY filename").fetchall()
+    rows = conn.execute("SELECT id, filename, status, stored_path FROM documents ORDER BY filename").fetchall()
     out = []
     for row in rows:
         if only and row["id"] not in only:
             continue
-        if not chunker.is_stale(conn, row["id"]):
+        if word_pictures:  # ONLY the Word files that hold a picture, stale or not; nothing else is touched
+            if not _holds_pictures(row):
+                continue
+        elif not chunker.is_stale(conn, row["id"]):
             continue
         try:
             reqs = conn.execute(
@@ -102,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
                     default=REPO / "backend" / "data" / "rag_intelligence.sqlite")
     ap.add_argument("--apply", action="store_true", help="rebuild (server must be stopped)")
     ap.add_argument("--doc", action="append", help="limit to this document id (repeatable)")
+    ap.add_argument("--word-pictures", action="store_true",
+                    help="only the Word documents that hold an embedded picture (read again by the local OCR)")
     ap.add_argument("--acknowledge-orphaned-findings", action="store_true",
                     help="also rebuild documents whose requirements review findings cite")
     args = ap.parse_args(argv)
@@ -116,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         copy = live_guard.diagnostic_copy(path) if live_guard.is_live_shaped(path) else path
         conn = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
-        stale = _survey(conn, args.doc)
+        stale = _survey(conn, args.doc, args.word_pictures)
         total = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         print(json.dumps({"documents": total, "stale": len(stale), "stale_documents": stale},
                          indent=1))
@@ -138,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
                        # "table pages has no column named ocr_route" - reindex_chunking
                        # must not depend on run order against other scripts or the server.
     conn = db.connect()
-    stale = _survey(conn, args.doc)
+    stale = _survey(conn, args.doc, args.word_pictures)
     done, skipped = [], []
     for doc in stale:
         doc_id = doc["document_id"]

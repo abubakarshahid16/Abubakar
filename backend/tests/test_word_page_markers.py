@@ -768,6 +768,8 @@ def test_switch_off_markers_change_nothing_and_nothing_extra_is_said(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(settings, "word_page_markers_enabled", False)
+    # both Word switches off (the way back): pictures read with the page switch off are `test_c_word_pictures_local.py`
+    monkeypatch.setattr(settings, "word_pictures_local_enabled", False)
     body = THREE_PAGES + f"<w:p>{_drawing()}</w:p>" + d.table([["a", "b"]])
     extra = {
         "word/_rels/document.xml.rels": _rels("media/a.png"),
@@ -795,6 +797,8 @@ def test_switch_off_no_home_changes_its_words_and_no_engine_is_asked(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(settings, "word_page_markers_enabled", False)
+    # both Word switches off (the way back): pictures read with the page switch off are `test_c_word_pictures_local.py`
+    monkeypatch.setattr(settings, "word_pictures_local_enabled", False)
     path = _picture_doc(tmp_path)
     doc_id = _ingest(path)
     _run_job(doc_id)

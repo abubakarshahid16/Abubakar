@@ -325,6 +325,12 @@ class SettingsExt(BaseModel):
     #: this must not go on for Word files with no markers. OFF: reading parts as before, nothing recognised,
     #: nothing stored. Env: WORD_PAGE_MARKERS_ENABLED.
     word_page_markers_enabled: bool = False
+    #: A Word file's PICTURES read without its pages (builder C, 26 Nov 2026; row 1 "every page read"): with the page switch above
+    #: off, an embedded picture still goes to the local OCR engine at upload (`word_pictures`; no Claude lane, no reader model, no
+    #: socket) and its text joins the part it sits in as "[picture N, read by OCR]"; the parts and their numbers do not change, and a
+    #: file with no picture reading reads exactly as before. THE WAY BACK: off, Word pictures are not read, as before.
+    #: Env: WORD_PICTURES_LOCAL_ENABLED.
+    word_pictures_local_enabled: bool = True
     #: #525 slice 2 (with ONE_INTAKE_ENABLED on as well): the upload accepts PNG, JPEG and TIFF images
     #: (stored as picture-only PDF pages beside the original, so OCR reads them like a scanned page) and
     #: indexes .xlsx workbooks, each sheet chunked with a sheet + cell-range citation. Local only, no

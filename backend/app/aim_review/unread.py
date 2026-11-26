@@ -179,8 +179,8 @@ def _word_unread(conn, path) -> list[dict]:
     sha = word_pictures._sha256(path)
     status = {}
     if (
-        settings.word_page_markers_enabled
-    ):  # readings reach the text only while the switch merges them at upload
+        settings.word_page_markers_enabled or settings.word_pictures_local_enabled
+    ):  # readings reach the text only while a switch merges them at upload
         try:
             status = {
                 int(r["picture_no"]): r["status"]

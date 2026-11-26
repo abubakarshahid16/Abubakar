@@ -441,6 +441,8 @@ class PageWalk:
         self.proof: ReadProof | None = None
         self.readings: dict[int, PictureReading] = {}
         self.pictures: list[Picture] = []
+        #: The page switch is off and only the pictures are walked (`_pictures_only`).
+        self.pictures_only = False
 
     @classmethod
     def open(
@@ -452,6 +454,8 @@ class PageWalk:
     ) -> PageWalk:
         walk = cls()
         if not settings.word_page_markers_enabled:
+            if settings.word_pictures_local_enabled:
+                walk._pictures_only(zf, root, path, readings)
             return walk
         if (
             readings is None
@@ -472,6 +476,29 @@ class PageWalk:
             media_files=sum(1 for n in zf.namelist() if n.startswith("word/media/")),
         )
         return walk
+
+    def _pictures_only(
+        self,
+        zf: zipfile.ZipFile,
+        root: ET.Element,
+        path: str | os.PathLike,
+        readings: dict[int, PictureReading] | None,
+    ) -> None:
+        """PICTURES WITHOUT PAGES (WORD_PICTURES_LOCAL_ENABLED, page switch off; builder C, 26 Nov 2026). The page switch also renumbers
+        every Word file by its saved page breaks, which must not happen to a file with none (settings: WORD_PAGE_MARKERS_ENABLED), so
+        the pictures are read apart from it: the walk numbers the file's pictures, and a picture with a stored local reading
+        (`word_pictures`, the app's own OCR) adds its text as a "[picture N, read by OCR]" block on the part it sits in. The parts,
+        their numbers, the pagination and the read proof stay exactly as with the switch off (`on` and `real` stay False), so a file
+        with no stored reading reads byte for byte as before."""
+        if readings is None:
+            from . import word_pictures
+
+            readings = word_pictures.stored_readings(path)
+        body = root.find(_W + "body")
+        self.plan = word_pages_plan(body if body is not None else root, _saved_page_count(zf))
+        self.rels = _rels(zf)
+        self.readings = readings
+        self.pictures_only = True
 
     def start(self, node: ET.Element, page: int) -> int:
         return self.plan.starts[id(node)] if self.real else page

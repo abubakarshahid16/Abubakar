@@ -232,7 +232,7 @@ def read_document(path: str | os.PathLike) -> dict:
     """Give this Word file's unread pictures to the local engine and store the
     answers. Counts only come back. Does nothing when the switch is off. Never
     fails the document: a picture not read is said, and reading carries on."""
-    if not settings.word_page_markers_enabled:
+    if not (settings.word_page_markers_enabled or settings.word_pictures_local_enabled):
         return {"asked": 0}
     try:
         return _read_pictures(path)
