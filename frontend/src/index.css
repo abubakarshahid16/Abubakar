@@ -481,7 +481,9 @@ table {
   background: radial-gradient(circle at 15% 0%, rgba(79, 201, 181, 0.05), transparent 45%),
     radial-gradient(circle at 100% 100%, rgba(109, 177, 232, 0.05), transparent 45%);
 }
-.aurora-field > :not(.aurora-a):not(.aurora-b) {
+/* :not(.fixed): a drawer or dialog placed directly in the field is a FIXED overlay; this rule (0,3,0) beat Tailwind's `fixed` (0,1,0) and
+   made it relative, so /documents/<id> opened its preview at the very bottom of a 21,000px page (H's audit, 27 Nov 2026) */
+.aurora-field > :not(.aurora-a):not(.aurora-b):not(.fixed) {
   position: relative;
   z-index: 1;
 }

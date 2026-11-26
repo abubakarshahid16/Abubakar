@@ -151,10 +151,11 @@ function ReportRow({
             </p>
           )}
 
-          <p className="mt-1 font-mono text-xs text-slateish-400">
+          {/* when, how long, how big: no sign-in name or address on a card (H's audit, 27 Nov 2026: the signed-in person's email showed on
+              every report), and plain type, not mono */}
+          <p className="mt-1 text-xs text-slateish-400">
             {formatWhen(report.created_at)} · {nf.format(report.page_count)} page
-            {report.page_count === 1 ? "" : "s"} · {formatBytes(report.size_bytes)} ·{" "}
-            {report.owner_username ?? "authentication disabled — no user recorded"}
+            {report.page_count === 1 ? "" : "s"} · {formatBytes(report.size_bytes)}
           </p>
 
           {NEW_LOOK ? (
