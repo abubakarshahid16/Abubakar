@@ -468,6 +468,8 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
     )
     if gap and gap not in found_marks:
         found_marks.append(gap)
+    if evidence_outdated(item):  # an older search found these sources: said, and "Find the sources again" is offered
+        found_marks.append(OUTDATED_MARK)
     return {
         "question": question,
         "question_source": source,
@@ -479,7 +481,11 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         if has_evidence
         else "none",
         "evidence_fresh": bool(question)
-        and (item.get("evidence_question") or "") == question,
+        and (item.get("evidence_question") or "") == question
+        and not evidence_outdated(
+            item
+        ),  # found by an older search: not fresh, so the page offers "Find the sources again"
+        "evidence_outdated": evidence_outdated(item),
         "draft": "refreshing"
         if busy
         else "ready"
@@ -582,20 +588,54 @@ def backlog(conn) -> list[str]:
     return ids
 
 
+OUTDATED_MARK = "These sources were found by an older search: press Find the sources again (under Redo), or they are found again at the next start."
+
+
+def _search_version(row) -> int:
+    try:
+        return int(row["evidence_search_version"] or 1)
+    except (TypeError, ValueError, KeyError, IndexError):
+        return 1
+
+
+def evidence_outdated(item: dict[str, Any]) -> bool:
+    """The query's evidence was found by an older SEARCH than today's (technical_query_items.SEARCH_VERSION): one prepared at all
+    (evidence_question set) and stamped with an older version, or never stamped (the search before stamps: version 1)."""
+    from .technical_query_items import SEARCH_VERSION
+
+    return (
+        bool(item.get("evidence_question")) and _search_version(item) < SEARCH_VERSION
+    )
+
+
 def stale_system_drafts(conn) -> list[str]:
-    """The queries awaiting review whose latest draft is a SYSTEM draft of an older version (no engineer typed it, no decision names it):
-    they are drafted again with the current prompt and floor. Oldest first."""
+    """The queries to prepare and draft again with today's search and prompt, nothing an engineer did being undone. Oldest first:
+    - awaiting review on a SYSTEM draft (a model wrote it, no decision names it) whose draft version or evidence SEARCH is older;
+    - not yet drafted or still drafting (no decision, no engineer-typed draft) whose evidence an older search found."""
+    from .technical_query_items import SEARCH_VERSION
+
     out = []
     for row in conn.execute(
-        "SELECT q.id, (SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
-        "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model FROM technical_queries q "
-        "WHERE q.status='awaiting_review' AND NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
+        "SELECT q.id, q.status, q.evidence_question, q.evidence_search_version, "
+        "(SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
+        "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model, "
+        "(SELECT COUNT(*) FROM query_drafts d WHERE d.query_id=q.id) AS drafts FROM technical_queries q "
+        "WHERE NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
         "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at"
     ):
-        if (
-            row["model"]
-            and (row["pv"] or "").startswith("system-draft-")
-            and row["pv"] != SYSTEM_DRAFT
+        older_search = (
+            bool(row["evidence_question"]) and _search_version(row) < SEARCH_VERSION
+        )
+        system_draft = bool(row["model"]) and (row["pv"] or "").startswith(
+            "system-draft-"
+        )
+        if row["status"] == "awaiting_review":
+            if system_draft and (row["pv"] != SYSTEM_DRAFT or older_search):
+                out.append(row["id"])
+        elif (
+            row["status"] in PREPARABLE
+            and older_search
+            and (not row["drafts"] or system_draft)
         ):
             out.append(row["id"])
     return out

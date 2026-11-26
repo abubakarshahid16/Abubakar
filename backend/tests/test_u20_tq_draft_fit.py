@@ -29,7 +29,9 @@ def test_chat_keeps_its_prompt_byte_for_byte_and_a_query_reply_never_leads_with_
         for system in (A._fit(A.SYSTEM_PROMPT), A._fit(A.SYSTEM_PROMPT_VERIFIED)):
             assert (
                 '"Yes.", "No.", "Partly."' not in system
-                and 'never with a bare "Yes." or "No."' in system and "Write as COMPANY" in system and 'then "What I\'d do:"' not in system
+                and 'never with a bare "Yes." or "No."' in system
+                and "Write as COMPANY" in system
+                and 'then "What I\'d do:"' not in system
             )
             assert (
                 '"Not found in the documents searched."' in system
@@ -194,3 +196,25 @@ def test_keeping_one_source_never_narrows_the_draft_to_it_alone(query):
     assert [
         e["id"] for e in auto.draft_passages(got, frozenset({"d1"}), attachments)
     ] == ["kept"]
+
+
+def test_a_query_whose_evidence_an_older_search_found_joins_the_backlog_unless_an_engineer_acted(
+    query,
+):
+    item, scope, _asked = query
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    with db.connect() as conn:
+        assert (
+            auto.stale_system_drafts(conn) == []
+        )  # today's search, today's draft: nothing to redo
+        conn.execute(
+            "UPDATE technical_queries SET evidence_search_version='2' WHERE id=?",
+            (item["id"],),
+        )
+        assert auto.stale_system_drafts(conn) == [
+            item["id"]
+        ]  # an older search: searched and drafted again at the next start
+        conn.execute("INSERT INTO query_decisions(id,query_id,draft_id,actor_user_id,decision,comment,created_at) "
+                     "VALUES ('d',?,NULL,'u1','request_changes',NULL,'x')", (item["id"],))  # fmt: skip
+        assert auto.stale_system_drafts(conn) == []  # never one an engineer decided on
