@@ -37,7 +37,11 @@ def _args(module, tmp_path, **over):
 def lane(monkeypatch, tmp_path):
     for name in ("REASONING_PROVIDER", "CHAT_MODEL_ENGINE", "STANDARDS_READER_ENABLED",
                  "STANDARDS_READER_ALLOW_PUBLIC_EGRESS", "STANDARDS_READER_MODEL"):
-        monkeypatch.delenv(name, raising=False)
+        # setenv first, so monkeypatch records the variable and its teardown removes whatever the script under test writes into
+        # os.environ (a bare delenv of an unset variable records nothing: the script's values leaked into every later test and
+        # failed test_env_isolation when it ran after this file, 26 Nov 2026)
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-invented-not-real")
     for name in ("reasoning_provider", "chat_model_engine", "standards_reader_enabled",
                  "standards_reader_allow_public_egress", "claude_reasoning_model", "claude_budget_usd_per_step",
