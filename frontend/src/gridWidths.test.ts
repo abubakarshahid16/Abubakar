@@ -44,7 +44,7 @@ describe("grid widths", () => {
 
   it("the check reads the Deliverables grids it was written for", () => {
     const found = grids(readFileSync(join(SRC, "views", "DeliverablesView.tsx"), "utf8"));
-    expect(found.map((g) => g.px).sort((a, b) => a - b)).toEqual([380, 460, 530]);
+    expect(found.map((g) => g.px).sort((a, b) => a - b)).toEqual([380, 420, 460, 530]); // 420: the new look's register row (one status)
     expect(grids("md:grid-cols-[130px_1fr_180px_150px_auto]")[0]).toMatchObject({ at: "md", px: 460 }); // the old form grid: too wide at md
   });
 });
