@@ -197,3 +197,18 @@ def test_a_short_quote_without_the_matched_words_is_located_by_the_whole_passage
             conn, passage, quote, key_terms("Which grout curing record is due?")
         )
     assert got == "Item 23 (refers to 2.8.4)"
+
+
+def test_a_numbered_table_passage_is_located_at_the_row_holding_the_matched_words():
+    from app.technical_query_match import key_terms, table_item
+
+    passage = (
+        "| Item | Invented record | Days |\n| 19. | Invented grout curing record (Ref. Invented, Sub-Clause 2.8.4) | 60 |\n"
+        "| 20. | Invented painting record (Ref. Invented, Sub-Clause 7.5.4) | 90 |\n| 21. | Invented spare parts list | 180 |"
+    )
+    terms = key_terms("Which grout curing record is due?")
+    assert table_item(terms, passage) == "Item 19 (refers to 2.8.4)"
+    assert (
+        table_item(terms, "| 19. | Invented grout curing record |") is None
+    )  # one row is not a list
+    assert table_item(key_terms("What colour is the roof?"), passage) is None

@@ -267,3 +267,23 @@ def whole_sentences(on: str, run: str, reach: int = 600) -> str | None:
     start = ends[-1] if ends else (0 if at <= reach else at)
     after = _SENTENCE_END.search(on, at + len(run) - 1, at + len(run) + reach)
     return on[start : after.end() if after else at + len(run)].strip()
+
+
+#: A numbered row of a table as stored with the passage: "| 19. | the item's text (Ref. ..., 2.8.3) | ... |".
+_TABLE_ROW = re.compile(r"^\s*\|\s*(?P<num>\d+)\.?\s*\|(?P<rest>.*)$")
+
+
+def table_item(terms: list[str], passage_text: str) -> str | None:
+    """For a passage that is a numbered table (two or more numbered rows), the row holding the most of the question's key terms (the first
+    of equals) as "Item N", with the clause its text refers to beside it; None otherwise (lead-4's score of run 9: Q7, a schedule's list
+    stored as table rows, located at another item than the one holding the matched words)."""
+    rows = [
+        m for line in (passage_text or "").splitlines() if (m := _TABLE_ROW.match(line))
+    ]
+    if len(rows) < 2:
+        return None
+    best = max(rows, key=lambda m: score(terms, m.group("rest"))["count"])
+    if not score(terms, best.group("rest"))["count"]:
+        return None
+    ref = CLAUSE_NUMBER.search(best.group("rest"))
+    return f"Item {best.group('num')}" + (f" (refers to {ref.group(1)})" if ref else "")

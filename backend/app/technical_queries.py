@@ -1230,7 +1230,9 @@ def _matched_clause(conn, passage: dict, quote: str, terms: list[str]) -> str | 
         return None
     end = max(start, passage.get("page_end") or start)
     on = "\n".join(_page_text(r) for r in _source_pages(conn, document_id, start, end))
-    # the whole passage first (a short quote may hold none of the matched words: run 9, Q7), then the quote
+    if item := technical_query_match.table_item(terms or [], passage.get("text") or ""):
+        return item  # a numbered table: the row holding the matched words (run 9, Q7)
+    # the whole passage first (a short quote may hold none of the matched words), then the quote
     for text in (passage.get("text") or "", quote):
         best = technical_query_match.best_sentence(terms or [], text)
         if best and not _squash(text).startswith(_squash(best)):
