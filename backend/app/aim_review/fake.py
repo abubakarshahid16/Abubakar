@@ -182,7 +182,7 @@ class FakeModel:
             return {"items": items}
         if (fixed := _fixed_answer(step, prompt)) is not None:
             return fixed
-        if step == "aim_judge":
+        if step in ("aim_judge", "aim_checklist_missed"):
             ids = re.findall(r'"id": "([CG]\d+)"', prompt)
             n, txt = pages[0]
             q = (_long_lines(txt) or [txt.strip()[:40]])[0][:50]

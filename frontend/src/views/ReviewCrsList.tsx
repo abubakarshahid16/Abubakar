@@ -7,11 +7,12 @@
  * same call the Review runs screen uses - one export, two places to start it.
  */
 import { formatWhen } from "../format/when";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { reviews as reviewsApi } from "../api/client";
 import { oldCrsDownloadOffered } from "../api/reviewPoints";
 import type { ReviewRunSummary } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 /** Runs fetched per page (#1131). */
 export const RUNS_PAGE = 50;
@@ -87,9 +88,15 @@ export function ReviewCrsList() {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  // the new look (owner, E3/E4): the sheets this page is named after are shown on arrival, one click less; classic: on request
+  useEffect(() => {
+    if (NEW_LOOK) void show();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
+  }, []);
+
   return (
-    <section aria-label="Review CRSs" className="space-y-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
-      <h2 className="text-sm font-semibold text-slateish-100">Comment Resolution Sheets (review runs)</h2>
+    <section aria-label="Review CRSs" className={NEW_LOOK ? "space-y-2 rounded-[var(--radius-md)] bg-ink-800 p-5 shadow-[var(--shadow-resting)]" : "space-y-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3"}>
+      <h2 className="text-sm font-semibold text-slateish-100">{NEW_LOOK ? "Comment resolution sheets of your reviews" : "Comment Resolution Sheets (review runs)"}</h2>
       {off && <p data-testid="crs-runs-off" className="text-sm text-slateish-400">{RUN_CRS_OFF_LINE}</p>}
       {!off && !open && (
         <button type="button" onClick={() => void show()}
@@ -98,9 +105,9 @@ export function ReviewCrsList() {
         </button>
       )}
       {error !== null && <p role="alert" className="text-sm text-danger-500">{error}</p>}
-      {open && runs === null && error === null && <p className="text-sm text-slateish-400">Loading review runs…</p>}
+      {open && runs === null && error === null && <p className="text-sm text-slateish-400">{NEW_LOOK ? "Loading your reviews…" : "Loading review runs…"}</p>}
       {runs !== null && runs.length === 0 && (
-        <p className="text-sm text-slateish-400">No review runs on documents you can read yet.</p>
+        <p className="text-sm text-slateish-400">{NEW_LOOK ? "No reviews on documents you can read yet." : "No review runs on documents you can read yet."}</p>
       )}
       {runs !== null && runs.length > 0 && (
         <ul className="divide-y divide-ink-700 text-sm">
@@ -127,7 +134,7 @@ export function ReviewCrsList() {
       {runs !== null && runs.length > 0 && total !== null && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-slateish-400">
           <span data-testid="crs-runs-count">
-            Showing {runs.length.toLocaleString()} of {total.toLocaleString()} review runs on submittals you can read
+            Showing {runs.length.toLocaleString()} of {total.toLocaleString()} {NEW_LOOK ? "reviews" : "review runs"} on submittals you can read
           </span>
           {runs.length < total && (
             <button type="button" disabled={more} onClick={() => void showMore()}

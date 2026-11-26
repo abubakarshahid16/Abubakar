@@ -267,7 +267,7 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
     assert result["confirmed_question"] is None
     assert result["evidence"] == []
     assert (
-        result["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 0."
+        result["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 0. No held standard that you may read: none was searched."
     )
     repeated = prepare_evidence(
         item["id"], frozenset({"query-pdf", "contract-1"}), "u1", True, False, "u1"
@@ -2216,7 +2216,7 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
     # the cover note "See attached." is not a question (lead-4, 26 Nov 2026)
     assert prepared["proposed_question"] == "1. What coating does carbon steel need?"
     assert (
-        prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1."
+        prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1. No held standard that you may read: none was searched."
     )
 
     # 3. nothing is drafted until a reviewer confirms the question

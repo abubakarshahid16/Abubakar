@@ -1,3 +1,4 @@
+import { NEW_LOOK } from "../look";
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
@@ -39,6 +40,9 @@ function Folded({ text }: { text?: string | null }) {
     </details>
   );
 }
+
+/** How many found questions start in the question box; the rest are folded under "N more found", to be ticked (lead-4, 26 Nov 2026). */
+export const BOX_FOUND = 6;
 
 export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
@@ -104,15 +108,22 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   }, []);
 
   useEffect(() => {
-    // With model proposals the text starts as the email's own question; the engineer ticks the proposals that are real.
+    // With model proposals the text starts as the email's own question AND every question found in the attachment (owner, 26 Nov 2026:
+    // the questions found on a form were listed but never placed in the box, which opened empty). Still a proposal: the engineer deletes
+    // what is not a real question and confirms; nothing is confirmed by itself.
     const email = selected?.extracted_question_main ?? selected?.extracted_question; // the email's question by the current rules
-    const proposed = selected?.proposed_questions?.length ? email : selected?.proposed_question;
+    // the first BOX_FOUND only (lead-4, 26 Nov 2026: a 41-page attachment put ~20 lines in the box); the rest wait, folded, to be ticked
+    const found = (selected?.proposed_questions ?? []).slice(0, BOX_FOUND).map((part) => part.question.trim()).filter((q) => q && !(email ?? "").includes(q));
+    const proposed = selected?.proposed_questions?.length ? [(email ?? "").trim(), ...new Set(found)].filter(Boolean).join("\n") : selected?.proposed_question;
     setQuestionDraft(selected?.confirmed_question || proposed || email || "");
     setTicked([]);
   }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.proposed_questions, selected?.extracted_question, selected?.extracted_question_main]);
 
+  /** A found question already in the question text (as typed or as proposed): its tick box shows it and cannot add it twice. */
+  const inText = (question: string) => Boolean(question.trim()) && questionDraft.includes(question.trim());
+  const foundRow = (part: { question: string; filename: string | null; page: number | null }, index: number) => <label key={`${part.filename}-${part.page}-${index}`} className="mt-1 flex items-start gap-2 text-sm text-slateish-300"><input type="checkbox" checked={inText(part.question) || ticked.includes(index)} disabled={inText(part.question)} onChange={(event) => setTicked((current) => event.target.checked ? [...current, index] : current.filter((i) => i !== index))} className="mt-1" /><span>{part.question}<span className="block text-xs text-slateish-500">{part.filename}, page {part.page}{inText(part.question) ? " · in the text below" : ""}</span></span></label>;
   const addTicked = () => {
-    const picked = (selected?.proposed_questions ?? []).filter((_, index) => ticked.includes(index)).map((part) => part.question);
+    const picked = (selected?.proposed_questions ?? []).filter((part, index) => ticked.includes(index) && !inText(part.question)).map((part) => part.question);
     if (picked.length) setQuestionDraft((current) => [current.trim(), ...picked].filter(Boolean).join("\n"));
     setTicked([]);
   };
@@ -262,6 +273,19 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     return () => { alive = false; };
   }, [queryId]);
 
+  const evidenceBlock = selected && (
+    <>
+          <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-evidence">
+            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">{NEW_LOOK ? "Where the answer comes from" : "Evidence"}</summary>
+            {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
+            {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
+            {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500">{evidence.source_name || evidence.source_kind ? <span data-testid="evidence-source">{evidence.source_name || "Unnamed document"}{evidence.source_kind ? ` (${evidence.source_kind})` : ""} · </span> : null}<a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, {evidence.locator ? `${evidence.locator}, ` : ""}page {evidence.page_start ?? "unknown"}</a>{evidence.match_terms ? <> · <span data-testid="evidence-match">{evidence.match_count} of {evidence.match_terms} key terms</span></> : null} · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state === "proposed" ? "found by the system, not yet kept" : evidence.evidence_state} · {evidence.supersession_state}{evidence.supersession_state === "unknown" && ["verified", "proposed", "needs_review", "conflicting", "ambiguous"].includes(evidence.evidence_state) ? <span data-testid="evidence-needs-confirm" className="block text-warn-500">{evidence.evidence_state === "verified" ? "Counts for a draft once its source document is confirmed: Documents, Details, Save metadata." : "To count for a draft: keep it as evidence, and confirm its source document (Documents, Details, Save metadata)."}</span> : null}</footer>
+              {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-500"><p>{evidence.evidence_state === "proposed" ? "Found by the system; the words are checked to stand on that page, but nobody has judged that they answer the question. A reviewer keeps it as evidence or rejects it before a draft uses it or the response is approved." : "This quote comes from a contractor's attachment. A reviewer must decide before the response is approved or sent."}</p>
+                {selected.can_review ? <div className="mt-1 flex gap-2"><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "verified", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Keep as evidence</button><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "rejected", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Reject</button></div> : <p className="mt-1">Only a qualified reviewer can decide.</p>}</div>}
+            </blockquote>) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
+          </details>
+    </>
+  );
   return (
     <div ref={topRef} className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
       <section className="min-w-0 [overflow-wrap:anywhere]">
@@ -387,14 +411,15 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.can_review === false && <p className="mt-3 text-xs text-slateish-500">You can prepare evidence and write drafts. Confirming the question, deciding on evidence, approving and sending need the technical-query reviewer role.</p>}
           {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the question, the proposed response and the decisions
               come first; the email, its attachments and the evidence are folded below. Reorder only: the same parts, words and actions. */}
-          <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question for the draft</h3>
+          <h3 className="mt-6 text-sm font-semibold text-slateish-200">{NEW_LOOK ? "The contractor asks" : "Question for the draft"}</h3>
           {selected.confirmed_question
             ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${formatWhen(selected.confirmed_question_at)}` : ""}. The draft answers exactly this wording.</p>
             : <p className="mt-1 text-xs text-warn-500">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
           {proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question)) && <p className="mt-1 text-xs text-warn-500" data-testid="proposal-note">{proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question))}</p>}
           {!selected.confirmed_question && selected.proposed_questions?.length ? <div className="mt-2 rounded border border-ink-700 p-2" aria-label="Questions found in the attachment">
-            <p className="text-xs text-slateish-400">Questions the AI on this computer found in the attachment, each as printed. Tick the ones that are real questions, then add them.</p>
-            {selected.proposed_questions.map((part, index) => <label key={`${part.filename}-${part.page}-${index}`} className="mt-1 flex items-start gap-2 text-sm text-slateish-300"><input type="checkbox" checked={ticked.includes(index)} onChange={(event) => setTicked((current) => event.target.checked ? [...current, index] : current.filter((i) => i !== index))} className="mt-1" /><span>{part.question}<span className="block text-xs text-slateish-500">{part.filename}, page {part.page}</span></span></label>)}
+            <p className="text-xs text-slateish-400">Questions the AI on this computer found in the attachment, each as printed, with its page. The first {BOX_FOUND} are placed in the text below as a proposal: delete any that is not a real question. One taken out can be ticked and added back.</p>
+            {selected.proposed_questions.slice(0, BOX_FOUND).map((part, index) => foundRow(part, index))}
+            {selected.proposed_questions.length > BOX_FOUND ? <details className="mt-1" data-testid="found-more"><summary className="cursor-pointer text-xs text-slateish-300">{selected.proposed_questions.length - BOX_FOUND} more found: show, tick to add</summary>{selected.proposed_questions.slice(BOX_FOUND).map((part, index) => foundRow(part, index + BOX_FOUND))}</details> : null}
             <button type="button" disabled={!ticked.length} onClick={addTicked} className="mt-2 rounded bg-ink-700 px-2 py-1 text-xs text-slateish-100 disabled:opacity-50">Add ticked questions to the text</button>
           </div> : null}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-2">
@@ -427,6 +452,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           </div>
           {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
           {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
+          {NEW_LOOK && evidenceBlock}
           <div className="mt-4 grid gap-2 rounded border border-ink-700 p-3 sm:grid-cols-2" aria-label="Who it goes to">
             <label className="text-xs text-slateish-300">Contractor<input value={triageContractor} onChange={(event) => setTriageContractor(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
             <label className="text-xs text-slateish-300">Department<input value={triageDepartment} onChange={(event) => setTriageDepartment(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
@@ -467,15 +493,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
               </li>)}</ul>}
             </article>)}
           </details>
-          <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-evidence">
-            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Evidence</summary>
-            {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
-            {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
-            {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, {evidence.locator ? `${evidence.locator}, ` : ""}page {evidence.page_start ?? "unknown"}</a>{evidence.match_terms ? <> · <span data-testid="evidence-match">{evidence.match_count} of {evidence.match_terms} key terms</span></> : null} · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state === "proposed" ? "found by the system, not yet kept" : evidence.evidence_state} · {evidence.supersession_state}{evidence.evidence_state === "verified" && evidence.supersession_state === "unknown" ? <span data-testid="evidence-needs-confirm" className="block text-warn-500">Counts for a draft once its source document is confirmed: Documents, Details, Save metadata.</span> : null}</footer>
-              {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-500"><p>{evidence.evidence_state === "proposed" ? "Found by the system; the words are checked to stand on that page, but nobody has judged that they answer the question. A reviewer keeps it as evidence or rejects it before a draft uses it or the response is approved." : "This quote comes from a contractor's attachment. A reviewer must decide before the response is approved or sent."}</p>
-                {selected.can_review ? <div className="mt-1 flex gap-2"><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "verified", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Keep as evidence</button><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "rejected", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Reject</button></div> : <p className="mt-1">Only a qualified reviewer can decide.</p>}</div>}
-            </blockquote>) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
-          </details>
+          {!NEW_LOOK && evidenceBlock}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Review history</h3>
           {selected.decisions?.length ? selected.decisions.map((decision) => <p key={decision.created_at} className="mt-2 text-sm text-slateish-300">{decision.decision}: {decision.comment || "No comment"}</p>) : <p className="mt-2 text-sm text-slateish-500">No engineer decision yet.</p>}
         </>}

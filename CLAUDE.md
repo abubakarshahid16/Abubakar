@@ -59,6 +59,14 @@ contractor copy issued only after that sign-off. Until then every file is the te
    the engineer chooses for that one query, and the query's own text, to Claude through `reader_transport.py` under the
    `claude_spend` caps (per-request consent for those files only, its own lane, not chat's); sending mail stays off
    (`gmail.send` is not asked for) until the owner writes "sending approved".
+   TQ EVIDENCE SEARCH COVERS HELD STANDARDS TOO (owner, 26 Nov 2026, #1584: "Technical query evidence search must
+   include company standards and the standards we hold, as well as contract documents. Show which source each passage
+   comes from."): the evidence search (local only, nothing sent) now searches the held standards the caller may read
+   (a company standard by role, or an unroled public standard; never a contract or a submittal) together with the
+   readable contracts, and a form's own cited standard is looked up by name first. Every passage shown names its
+   source (contract document / company standard / standard, an unroled public one / document, with its title or number). The Claude DRAFT lane above is
+   UNCHANGED: a draft still reads only the contract documents the engineer chooses; a non-contract document is refused
+   ("not a contract: not sent"). Widening the draft lane to standard text would need its own owner line here.
    THE RULE APPROVAL LANE (owner, 25 Nov 2026, #1584 comment 7169525003; `rule_second_approval.py`,
    `scripts/run_rule_second.py`): the second-model rule approval step and its blind sample judge send rule-book text of
    the SAES, ISO, API, ASME and NACE families only, through `standards_lane` and `reader_transport.py` under the
@@ -80,16 +88,20 @@ contractor copy issued only after that sign-off. Until then every file is the te
    the database tools (`chat_db_tools.py`: documents by kind or role, a paper's latest review with its counts and top
    comments with page, the open items of a technical query) and the records answers (`chat_records.py`: signed
    reviews, a paper's review, documents listed by kind, queries waiting), ALL behind one switch,
-   `CHAT_DATABASE_TOOLS_ENABLED`, **off by default** (reverted 26 Nov 2026: update 14's fresh review found two gaps -
+   `CHAT_DATABASE_TOOLS_ENABLED`, **off by default** (reverted 26 Nov 2026: update 14's fresh review found three gaps -
    the block-list check did not cover a cross-referenced OTHER paper's name/value written into a comment by
-   `tag_cross.py`, and `chat_records.py` answers carried no document id, so nothing was ever withheld from a later
-   turn; `chat_records.kind_of` now checks the switch FIRST, before any records answer including "list the <kind>",
-   so with the switch off none of this is reachable - proven by `test_u14_chat_records.py`'s switch-off test. Turning
-   it on by default waits for both underlying gaps to be closed (queued, update 15) and a fresh review to confirm it).
-   Their answers go to Claude only through `reader_transport.py` under the `claude_spend` caps, must hold only
-   documents the caller may read (one outside the caller's grants is counted, never named), must never name or give
-   the client's register or any blocked file, and must never carry document text; each call is logged with ids only;
-   Local only and the local Chat engine send nothing. With the switch off, none of this runs; these are the rule for
+   `tag_cross.py`; `chat_records.py` answers carried no document id, so nothing was ever withheld from a later turn;
+   and `chat.py` routed a question into `chat_records` even when the caller had documents selected, so a selected
+   paper could be bypassed for a library-wide answer. `chat_records.kind_of` now checks the switch FIRST, before any
+   records answer including "list the <kind>", so with the switch off none of this is reachable - proven by
+   `test_u14_chat_records.py`'s switch-off test. Update 15 closes all three gaps for when the switch is on (block list
+   on every document a comment names, document ids carried so withholding works, no short-cut once a paper is
+   selected) and corrects `chat_records.py`'s docstring to match; turning the default on still waits for a fresh
+   review of that work). Their answers go to Claude only through `reader_transport.py` under the `claude_spend` caps,
+   must hold only documents the caller may read (one outside the caller's grants is counted, never named), must never
+   name or give the client's register or any blocked file, and must never carry document text; each call is logged
+   with ids only; Local only and the local Chat engine send nothing. With the switch off, none of this runs; these
+   are the rule for
    when it is turned on, not yet a proven property of the code in that state.
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only six modules may open a

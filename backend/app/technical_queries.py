@@ -859,11 +859,11 @@ def get(
                 (query_id,),
             )
         ]
-        from .technical_query_mail import page_body, shown_question
+        from .technical_query_mail import page_bodies, shown_question
 
-        for message in result["messages"]:
-            # the message itself and, folded on the page, its signature, notices and quoted mail (the stored body is unchanged)
-            main, folded = page_body(message.get("body"))
+        bodies = page_bodies([m.get("body") for m in result["messages"]])
+        for message, (main, folded) in zip(result["messages"], bodies, strict=True):
+            # the message itself and, folded on the page, its signature, notices and the earlier mail already shown above (stored body unchanged)
             message["body_main"], message["body_folded"] = main, folded
             message["to_addresses"], message["cc_addresses"] = (
                 json.loads(message["to_addresses"] or "[]"),
@@ -898,6 +898,13 @@ def get(
                 (query_id,),
             )
         ]
+        from . import technical_query_contracts as _tqc
+
+        # which source each passage comes from (owner, 26 Nov 2026)
+        for row in result["evidence"]:
+            row["source_kind"], row["source_name"] = _tqc.source_of(
+                conn, row["document_id"]
+            )
         # the standing follows the source document, read now
         for row in result["evidence"]:
             row["supersession_state"] = passage_standing(
@@ -1101,8 +1108,10 @@ def update_evidence(
 
 _ATTACHMENT_MARK = "\n\n[Attachment "
 MAX_PROPOSED_QUESTION = 12_000
-#: Only this many pages of each attachment are read for questions; the screen says which pages were not read (completeness rule).
-ATTACHMENT_PAGES_READ = 5
+#: Pages of each attachment read for questions: every page up to this many (lead-4, 26 Nov 2026: 5 left 36 of 72 pages of the found-
+#: question attachments unread; the longest held is 41 pages). Past it the screen says which pages were not read and why (completeness).
+ATTACHMENT_PAGES_READ = 60
+NOT_READ_WHY = "the reading stops at {n} pages per attachment"
 CUT_MARK = " [cut here: the wording was longer than the limit; the rest is on the attachment pages]"
 MAX_CONFIRMED_QUESTION = 5_000
 
@@ -1308,7 +1317,15 @@ def prepare_evidence(
         invalidate_attachment_evidence(conn, query_id)
     from .technical_query_mail import shown_question
 
-    message = (current.get("messages") or [{}])[0]
+    # the attachments of EVERY mail the contractor sent, oldest first, each paper once (lead-4, 26 Nov 2026: a paper sent with a later
+    # mail of the thread was never read); our own replies' attachments are not the contractor's query
+    attachments_in: list[dict[str, Any]] = []
+    for message_row in current.get("messages") or []:
+        if message_row.get("is_inbound", 1) in (0, False):
+            continue
+        for attachment in message_row.get("attachments", []):
+            if not any(seen.get("document_id") and seen.get("document_id") == attachment.get("document_id") for seen in attachments_in):
+                attachments_in.append(attachment)
     # the email's question by the CURRENT rules: never its headers, people lists, signatures, notices or an older stored copy
     email_question = shown_question(current)["extracted_question_main"]
     attachment_ids = {
@@ -1321,7 +1338,7 @@ def prepare_evidence(
     context: list[dict[str, Any]] = []
     reading: list[dict[str, Any]] = []
     with connect() as conn:
-        for attachment in message.get("attachments", []):
+        for attachment in attachments_in:
             document_id = attachment.get("document_id")
             if (
                 not document_id
@@ -1340,7 +1357,11 @@ def prepare_evidence(
                     "page_count": total_pages or None,
                     "line": f"{attachment['filename']}: pages 1 to {read_to}"
                     + (f" of {total_pages} read" if total_pages else " read")
-                    + (f"; pages {read_to + 1} to {total_pages} were not read" if total_pages > read_to else "")
+                    + (
+                        f"; pages {read_to + 1} to {total_pages} were not read: " + NOT_READ_WHY.format(n=ATTACHMENT_PAGES_READ)
+                        if total_pages > read_to
+                        else ""
+                    )
                     + ".",
                 }
             )
@@ -1364,7 +1385,7 @@ def prepare_evidence(
     question = current.get("confirmed_question") or proposal
     # no question but an attachment: what was read, the pages not read and why nothing was proposed are stored for the engineer to write
     # the question; nothing is searched for (lead-4, 26 Nov 2026: the mail's introduction is never searched for instead)
-    if not question and not message.get("attachments"):
+    if not question and not attachments_in:
         raise ValueError("the query contains no extractable question")
     from . import technical_query_contracts, technical_query_match
 
@@ -1374,8 +1395,10 @@ def prepare_evidence(
         attachment_documents = query_attachment_document_ids(conn)
     allowed = frozenset(allowed_document_ids) - attachment_documents
     cut = question[:MAX_PROPOSED_QUESTION]
+    # the form's own citations (its reference lines: part and clause) are looked up first (owner's fault 4)
+    form_texts = [c["text"] for c in context]
     field = (
-        technical_query_contracts.search_all(cut, allowed, progress)
+        technical_query_contracts.search_all(cut, allowed, progress, form_texts)
         if question
         else {"coverage": {"line": NOT_SEARCHED}}
     )
@@ -1400,9 +1423,8 @@ def prepare_evidence(
             ),
         )
         listed = 0  # the best LISTED passages that stand on their pages are listed (from the fair-share pool of MAX_PASSAGES)
-        for passage in hits[: technical_query_contracts.MAX_PASSAGES]:
-            floor = technical_query_contracts.below_floor(hits, listed, passage)
-            if listed >= technical_query_contracts.LISTED or floor:
+        for passage in hits:  # the cited clauses first (never held back), then the fair-share pool of MAX_PASSAGES
+            if technical_query_contracts.held_back(hits, listed, passage):
                 break
             quote = (passage.get("text") or "").strip()
             if not quote:
@@ -1434,8 +1456,8 @@ def prepare_evidence(
             sc = technical_query_match.score(terms, quote)
             scores.append(sc)
             # the clause holding the matched words wins over the clause the search named for the passage's start (review of evidence run 5: Q1)
-            locator = (
-                _matched_clause(conn, passage, quote, terms)
+            locator = (  # a cited clause's passage is located at the cited clause
+                (passage.get("cited") and passage.get("locator")) or _matched_clause(conn, passage, quote, terms)
                 or passage.get("locator")
                 or _locator_of(conn, passage, quote, terms)
             )
@@ -1849,7 +1871,31 @@ def set_routing_rule(
                 actor_user_id, now(),
             ),
         )
+        _backfill_by_sender(conn)
     return list_routing_rules()
+
+
+def _backfill_by_sender(conn) -> int:
+    """A saved address or domain rule fills the blank contractor / department of the queries already held, from the sender of each
+    query's first mail, as the code rules do (lead-4, 26 Nov 2026: every held query kept "contractor not set" after a rule was saved).
+    Only blank fields; a value already set is kept. Returns how many queries changed."""
+    changed = 0
+    for q in conn.execute(
+        "SELECT id, contractor_name, department FROM technical_queries WHERE COALESCE(contractor_name,'')='' OR COALESCE(department,'')=''"
+    ).fetchall():
+        first = conn.execute(
+            "SELECT from_address FROM query_messages WHERE query_id=? AND is_inbound=1 ORDER BY received_at LIMIT 1", (q["id"],)
+        ).fetchone()
+        if first is None:
+            continue
+        contractor, department, source = _routed(conn, first["from_address"], q["contractor_name"] or None, q["department"] or None)
+        if source and (contractor, department) != (q["contractor_name"], q["department"]):
+            conn.execute(
+                "UPDATE technical_queries SET contractor_name=?, department=?, routing_source=?, updated_at=? WHERE id=?",
+                (contractor, department, source, now(), q["id"]),
+            )
+            changed += 1
+    return changed
 
 
 def delete_routing_rule(rule_id: str, is_admin: bool) -> list[dict[str, Any]]:

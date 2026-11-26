@@ -65,7 +65,7 @@ export function BookTable({ table }: { table: AgentBookTable }) {
         {table.hidden_books > 0 && <> {table.hidden_books} more book{table.hidden_books === 1 ? "" : "s"} of this review {table.hidden_books === 1 ? "is" : "are"} not listed because you may not read {table.hidden_books === 1 ? "it" : "them"}.</>}
       </p>
       {inBooks.length > 0 && (
-        <div className="overflow-x-auto">
+        <div className="relative overflow-x-auto">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Rule books that were candidates for this review</caption>
             <thead className="text-xs text-slateish-400">
@@ -195,7 +195,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
         ) : asked.length === 0 ? (
           <p className="text-sm text-slateish-300">No asked rule matches the filter.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-left text-sm">
               <caption className="sr-only">Rules asked of this paper</caption>
               <thead className="text-xs text-slateish-400">
@@ -235,7 +235,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
         ) : leftOut.length === 0 ? (
           <p className="text-sm text-slateish-300">No left-out rule matches the filter.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-left text-sm">
               <caption className="sr-only">Rules left out of this paper</caption>
               <thead className="text-xs text-slateish-400">

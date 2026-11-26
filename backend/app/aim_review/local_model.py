@@ -58,7 +58,7 @@ STEP_GROUPS = {
     "choose": ("aim_select",),
     "checklist": ("aim_checklist", "aim_checklist_knowledge", "aim_checklist_retry"),
     "attack": ("aim_attack", "aim_attack_items"),
-    "judge": ("aim_judge", "aim_reference", "aim_answered"),
+    "judge": ("aim_judge", "aim_reference", "aim_answered", "aim_checklist_missed"),
     "second reader": ("aim_second_read",),
     "editor": ("aim_edit",),
 }

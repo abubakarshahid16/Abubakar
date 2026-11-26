@@ -26,6 +26,10 @@ vi.mock("../api/client", () => ({
 
 import { RUNS_PAGE, ReviewCrsList } from "./ReviewCrsList";
 import { CrsTransmittalsForm } from "../components/review/CrsPreviewSheet";
+import { NEW_LOOK } from "../look";
+
+/** The new look says "reviews" where the classic look says "review runs" (everyday words, E3). */
+const RUNS_WORD = NEW_LOOK ? "reviews" : "review runs";
 
 beforeEach(() => {
   reviewRuns.mockReset();
@@ -54,7 +58,7 @@ describe("ReviewCrsList", () => {
     reviewRunsPage.mockResolvedValue({ ok: true, data: { runs: [], total: 0, limit: RUNS_PAGE, offset: 0 } });
     render(<ReviewCrsList />);
     await userEvent.click(screen.getByRole("button", { name: /show the review runs/i }));
-    expect(await screen.findByText(/no review runs/i)).toBeTruthy();
+    expect(await screen.findByText(NEW_LOOK ? /no reviews on documents you can read/i : /no review runs/i)).toBeTruthy();
   });
 });
 
@@ -67,13 +71,13 @@ describe("ReviewCrsList pages (#1131)", () => {
       total: 3, limit, offset, runs: [run(1), run(2), run(3)].slice(offset, offset + 2) } }));
     render(<ReviewCrsList />);
     await userEvent.click(screen.getByRole("button", { name: /show the review runs/i }));
-    expect(await screen.findByTestId("crs-runs-count")).toHaveTextContent("Showing 2 of 3 review runs on submittals you can read");
+    expect(await screen.findByTestId("crs-runs-count")).toHaveTextContent(`Showing 2 of 3 ${RUNS_WORD} on submittals you can read`);
     expect(reviewRunsPage).toHaveBeenCalledWith(0, RUNS_PAGE);
     expect(reviewRuns).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(await screen.findByText("sheet-3.pdf")).toBeTruthy();
     expect(reviewRunsPage).toHaveBeenLastCalledWith(2, RUNS_PAGE);
-    expect(screen.getByTestId("crs-runs-count")).toHaveTextContent("Showing 3 of 3 review runs on submittals you can read");
+    expect(screen.getByTestId("crs-runs-count")).toHaveTextContent(`Showing 3 of 3 ${RUNS_WORD} on submittals you can read`);
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
   });
 

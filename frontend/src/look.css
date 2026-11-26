@@ -145,3 +145,55 @@
   min-height: 2.75rem;
   border-radius: var(--radius-sm);
 }
+
+/* THE DASHBOARD, OWNER'S NOTES (26 Nov 2026 on the screenshot): more white space, fewer borders, a real heading hierarchy (the page
+   title clearly the largest thing), no decorative gradient. Look only: the same parts in the same places. */
+:root[data-look="new"] {
+  --shadow-resting: 0 1px 3px rgba(17, 24, 39, 0.07), 0 1px 2px rgba(17, 24, 39, 0.04);
+}
+:root[data-look="new"] main#main {
+  padding: 2.25rem 2.75rem 3rem;
+}
+:root[data-look="new"] main h1 {
+  font-size: 2.125rem;
+  line-height: 1.15;
+}
+:root[data-look="new"] main h2 {
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+:root[data-look="new"] main h3 {
+  font-size: 1rem;
+}
+:root[data-look="new"] .aurora-a,
+:root[data-look="new"] .aurora-b {
+  display: none;
+}
+:root[data-look="new"] main section.surface-card,
+:root[data-look="new"] main section.card-3d,
+:root[data-look="new"] main section[aria-labelledby="review-dashboard-title"] {
+  border-color: transparent;
+  box-shadow: var(--shadow-resting);
+  padding: 1.5rem 1.625rem;
+  margin-top: 1.75rem;
+}
+:root[data-look="new"] details.look-details > summary {
+  list-style: none;
+}
+:root[data-look="new"] details.look-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* TOGGLE BUTTONS (a role filter, a type filter: `aria-pressed`): the spec's secondary button, a visible outline on every ground; the
+   pressed one in the action colour (builder H's first-time-user pass, 26 Nov 2026: they read as plain text on the light ground). */
+:root[data-look="new"] main button[aria-pressed] {
+  border: 1px solid var(--color-ink-500);
+  background-color: var(--color-ink-800);
+  color: var(--color-slateish-200);
+}
+:root[data-look="new"] main button[aria-pressed="true"] {
+  border-color: var(--color-signal-500);
+  background-color: var(--color-signal-500);
+  color: #ffffff;
+  font-weight: 600;
+}

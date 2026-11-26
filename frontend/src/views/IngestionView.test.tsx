@@ -249,7 +249,7 @@ describe("never a fabricated number", () => {
   it("says a stage has not been measured instead of showing zero", async () => {
     mockApi();
     await openIngestion();
-    await screen.findByText("Throughput");
+    await screen.findByText("How fast documents are read"); // everyday words (owner, 26 Nov 2026)
 
     // chunk and keyword_index are null in the fixture
     expect(screen.getAllByText(/not measured yet/i).length).toBeGreaterThanOrEqual(2);

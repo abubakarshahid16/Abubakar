@@ -24,7 +24,7 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
         <span aria-hidden="true">{mark} </span>{title} <span className="font-normal text-slateish-400">({lines.length} loaded)</span>
       </h3>
       {title === "Not reviewed" && <p className="pl-2 text-xs text-slateish-400">{NOT_REVIEWED_NOTE}</p>}
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full text-left text-sm">
           <caption className="sr-only">{title}</caption>
           <thead className="text-xs text-slateish-400">

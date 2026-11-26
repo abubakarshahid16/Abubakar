@@ -6,6 +6,9 @@
  * numbers it saw as though they were live. A stale number presented as current
  * is the same class of lie as a status field that reports work it is not doing.
  */
+import { StatusChip } from "./look/LookParts";
+import type { ChipTone } from "./look/lookTone";
+import { NEW_LOOK } from "../look";
 import type { ReactNode } from "react";
 
 import { START_BACKEND_COMMAND } from "../../../contracts/runtime";
@@ -16,7 +19,11 @@ const STATUS_ICON: Record<StatusTone, string> = { good: "✓", warn: "!", danger
 const STATUS_CLASS: Record<StatusTone, string> = { good: "text-signal-400", warn: "text-warn-500", danger: "text-danger-500", neutral: "text-slateish-300" };
 
 /** Shared status language: an icon and a word, never colour alone. */
+const CHIP_OF: Record<StatusTone, ChipTone> = { good: "done", warn: "check", danger: "late", neutral: "plain" };
+
 export function StatusBadge({ tone, children }: { tone: StatusTone; children: ReactNode }) {
+  // the new look (owner, 26 Nov 2026): the same word, as a chip in the spec's colour (never colour alone)
+  if (NEW_LOOK) return <StatusChip tone={CHIP_OF[tone]}>{children}</StatusChip>;
   return <span className={`inline-flex items-center gap-1.5 ${STATUS_CLASS[tone]}`}>
     <span aria-hidden="true" className="font-mono">{STATUS_ICON[tone]}</span><span>{children}</span>
   </span>;

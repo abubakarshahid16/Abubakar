@@ -1,10 +1,11 @@
+import { NEW_LOOK } from "../look";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
 import { formatWhen } from "../format/when";
-import { TechnicalQueriesView } from "./TechnicalQueriesView";
+import { BOX_FOUND, TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
   id: "q1",
@@ -60,14 +61,44 @@ describe("Technical Queries screen", () => {
     expect((await screen.findByTestId("evidence-coverage")).textContent).toBe("Searched 19 of 20 contracts, hits in 6. 1 could not be searched.");
   });
 
-  it("offers each question the model found with its page, and adds only the ticked ones", async () => {
+  it("places every question the model found in the text as a proposal, with its page, and one taken out can be added back", async () => {
     render(<TechnicalQueriesView />);
-    const box = within(await screen.findByLabelText("Questions found in the attachment")).getByRole("checkbox");
-    expect(screen.getByText("query.pdf, page 2")).toBeTruthy();
+    const box = within(await screen.findByLabelText("Questions found in the attachment")).getByRole("checkbox") as HTMLInputElement;
+    const text = screen.getByLabelText("Question the draft will answer") as HTMLTextAreaElement;
+    // owner, 26 Nov 2026: the found questions were listed but the box opened without them
+    await waitFor(() => expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?"));
+    expect(screen.getByText("query.pdf, page 2 · in the text below")).toBeTruthy();
+    expect(box.checked && box.disabled).toBe(true); // never added twice
+    fireEvent.change(text, { target: { value: "See attached." } }); // the engineer takes it out
+    expect(box.disabled).toBe(false);
     fireEvent.click(box);
     fireEvent.click(screen.getByText("Add ticked questions to the text"));
-    const text = screen.getByLabelText("Question the draft will answer") as HTMLTextAreaElement;
     expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
+  });
+
+  it("puts only the first few found questions in the box and folds the rest under 'N more found', to tick", async () => {
+    const many = Array.from({ length: BOX_FOUND + 3 }, (_, i) => ({ question: `Please confirm invented item ${i + 1}?`, filename: "long.pdf", page: i + 1 }));
+    api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: many } });
+    render(<TechnicalQueriesView />);
+    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
+    await waitFor(() => expect(text.value.split("\n")).toHaveLength(BOX_FOUND));
+    expect(text.value).not.toContain(`item ${BOX_FOUND + 1}?`);
+    const more = screen.getByTestId("found-more");
+    expect(within(more).getByText("3 more found: show, tick to add")).toBeTruthy();
+    fireEvent.click(within(more).getAllByRole("checkbox")[0]);
+    fireEvent.click(screen.getByText("Add ticked questions to the text"));
+    expect(text.value.split("\n")).toHaveLength(BOX_FOUND + 1);
+    expect(text.value).toContain(`item ${BOX_FOUND + 1}?`);
+  });
+
+  it("opens the box with the found questions when the mail itself asks nothing (a forward of a form)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: [
+      { question: "Please confirm the invented rating?", filename: "form.pdf", page: 1 },
+      { question: "Please clarify the invented limit?", filename: "form.pdf", page: 3 },
+    ] } });
+    render(<TechnicalQueriesView />);
+    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
+    await waitFor(() => expect(text.value).toBe("Please confirm the invented rating?\nPlease clarify the invented limit?"));
   });
 
   it("shows the evidence job's progress, and which attachment pages were not read", async () => {
@@ -89,17 +120,33 @@ describe("Technical Queries screen", () => {
     expect(container.textContent).not.toMatch(/not covered|weak match/i);
   });
 
-  it("tells the engineer that a kept passage counts once its source document is confirmed (F's live check, 26 Nov 2026)", async () => {
+  it("says which source each passage comes from: the contract document or the standard, by name (owner, 26 Nov 2026)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query,
+      evidence: [
+        { id: "e1", document_id: "c1", page_start: 4, locator: "Schedule B, 4.2.1 Invented Lining", source_kind: "contract document", source_name: "ZQ-INVENTED-SCHEDULE-B", exact_quote: "x", evidence_state: "proposed", supersession_state: "current" },
+        { id: "e2", document_id: "s1", page_start: 9, locator: "6.1 Invented Coating", source_kind: "company standard", source_name: "ZQ-STD-001", exact_quote: "y", evidence_state: "proposed", supersession_state: "current" },
+      ] } });
+    render(<TechnicalQueriesView />);
+    const sources = (await screen.findAllByTestId("evidence-source")).map((node) => node.textContent);
+    expect(sources).toEqual(["ZQ-INVENTED-SCHEDULE-B (contract document) · ", "ZQ-STD-001 (company standard) · "]);
+    expect(screen.getByText(/Open source, 6\.1 Invented Coating, page 9/)).toBeTruthy();
+  });
+
+  it("tells the engineer, before and after keeping, that a passage counts once its source document is confirmed (F's live check, 26 Nov 2026)", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query,
       evidence: [
         { id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" },
         { id: "e2", document_id: "c2", page_start: 5, exact_quote: "y", evidence_state: "verified", supersession_state: "current" },
         { id: "e3", document_id: "c3", page_start: 6, exact_quote: "z", evidence_state: "proposed", supersession_state: "unknown" },
+        { id: "e4", document_id: "c4", page_start: 7, exact_quote: "w", evidence_state: "rejected", supersession_state: "unknown" },
       ] } });
     render(<TechnicalQueriesView />);
-    const notes = await screen.findAllByTestId("evidence-needs-confirm");
-    expect(notes).toHaveLength(1);  // only the kept passage whose source is not confirmed
-    expect(notes[0].textContent).toContain("source document is confirmed");
+    const notes = (await screen.findAllByTestId("evidence-needs-confirm")).map((node) => node.textContent);
+    // the kept passage and the one not yet kept, both with an unconfirmed source; not the confirmed one, not the rejected one
+    expect(notes).toEqual([
+      "Counts for a draft once its source document is confirmed: Documents, Details, Save metadata.",
+      "To count for a draft: keep it as evidence, and confirm its source document (Documents, Details, Save metadata).",
+    ]);
   });
 
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
@@ -423,14 +470,16 @@ describe("Technical Queries screen", () => {
 
   it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
     render(<TechnicalQueriesView />);
-    const question = await screen.findByRole("heading", { name: "Question for the draft" });
+    const question = await screen.findByRole("heading", { name: /^(Question for the draft|The contractor asks)$/ }); // the new look names it as the spec does
     const response = screen.getByRole("heading", { name: /^Proposed response/ });
     const generate = screen.getByRole("button", { name: "Generate draft" });
     const email = screen.getByTestId("tq-folded-email-question");
     const mail = screen.getByTestId("tq-folded-mail");
     const evidence = screen.getByTestId("tq-folded-evidence");
     const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    expect([before(question, response), before(response, generate), before(generate, email), before(email, mail), before(mail, evidence)]).toEqual([true, true, true, true, true]);
+    // the new look puts "where the answer comes from" right after the decisions (the spec's order); the classic look keeps it last
+    const order = NEW_LOOK ? [question, response, generate, evidence, email, mail] : [question, response, generate, email, mail, evidence];
+    expect(order.slice(1).map((part, i) => before(order[i], part))).toEqual([true, true, true, true, true]);
     for (const part of [email, mail, evidence]) {
       expect(part.tagName).toBe("DETAILS");
       expect((part as HTMLDetailsElement).open).toBe(false);  // folded on arrival

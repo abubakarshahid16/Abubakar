@@ -173,7 +173,7 @@ def available_models() -> dict:
          "available": ok,
          "reason": None if ok else _no_credit_words() if refused
          else _PICKER_WORDS.get(code, "Claude cannot be used on this computer right now.")},
-        {"id": LOCAL, "label": "Local model", "model": answer_model_choice.name(),
+        {"id": LOCAL, "label": "The AI on this computer", "model": answer_model_choice.name(),
          "available": True, "reason": _local_review_note()},
     ]
     return {"default": CLAUDE if ok and rp._provider_setting() != rp.PER_TASK else LOCAL,
@@ -293,6 +293,8 @@ def history(conversation_id: str, *, allowed_document_ids: frozenset[str],
             continue
         if (message.get("payload") or {}).get("withheld"):
             continue
+        if (message.get("payload") or {}).get("input_kind") == "records_question":
+            continue  # a records answer (`chat_records`, code's words) never reaches a model, not even as history
         text = _turn_text(message)
         if text:
             turns.append({"role": message["role"], "text": text})

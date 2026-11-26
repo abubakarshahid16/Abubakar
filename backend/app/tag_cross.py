@@ -84,15 +84,21 @@ def _pages(conn, doc_ids: list[str]) -> dict[str, dict[int, str]]:
 
 
 def _papers(conn) -> list[str]:
-    """Every held paper that may name a plant item: every document except a company standard."""
-    return [
-        str(r[0])
+    """Every held paper that may name a plant item: every document except a company standard, the client's register and a file
+    on the block list (`chat_db_tools.withheld_ids`): a withheld paper is never compared, so its name and values never enter a
+    comment, which goes on to the review's later model steps and to Chat (fresh review of #1926)."""
+    from . import chat_db_tools
+
+    rows = [
+        dict(r)
         for r in conn.execute(
-            "SELECT d.id FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
+            "SELECT d.id, d.filename, d.sha256 FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
             " WHERE COALESCE(c.document_role, '') != ? ORDER BY d.id",
             (_STANDARD_ROLE,),
         )
     ]
+    gone = chat_db_tools.withheld_ids(rows)
+    return [str(r["id"]) for r in rows if r["id"] not in gone]
 
 
 def _line_at(text: str, start: int, end: int) -> str:
@@ -242,6 +248,19 @@ _VALUE = re.compile(
 )
 
 
+def _grade(m: re.Match) -> bool:
+    """A whole number with ONE capital letter glued to it ("316L", "304H", "410S") is a grade or a designation, never a value with a unit
+    (builder H, 26 Nov 2026: "stainless steel 316L" was read as 316 litres). A one-letter unit counts when it stands apart ("10 L") or is
+    a small letter ("6m"), and a decimal keeps its unit ("1.5V")."""
+    unit = (m.group("unit") or "").strip()
+    return (
+        m.end("value") == m.start("unit")
+        and len(unit) == 1
+        and unit.isupper()
+        and re.fullmatch(r"-?\d+", m.group("value")) is not None
+    )
+
+
 def _on_page(words: str, text: str) -> bool:
     """`words` stand on the page (case, spaces and typography folded): the quote check for a printed pair, whose two halves
     are two cells of the page, not one line."""
@@ -293,6 +312,7 @@ def pdf_readings(conn, doc_id: str, pages: dict[int, str]) -> list[Reading]:
                 not m
                 or not m.group("unit")
                 or not claims.is_unit(m.group("unit").strip())
+                or _grade(m)
             ):
                 continue
             out.append(Reading(doc_id, "", label, m.group("value").replace(",", "."), m.group("unit").strip(), page,
@@ -318,7 +338,7 @@ def text_readings(doc_id: str, tag: str, pages: dict[int, str]) -> list[Reading]
     for page, text in sorted(pages.items()):
         for m in _LINE_VALUE.finditer(text):
             unit = m.group("unit").strip()
-            if not claims.is_unit(unit):
+            if not claims.is_unit(unit) or _grade(m):
                 continue
             label = " ".join(m.group("label").lower().strip(" :=-").split())
             if len(label) < 3 or not re.search(r"[a-z]{3}", label):

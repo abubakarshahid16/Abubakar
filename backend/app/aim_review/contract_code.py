@@ -477,7 +477,14 @@ def held_labels(
 
 
 def add_lines(conn, state, paper, allowed_books=frozenset()) -> int:
-    """THE hook (`engine._after_judge`, last): the contract's code lines appended to the decided lines. Returns how many."""
+    """THE hook (`engine._after_judge`, last): the contract's code lines appended to the decided lines. Returns how many. With
+    update 13's switch, first the AI lines that compare two ranked parts are decided by the order of precedence."""
+    from .updates import u13
+
+    if u13() and is_contract(state.identity):
+        from .contract_precedence import decide
+
+        decide(state.decided, paper.pages)
     new = lines(
         paper.pages,
         state.identity,

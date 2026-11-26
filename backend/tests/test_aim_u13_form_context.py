@@ -173,3 +173,50 @@ def test_on_g2_asks_for_each_definition_and_each_interval_on_any_kind_and_off_no
         assert always.G2_MORE in always.form_context({"equipment_type": etype})[0]
     monkeypatch.setattr(settings, "aim_u13_enabled", False)
     assert always.form_context({"equipment_type": None}) == ("", "")
+
+
+# ---- items 1 and 4 past the app's pairs: a count that disagrees with its list or another count; design below max for ANY property
+
+
+def test_on_g2_asks_for_counts_that_disagree_and_design_below_max_for_any_property_and_off_not(
+    monkeypatch,
+):
+    """Lead-4, 26 Nov 2026 (the FOUND list, items 1 and 4): the app's pairs name pressure, temperature, test pressure and flow
+    only; G2 now also names a count that disagrees with the items listed (or another count of them) and a design or rated value
+    below the stated maximum of ANY property. Kinds of check only: no field or type names. After the pairs, before the
+    definitions line, on every kind of paper (a type with no form too)."""
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    for etype in ("pressure_vessel", None):
+        g2 = always.form_context({"equipment_type": etype})[0]
+        assert always.G2_COUNTS in g2 and g2.index(always.G2_COUNTS) < g2.index(
+            always.G2_MORE
+        )
+        assert g2.startswith("PAIRS THAT MUST AGREE")  # the app's own pairs stay first
+    assert (
+        "COUNT" in always.G2_COUNTS
+        and "ANY property" in always.G2_COUNTS
+        and "code compares" in always.G2_COUNTS
+    )
+    monkeypatch.setattr(settings, "aim_u13_enabled", False)
+    assert always.form_context({"equipment_type": None}) == ("", "")
+
+
+def test_on_g2_asks_for_a_single_value_off_by_an_order_of_magnitude_as_an_ai_opinion_and_off_not(
+    monkeypatch,
+):
+    """Lead-4, 26 Nov 2026 (the FOUND list's near miss): a single value ten times or more off, with no second value on the paper
+    and no held rule, was asked only about its unit. G2 now asks for it as an AI opinion with the plausible range and the factor,
+    never as a code compare (there is no second value). Kinds of check only, on every kind of paper."""
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    for etype in ("pressure_vessel", None):
+        g2 = always.form_context({"equipment_type": etype})[0]
+        assert always.G2_SCALE in g2 and g2.index(always.G2_COUNTS) < g2.index(
+            always.G2_SCALE
+        ) < g2.index(always.G2_MORE)
+    assert (
+        "ORDER OF MAGNITUDE" in always.G2_SCALE
+        and "AI opinion" in always.G2_SCALE
+        and "code" not in always.G2_SCALE
+    )
+    monkeypatch.setattr(settings, "aim_u13_enabled", False)
+    assert always.form_context({"equipment_type": None}) == ("", "")

@@ -50,6 +50,58 @@ def contract_ids(allowed: frozenset[str]) -> list[str]:
     return [r["document_id"] for r in rows]
 
 
+#: The held standards are searched TOGETHER (one search over all of them; the owner, 26 Nov 2026: technical-query evidence includes
+#: company standards and the standards we hold): at most this many of their passages join the fair-share pool.
+STANDARD_HITS = 12
+
+
+def standard_entries(allowed: frozenset[str]) -> list[dict]:
+    """The held standards among `allowed` (ids the caller may read): the general review's own definition of a rule book
+    (`aim_review.library.usable`: a company standard by its recorded role, or an unroled public standard), as library entries."""
+    from .aim_review import library as L
+
+    ids = frozenset(str(d) for d in allowed if d)
+    if not ids:
+        return []
+    with connect() as conn:
+        return sorted(
+            (e for e in L.library(conn, within=ids) if L.usable(e)),
+            key=lambda e: e["id"],
+        )
+
+
+def standards_line(of: int, hits_in: int, failed: bool) -> str:
+    if of == 0:
+        return " No held standard that you may read: none was searched."
+    if failed:
+        return f" The {of} held standards you may read could not be searched."
+    return (
+        f" Searched the {of} held standards you may read together, hits in {hits_in}."
+    )
+
+
+#: What a passage's source is, said on each evidence row (the owner, 26 Nov 2026: "Show which source each passage comes from").
+SOURCE_CONTRACT, SOURCE_COMPANY, SOURCE_STANDARD, SOURCE_OTHER = (
+    "contract document",
+    "company standard",
+    "standard",
+    "document",
+)
+
+
+def source_of(conn, document_id: str) -> tuple[str, str]:
+    """(kind, name) of an evidence row's document, by its recorded role and its own number or file name (read at display time; a
+    viewer sees only rows of documents they may read)."""
+    from .aim_review import library as L
+
+    entry = next(iter(L.library(conn, within=frozenset({str(document_id)}))), None)
+    if entry is None:
+        return SOURCE_OTHER, ""
+    role = str(entry.get("document_role") or "")
+    kind = SOURCE_CONTRACT if role == ROLE else SOURCE_COMPANY if role == "COMPANY_STANDARD" else SOURCE_STANDARD if L.usable(entry) else SOURCE_OTHER  # fmt: skip
+    return kind, str(entry.get("title") or L.identifier_of(entry) or "")
+
+
 def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     if of == 0:
         return "No contract document that you may read is held: nothing was searched."
@@ -59,13 +111,84 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     return line
 
 
-def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[str, Any]:
-    """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, then
-    `fair_share` (every part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all). A search that fails is counted, logged by type, and never stops the others."""
+def _standard_parts(
+    question: str, standard_ids: list[str]
+) -> tuple[bool, list[list[dict]]]:
+    """(failed, the held standards' passages grouped by standard): ONE search over every held standard the caller may read."""
     from . import search
 
+    if not standard_ids:
+        return False, []
+    try:
+        res = search.search(question, limit=STANDARD_HITS, rerank=True, dense=True, allowed_document_ids=frozenset(standard_ids),
+                            candidates=WIDE_CANDIDATES, rerank_candidates=WIDE_SHORTLIST)  # fmt: skip
+    except Exception as exc:  # noqa: BLE001 - said in the coverage line; the contracts' passages stand
+        log.warning(
+            "technical query: the held standards could not be searched (%s)",
+            type(exc).__name__,
+        )
+        return True, []
+    by_doc: dict[str, list[dict]] = {}
+    for h in res.get("hits") or []:
+        if (h.get("text") or "").strip() and h.get("document_id") in set(standard_ids):
+            by_doc.setdefault(h["document_id"], []).append(h)
+    return False, list(by_doc.values())
+
+
+def _one(question: str, document_id: str) -> list[dict]:
+    """The general search of ONE contract (dense + rerank), its PER_CONTRACT best passages with text."""
+    from . import search
+
+    res = search.search(
+        question,
+        limit=PER_CONTRACT,
+        document_id=document_id,
+        rerank=True,
+        dense=True,
+        allowed_document_ids=frozenset({document_id}),
+        candidates=WIDE_CANDIDATES,
+        rerank_candidates=WIDE_SHORTLIST,
+    )
+    return [h for h in (res.get("hits") or []) if (h.get("text") or "").strip()][
+        :PER_CONTRACT
+    ]
+
+
+def search_all(
+    question: str,
+    allowed: frozenset[str],
+    progress=None,
+    cited_from: list[str] | None = None,
+) -> dict[str, Any]:
+    """`{"hits": [...best passages...], "coverage": {...}}`. FIRST, what the attached form itself cites (`cited_from`: the form's page
+    texts; `technical_query_cited.cited_first`, builders A and C): the cited part's clause, a cited part searched first, a clause with no
+    part from every part that holds it. THEN one search per contract (dense + rerank), PER_CONTRACT passages each, `fair_share` (every
+    part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all); a searched passage on the same page of the same part as one
+    listed first is not listed twice. A search that fails is counted, logged by type, and never stops the others. No form: as before."""
+    from . import technical_query_cited
+
     contracts = contract_ids(allowed)
-    hits: list[dict] = []
+    standards = standard_entries(frozenset(allowed) - frozenset(contracts))
+    first: dict = {"hits": [], "said": [], "cited": []}
+    if cited_from:
+        try:
+            first = technical_query_cited.cited_first(
+                cited_from,
+                contracts,
+                question,
+                lambda doc: _one(question, doc),
+                standards,
+            )
+        except Exception as exc:  # noqa: BLE001 - the form's citations are a first look; the general search still runs
+            log.warning(
+                "technical query: the form's citations could not be looked up (%s)",
+                type(exc).__name__,
+            )
+            first = {
+                "hits": [],
+                "said": ["the form's citations could not be looked up"],
+                "cited": [],
+            }
     per_part: list[list[dict]] = []
     searched = failed = hits_in = 0
     for n, document_id in enumerate(contracts, 1):
@@ -74,19 +197,7 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
                 n - 1, len(contracts), f"searching contract {n} of {len(contracts)}"
             )
         try:
-            res = search.search(
-                question,
-                limit=PER_CONTRACT,
-                document_id=document_id,
-                rerank=True,
-                dense=True,
-                allowed_document_ids=frozenset({document_id}),
-                candidates=WIDE_CANDIDATES,
-                rerank_candidates=WIDE_SHORTLIST,
-            )
-            found = [
-                h for h in (res.get("hits") or []) if (h.get("text") or "").strip()
-            ][:PER_CONTRACT]
+            found = _one(question, document_id)
         except Exception as exc:  # noqa: BLE001 - counted as not searched and said in the coverage line; the other contracts go on
             log.warning(
                 "technical query: a contract could not be searched (%s)",
@@ -97,13 +208,31 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
         searched += 1
         hits_in += 1 if found else 0
         per_part.append(found)
-    hits = fair_share(per_part)
+    std_failed, std_parts = _standard_parts(question, [e["id"] for e in standards])
+    per_part += std_parts
+    taken = {(h["document_id"], h["page_start"]) for h in first["hits"]}
+    hits = first["hits"] + [
+        h
+        for h in fair_share(per_part)
+        if (h.get("document_id"), h.get("page_start")) not in taken
+    ]
+    line = coverage_line(searched, len(contracts), hits_in, failed) + standards_line(
+        len(standards), len(std_parts), std_failed
+    )
+    said = first["said"]
     coverage = {
         "searched": searched,
         "of": len(contracts),
         "hits_in": hits_in,
         "failed": failed,
-        "line": coverage_line(searched, len(contracts), hits_in, failed),
+        "line": line
+        + (
+            " Looked up first, as the form cites them: " + "; ".join(said) + "."
+            if said
+            else ""
+        ),
+        "cited": first["cited"],
+        "cited_first": said,
     }
     return {"hits": hits, "coverage": coverage}
 
@@ -148,8 +277,23 @@ def below_floor(hits: list[dict], listed: int, hit: dict) -> bool:
     )
 
 
+def _searched(hits: list[dict], listed: int) -> tuple[list[dict], int]:
+    """The searched passages (a cited clause's passage set apart) and how many of `listed` were searched ones (the cited come first)."""
+    searched = [h for h in hits if not h.get("cited")]
+    return searched, max(0, listed - (len(hits) - len(searched)))
+
+
+def held_back(hits: list[dict], listed: int, hit: dict) -> bool:
+    """True when `hit` is not listed: a cited clause's passage never; a searched one past LISTED searched passages, or below the floor."""
+    if hit.get("cited"):
+        return False
+    searched, n = _searched(hits, listed)
+    return n >= LISTED or below_floor(searched, n, hit)
+
+
 def floor_note(hits: list[dict], listed: int) -> str:
     """The sentence that says how many found passages the floor left out (counted, never silent); "" when none."""
+    hits, listed = _searched(hits, listed)
     pool = hits[:MAX_PASSAGES]
     left = sum(
         1

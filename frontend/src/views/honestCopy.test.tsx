@@ -10,6 +10,10 @@ import { LoginView } from "./LoginView";
 import { ReportsScreen } from "./ReportsScreen";
 import { RunReviewControl } from "../components/review/panels/RunReviewControl";
 
+// The new look also lists the review CRS sheets on arrival (its own requests, its own tests in ReviewCrsList.test.tsx); this file
+// is about the answer reports, so that list is left out here in both looks.
+vi.mock("./ReviewCrsList", () => ({ ReviewCrsList: () => null }));
+
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("login footer", () => {
