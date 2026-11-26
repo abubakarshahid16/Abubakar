@@ -180,6 +180,15 @@ describe("Technical Queries screen", () => {
     expect(screen.getByTestId("last-checked").textContent).toMatch(/26 Nov 2026, \d{2}:\d{2}( \S+)?/);
   });
 
+  it("says how many listed messages were not imported and why, never 'imported' of those (first live import: 77 listed, 36 imported)", async () => {
+    const job = { id: "j", kind: "import", state: "done", total: 7, done: 7, failed: 0, error: null, failures: [], imported: 3, skipped: { "sent from this mailbox (your own replies)": 4 } };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: job }] } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("import-done")).textContent).toBe(
+      "Import finished: imported 3 of 7; 4 not imported: 4 sent from this mailbox (your own replies).",
+    );
+  });
+
   it("has a Check now button that queues one poll", async () => {
     const active = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: { id: "j", kind: "import", state: "done", total: 3, done: 3, failed: 0, error: null, failures: [] } };
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });

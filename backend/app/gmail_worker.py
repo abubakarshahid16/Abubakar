@@ -45,6 +45,25 @@ def _store_raw_email(raw: bytes) -> tuple[str, str]:
     return digest, str(path)
 
 
+#: Why a listed message is not imported (the import job counts each, so the screen never says "imported" of one that was not).
+OWN_MAIL = "sent from this mailbox (your own replies)"
+OTHER_LABEL = "not under the chosen label"
+
+
+def skip_reason(
+    message, label_id: str | None, mailbox_address: str | None
+) -> str | None:
+    """`OTHER_LABEL`, `OWN_MAIL`, or None for a message to import (the one rule `_process_message` and the import job's count share)."""
+    if label_id and label_id not in message.label_ids:
+        return OTHER_LABEL
+    if (
+        mailbox_address
+        and parseaddr(message.from_address)[1].casefold() == mailbox_address.casefold()
+    ):
+        return OWN_MAIL
+    return None
+
+
 def _process_message(
     client: GmailApiClient,
     message_id: str,
@@ -59,12 +78,7 @@ def _process_message(
     """Import one message with its PDF attachments. None when it is not one to import (another label, or the mailbox's own mail).
     `message` is the already fetched message (the import job fetches it first so a failure can be named by its subject)."""
     message = message or client.message(message_id)
-    if label_id and label_id not in message.label_ids:
-        return None
-    if (
-        mailbox_address
-        and parseaddr(message.from_address)[1].casefold() == mailbox_address.casefold()
-    ):
+    if skip_reason(message, label_id, mailbox_address):
         return None
     raw_hash, raw_ref = _store_raw_email(client.raw_message(message_id))
     item, duplicate = import_message(

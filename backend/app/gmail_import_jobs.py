@@ -14,6 +14,7 @@ into the code folder, so a development server that reloads on file changes is no
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import uuid
@@ -79,6 +80,9 @@ def create_tables(conn) -> None:
         conn.execute("ALTER TABLE gmail_import_jobs ADD COLUMN retry_at TEXT")
     if "attempts" not in job_columns:
         conn.execute("ALTER TABLE gmail_import_jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+    # {reason: count} of listed messages that were not imported (`gmail_worker.skip_reason`)
+    if "skipped_json" not in job_columns:
+        conn.execute("ALTER TABLE gmail_import_jobs ADD COLUMN skipped_json TEXT")
 
 
 def enqueue(mailbox_id: str, kind: str, label_id: str | None = None, *, run_now: bool = False) -> str:
@@ -136,12 +140,20 @@ def latest(conn, mailbox_id: str) -> dict | None:
     ):
         return None
     row = conn.execute(
-        "SELECT id,kind,state,total,done,failed,error,created_at,updated_at FROM gmail_import_jobs WHERE mailbox_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        "SELECT * FROM gmail_import_jobs WHERE mailbox_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1",
         (mailbox_id,),
     ).fetchone()
     if row is None:
         return None
-    job = dict(row)
+    keys = "id kind state total done failed error created_at updated_at".split()
+    job = {k: row[k] for k in keys}
+    try:
+        stored = row["skipped_json"] if "skipped_json" in row.keys() else None
+        job["skipped"] = json.loads(stored or "{}")
+    except ValueError:
+        job["skipped"] = {}
+    # "imported" counts only messages imported (or already held): a listed message that is not one to import is said apart
+    job["imported"] = max(0, (job["done"] or 0) - sum(job["skipped"].values()))
     job["failures"] = [
         {"subject": r["subject"] or "(no subject)", "reason": r["reason"]}
         for r in conn.execute(
@@ -337,13 +349,18 @@ def _try_again_later(job_id: str, tried: int, mailbox_id: str) -> None:
 def _import_one(
     job_id, client, box, label_id, admin_role, message_id, progress_failed, known_subject=None
 ) -> bool:
-    """One message, in its own transaction(s); returns True when imported (or already imported), False when it failed (counted and named)."""
+    """One message, in its own transaction(s); returns True when imported (or already imported), the reason (`gmail_worker.skip_reason`) when it is
+    not one to import, False when it failed (counted and named)."""
     from . import gmail_worker
 
     subject = known_subject
     try:
         message = client.message(message_id)
         subject = message.subject
+        skipped = gmail_worker.skip_reason(message, label_id, box["email"])
+        # listed but not one to import: counted with its reason, never as imported
+        if skipped:
+            return skipped
         gmail_worker._process_message(
             client, message_id, mailbox_id=box["id"], actor_user_id=box["owner_user_id"], admin_role=admin_role,
             label_id=label_id, mailbox_address=box["email"], message=message,
@@ -362,15 +379,18 @@ def _import(job_id, client, box, label_id, admin_role) -> None:
     ids = client.list_message_ids(label_id)
     _set(job_id, total=len(ids))
     done = failed = 0
+    skipped: dict[str, int] = {}
     for message_id in ids:
         if _stop.is_set():
             raise Interrupted()
         ok = _import_one(
             job_id, client, box, label_id, admin_role, message_id, lambda: None
         )
+        if isinstance(ok, str):
+            skipped[ok] = skipped.get(ok, 0) + 1
         done += 1 if ok else 0
         failed += 0 if ok else 1
-        _set(job_id, done=done, failed=failed)
+        _set(job_id, done=done, failed=failed, skipped_json=json.dumps(skipped))
         _checked(box["id"])
 
 

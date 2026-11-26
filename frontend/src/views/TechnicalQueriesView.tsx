@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
+import { skippedWords } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
@@ -241,8 +242,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         </div>)}
         {mailboxes.filter((mailbox) => mailbox.connection_state === "active").map((mailbox) => <div key={mailbox.id} className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200" data-testid="mailbox-status">
           <p>Mailbox {mailbox.email} is active. {mailbox.last_checked_at ? <>Last checked at <span data-testid="last-checked">{formatWhen(mailbox.last_checked_at)}</span>.</> : "Not checked yet."}</p>
-          {mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)) && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: imported {mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}. You can leave this page; it carries on.</p>}
-          {mailbox.import_job?.state === "done" && mailbox.import_job.kind === "import" && <p data-testid="import-done">Import finished: imported {mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}.</p>}
+          {mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)) && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: imported {mailbox.import_job.imported ?? mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}{skippedWords(mailbox.import_job)}. You can leave this page; it carries on.</p>}
+          {mailbox.import_job?.state === "done" && mailbox.import_job.kind === "import" && <p data-testid="import-done">Import finished: imported {mailbox.import_job.imported ?? mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}{skippedWords(mailbox.import_job)}.</p>}
           {(mailbox.import_job?.state === "failed" || (mailbox.import_job?.state === "queued" && mailbox.import_job.error)) && <p role="alert" className="text-warn-500">{mailbox.import_job?.error}</p>}
           {mailbox.import_job && mailbox.import_job.failures.length > 0 && <ul className="mt-1 list-disc pl-5 text-warn-500" data-testid="import-failures">{mailbox.import_job.failures.map((failure, index) => <li key={index}>{failure.subject}: {failure.reason}</li>)}</ul>}
           <button type="button" disabled={busy || importing} onClick={() => { setError(null); void technicalQueriesApi.checkNow(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }} className="mt-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Check now</button>

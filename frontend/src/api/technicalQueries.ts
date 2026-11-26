@@ -70,6 +70,17 @@ export interface MailboxImportJob {
   failed: number;
   error: string | null;
   failures: Array<{ subject: string; reason: string }>;
+  /** Messages imported (or already held): `done` less the listed messages that were not ones to import. */
+  imported?: number;
+  /** {reason: count} of listed messages that were not imported (sent from this mailbox, not under the label). */
+  skipped?: Record<string, number>;
+}
+
+/** "; 41 not imported: 41 sent from this mailbox (your own replies)" for a job that skipped messages; "" otherwise. */
+export function skippedWords(job: MailboxImportJob): string {
+  const parts = Object.entries(job.skipped ?? {}).filter(([, n]) => n > 0);
+  const total = parts.reduce((sum, [, n]) => sum + n, 0);
+  return total ? `; ${total} not imported: ${parts.map(([why, n]) => `${n} ${why}`).join(", ")}` : "";
 }
 
 export interface TechnicalQueryMailbox {
