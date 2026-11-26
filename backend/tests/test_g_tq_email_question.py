@@ -191,3 +191,34 @@ def test_a_line_every_mail_carries_and_a_link_s_question_mark_ask_nothing():
         M.email_question(real, common)
         == "Please confirm the invented flange rating.\nInvented Name\n+00 000 000"
     )
+
+
+def test_a_template_line_with_an_address_and_a_long_block_are_not_the_question():
+    # F's end-to-end test on update 13 (shapes; invented words): the shown question was a third of the mail, with template address lines
+    from app import technical_query_mail as M
+
+    template = (
+        "For invented queries write to invented.desk@owner-invented.example please."
+    )
+    long_block = "\n".join(
+        f"Invented line {n} of a forwarded mail, kept for the record."
+        for n in range(20)
+    )
+    mail = f"Dear All,\n\n{template}\n\nPlease confirm the invented flange rating.\n\n{long_block}"
+    got = M.email_question(mail)
+    assert "@" not in got and len(got) <= M.QUESTION_CAP
+    assert "Please confirm the invented flange rating." in got
+    asking_block = "\n".join(
+        f"Please keep invented line {n} of a forwarded mail in mind." for n in range(20)
+    )
+    assert (
+        M.email_question(f"Dear All,\n\n{asking_block}") == ""
+    )  # longer than a question even line by line: none
+
+
+def test_a_reference_number_line_is_never_the_form_s_question():
+    from app import technical_query_questions as Q
+
+    form = "Technical Query No: 123456789012\nRev. 01\nInvented title\nApproved"
+    assert Q.form_question([{"text": form}]) == ""
+    assert Q.form_question([{"text": "Question: 1234-5678-9012\nApproved"}]) == ""
