@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { request } from "../../api/core";
+import { hasArrayField, request } from "../../api/core";
 import type { AdminUser } from "../../types/admin";
 import type { AuthStatus } from "../../types/api";
 
@@ -26,7 +26,8 @@ export function TechnicalQueryReviewersSection({ users }: { users: AdminUser[] |
   const [meId, setMeId] = useState<string | null>(null); // the signed-in administrator: their own row offers no grant
 
   const load = useCallback(async () => {
-    const r = await request<Rows>("/technical-queries/reviewers");
+    // the shape is checked before use: an answer without its list is a failure said in words, never a crash (integrator, update 17)
+    const r = await request<Rows>("/technical-queries/reviewers", undefined, hasArrayField("items"));
     if (r.ok) { setReviewers(new Set(r.data.items.map((x) => x.id))); setFailure(null); }
     else if (!r.disconnected && r.error.code === "not_found") setReviewers("off"); // the feature is switched off: no section
     else setFailure(r.error.message);
@@ -36,7 +37,7 @@ export function TechnicalQueryReviewersSection({ users }: { users: AdminUser[] |
 
   async function change(userId: string, grant: boolean) {
     setBusy(userId); setFailure(null);
-    const r = await request<Rows>(`/technical-queries/reviewers/${encodeURIComponent(userId)}`, { method: grant ? "PUT" : "DELETE" });
+    const r = await request<Rows>(`/technical-queries/reviewers/${encodeURIComponent(userId)}`, { method: grant ? "PUT" : "DELETE" }, hasArrayField("items"));
     setBusy(null);
     if (r.ok) setReviewers(new Set(r.data.items.map((x) => x.id)));
     else setFailure(r.error.message);

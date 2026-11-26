@@ -73,6 +73,7 @@ function mockApi(me: Me | null, opts: { required?: boolean } = {}) {
       return Promise.resolve(json({ disciplines: [] }));
     }
     if (url.includes("/admin/grants")) return Promise.resolve(json({ documents: [] }));
+    if (url.includes("/technical-queries/reviewers")) return Promise.resolve(json({ items: [] })); // the Admin page's reviewers section
     if (url.includes("/documents")) return Promise.resolve(json([]));
     if (url.includes("/metrics")) return Promise.resolve(json({ refresh_seconds: 15 }));
     return Promise.resolve(json(healthOnline));
@@ -206,6 +207,7 @@ describe("an admin", () => {
       if (url.includes("/admin/users")) return Promise.resolve(json({ users: [] }));
       if (url.includes("/admin/disciplines")) return Promise.resolve(json({ disciplines: [] }));
       if (url.includes("/admin/grants")) return Promise.resolve(json({ documents: [] }));
+      if (url.includes("/technical-queries/reviewers")) return Promise.resolve(json({ items: [] }));
       if (url.includes("/documents")) return Promise.resolve(json([]));
       return Promise.resolve(json(healthOnline));
     });
