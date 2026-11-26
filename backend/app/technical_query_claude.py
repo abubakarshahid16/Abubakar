@@ -1,7 +1,9 @@
 """The consent record of a technical query's Claude draft (order 14; owner approved the lane on #1584 comment 7170031292).
 
-The engineer chooses which contract documents Claude may read for ONE query's draft; that choice is stored here BEFORE anything is sent:
-query id, the chosen document ids, who, when (ids only, no title and no text). It is this lane's own record, never chat's
+The engineer chooses which contract documents Claude may read for ONE query's draft, and the held standards of the query's kept, current
+evidence the engineer may read go with them (owner, 26 Nov 2026 23:00 PKT: "Claude may read standards passages to write a query reply,
+same as it does for reviews"); every file sent is stored here BEFORE anything is sent: query id, the document ids, who, when (ids only, no
+title and no text). It is this lane's own record, never chat's
 `per_request_consent`. The send itself goes through the ordinary Claude path (`reader_transport` under the `claude_spend` caps); the
 client register block, "Local only" and the money caps still stop it, and the draft's engine setting is local unless the owner changes it.
 """
