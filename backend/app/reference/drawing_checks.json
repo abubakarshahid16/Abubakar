@@ -1,0 +1,22 @@
+{
+ "_about": "What a senior engineer checks on ANY drawing, whatever the standards held for its subject (builder H, 26 Nov 2026: a planted drawing scored 1 of 10 because its checklist came from the subject's standards only; 123 of 190 points asked for things a drawing does not hold, and 0 values were compared by code). Read by `aim_review.always.form_context` for a paper the AI named a drawing, only with update 13 on: `consistency` joins G2's pairs (each is checked by code when the paper states both values: the AI quotes one and gives the other as rule_value), `required_entries` joins G3. Kinds of check only: no project, field value or standard is named here. Edit here, not in code.",
+ "consistency": [
+  {"text": "The date and the revision of the SAME sheet must agree wherever the set prints them (title block, revision table, notes); a later revision cannot carry an earlier date, and two sheets of one issue cannot disagree on the issue date."},
+  {"text": "A quantity must keep ONE unit across the set: a value printed in another unit, or with a unit that cannot be right for the quantity, is a finding (give both quotes)."},
+  {"text": "A pressure rating or class printed for a connection must cover the design pressure and temperature the set states for it (give the rating and the design value as rule_value)."},
+  {"text": "A wall thickness printed for a size and schedule must be the thickness that schedule gives for that size, and must not be below the minimum the set or its notes state (give both values)."},
+  {"text": "A clearance, spacing or distance shown must not be below the minimum the set's notes, general notes or legend state (give the shown value and the minimum as rule_value)."},
+  {"text": "A test pressure must not be below the ratio of the design pressure the notes or the cited code require (give the test pressure and the design pressure; state the ratio)."},
+  {"text": "A value the set prints twice (a note and a table, two views, two sheets) must agree."}
+ ],
+ "required_entries": [
+  "drawing number",
+  "sheet title",
+  "revision and its date",
+  "scale or 'not to scale'",
+  "prepared, checked and approved by",
+  "status or purpose of issue",
+  "units of measure",
+  "reference drawings or standards the sheet relies on"
+ ]
+}

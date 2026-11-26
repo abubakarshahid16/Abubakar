@@ -35,6 +35,13 @@ def u13() -> bool:
     return bool(settings.aim_u13_enabled)
 
 
+def with_always(items: list, always_items: list) -> list:
+    """The judge's order: with update 13 the always-on checks come FIRST (builder H, 26 Nov 2026: a 25-page paper hit the run cap
+    mid-judge and the paper's own consistency and required-entry checks, judged last, were among those never judged); off: as main,
+    the checklist's items, then the always-on checks."""
+    return [*always_items, *items] if u13() else [*items, *always_items]
+
+
 def formula_checks() -> bool:
     """The formula checks (`formulas.add_lines`), their own switch, ON (lead-4, update 9: proven by the free code-only replay);
     off: no formula lines, as main."""

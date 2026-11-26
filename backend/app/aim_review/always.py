@@ -129,6 +129,8 @@ def form_context(identity: dict) -> tuple[str, str]:
 
     if not u13():
         return "", ""
+    if str((identity or {}).get("kind") or "").strip().lower() == DRAWING:
+        return drawing_context()
     from app import datasheet_checks as DC
 
     rules = DC.load_rules()
@@ -167,6 +169,32 @@ def form_context(identity: dict) -> tuple[str, str]:
         if names
         else "",
     )
+
+
+#: The kind the AI names a drawing (`identity["kind"]`): its G2 pairs and G3 entries come from `reference/drawing_checks.json`.
+DRAWING = "drawing"
+
+
+def drawing_context() -> tuple[str, str]:
+    """(G2's pairs, G3's entries) for a paper named a drawing (builder H, 26 Nov 2026: a planted drawing scored 1 of 10; its checklist
+    asked only what the subject's standards ask, and none of its values was compared). The words are the app's own data
+    (`reference/drawing_checks.json`): kinds of consistency a drawing keeps, and the entries every drawing carries. ("", "") when the
+    file cannot be read (the review goes on with main's G2 and G3)."""
+    import json
+    from pathlib import Path
+
+    try:
+        data = json.loads((Path(__file__).resolve().parent.parent / "reference" / "drawing_checks.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        log.info("drawing checks not read (%s)", type(exc).__name__)
+        return "", ""
+    pairs = "\n".join(f"- {c['text']}" for c in data.get("consistency") or [] if isinstance(c, dict) and c.get("text"))
+    names = [str(n) for n in data.get("required_entries") or [] if n]
+    return (
+        "\n".join(x for x in ("PAIRS THAT MUST AGREE on a drawing set, wherever it states both:\n" + pairs if pairs else "",
+                               G2_COUNTS, G2_SCALE, G2_MORE) if x),
+        ("THE FORM OF THIS KIND OF PAPER requires these entries: " + "; ".join(names) + ". " + EACH_ENTRY) if names else "",
+    )  # fmt: skip
 
 
 def is_always(item_id) -> bool:

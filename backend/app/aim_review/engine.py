@@ -744,10 +744,8 @@ def _judge(
         for it in checklist.get("items") or []
         if isinstance(it, dict) and it.get("id")
     ]
-    # the three always-on checks of every review (G1 cited standards, G2 internal consistency, G3 required entries)
-    items += always.items(
-        text.conn, state.identity, checklist, allowed_books, paper.pages
-    )
+    # the three always-on checks (G1 cited standards, G2 consistency, G3 required entries); judged FIRST with update 13 (a run cap)
+    items = updates.with_always(items, always.items(text.conn, state.identity, checklist, allowed_books, paper.pages))  # fmt: skip
     judged, held_back, not_cited = [], set(), set()
     company = L.company_books_not_cited(text.conn, state.paper_id, books)
     for it in items:

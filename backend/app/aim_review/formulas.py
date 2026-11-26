@@ -210,6 +210,10 @@ class Check:
     )  # when it holds, the check proves Met (None: this check never proves Met)
     not_met: Rule  # when it holds, the check proves Not met
     words: str  # the plain sentence, "{a}" the left value, "{b}" the right, "{rel}" how they relate, "{f}" the clause's factor
+    #: label keys that, when the page states one, leave this check to another (a stronger check on the same clause fires instead)
+    unless: tuple = ()
+    #: the update switch the check waits for ("" = always): a new check never changes a review until its update is switched on
+    switch: str = ""
 
 
 @lru_cache(maxsize=1)
@@ -219,18 +223,27 @@ def _checks(mtime: float) -> tuple:  # noqa: ARG001 - the argument is the cache 
     for c in data["checks"]:
         rule = lambda r: Rule(r[0], r[1]) if r else None  # noqa: E731
         out.append(Check(c["id"], c["title"], Probe(c["ref"], c["probe"]), tuple(c["left"]), tuple(c["right"]),
-                         rule(c["met"]), rule(c["not_met"]), c["words"]))  # fmt: skip
+                         rule(c["met"]), rule(c["not_met"]), c["words"], tuple(c.get("unless") or ()), str(c.get("switch") or "")))  # fmt: skip
     return tuple(out)
 
 
 def checks() -> tuple:
     """The checks of `reference/formula_checks.json` (re-read when the file changes); () when it cannot be read."""
     try:
-        return _checks(PATH.stat().st_mtime)
+        return tuple(c for c in _checks(PATH.stat().st_mtime) if _switched_on(c.switch))
     except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
         log.info("formula checks not read (%s)", type(exc).__name__)
         _fault("the table of checks could not be read (" + type(exc).__name__ + ")")
         return ()
+
+
+def _switched_on(switch: str) -> bool:
+    """Is a check's update switch on? "" is always on; an unknown name is off (a check never runs on a switch the code does not know)."""
+    if not switch:
+        return True
+    from . import updates
+
+    return bool(getattr(updates, switch, lambda: False)())
 
 
 _REL = {">=": "not below", "<": "below", "<=": "not above", ">": "above"}
@@ -357,6 +370,8 @@ def lines(conn, paper, book_ids) -> list[dict]:
             continue  # the clause is not in a held book of this review: nothing is checked on its authority
         for page in sorted(per_page):
             try:
+                if any(per_page[page].get(key) for key in check.unless):
+                    continue  # a stronger check on the same clause has its value on this page
                 ops = _operands(check, per_page[page])
                 if ops is None or not _comparable(ops[1].unit, ops[3].unit):
                     continue
