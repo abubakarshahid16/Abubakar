@@ -14,6 +14,7 @@ from app.config import settings
 
 @pytest.fixture(autouse=True)
 def temp_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(gmail_import_jobs, "AUTO_START", False)  # jobs are run here by hand, never by the background thread
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "g.sqlite")
     db.reset_connection()

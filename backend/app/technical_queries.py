@@ -340,7 +340,8 @@ def _static_check_for(conn, document_id: str) -> dict[str, Any]:
     local = stored_paths.local(row["stored_path"]) if row else None
     if not local or not Path(local).is_file():
         return {"status": attachment_safety.NOT_SCANNED, "findings": []}
-    return attachment_safety.check_pdf(local)
+    with open(local, "rb") as stored:  # the check picks itself by the file's first bytes: a Word file is not read as a PDF
+        return attachment_safety.check_before_library(stored)
 
 
 def _source_pages(conn, document_id: str, start: int, end: int):
