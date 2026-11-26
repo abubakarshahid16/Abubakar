@@ -33,10 +33,10 @@ describe("the Dashboard after the design audit", () => {
       row({ label: "Deliverables", waiting: 2, done: 1, late: 1, lateStatus: "counted", lateNote: "of 2 open with a due date" }),
     ]} />);
     const tiles = screen.getAllByTestId("glance-tile");
-    expect(tiles.map((t) => t.textContent)).toEqual([
-      "Reviews5waitingno due dates1 done",
-      "Queries and CFCs33waitinglate: not counted0 done",
-      "Deliverables2waiting1 late1 done",
+    expect(tiles.map((t) => t.textContent)).toEqual([ // real spaces between the parts: read aloud or copied, never run together
+      "Reviews 5 waiting no due dates 1 done",
+      "Queries and CFCs 33 waiting late: not counted 0 done",
+      "Deliverables 2 waiting 1 late 1 done",
     ]);
     expect(within(tiles[2]).getByTestId("glance-late").className).toContain("text-danger-500");
     expect(within(tiles[1]).getByTestId("glance-late").className).not.toContain("text-danger-500");
