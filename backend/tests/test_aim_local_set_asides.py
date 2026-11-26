@@ -77,13 +77,17 @@ def test_retry_items_whose_answer_stays_cut_are_left_out_counted_and_never_stop_
         got = CL.s3_checklist(
             _RetryAlwaysCut(), IDENT, _books(_sel(3)), _Book(), "local"
         )
-    said = _said(calls)["aim_retry_dropped"]
-    # the 14 invented items all quote the rule wrongly and every retry answer is cut: none is kept, each is counted
-    assert said["count"] == 14 and not [
-        i for i in got["items"] if i["source"] == "held standard"
-    ]
+    said, capped = _said(calls)["aim_retry_dropped"], _said(calls)["aim_retry_capped"]
+    # the 14 invented items all quote the rule wrongly: the one retry call asks RETRY_LOCAL of them and every answer is cut;
+    # the rest are not asked (one retry call per batch). None is kept, each is counted once.
+    assert said["count"] == CL.RETRY_LOCAL and capped["count"] == 14 - CL.RETRY_LOCAL
+    assert not [i for i in got["items"] if i["source"] == "held standard"]
     assert said["sentence"].startswith(
-        "14 checklist items were left out: their rule quote was not found"
+        f"{CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found"
+    )
+    assert capped["sentence"] == (
+        f"{14 - CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found on the book page and were not "
+        "asked again (the local model makes one retry call per batch)."
     )
     with pytest.raises(StepFailed):  # Claude: a cut is raised, as before
         CL.s3_checklist(

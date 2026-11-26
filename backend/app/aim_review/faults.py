@@ -96,6 +96,8 @@ NOT_APPLIED_WORDS = {
     "aim_attack_cut": "{n} attack batch{es} {was} not used ({why}): the checklist was not attacked on those rules.",
     "aim_retry_dropped": "{n} checklist item{s} {was} left out: {its} rule quote was not found on the book page, and the "
     "answer when asked again for the rule's exact words was not used ({why}).",
+    "aim_retry_capped": "{n} checklist item{s} {was} left out: {its} rule quote was not found on the book page and {was} not "
+    "asked again ({why}).",
     "aim_repeat_cut": "{n} checklist answer{s} repeated {itself} and {was} cut at the first repeat ({why}).",
 }
 

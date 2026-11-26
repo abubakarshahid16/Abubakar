@@ -230,10 +230,9 @@ def test_the_checklist_retry_asks_in_small_groups_on_the_local_model_and_once_on
     with budget.using(budget.LOCAL):
         CL.s3_checklist(local, ident, sel, _Book(), "local")
     retries = lambda m: [c for c in m.calls if c["step"] == "aim_checklist_retry"]  # noqa: E731
-    assert (
-        len(retries(claude)) == 1
-        and len(retries(local)) == -(-14 // CL.RETRY_LOCAL) > 1
-    )
+    # local: ONE retry call per batch since F's run 09105c4b (18 retry calls ran it past the swap rule); was one per group
+    assert len(retries(claude)) == 1 and len(retries(local)) == 1
+    assert retries(local)[0]["prompt"].count('"topic"') == CL.RETRY_LOCAL
 
 
 class _Knowledge:
@@ -340,9 +339,8 @@ def test_on_the_local_model_a_cut_retry_answer_is_never_used_its_group_is_asked_
         for c in local.calls
         if c["step"] == "aim_checklist_retry"
     ]
-    assert (
-        max(sizes) > 2 and sum(s for s in sizes if s <= 2) == 14
-    )  # every item asked once in an answer that was not cut
+    # every item of the one retry call (RETRY_LOCAL of the 14; the rest are counted, not asked) asked once in an uncut answer
+    assert max(sizes) > 2 and sum(s for s in sizes if s <= 2) == CL.RETRY_LOCAL
     with pytest.raises(StepFailed):
         CL.s3_checklist(_Cuts(), ident, sel, _Book(), "claude-sonnet-5-5")
 

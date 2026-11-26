@@ -499,15 +499,17 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
         ]
         if bad:  # one retry: ask for the exact words of those items only
             retried += len(bad)
-            # on the local model in groups of RETRY_LOCAL (26 Nov 2026: one answer for every such item ran past its 8,000
-            # tokens and stopped the run); on Claude in one call, as before
+            # on the local model: the cited clause's words by code, then ONE call of at most RETRY_LOCAL items (26 Nov 2026:
+            # one answer for every such item ran past its 8,000 tokens; 18 calls ran past the swap rule); on Claude one call
             size = RETRY_LOCAL if is_local() else len(bad)
             fixed, ask = (
                 RT.by_code(  # local: the cited clause's own stored words first, no call (F's run 09105c4b)
                     bad, batch, lambda it: check_rule_quote(text, it, alias_to_book)
                 )
             )
-            for k in range(0, len(ask), size):
+            for k in range(
+                0, len(ask := RT.capped(ask, size)), size
+            ):  # local: one retry call per batch
                 fixed += RT.retried(model, ask[k : k + size], batch, carries, lead)
             ok_fixed = [
                 it
