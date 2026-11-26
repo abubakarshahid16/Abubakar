@@ -41,3 +41,11 @@ def test_the_late_count_keeps_the_filter(monkeypatch):
         conn.execute("UPDATE technical_queries SET contractor_name='Invented A' WHERE id=?", (a,))
     assert metrics("u1", True, False, contractor="Invented A")["overdue"] == 1
     assert metrics("u1", True, False, contractor="Invented B")["overdue"] == 0
+
+
+def test_an_empty_due_date_is_no_due_date(monkeypatch):
+    on(monkeypatch)
+    q = _query("late-empty")
+    _set(q, "drafting", "")
+    got = metrics("u1", True, False)
+    assert got["overdue"] == 0 and got["open_with_due_date"] == 0

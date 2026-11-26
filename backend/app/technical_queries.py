@@ -747,7 +747,10 @@ def metrics(
     marks = ",".join("?" for _ in CLOSED_STATUSES)
     with connect() as conn:
         due = conn.execute(
-            "SELECT COUNT(due_at) AS with_due, SUM(CASE WHEN substr(due_at,1,10) < date('now') THEN 1 ELSE 0 END) AS late"
+            # an empty due date is no due date (NULLIF); the day is UTC on both sides (date('now'), the screen's toISOString), so
+            # between 00:00 and 05:00 PKT a query due "yesterday" by the clock in Karachi is not late yet: consistent, said here
+            "SELECT COUNT(NULLIF(due_at,'')) AS with_due,"
+            " SUM(CASE WHEN NULLIF(due_at,'') IS NOT NULL AND substr(due_at,1,10) < date('now') THEN 1 ELSE 0 END) AS late"
             " FROM technical_queries" + where + (" AND " if where else " WHERE ") + f"status NOT IN ({marks})",
             (*args, *CLOSED_STATUSES),
         ).fetchone()
