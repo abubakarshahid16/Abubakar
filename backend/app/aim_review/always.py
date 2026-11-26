@@ -110,6 +110,15 @@ G2_COUNTS = (
     "and page; code compares them."
 )
 
+#: Update 14 (lead-4, 26 Nov 2026: the FOUND list's near miss, a single value off by an order of magnitude that the line asked
+#: only about its unit; no second value on the paper and no held rule). Plausibility by engineering knowledge, never a code compare.
+G2_SCALE = (
+    "ALSO: a single value that is implausible BY AN ORDER OF MAGNITUDE (ten times or more too high or too low) for what it "
+    "describes (a rate, frequency, probability, duration or size), even when nothing on the paper or in a held rule gives a "
+    "second value: say it is implausible, give the plausible range from engineering knowledge and the factor it is off by, as an "
+    "AI opinion quoting the paper. Do not only ask about its unit."
+)
+
 
 def form_context(identity: dict) -> tuple[str, str]:
     """(G2's pairs, G3's entries) from the app's OWN data for the paper's type, only with update 13 on (planner, 26 Nov 2026: the
@@ -144,6 +153,7 @@ def form_context(identity: dict) -> tuple[str, str]:
                 if pairs
                 else "",
                 G2_COUNTS,
+                G2_SCALE,
                 G2_MORE,
             )
             if x

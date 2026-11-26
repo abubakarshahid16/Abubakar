@@ -199,3 +199,24 @@ def test_on_g2_asks_for_counts_that_disagree_and_design_below_max_for_any_proper
     )
     monkeypatch.setattr(settings, "aim_u13_enabled", False)
     assert always.form_context({"equipment_type": None}) == ("", "")
+
+
+def test_on_g2_asks_for_a_single_value_off_by_an_order_of_magnitude_as_an_ai_opinion_and_off_not(
+    monkeypatch,
+):
+    """Lead-4, 26 Nov 2026 (the FOUND list's near miss): a single value ten times or more off, with no second value on the paper
+    and no held rule, was asked only about its unit. G2 now asks for it as an AI opinion with the plausible range and the factor,
+    never as a code compare (there is no second value). Kinds of check only, on every kind of paper."""
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    for etype in ("pressure_vessel", None):
+        g2 = always.form_context({"equipment_type": etype})[0]
+        assert always.G2_SCALE in g2 and g2.index(always.G2_COUNTS) < g2.index(
+            always.G2_SCALE
+        ) < g2.index(always.G2_MORE)
+    assert (
+        "ORDER OF MAGNITUDE" in always.G2_SCALE
+        and "AI opinion" in always.G2_SCALE
+        and "code" not in always.G2_SCALE
+    )
+    monkeypatch.setattr(settings, "aim_u13_enabled", False)
+    assert always.form_context({"equipment_type": None}) == ("", "")
