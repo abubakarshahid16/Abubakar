@@ -38,7 +38,7 @@ export interface TechnicalQuery {
   due_at: string | null;
   extracted_question_main?: string | null;
   extracted_question_folded?: string | null;
-  messages?: Array<{ id: string; is_inbound?: number | boolean; body_main?: string; body_folded?: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
+  messages?: Array<{ id: string; is_inbound?: number | boolean; body_main?: string; body_folded?: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; inline_picture?: number | boolean; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
@@ -173,7 +173,10 @@ export const technicalQueriesApi = {
   confirmResolution: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/confirm-resolution`, { method: "POST" }),
 };
 
-type QueryAttachment = { filename: string; media_type?: string | null; document_id: string | null; parse_status: string; scan_status: string };
+type QueryAttachment = { filename: string; media_type?: string | null; inline_picture?: number | boolean; document_id: string | null; parse_status: string; scan_status: string };
+
+/** A picture shown inside the mail body (a signature logo): counted apart, never an attachment to read. */
+export const isInlinePicture = (a: { inline_picture?: number | boolean }) => a.inline_picture === 1 || a.inline_picture === true;
 
 /** Why an attachment of a query was NOT read, in plain words, or null when it was read (its paper is in and ready). Nothing is silently
  *  missing: a picture, a macro file, a Word file and an unread PDF are each named (lead-4, 26 Nov 2026). */
@@ -195,8 +198,12 @@ export function notReadWhy(a: QueryAttachment): string | null {
 
 /** "3 of 7 attachments read" over every message of the query (the boundary: this query's attachments), with each one not read and why. */
 export function attachmentsRead(messages: Array<{ attachments: QueryAttachment[] }> | undefined): { line: string; notRead: Array<{ filename: string; why: string }> } | null {
-  const all = (messages ?? []).flatMap((m) => m.attachments);
-  if (!all.length) return null;
+  const every = (messages ?? []).flatMap((m) => m.attachments);
+  const all = every.filter((a) => !isInlinePicture(a));
+  const pictures = every.length - all.length;
+  if (!every.length) return null;
   const notRead = all.flatMap((a) => { const why = notReadWhy(a); return why ? [{ filename: a.filename, why }] : []; });
-  return { line: `${all.length - notRead.length} of ${all.length} attachment${all.length === 1 ? "" : "s"} read`, notRead };
+  const read = all.length ? `${all.length - notRead.length} of ${all.length} attachment${all.length === 1 ? "" : "s"} read` : "No attachments";
+  const signs = pictures ? `; ${pictures} signature picture${pictures === 1 ? "" : "s"}, not attachments` : "";
+  return { line: `${read}${signs}`, notRead };
 }

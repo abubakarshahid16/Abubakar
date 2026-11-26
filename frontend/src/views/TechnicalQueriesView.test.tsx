@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { notReadWhy } from "../api/technicalQueries";
+import { attachmentsRead, notReadWhy } from "../api/technicalQueries";
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -242,6 +242,8 @@ describe("Technical Queries screen", () => {
     expect(box.textContent).toContain("answer.docx: Word, not read yet");
     expect(box.textContent).toContain("calc.xlsm: macro file, not opened");
     expect(box.textContent).not.toContain("query.pdf");
+    expect(attachmentsRead([{ attachments: [att("query.pdf", "application/pdf", true), { ...att("logo1.png", "image/png", false), inline_picture: 1 }, { ...att("logo2.gif", "image/gif", false), inline_picture: 1 }] }])?.line)
+      .toBe("1 of 1 attachment read; 2 signature pictures, not attachments");
     expect(notReadWhy({ filename: "old.doc", document_id: null, parse_status: "pending", scan_status: "pending" })).toBe("older Word format (.doc), not read: save it as .docx");
     expect(notReadWhy({ filename: "x.docx", document_id: null, parse_status: "pending", scan_status: "static_check_flagged" })).toBe("Word with active content, its text is not used");
   });

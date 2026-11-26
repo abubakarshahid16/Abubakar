@@ -141,7 +141,11 @@ def _process_message(
         message.attachments, stored_message["attachments"], strict=True
     ):
         # a PDF or a Word (.docx) attachment is read; a picture, a macro file or another format is not (the page names each one not read)
-        if stored["document_id"] or not source["filename"].lower().endswith((".pdf", ".docx")):
+        if (
+            stored["document_id"]
+            or source.get("inline_picture")
+            or not source["filename"].lower().endswith((".pdf", ".docx"))
+        ):
             continue
         if source.get("attachment_id"):
             content = client.attachment(

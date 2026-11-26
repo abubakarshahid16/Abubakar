@@ -238,6 +238,11 @@ def _ensure_schema() -> None:
         for column in ("filed_at", "filed_by"):  # set when an engineer files the attachment into the library on purpose
             if column not in attachment_columns:
                 conn.execute(f"ALTER TABLE query_attachments ADD COLUMN {column} TEXT")
+        # a picture inside the mail body (a signature logo): never an attachment to read
+        if "inline_picture" not in attachment_columns:
+            conn.execute(
+                "ALTER TABLE query_attachments ADD COLUMN inline_picture INTEGER NOT NULL DEFAULT 0"
+            )
         evidence_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(query_evidence)")
         }
@@ -398,7 +403,8 @@ def _insert_attachments(
 ) -> None:
     for attachment in attachments:
         conn.execute(
-            "INSERT INTO query_attachments(id,message_id,filename,media_type,size_bytes,sha256,storage_ref,created_at) VALUES (?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_attachments(id,message_id,filename,media_type,size_bytes,sha256,storage_ref,created_at,inline_picture)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 str(uuid.uuid4()),
                 message_id,
@@ -408,6 +414,7 @@ def _insert_attachments(
                 attachment.get("sha256"),
                 attachment.get("storage_ref"),
                 now(),
+                1 if attachment.get("inline_picture") else 0,
             ),
         )
 

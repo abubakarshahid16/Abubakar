@@ -222,6 +222,18 @@ def _html_body(part: dict[str, Any]) -> str:
     )
 
 
+def inline_picture(part: dict[str, Any]) -> bool:
+    """A picture shown INSIDE the mail body (a signature logo, a banner): it has a Content-ID the body refers to as "cid:" and is not
+    sent as an attachment. Counted apart on the query ("N signature pictures, not attachments"), never uploaded or read."""
+    headers = _headers(part)
+    disposition = headers.get("content-disposition", "").strip().lower()
+    return (
+        str(part.get("mimeType", "")).lower().startswith("image/")
+        and bool(headers.get("content-id"))
+        and not disposition.startswith("attachment")
+    )
+
+
 def normalize_message(payload: dict[str, Any]) -> GmailMessage:
     headers = _headers(payload.get("payload") or {})
     attachments: list[dict[str, Any]] = []
@@ -237,6 +249,7 @@ def normalize_message(payload: dict[str, Any]) -> GmailMessage:
                     "size_bytes": int(body.get("size", 0)),
                     "attachment_id": body.get("attachmentId"),
                     "inline_data": body.get("data"),
+                    "inline_picture": inline_picture(part),
                 }
             )
         stack.extend(part.get("parts", []))
