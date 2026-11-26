@@ -108,7 +108,7 @@ def is_sheet(page) -> bool:
 
 def grid_regularity(page) -> float:
     """Axis-aligned segments (lines and rectangle edges) of the page's BODY (15% to 75% of its height) per distinct position they sit
-    on (2 pt). A table ruled cell by cell puts many segments on few row and column positions (about 15); a drawing's lines sit at
+    on (2 pt). A table ruled cell by cell puts many segments on few grid positions (about 15); a drawing's lines sit at
     many positions (1.8 to 4.2 on the real set measured). 0 when the body holds no segment."""
     m = page.rotation_matrix if page.rotation else None
     r = page.rect
