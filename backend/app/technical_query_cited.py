@@ -125,6 +125,7 @@ def lookup(
     from . import agent_review_standards
 
     hits: list[dict] = []
+    others: list[dict] = []  # the same number in other parts (builder C, goal G6): after every exact-part hit
     said: list[str] = []
     for part, clause in cited(texts):
         name = CC._name(part)
@@ -132,6 +133,8 @@ def lookup(
         docs = which(contracts, part)
         if not docs:
             said.append(f"{where}: not held among the contracts you may read")
+            if clause:
+                _other_parts(clause, contracts, docs, others, said)
             continue
         if len(docs) > 1:
             said.append(f"{where}: held more than once, not chosen")
@@ -143,6 +146,7 @@ def lookup(
             found = clause_passage(pages, clause)
             if found is None:
                 said.append(f"{where}: the clause was not found in that contract")
+                _other_parts(clause, contracts, docs, others, said)
                 continue
             page, text = found
             hits.append({"document_id": doc, "page_start": page, "page_end": page, "text": text, "locator": f"{name}, clause {clause}",
@@ -158,4 +162,14 @@ def lookup(
         said.append(
             f"{where}: searched first ({len(own)} passage{'s' if len(own) != 1 else ''})"
         )
-    return hits, said
+    return hits + others, said
+
+
+def _other_parts(clause: str, contracts: list[str], named: list[str], others: list[dict], said: list[str]) -> None:
+    """A citation the named part cannot settle: the same number in every OTHER readable part, each marked a different clause
+    (`technical_query_every_part`); its plain line follows the citation's own."""
+    from .technical_query_every_part import every_part
+
+    found, line = every_part(clause, contracts, exclude=frozenset(named))
+    others += found
+    said.append(line)

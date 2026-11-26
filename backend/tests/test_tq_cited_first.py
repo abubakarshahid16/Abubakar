@@ -96,11 +96,14 @@ def test_a_schedule_not_held_held_twice_or_a_clause_not_found_is_said_and_nothin
         ["Schedule F, clause 1.1"], [SCHED_C, SCHED_D], lambda doc: []
     )
     assert hits == [] and said == [
-        "Schedule F clause 1.1: not held among the contracts you may read"
+        "Schedule F clause 1.1: not held among the contracts you may read",
+        # builder C (goal G6): the same number is looked for in every other readable part, and the line says what came of it
+        "Clause 1.1: no other contract part (of 2 looked in) has a clause with this number.",
     ]
     hits, said = TC.lookup(["Schedule C, clause 9.9"], [SCHED_C], lambda doc: [])
     assert hits == [] and said == [
-        "Schedule C clause 9.9: the clause was not found in that contract"
+        "Schedule C clause 9.9: the clause was not found in that contract",
+        "Clause 9.9: no other contract part that you may read is held, so no other part was looked in.",  # builder C (goal G6)
     ]
     with library:
         _doc(
@@ -223,3 +226,12 @@ def test_an_attachment_named_after_its_schedule_on_the_line_is_that_schedules_at
     hits, said = TC.lookup([line], [SCHED_C, SCHED_D, "doc_zq_c_att2"], lambda doc: [])
     assert [(h["document_id"], h["page_start"]) for h in hits] == [("doc_zq_c_att2", 2)]
     assert said == ["Attachment II of Schedule C clause 3.1: found on page 2"]
+
+
+def test_a_clause_the_named_part_cannot_settle_is_looked_for_in_the_other_parts_after_the_exact_hits(library):
+    # builder C (goal G6): an invented Schedule D holds clause 9.9; the form cites it in Schedule C, which does not
+    with library:
+        _doc(library, "doc_zq_other", "ZQ-OTHER.pdf", "CONTRACT_DOCUMENT", {3: "9.9 Invented Other Clause\nThe invented other text applies.\n"})
+    hits, said = TC.lookup(["Schedule C, clause 9.9"], [SCHED_C, "doc_zq_other"], lambda doc: [])
+    assert [(h["document_id"], h["page_start"], h.get("same_number_other_part")) for h in hits] == [("doc_zq_other", 3, True)]
+    assert said[1].startswith("Clause 9.9: 1 of 1 other contract parts have a clause with the same number.")
