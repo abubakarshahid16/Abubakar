@@ -216,6 +216,17 @@ reads the batch, writes the rows through `clause_review._store_row` and closes t
   `MIN_RERANK_SCORE=-3.0`; `validate_citations` and `strip_half_citation` check output.
 - Analysis (`/api/analysis/*`) retrieves with `rerank=False, dense=False` (`analysis.py:517`).
 - Chat reuses none of the review's evidence/validation services (B9's target).
+- Records answers (update 14, #1926; builder C): `chat.ask` asks `chat_records.result` just after the collection summary and
+  BEFORE the library count and the Claude-first lane, only when no paper is picked and the conversation is not about one paper.
+  `chat_records.kind_of` checks `chat_db_tools.enabled()` (CHAT_DATABASE_TOOLS_ENABLED, off) FIRST, so with the switch off no
+  records question is answered at all, the list by kind included, and Chat goes on exactly as before (review of #1926: the
+  list by kind had answered with the switch off, naming papers with no document id a reopened chat could withhold, and taking
+  over questions about picked papers). With it on, code answers from the database on both engines with no model: signed
+  reviews, a paper's face review, technical queries waiting for evidence (their own visibility), papers by kind; each from the
+  reader's read set minus the register and the block list (`chat_db_tools._documents`). Queued for update 15
+  (`o14/u15-C-chat-privacy2`): every paper an answer names stored in `derived_document_ids` (withheld once unreadable),
+  `chat_model.history` skipping every records answer, and the block list applied to every document a comment names
+  (`tag_cross._papers`, `chat_db_tools.withheld_names`).
 
 ## 5. Access control
 
