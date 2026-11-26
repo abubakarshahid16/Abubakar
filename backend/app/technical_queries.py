@@ -1830,7 +1830,31 @@ def set_routing_rule(
                 actor_user_id, now(),
             ),
         )
+        _backfill_by_sender(conn)
     return list_routing_rules()
+
+
+def _backfill_by_sender(conn) -> int:
+    """A saved address or domain rule fills the blank contractor / department of the queries already held, from the sender of each
+    query's first mail, as the code rules do (lead-4, 26 Nov 2026: every held query kept "contractor not set" after a rule was saved).
+    Only blank fields; a value already set is kept. Returns how many queries changed."""
+    changed = 0
+    for q in conn.execute(
+        "SELECT id, contractor_name, department FROM technical_queries WHERE COALESCE(contractor_name,'')='' OR COALESCE(department,'')=''"
+    ).fetchall():
+        first = conn.execute(
+            "SELECT from_address FROM query_messages WHERE query_id=? AND is_inbound=1 ORDER BY received_at LIMIT 1", (q["id"],)
+        ).fetchone()
+        if first is None:
+            continue
+        contractor, department, source = _routed(conn, first["from_address"], q["contractor_name"] or None, q["department"] or None)
+        if source and (contractor, department) != (q["contractor_name"], q["department"]):
+            conn.execute(
+                "UPDATE technical_queries SET contractor_name=?, department=?, routing_source=?, updated_at=? WHERE id=?",
+                (contractor, department, source, now(), q["id"]),
+            )
+            changed += 1
+    return changed
 
 
 def delete_routing_rule(rule_id: str, is_admin: bool) -> list[dict[str, Any]]:
