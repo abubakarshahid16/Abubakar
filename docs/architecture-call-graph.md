@@ -119,6 +119,37 @@ only in `scripts/run_agent_review.py`.
 
 Section 2's line references above are still those of `1b445af`.
 
+## 2b. General review (`aim_review`): the one Review button since 18 Nov 2026 (added 26 Nov 2026, builder A, read from code)
+
+The old engine above is off behind its way-back switch (`REVIEW_OLD_ENGINE_ENABLED`). The Review button starts a general review job:
+`POST /api/reviews/start` -> `aim_review_jobs` (the job) -> `aim_review.run` -> `aim_review/engine.run` -> `engine._steps`, in order:
+page pictures (`pictures.read`, own switch `AIM_PAGE_PICTURES_ENABLED`, off), the stored paper (`paper.load_paper`, unread pages
+named by `unread`), naming (`steps.s1_identify`, step `aim_identify`), the checklist (`checklist`: selection `aim_select`, the
+build `aim_checklist` / `aim_checklist_knowledge`, the attack `aim_attack`), the judge (`aim_judge`, side by side), then
+`_after_judge`: the reference papers (`references`, `aim_reference`), the second read (`aim_second_read`), the whole-paper check
+(`aim_answered`) and the editor (`aim_edit`). Code decides each line (`steps._decide`: quotes, numbers, labels). The run is stored
+by `aim_review_store.finish_run`.
+
+**The ways out of a general review.**
+- **Every model call** goes through the run's ONE model object: `engine._Carried` around `ClaudeModel` (Claude) or
+  `local_model.LocalModel` (Local). `ClaudeModel.ask` holds the run's meter (USD cap), declares the call's documents
+  (`claude_approved.carrying(carries)`, which the approval gate checks), and sends through `reader_transport` and
+  `agent_claude._send_once`, so every call is a `claude_spend` ledger line under its own step name. `LocalModel` reaches only the
+  local engine (`model_transport`).
+- **Page pictures** are the exception: `pictures._Metered` -> `reasoning_provider.ClaudeProvider` -> `reader_transport`, charged to
+  the same run meter (step `aim_page_pictures`).
+- No other path in `aim_review` opens a connection.
+
+**The nine-role record** (`aim_review/roles.py`, with `AIM_U13_ENABLED` on; off, nothing is imported and no table is made).
+- `updates.nine_wrap` puts `roles.Recorded` around `engine._Carried`: every call writes a "sent" call row and one read row per
+  document it declares (the paper's pages by their marked text, a book's pages by its rules, pages and clause windows found in
+  the request, a reference paper's windows) BEFORE it is handed on, then its end state. A request holding the paper's pages
+  without declaring the paper is refused there.
+- The page-picture reader gets the same record (`Recorded.pictures`): page, picture count, checksum of the picture bytes.
+- `aim_review_jobs._roles_end` -> `roles.finish` writes each role's end state, calls, cost and counts when the run ends.
+- `scripts/nine_record_check.py` checks a run's record read-only, including that every ledger reservation of the run matches a
+  recorded call by step and documents.
+
 ## 3. Model and network layer
 
 Every module that can open a socket:
