@@ -165,6 +165,15 @@ def _load(
             raise DocumentGroupsError(
                 f"group {g}: `words` must be plain lower-case words"
             )
+        listed = row.get("equipment")
+        if listed is not None:
+            from .aim_review import library
+
+            known = {t["id"] for t in library.taxonomy()}
+            if not isinstance(listed, list) or any(e not in known for e in listed):
+                raise DocumentGroupsError(
+                    f"group {g}: `equipment` must list equipment types of the taxonomy"
+                )
     return data
 
 
@@ -211,16 +220,23 @@ def _words(text: str | None) -> set[str]:
 
 
 def _score(
-    row: dict, text: str, words: set[str], head: str | None
-) -> tuple[int, int, int, int]:
-    """How well a group names the paper, strongest first: its names standing whole in the text; its names whose every word stands in
-    the text in any order, plurals folded (update 14: a group's name is seldom written word for word in a subject or a file name); the
-    paper's equipment named by the group (the main word of the equipment type the review recorded, e.g. "pump"); the longest name."""
+    row: dict,
+    text: str,
+    words: set[str],
+    head: str | None,
+    equipment: str | None = None,
+) -> tuple[int, int, int, int, int]:
+    """How well a group names the paper, strongest first: the group LISTS the paper's equipment type (`equipment`: taxonomy ids an
+    owner or engineer assigned to the group, e.g. the relief valves of an instrument group, owner 26 Nov 2026); its names standing
+    whole in the text; its names whose every word stands in the text in any order, plurals folded (update 14: a group's name is seldom
+    written word for word in a subject or a file name); the paper's equipment named by the group (the main word of the equipment type
+    the review recorded, e.g. "pump"); the longest name."""
+    listed = int(bool(equipment) and equipment in (row.get("equipment") or ()))
     n, longest = _hits(row, text)
     names = [_words(w) for w in row["words"]]
     every = sum(1 for ws in names if ws and ws <= words)
     named = int(bool(head) and head in set().union(_words(row["label"]), *names))
-    return n, every, named, longest
+    return listed, n, every, named, longest
 
 
 def place(kind: str | None, texts, equipment: str | None = None) -> Placement:
@@ -237,6 +253,7 @@ def place(kind: str | None, texts, equipment: str | None = None) -> Placement:
     words = _words(text)
     eq = _norm(str(equipment or "").replace("_", " ")).split()
     head = _stem(eq[-1]) if eq else None
+    equip_id = str(equipment or "").strip().lower() or None
 
     # the client's own list, when loaded, is the only one a paper is placed in (the repository's groups are invented examples)
     own_list = {g: row for g, row in groups.items() if g in local} if local else groups
@@ -244,7 +261,7 @@ def place(kind: str | None, texts, equipment: str | None = None) -> Placement:
     def ranked(rows):
         return sorted(
             (
-                (_score(row, text, words, head), -i, g)
+                (_score(row, text, words, head, equip_id), -i, g)
                 for i, (g, row) in enumerate(rows)
             ),
             reverse=True,
@@ -258,14 +275,14 @@ def place(kind: str | None, texts, equipment: str | None = None) -> Placement:
                 for score, _i, g in ranked(
                     (g, row) for g, row in own_list.items() if row["family"] == fam
                 )
-                if any(score[:3])
+                if any(score[:4])
             ),
             None,
         )
         own = [g for g, row in own_list.items() if row.get("kind") == k]
         return Placement(fam, best or (own[0] if len(own) == 1 else None), KIND, None)
     top = ranked(own_list.items())
-    if top and any(top[0][0][:3]):
+    if top and any(top[0][0][:4]):
         g = top[0][2]
         fam = groups[g]["family"]
         return Placement(fam, g, GROUP, fams[fam]["route_kind"])

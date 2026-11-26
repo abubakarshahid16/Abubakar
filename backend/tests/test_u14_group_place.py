@@ -129,3 +129,48 @@ def test_route_places_the_paper_by_the_equipment_the_review_recorded(data):
     assert (
         out == ident
     )  # a paper with a kind keeps its identity: placement is recorded, the review is unchanged
+
+
+# ---- the owner's named equipment rule (26 Nov 2026, via lead-4): a group may LIST the equipment types it covers (taxonomy ids), e.g.
+# relief-valve datasheets under an instrument datasheet group whose names never say "valve". Same match logic, strongest signal.
+
+LISTED = {
+    **INVENTED,
+    "g15": {
+        "label": "Invented instrument data sheets",
+        "family": "datasheet",
+        "kind": "datasheet",
+        "words": ["invented instrument data sheets"],
+        "equipment": ["relief_valve"],
+    },
+    "g16": {
+        "label": "Invented valve sheets",
+        "family": "datasheet",
+        "kind": "datasheet",
+        "words": ["invented valve sheets"],
+    },
+}
+
+
+def test_a_group_that_lists_the_equipment_type_places_that_equipments_datasheets(data):
+    _local(data, LISTED)
+    p = DG.place("datasheet", ["Datasheet of the unit"], "relief_valve")
+    assert (p.how, p.family, p.group) == (
+        "kind",
+        "datasheet",
+        "g15",
+    )  # listed beats a group that only names "valve"
+    assert (
+        DG.place("datasheet", ["Datasheet of the unit"], "gate_valve").group == "g16"
+    )  # not listed: the word rule still works
+    assert (
+        DG.place("datasheet", ["Datasheet of the unit"], "centrifugal_pump").group
+        == "g11"
+    )
+
+
+def test_a_listed_equipment_type_must_be_one_of_the_taxonomy(data):
+    bad = {**LISTED, "g15": {**LISTED["g15"], "equipment": ["not_a_type"]}}
+    _local(data, bad)
+    with pytest.raises(DG.DocumentGroupsError, match="equipment"):
+        DG.table()
