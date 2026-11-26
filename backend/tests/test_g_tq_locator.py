@@ -169,3 +169,48 @@ def test_the_clause_holding_the_matched_words_wins_over_the_label_the_search_gav
             conn, passage, quote, key_terms("What warranty period applies?")
         )
     assert got == "10 INVENTED NEW CLAUSE"
+
+
+def test_a_short_quote_without_the_matched_words_is_located_by_the_whole_passage():
+    # run 9, Q7: the quote kept from the passage held none of the question's words; the answer's item stands earlier in the passage
+    from app import db
+    from app import technical_queries as TQ
+    from app.technical_query_match import key_terms
+
+    page = (
+        "Invented Schedule\n23.\nInvented grout curing record (Ref. Invented, Sub-Clause 2.8.4)\n"
+        "24.\nInvented painting record (Ref. Invented, Sub-Clause 7.5.4)\n25.\nInvented spare parts list for the invented start\n"
+        "(Ref. Invented, Sub-Clause 7.1.15)"
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('c9','c.pdf',?,1,'c.pdf','ready','2026-01-01')",
+            ("9" * 64,),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES ('c9',1,?,?,0,1)",
+            (page, len(page)),
+        )
+        passage = {"document_id": "c9", "page_start": 1, "page_end": 1, "text": page}
+        quote = "Invented spare parts list for the invented start"
+        got = TQ._matched_clause(
+            conn, passage, quote, key_terms("Which grout curing record is due?")
+        )
+    assert got == "Item 23 (refers to 2.8.4)"
+
+
+def test_a_numbered_table_passage_is_located_at_the_row_holding_the_matched_words():
+    from app.technical_query_match import key_terms, table_item
+
+    passage = (
+        "| Item | Invented record | Days |\n| 19. | Invented grout curing record (Ref. Invented, Sub-Clause 2.8.4) | 60 |\n"
+        "| 20. | Invented painting record (Ref. Invented, Sub-Clause 7.5.4) | 90 |\n| 21. | Invented spare parts list | 180 |"
+    )
+    terms = key_terms("Which grout curing record is due?")
+    assert table_item(terms, passage) == "Item 19 (refers to 2.8.4)"
+    assert (
+        table_item(terms, "| 19. | Invented grout curing record |") is None
+    )  # one row is not a list
+    article = "| 19. | Invented grout curing record (Ref. Invented, Art 30) | 60 |\n| 20. | Invented other | 90 |"
+    assert table_item(terms, article) == "Item 19 (refers to Art 30)"
+    assert table_item(key_terms("What colour is the roof?"), passage) is None

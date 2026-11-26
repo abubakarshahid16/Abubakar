@@ -1225,13 +1225,20 @@ def _matched_clause(conn, passage: dict, quote: str, terms: list[str]) -> str | 
     first (the passage spans clauses); None otherwise."""
     from . import technical_query_match
 
-    best = technical_query_match.best_sentence(terms or [], quote)
     start, document_id = passage.get("page_start"), passage.get("document_id")
-    if not best or not start or not document_id or _squash(quote).startswith(_squash(best)):
+    if not start or not document_id:
         return None
     end = max(start, passage.get("page_end") or start)
     on = "\n".join(_page_text(r) for r in _source_pages(conn, document_id, start, end))
-    return technical_query_match.heading_above(on, best)
+    if item := technical_query_match.table_item(terms or [], passage.get("text") or ""):
+        return item  # a numbered table: the row holding the matched words (run 9, Q7)
+    # the whole passage first (a short quote may hold none of the matched words), then the quote
+    for text in (passage.get("text") or "", quote):
+        best = technical_query_match.best_sentence(terms or [], text)
+        if best and not _squash(text).startswith(_squash(best)):
+            if found := technical_query_match.heading_above(on, best):
+                return found
+    return None
 
 
 def _locator_of(
@@ -1375,7 +1382,8 @@ def prepare_evidence(
         )
         listed = 0  # the best LISTED passages that stand on their pages are listed (from the fair-share pool of MAX_PASSAGES)
         for passage in hits[: technical_query_contracts.MAX_PASSAGES]:
-            if listed >= technical_query_contracts.LISTED:
+            floor = technical_query_contracts.below_floor(hits, listed, passage)
+            if listed >= technical_query_contracts.LISTED or floor:
                 break
             quote = (passage.get("text") or "").strip()
             if not quote:
@@ -1463,6 +1471,8 @@ def prepare_evidence(
                 ),
             )
         coverage.update(technical_query_match.coverage_of(terms, scores))  # counts, as information only
+        note = technical_query_contracts.floor_note(hits, listed)
+        coverage["line"] = (coverage.get("line") or "") + note
         top = max((h.get("rerank_score") for h in hits if h.get("rerank_score") is not None), default=None)
         coverage["top_rerank_score"] = None if top is None else round(float(top), 3)  # the best passage's own reranker score, a plain number
         conn.execute("UPDATE technical_queries SET evidence_coverage=? WHERE id=?", (json.dumps(coverage), query_id))
