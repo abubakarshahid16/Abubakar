@@ -62,6 +62,11 @@ STEP_GROUPS = {
     "second reader": ("aim_second_read",),
     "editor": ("aim_edit",),
 }
+#: A checklist answer on the local model ends at this many tokens (A's measure, 26 Nov 2026: four 14B checklist answers ran on to
+#: 8,192 tokens from 1,500 to 4,000 in, a runaway; a checklist call holds at most 24 items, which fit in about 4,000). A cut answer
+#: is never used (`stop_max_tokens`), so a runaway now ends sooner. Every other step keeps the profile's answer limit.
+CHECKLIST_MAX_TOKENS = 6_000
+STEP_MAX_TOKENS = dict.fromkeys(STEP_GROUPS["checklist"], CHECKLIST_MAX_TOKENS)
 #: What the judge's prompt says when it reads one page window of a longer paper (`prompts.WINDOW_LINE`).
 WINDOW_MARK = "THIS IS PART OF A LONGER PAPER"
 
@@ -149,7 +154,8 @@ class LocalModel:
         messages = (
             [{"role": "system", "content": system_text}] if system_text else []
         ) + [{"role": "user", "content": prompt}]
-        num_predict = max(1, min(int(max_tokens), int(self.budget.max_tokens)))
+        limit = min(int(self.budget.max_tokens), STEP_MAX_TOKENS.get(step, 1 << 30))
+        num_predict = max(1, min(int(max_tokens), limit))
         need = sum(context_budget.estimate_tokens(m["content"]) for m in messages)
         rec = CallRecord(
             step=step, model=name, prompt_chars=len(system_text) + len(prompt)
