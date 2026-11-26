@@ -11,6 +11,8 @@ import json
 import logging
 import re
 
+from app.blank_markers import STATED_NOT_OPEN, stated_despite
+
 from . import (
     CONTRACTOR_FILLED,
     PAPER_COMPARE_PASSED,
@@ -192,8 +194,8 @@ def _compare(
     quotes against a HELD rule's limit is decided by code too, whatever the AI's label: a fail is a Fail by code, a pass a Pass
     by code (18 Nov 2026 after live: the judge kept "Question" on filled-in figures, so code never compared them). When code
     reaches no verdict ("unclear", a paper-vs-paper pairing, a value it cannot read) the AI's label stands. A value left open
-    is never compared."""
-    held = it["source"] == HELD
+    is never compared, nor one flagged open that the quote states (an engineer checks it: a part of the form the quote misses may be blank)."""
+    held, deferred = it["source"] == HELD, deferred or STATED_NOT_OPEN in notes
     rule_quote = str(it.get("rule_quote") or "")
     if got := CN.decided(it, label, quote, notes, paper, deferred, _compare, nums):
         return got  # the local model gives few numbers: code reads them
@@ -221,8 +223,6 @@ def _compare(
 
 def _left_open(j: dict, quote: str, page, notes: list[str]) -> bool:
     """Left open? Never a figure filled in by the contractor (owner, 18 Nov 2026) or a value the verified quote states (#1887)."""
-    from app.blank_markers import STATED_NOT_OPEN, stated_despite
-
     filled = page is not None and _provisional_figure(quote)
     stated = page is not None and stated_despite(j, quote)
     notes += [CONTRACTOR_FILLED] if filled else [STATED_NOT_OPEN] if stated else []

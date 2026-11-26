@@ -65,3 +65,34 @@ def test_a_value_really_left_open_stays_open_and_an_unverified_quote_is_not_trus
         )
         is False
     )  # unchanged
+
+
+def test_a_value_flagged_open_that_the_quote_states_gets_no_verdict_from_code_on_either_route():
+    """Update 13 suite (integrator, 26 Nov 2026): the judge's "left open" against a quote that states the value is a disagreement an
+    engineer settles (a part of the form the quote does not show may still be blank): a Question, never "please state", and code
+    gives it no Pass or Fail, on the local route and on Claude. A value not flagged open is still compared by code (the control)."""
+    from app.aim_review import budget
+    from tests.test_aim_local_fixes import ANSWER, ITEM, PAPER
+
+    nums = {
+        "paper_value": "1.5",
+        "paper_unit": "mm",
+        "operator": ">=",
+        "rule_value": "3",
+        "rule_unit": "mm",
+    }
+    flagged = {**ANSWER, "deferred": True, "numbers": nums}
+    with budget.using(budget.LOCAL):
+        local = S._decide(ITEM, dict(flagged), PAPER, {}, "")
+    on_claude = S._decide(ITEM, dict(flagged), PAPER, {}, "")
+    for line in (local, on_claude):
+        assert (
+            line["label"] == "Question"
+            and not line["code_compare"]
+            and line["ask"] != S.ASK_OPEN
+        )
+        assert BM.STATED_NOT_OPEN in (line["code"] or "")
+    assert (
+        S._decide(ITEM, {**ANSWER, "numbers": nums}, PAPER, {}, "")["label"]
+        == "Not met"
+    )  # the control: compared by code

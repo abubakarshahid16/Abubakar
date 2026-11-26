@@ -327,7 +327,7 @@ def is_provisional_figure(quote: str | None) -> bool:
 
 
 #: The team note of a line the judge marked left open whose verified quote states the value (`states_value`, #1887).
-STATED_NOT_OPEN = "the paper states this value: it is not left open"
+STATED_NOT_OPEN = "the paper states this value, though it was read as left open: an engineer checks it; code does not compare it"
 
 
 def states_value(quote: str | None, field: str | None) -> bool:
