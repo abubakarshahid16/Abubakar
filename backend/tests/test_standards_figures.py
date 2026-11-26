@@ -45,10 +45,25 @@ def _list_enforced(monkeypatch, tmp_path):
 
 @pytest.fixture
 def book_pdf(tmp_path):
+    """Pages 1-3: a drawn figure over most of the page (a picture page); page 4: text only; page 5: a captioned figure among text."""
     path = tmp_path / "book.pdf"
     pdf = pymupdf.open()
     for _ in range(3):
-        pdf.new_page()
+        pdf.new_page().draw_rect(pymupdf.Rect(60, 60, 540, 780), fill=(0.8, 0.8, 0.8))
+    text = pdf.new_page()
+    for k in range(30):
+        text.insert_text(
+            (60, 60 + 22 * k),
+            f"Invented clause text line {k} of a rule book page with words only, no figure.",
+        )
+    cap = pdf.new_page()
+    for k in range(10):
+        cap.insert_text(
+            (60, 60 + 14 * k),
+            f"Invented clause text line {k} before the figure on this page of the book.",
+        )
+    cap.draw_rect(pymupdf.Rect(80, 260, 520, 600), fill=(0.8, 0.8, 0.8))
+    cap.insert_text((80, 640), "Figure 3 Invented arrangement")
     pdf.save(str(path))
     return path
 
@@ -139,3 +154,23 @@ def test_an_answer_with_no_rules_or_no_json_is_said_and_the_judged_sample_is_one
         {"book": "b", "page": 99, "state": "no_rule"}
     ]
     assert [x["page"] for x in standards_figures.judge_sample(lines)] == [1, 11, 21]
+
+
+@pytest.mark.parametrize("pages", [[4], [2, 4], [9]])
+def test_a_page_that_is_not_a_figure_or_picture_page_is_refused_and_nothing_is_sent(
+    conn, book_pdf, pages
+):
+    """Review of update 12, N2: the owner approved FIGURE pages; a text page (or a page the book does not have) is refused by the
+    picture-gap counter's own test, before anything is sent."""
+    reader, out = _Reader(ANSWER), io.StringIO()
+    with pytest.raises(standards_figures.NotFigurePage):
+        standards_figures.read_book(conn, "std", pages, book_pdf, out, provider=reader)
+    assert reader.packets == [] and out.getvalue() == ""
+
+
+def test_a_captioned_figure_among_text_is_a_figure_page_and_is_read(conn, book_pdf):
+    reader, out = _Reader(ANSWER), io.StringIO()
+    counts = standards_figures.read_book(
+        conn, "std", [5], book_pdf, out, provider=reader
+    )
+    assert counts[standards_figures.READ] == 1 and len(reader.packets) == 1
