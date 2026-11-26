@@ -66,7 +66,9 @@ def test_every_part_is_looked_up_and_the_parts_without_it_are_counted(monkeypatc
         ("con-c", 2, "4.2.1 Invented Lining", "4.2.1"),
     ]
     assert all(h["rerank_score"] == 1.5 for h in got["hits"])  # the reranker's own score of each passage
-    assert got["cited"] == [{"clause": "4.2.1", "found_in": 2, "of": 3, "failed": 0, "shortened": 0}]
+    assert got["cited"] == [
+        {"clause": "4.2.1", "part": None, "found_in": 2, "of": 3, "failed": 0, "shortened": 0, "not_listed": 0, "looked_in": "every"}
+    ]
     assert CI.coverage_line(got["cited"]) == "Clause 4.2.1 (cited): found in 2 of 3 contract parts."
 
 
@@ -128,3 +130,47 @@ def test_the_evidence_row_is_located_at_the_cited_clause(monkeypatch):
     rows = [(e["document_id"], e["page_start"], e["locator"]) for e in got["evidence"]]
     assert sorted(rows) == [("k1", 4, "4.2.1 Invented Lining"), ("k2", 4, "4.2.1 Invented Lining")]
     assert all(e["exact_quote"].startswith("4.2.1 Invented Lining") for e in got["evidence"])
+
+
+def test_a_standards_clause_is_not_a_contract_clause_and_a_named_part_is_kept():
+    refs = CI.cited_refs("Per ISO 12944 clause 5.1 and section 4.2 of Schedule B, and Appendix 2 clause 3.1; see 7.1.15.")
+    assert refs == [
+        {"clause": "4.2", "part": "schedule B"},
+        {"clause": "3.1", "part": "appendix 2"},
+        {"clause": "7.1.15", "part": None},
+    ]
+    assert CI.cited_refs("Requirement of XYZS 1234 Section 4.5.6 (Appendix 2) is not met.") == []
+    assert CI.names_part("Invented Schedule B - Scope.pdf", "schedule B") and not CI.names_part("Invented Schedule BB.pdf", "schedule B")
+    assert CI.names_part("Invented Form of Agreement.pdf", "agreement")
+
+
+def _hold(doc, filename, text, page=2):
+    hold_contract(doc, filename)
+    _page(doc, page, text)
+
+
+def test_a_named_part_is_looked_up_in_that_part_only(monkeypatch):
+    on(monkeypatch)
+    _no_reranker(monkeypatch, 1.0)
+    _hold("con-a", "Invented Schedule A.pdf", CLAUSE)
+    _hold("con-b", "Invented Schedule B.pdf", CLAUSE)
+    got = CI.in_every_part(CI.cited_refs("clause 4.2.1 of Schedule B"), ["con-a", "con-b"], "q")
+    assert [h["document_id"] for h in got["hits"]] == ["con-b"]
+    assert CI.coverage_line(got["cited"]) == "Clause 4.2.1 of Schedule B (cited): found in 1 of 1 parts named Schedule B."
+    # a part no held file names: every part is looked in, and the line says so
+    got = CI.in_every_part(CI.cited_refs("clause 4.2.1 of Schedule Q"), ["con-a", "con-b"], "q")
+    assert len(got["hits"]) == 2 and "No held part is named so; every part was looked in." in CI.coverage_line(got["cited"])
+
+
+def test_an_unnamed_clause_in_many_parts_lists_the_best_fits_and_counts_the_rest(monkeypatch):
+    on(monkeypatch)
+    docs = [f"con-{n}" for n in range(6)]
+    for n, doc in enumerate(docs):
+        _hold(doc, f"Invented part {n}.pdf", CLAUSE.replace("two coats", f"{n} invented coats"))
+    monkeypatch.setattr(
+        "app.reranker.rerank", lambda q, passages, batch=None: [(i, float(t.count("3 invented") * 5 + t.count("1 invented") * 4)) for i, t in passages]
+    )
+    got = CI.in_every_part(["4.2.1"], docs, "q")
+    assert [h["document_id"] for h in got["hits"]][:2] == ["con-3", "con-1"] and len(got["hits"]) == CI.CITED_PARTS_LISTED
+    assert got["cited"][0]["found_in"] == 6 and got["cited"][0]["not_listed"] == 3
+    assert "The 3 that best fit the question are listed; 3 more are not listed." in CI.coverage_line(got["cited"])

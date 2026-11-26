@@ -99,7 +99,7 @@ def search_all(question: str, allowed: frozenset[str], progress=None, cited: lis
         searched += 1
         hits_in += 1 if found else 0
         per_part.append(found)
-    numbers = technical_query_cited.cited_numbers(question) if cited is None else list(cited)
+    numbers = technical_query_cited.cited_refs(question) if cited is None else list(cited)
     found = technical_query_cited.in_every_part(numbers, contracts, question)
     taken = {(h["document_id"], h["page_start"]) for h in found["hits"]}
     hits = found["hits"] + [h for h in fair_share(per_part) if (h.get("document_id"), h.get("page_start")) not in taken]
