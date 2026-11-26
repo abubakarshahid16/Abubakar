@@ -120,19 +120,7 @@ def entries(
     from . import aim_review_face, review_jobs
 
     rows = _rows(conn, allowed, document_id)
-    meta = {
-        str(r["run_id"]): {
-            "review_run_id": str(r["run_id"]),
-            "submittal_document_id": r["paper_document_id"],
-            "created_at": r["created_at"],
-            "status": str(r["status"]),
-            "engine": aim_review_face.engine_of(conn, r),
-            "general_signoff": aim_review_face.signoff_state(conn, str(r["run_id"]))
-            if str(r["status"]) == "done"
-            else None,
-        }
-        for r in rows
-    }
+    meta = _meta(conn, rows)
     faces = aim_review_face.face_ids(list(meta.values()))
     out = []
     for r in rows:
@@ -196,6 +184,50 @@ def counts_for(conn, run_ids: list[str], allowed: frozenset[str]) -> dict[str, d
             if got is not None:
                 out[run_id] = got
     return out
+
+
+def _meta(conn, rows) -> dict[str, dict]:
+    """{run id: its id, paper, start, status, engine and sign-off}: what THE RULE of the face reads (`aim_review_face`)."""
+    from . import aim_review_face
+
+    return {
+        str(r["run_id"]): {
+            "review_run_id": str(r["run_id"]),
+            "submittal_document_id": r["paper_document_id"],
+            "created_at": r["created_at"],
+            "status": str(r["status"]),
+            "engine": aim_review_face.engine_of(conn, r),
+            "general_signoff": aim_review_face.signoff_state(conn, str(r["run_id"]))
+            if str(r["status"]) == "done"
+            else None,
+        }
+        for r in rows
+    }
+
+
+def face_fields(conn, allowed: frozenset[str], run_id: str) -> dict | None:
+    """ONE general run's own fields as its row in the runs list carries them (method, engine and its words, sign-off, whether it is
+    its paper's face, the note naming a newer review), without building any review's counts (lead-4, 26 Nov 2026: `GET
+    /api/reviews/runs/{id}` left them out, so the review page could not tell it had opened the signed Claude review and drew the
+    paper's newer local rough draft). None when it is not a general run of a paper the caller may read."""
+    from . import aim_review_face
+
+    row = conn.execute(f"SELECT paper_document_id FROM {aim_review_store.RUNS} WHERE run_id = ?", (run_id,)).fetchone() if (
+        aim_review_store.has_tables(conn)) else None  # fmt: skip
+    if row is None:
+        return None
+    meta = _meta(conn, _rows(conn, allowed, row["paper_document_id"]))
+    if run_id not in meta:
+        return None  # rule 5: a paper the caller may not read is not answered
+    face = run_id in aim_review_face.face_ids(list(meta.values()))
+    return {
+        "method": GENERAL,
+        "engine": meta[run_id]["engine"],
+        "engine_words": aim_review_face.engine_words(meta[run_id]["engine"]),
+        "general_signoff": meta[run_id]["general_signoff"],
+        "face": face,
+        "newer_note": aim_review_face.newer_words(list(meta.values()), run_id) if face else None,
+    }
 
 
 def is_general(conn, run_id: str) -> bool:
