@@ -36,7 +36,7 @@ export function VersionsSection({ run, onOpenRun }: { run: RunWithVersions; onOp
         <Fact label="Standards not used in this review (used last time)" testId="versions-removed"
           fact={{ value: change ? change.removed : null, source: "standards_change.removed" }} />
       </FactList>
-      <p className="text-sm text-slateish-300">Run id: <code className="rounded bg-ink-800 px-1">{run.review_run_id}</code></p>
+      <p className="text-sm text-slateish-300">Review number: <code className="rounded bg-ink-800 px-1">{run.review_run_id}</code></p>
     </HowSection>
   );
 }

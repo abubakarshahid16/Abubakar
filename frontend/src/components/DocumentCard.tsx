@@ -247,7 +247,7 @@ export function DocumentCard({
           )}
 
           <p className="mt-2 text-xs text-slateish-400">
-            {nf.format(doc.chunk_count)} searchable of {nf.format(doc.chunk_count_total)} chunks
+            {nf.format(doc.chunk_count)} searchable of {nf.format(doc.chunk_count_total)} parts of pages
             {excluded > 0 && <> · {nf.format(excluded)} excluded</>}
             {/* A FACT, not a badge. "12 of 546 pages read by OCR" tells the
                 reader what happened; an amber pill would tell them something
@@ -268,7 +268,7 @@ export function DocumentCard({
           {/* "passages", the word the Dashboard defines. The same object was
               called sections, chunks and passages across three screens, and
               "inspect" and "stages" are developer vocabulary. */}
-          <Action label="Passages" onClick={() => actions.onInspect(doc)} primary />
+          <Action label="Page parts" onClick={() => actions.onInspect(doc)} primary />
           <Action label="Excluded" onClick={() => actions.onExcluded(doc)} />
           <Action label="Preview" onClick={() => actions.onPreview(doc)} />
           {/* "Pages" renders the EXTRACTED pages this system indexed;
@@ -293,7 +293,7 @@ export function DocumentCard({
           {showStages && (
             <>
               <Action label="Extract" onClick={() => actions.onExtract(doc)} disabled={busy} />
-              <Action label="Chunk" onClick={() => actions.onChunk(doc)} disabled={busy} />
+              <Action label="Split into parts" onClick={() => actions.onChunk(doc)} disabled={busy} />
               <Action label="Embed" onClick={() => actions.onEmbed(doc)} disabled={busy} />
             </>
           )}
@@ -455,7 +455,7 @@ export function DocumentCard({
             Only {Math.round(ratio * 100)}% of this document is searchable
           </p>
           <p className="mt-1 text-slateish-300">
-            {nf.format(excluded)} of {nf.format(doc.chunk_count_total)} chunks were excluded —
+            {nf.format(excluded)} of {nf.format(doc.chunk_count_total)} parts of pages were left out —
             below the {Math.round(LOW_RETRIEVABLE_THRESHOLD * 100)}% threshold. If this layout is
             unfamiliar, the quality gate may be over-rejecting it.
           </p>

@@ -42,7 +42,7 @@ const UNDECIDED = new Set(["", "unknown", "not decided", "not known"]);
 const has = (text: string, needle: string) => text.toLowerCase().includes(needle);
 
 export const GENERAL_NO_RULES =
-  "General review: no rule was asked. Rule books the paper cites that we do not hold are listed below.";
+  "Review without rule books: no rule was asked. Rule books the paper cites that we do not hold are listed below.";
 
 /** Words for the left-out counts of one book: "needs a human 3, needs another paper 2"; nothing when none. */
 export function leftOutWords(left: Record<string, number>): string {
@@ -119,7 +119,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
       <header className="space-y-1">
         <h2 className="text-lg font-semibold text-slateish-100">Rules used</h2>
         <p className="text-sm text-slateish-100">
-          Paper kind: <span className="font-medium">{undecided ? "not decided" : data.paper_kind}</span>
+          Type of paper: <span className="font-medium">{undecided ? "not decided" : data.paper_kind}</span>
           {data.equipment_type ? <> · Equipment type: <span className="font-medium">{humanizeCode(data.equipment_type)}</span></> : null}
         </p>
         <PaperTextNotice paperText={data.paper_text} />
@@ -141,7 +141,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
         )}
         {data.other_books != null && (
           <p data-testid="other-books" className="text-sm text-slateish-100">
-            AI-approved rules of this paper kind in rule books this review did not select: {data.other_books.ai_approved_rules} in{" "}
+            AI-approved rules for this type of paper in rule books this review did not select: {data.other_books.ai_approved_rules} in{" "}
             {data.other_books.books} book{data.other_books.books === 1 ? "" : "s"} (counted over {data.other_books.boundary}). They were not asked.
           </p>
         )}
@@ -190,7 +190,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
               ? `No rule was asked. ${data.paper_text?.sentence ?? ""}`
               : data.stop_reason
                 ? plainStop(data.stop_reason)
-                : undecided ? "No rule was asked: the paper kind could not be decided." : "No rule was asked of this paper."}
+                : undecided ? "No rule was asked: the type of paper could not be decided." : "No rule was asked of this paper."}
           </p>
         ) : asked.length === 0 ? (
           <p className="text-sm text-slateish-300">No asked rule matches the filter.</p>
@@ -200,7 +200,7 @@ export function RulesUsedView({ data, general = false }: { data: AgentRulesUsed;
               <caption className="sr-only">Rules asked of this paper</caption>
               <thead className="text-xs text-slateish-400">
                 <tr>
-                  {["Rule book", "Clause", "Quote", "Paper kind", "Field", "Equipment", "Approval"].map((h) => (
+                  {["Rule book", "Clause", "Quote", "Type of paper", "Field", "Equipment", "Approval"].map((h) => (
                     <th key={h} scope="col" className="py-1 pr-3">{h}</th>
                   ))}
                 </tr>

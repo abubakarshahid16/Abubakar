@@ -18,7 +18,7 @@ const L = (over: Partial<AgentLine>): AgentLine => ({
 describe("plainReason: what the code saw, in words", () => {
   const table: [string, string][] = [
     ["second opinion model is the same or unknown; first verdict GREEN",
-      "The second check could not be shown to come from a different model, so this stays an opinion."],
+      "The second check could not be shown to come from a different AI, so this stays an opinion."],
     ["second opinion disagreed; first verdict RED", "The second AI reader disagreed with the first."],
     ["no second opinion; first verdict GREEN", "No second AI reader checked this, so it stays an opinion."],
     ["the AI did not give pass or fail", "The AI did not decide."],
@@ -45,7 +45,7 @@ describe("plainReason: what the code saw, in words", () => {
 
 describe("lineName: what a line is, not its id", () => {
   it("a checklist point and a rule", () => {
-    expect(lineName(L({}))).toEqual({ title: "Checklist point 4 (Book A 4.2)", id: "S-EQ-04" });
+    expect(lineName(L({}))).toEqual({ title: "Check 4 (Book A 4.2)", id: "S-EQ-04" });
     expect(lineName(L({ item_id: "R-614e60d6-1111-2222-3333-444455556666" })).title).toBe("Rule: Book A 4.2");
     expect(lineName(L({ item_id: "X9", rule_book: "", clause: "" })).title).toBe("Point");
   });

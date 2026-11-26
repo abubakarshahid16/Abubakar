@@ -132,7 +132,7 @@ describe("AgentLines: Not reviewed and checklist items", () => {
   it("a null rule tier (checklist item) renders as checklist item, not blank or null", async () => {
     lines.mockResolvedValue(ok([line({ item_id: "C1", rule_tier: null })]));
     render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
-    expect((await screen.findByText("Checklist item"))).toBeInTheDocument();
+    expect((await screen.findByText("Check"))).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/null/);
   });
 });
@@ -153,7 +153,7 @@ describe("AgentLines: guards both ways, tier words, the not-approved block", () 
     ]));
     render(<AgentLines runId="r1" onOpenTrace={() => {}} />);
     await screen.findByTestId("word-T1");
-    expect(within(screen.getByTestId("word-T1").closest("tr")!).getByText("Checklist item")).toBeInTheDocument();
+    expect(within(screen.getByTestId("word-T1").closest("tr")!).getByText("Check")).toBeInTheDocument();
     expect(within(screen.getByTestId("word-T2").closest("tr")!).getByText("tier not given")).toBeInTheDocument();
   });
   it("the not-yet-approved block says none was asked when there are none (all pages loaded)", async () => {
@@ -203,7 +203,7 @@ describe("AgentLines: general review", () => {
     expect(screen.getByText("Engineering comment")).toBeInTheDocument();
     const rows = screen.getAllByRole("row").map((r) => r.textContent ?? "");
     expect(rows.findIndex((r) => r.includes("N1"))).toBeLessThan(rows.findIndex((r) => r.includes("N2")));
-    expect(screen.getByTestId("model-words-N2")).toHaveTextContent("the model's words, not a quote");
+    expect(screen.getByTestId("model-words-N2")).toHaveTextContent("the AI's words, not a quote");
     expect(screen.queryByTestId("model-words-N1")).toBeNull();
   });
   it("a rule review has no Part column", async () => {

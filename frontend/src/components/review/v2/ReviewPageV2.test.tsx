@@ -148,13 +148,13 @@ describe("1 the header", () => {
     expect(line).toHaveTextContent("12 pages");
     // ONE line says the guess once: the chip says it, the line does not repeat it.
     expect(screen.getByTestId("kind-chip")).toHaveTextContent("Datasheet?");
-    expect(line.textContent ?? "").not.toMatch(/kind decided by/);
+    expect(line.textContent ?? "").not.toMatch(/type decided by/);
     expect((line.textContent ?? "").match(/guess/gi)).toHaveLength(1);
   });
   it("a confirmed kind says who decided it", async () => {
     api.ofDocument.mockResolvedValue(ok({ document_kind: "datasheet", document_kind_state: "confirmed", equipment_type: "pressure_relief_valve" }));
     mount(); await loaded();
-    await waitFor(() => expect(screen.getByTestId("v2-kind-line")).toHaveTextContent("kind decided by an engineer"));
+    await waitFor(() => expect(screen.getByTestId("v2-kind-line")).toHaveTextContent("type decided by an engineer"));
   });
   it("has ONE engine choice with Automatic preselected and ONE Review button; the old two buttons are not here", async () => {
     mount(); await loaded();
@@ -186,7 +186,7 @@ describe("2 the engine line", () => {
   it("says the engine, what leaves, and the cost as about x, limit y", async () => {
     mount(); await loaded();
     const line = await screen.findByTestId("v2-engine-line");
-    expect(line).toHaveTextContent("Engine: Claude. Text of this paper and of 4 rule books will leave this computer.");
+    expect(line).toHaveTextContent("Reviewed by: Claude. Text of this paper and of 4 rule books will leave this computer.");
     expect(line).toHaveTextContent("Cost: about USD 0.50, limit USD 30");
   });
   it("shows the limit alone when no earlier review has a real cost", () => {
@@ -201,7 +201,7 @@ describe("2 the engine line", () => {
     })));
     mount(); await loaded();
     const line = await screen.findByTestId("v2-engine-line");
-    expect(line).toHaveTextContent("Engine: this computer. No text leaves this computer.");
+    expect(line).toHaveTextContent("Reviewed by: this computer. No text leaves this computer.");
     expect(line).toHaveTextContent("The AI review will not run: the rule check runs on this computer.");
     expect(line).not.toHaveTextContent("Cost:");
   });
@@ -1026,7 +1026,7 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.getByTestId("general-how")).toHaveTextContent("Invented Public Standard");
     expect(screen.getByTestId("general-unlisted")).toHaveTextContent("2 more rule book(s) apply to this paper");
     const history = await screen.findByTestId("general-history");
-    expect(history).toHaveTextContent("General review");
+    expect(history).toHaveTextContent("Current method");
     expect(history).toHaveTextContent("Earlier version");
   });
 

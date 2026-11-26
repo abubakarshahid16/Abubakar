@@ -311,7 +311,7 @@ describe("Technical Queries screen", () => {
     api.routingRules.mockResolvedValue({ ok: true, data: { items: [] } });
     api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "Unmapped", contractor_name: null }] } });
     render(<TechnicalQueriesView />);
-    expect(await screen.findByText(/contractor not set: add its code under Routing rules/)).toBeTruthy();
+    expect(await screen.findByText(/contractor not set: add its code under Rules for who it goes to/)).toBeTruthy();
     expect(screen.queryByText(/Unknown contractor/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     const options = Array.from((screen.getByLabelText("Rule type") as HTMLSelectElement).options).map((o) => o.textContent);
@@ -397,7 +397,7 @@ describe("Technical Queries screen", () => {
     const toggle = screen.getByRole("button", { name: "Filters" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     const connect = await screen.findByText("Connect Gmail");
-    const list = screen.getByLabelText("Technical query queue");
+    const list = screen.getByLabelText("Technical query list");
     expect(connect.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // Connect Gmail comes before the list
     expect(toggle.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(toggle);

@@ -93,7 +93,7 @@ export function WorkerPanel({
         className="rounded-lg border border-ink-700 bg-ink-850 p-4"
       >
         <h2 id="worker-heading" className="text-sm font-medium text-slateish-200">
-          Ingestion worker
+          Background reader
         </h2>
         <p className="mt-2 text-sm text-slateish-400">Checking&hellip;</p>
       </section>
@@ -107,7 +107,7 @@ export function WorkerPanel({
         className="rounded-lg border border-ink-700 bg-ink-850 p-4"
       >
         <h2 id="worker-heading" className="text-sm font-medium text-slateish-200">
-          Ingestion worker
+          Background reader
         </h2>
         <p className="mt-2 text-sm text-warn-500">
           Unknown &mdash; the backend is not reachable.
@@ -147,7 +147,7 @@ export function WorkerPanel({
     >
       <div className="flex items-center justify-between">
         <h2 id="worker-heading" className="text-sm font-medium text-slateish-200">
-          Ingestion worker
+          Background reader
         </h2>
         <span
           role="status"
@@ -169,7 +169,7 @@ export function WorkerPanel({
       {alarm && (
         <div role="alert" className="mt-3 text-sm text-danger-500">
           <p className="font-medium">
-            Nothing is being processed, and the queue is not moving.
+            Nothing is being read, and the waiting files are not moving.
           </p>
           <ul className="mt-1 list-inside list-disc text-xs">
             {(worker?.stalled_reasons ?? []).map((r: string) => (
@@ -206,7 +206,7 @@ export function WorkerPanel({
             Ingestion view already carried this caption; it belongs wherever
             the number does. */}
         <Stat
-          label="completed since the worker started"
+          label="finished since the reader started"
           value={String(worker.documents_completed)}
         />
       </dl>
@@ -217,7 +217,7 @@ export function WorkerPanel({
           <>
             Working on <span className="font-medium text-slateish-200">{currentName}</span>
             {current && current.chunk_count > 0
-              ? ` — ${current.embedded_count.toLocaleString()} of ${current.chunk_count.toLocaleString()} passages embedded`
+              ? ` — ${current.embedded_count.toLocaleString()} of ${current.chunk_count.toLocaleString()} parts of pages made searchable`
               : ""}
           </>
         ) : (

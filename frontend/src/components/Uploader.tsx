@@ -285,7 +285,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
                     <span className="text-warn-500">already uploaded</span>
                   )}
                   {item.state.phase === "done" && !item.state.awaitingGrant && !item.state.duplicateOf && (
-                    <span className="text-signal-400">queued for processing</span>
+                    <span className="text-signal-400">waiting to be read</span>
                   )}
                   {item.state.phase === "error" && (
                     <span className="text-danger-500">{item.state.code}</span>

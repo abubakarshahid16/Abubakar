@@ -25,13 +25,13 @@ export function TimeSection({ run, onOpenSteps }: { run: ReviewRunSummary; onOpe
           fact={{ value: seconds === null ? null : durationLabel(seconds), source: "completed_at - created_at" }} />
         <Fact label="AI reader time" testId="time-reader"
           fact={{ value: readerSeconds === null ? null : durationLabel(readerSeconds), source: "requirement_split.reader.seconds" }} />
-        <Fact label="Per stage" testId="time-stages"
-          fact={{ value: null, source: "the run object; stage timings are in the step-by-step record" }} />
+        <Fact label="Per step" testId="time-stages"
+          fact={{ value: null, source: "the review record; step timings are in the step-by-step record" }} />
       </FactList>
       {onOpenSteps && (
         <p className="text-sm print:hidden">
           <button type="button" onClick={onOpenSteps} className="text-signal-300 underline-offset-2 hover:underline">
-            Open the step-by-step record for the seconds per stage
+            Open the step-by-step record for the seconds per step
           </button>
         </p>
       )}

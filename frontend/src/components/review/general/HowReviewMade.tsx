@@ -19,10 +19,10 @@ export const STEP_NAMES: Record<string, string> = {
   aim_read_pages: "Read the paper",
   aim_identify: "Name the paper",
   aim_select: "Choose rule books",
-  aim_checklist: "Write the checklist",
-  aim_checklist_retry: "Write the checklist (retry)",
+  aim_checklist: "Write the list of checks",
+  aim_checklist_retry: "Write the list of checks (retry)",
   aim_checklist_knowledge: "Add engineering-knowledge items",
-  aim_attack: "A second model attacks the checklist",
+  aim_attack: "A second AI checks the list",
   aim_judge: "Check each item",
   aim_edit: "Write the comments",
   ledger: "Read the spend ledger",
@@ -136,9 +136,9 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
   return (
     <div data-testid="how-made" className="space-y-3">
       <Section n={1} id="how-paper" title="What the AI decided the paper is"
-        why="The first step. Every later step depends on this answer: which rule books, which checklist.">
+        why="The first step. Every later step depends on this answer: which rule books, which list of checks.">
         <div className="flex flex-wrap gap-2">
-          <Fact label="Kind of paper" value={id.kind} />
+          <Fact label="Type of paper" value={id.kind} />
           <Fact label="Equipment or subject" value={id.equipment_type?.replace(/_/g, " ")} />
           <Fact label="Subject in the paper's words" value={id.subject} />
         </div>
@@ -184,17 +184,17 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
         {review.unlisted_books.sentence && <p data-testid="general-unlisted" className="text-slateish-200">{review.unlisted_books.sentence}</p>}
       </Section>
 
-      <Section n={3} id="how-checklist" title="The checklist"
-        why="Written from the rule books only, without looking at the paper; then a second model attacked it to find gaps.">
+      <Section n={3} id="how-checklist" title="The list of checks"
+        why="Written from the rule books only, without looking at the paper; then a second AI checked it to find gaps.">
         {k.key ? (
           <div className="flex flex-wrap gap-2">
-            <Fact label="Checklist name" value={k.key} />
+            <Fact label="List name" value={k.key} />
             <Fact label="Items" value={k.items} />
             <Fact label="Items every review checks" value={k.always_items || null} />
             <Fact label="Reused or new" value={k.reused == null ? null : k.reused ? "reused from an earlier review" : "built for this review"} />
             <Fact label="Built from" value={k.built_from} />
           </div>
-        ) : <p className="text-slateish-400">This review did not record its checklist.</p>}
+        ) : <p className="text-slateish-400">This review did not record its list of checks.</p>}
       </Section>
 
       <Section n={4} id="how-checks" title={`Every check the review made (${review.points.length})`}
@@ -231,7 +231,7 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
         {steps.length === 0 ? <p className="text-slateish-400">No calls were recorded for this review.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[28rem] text-left text-xs">
-              <thead className="text-slateish-400"><tr><th className="p-2">Step</th><th className="p-2">Calls</th><th className="p-2">Model</th><th className="p-2">Seconds</th><th className="p-2">Share of time</th><th className="p-2">USD</th></tr></thead>
+              <thead className="text-slateish-400"><tr><th className="p-2">Step</th><th className="p-2">Calls</th><th className="p-2">Which AI</th><th className="p-2">Seconds</th><th className="p-2">Share of time</th><th className="p-2">USD</th></tr></thead>
               <tbody>
                 {steps.map((s) => (
                   <tr key={s.step} data-testid="how-step" className="border-t border-ink-600 text-slateish-200">

@@ -133,7 +133,7 @@ describe("H: How this review was made", () => {
       checklist: { key: null, items: null, reused: null, built_from: null }, calls: [], seconds: null, cost: { usd: null },
     })} />);
     expect(screen.getByTestId("how-paper")).toHaveTextContent("did not record what the paper is");
-    expect(screen.getByTestId("how-checklist")).toHaveTextContent("did not record its checklist");
+    expect(screen.getByTestId("how-checklist")).toHaveTextContent("did not record its list of checks");
     expect(screen.getByTestId("how-time")).toHaveTextContent("No calls were recorded");
   });
 

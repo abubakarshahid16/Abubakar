@@ -550,7 +550,7 @@ export function ChatView({
   }, [messages]);
 
   const explainNote = claude
-    ? "Claude writes it from these passages, usually within half a minute — the quotation above is already the answer."
+    ? "Claude writes it from these parts of pages, usually within half a minute — the quotation above is already the answer."
     : undefined;
   const explainingNote = "The explanation is written below as it arrives.";
 
@@ -559,7 +559,7 @@ export function ChatView({
       AI can be wrong. Open a source to check the page it came from.
       {model === "claude" &&
         " Claude sends this question and only the documents you selected for this request to Anthropic. With no selected documents, document content stays local. Standard API retention is up to 30 days, with exceptions. "}
-      {model === "local" && " The local model writes these answers on this machine; your question is not sent to Claude."}
+      {model === "local" && " The AI on this computer writes these answers; your question is not sent to Claude."}
     </p>
   );
 

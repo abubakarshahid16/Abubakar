@@ -72,7 +72,7 @@ function AiUse({ ai }: { ai: ReviewTrace["ai"] }) {
         {entries.map(([name, status]) => (
           <li key={name}>
             {name.replace(/_/g, " ")}: {String(status?.plain ?? "no status recorded")}
-            {status?.model ? ` (model ${String(status.model)})` : ""}
+            {status?.model ? ` (answered by ${String(status.model)})` : ""}
           </li>
         ))}
       </ul>
@@ -123,7 +123,7 @@ export function ReviewPipeline({ runId }: { runId: string }) {
             <span>Source: {trace.source}</span>
             <button type="button" onClick={download}
               className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-slateish-200">
-              Download trace (JSON, internal)
+              Download the step record (data file, internal)
             </button>
           </div>
         </div>

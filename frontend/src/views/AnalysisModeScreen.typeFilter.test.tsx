@@ -281,7 +281,7 @@ describe("AnalysisModeScreen: the rendered scope count is the server's, never a 
     await user.type(screen.getByLabelText("Question"), "what is the pressure floor");
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
 
-    expect(await screen.findByText(/7 documents in scope/)).toBeInTheDocument();
+    expect(await screen.findByText(/7 documents covered/)).toBeInTheDocument();
   });
 
   it("shows the pending notice, not a stale count, once the ticks change after a run", async () => {
@@ -308,13 +308,13 @@ describe("AnalysisModeScreen: the rendered scope count is the server's, never a 
     await user.click(screen.getByRole("checkbox", { name: /^Drawing/ }));
     await user.type(screen.getByLabelText("Question"), "what is the pressure floor");
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
-    expect(await screen.findByText(/3 documents in scope/)).toBeInTheDocument();
+    expect(await screen.findByText(/3 documents covered/)).toBeInTheDocument();
 
     // Reticking after the run - the count it described no longer describes
     // what a fresh run would search.
     await user.click(screen.getByRole("checkbox", { name: /^Specification/ }));
 
-    expect(screen.queryByText(/3 documents in scope/)).toBeNull();
+    expect(screen.queryByText(/3 documents covered/)).toBeNull();
     expect(
       screen.getByText(/Filter set to Drawing, Specification\. Run again to apply it\./),
     ).toBeInTheDocument();
@@ -350,7 +350,7 @@ describe("AnalysisModeScreen: an empty result under an active filter explains wh
     await user.click(screen.getByRole("button", { name: "Run analysis" }));
 
     expect(
-      await screen.findByText(/The type filter narrowed the search, and nothing in scope matched/),
+      await screen.findByText(/The type filter narrowed the search, and nothing it covers matched/),
     ).toBeInTheDocument();
     // The claim this screen must never make when a filter hid the answer.
     expect(screen.queryByText(/Nothing the retrieval found could be summarised/)).toBeNull();

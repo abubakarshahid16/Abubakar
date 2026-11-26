@@ -26,20 +26,20 @@ const RULE_EXPLANATION: Record<string, string> = {
     "A Summary of Changes or revision history table. It records what changed between revisions and is not a requirement, so it is left out of search on purpose.",
   page_empty: "The page held no text at all once control characters were stripped.",
   page_yielded_no_chunk:
-    "The page had text but too little, or too fragmented, to form a chunk.",
+    "The page had text but too little, or too fragmented, to form a searchable part.",
 
   // OCR. Four rules rather than one, because "the page is blank" and "the page
   // could not be read" are DIFFERENT FACTS and a reader acts differently on
   // each. Five real pages in this corpus are the former; calling those
   // unreadable would put a false accusation in the ledger.
   ocr_not_run:
-    "A scanned page with no extractable text. Recognition has not run on it yet — this is a queue state, not a verdict on the page.",
+    "A scanned page with no extractable text. Recognition has not run on it yet — it is waiting, not a judgement on the page.",
   ocr_found_no_text:
     "Recognition ran and found nothing, at both resolutions. The page appears to be genuinely BLANK — it is not a page we failed to read.",
   ocr_failed:
     "Recognition raised an error on this page. Unlike a blank page, there may well be text here that nothing has read.",
   ocr_yielded_no_chunk:
-    "Recognition read text from this scanned page, but it was too little or too fragmented to form a chunk.",
+    "Recognition read text from this scanned page, but it was too little or too fragmented to form a searchable part.",
   ocr_confidence_below_threshold:
     "Recognition was too unsure of this page to index it. No threshold is currently set, so this rule should not fire.",
 };
@@ -78,7 +78,7 @@ export function ExcludedViewer({
   return (
     <Drawer
       title={`Excluded from search — ${doc.filename}`}
-      subtitle="Every page and chunk search cannot see, with the rule that excluded it"
+      subtitle="Every page and part of a page that search cannot see, with the rule that left it out"
       onClose={onClose}
     >
       {state.s === "loading" && <Spinner label="Loading exclusions" />}
@@ -92,7 +92,7 @@ export function ExcludedViewer({
       {state.s === "ready" && state.data.total === 0 && (
         <EmptyState
           title="Nothing was excluded"
-          hint="Every chunk in this document is searchable."
+          hint="Every part of this document is searchable."
         />
       )}
 

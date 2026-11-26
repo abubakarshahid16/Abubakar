@@ -173,7 +173,7 @@ export function pagesMeaning(run: ReviewRunSummary): string {
   // Order 165: counted apart from the pages fields were read from.
   const none = p.readNoField.value;
   if (none && none.length) {
-    sentences.push(`${none.length} of ${total} pages (${none.length === 1 ? "page" : "pages"} ${pageList(none)}) were read and held no checklist field: the code readers and the AI reader both found none. They are not counted as pages fields were read from.`);
+    sentences.push(`${none.length} of ${total} pages (${none.length === 1 ? "page" : "pages"} ${pageList(none)}) were read and held no field from the list of checks: the code readers and the AI reader both found none. They are not counted as pages fields were read from.`);
     const taken = p.noFieldTaken.value;
     if (taken && taken.length) sentences.push(`The ${plural(taken.length, "page")} with no datasheet field taken are apart from these: a value not found may still be on them.`);
   }
@@ -246,7 +246,7 @@ export const AI_STEP_DEFAULTS: Record<string, { label: string; onByDefault: bool
   reader: { label: "AI reader", onByDefault: true, setting: "DATASHEET_AI_READER" },
   matcher: { label: "AI matcher", onByDefault: true, setting: "MATCH_ENGINE" },
   clause_checks: { label: "AI clause checks", onByDefault: true, setting: "AI_CLAUSE_CHECKS_ENABLED" },
-  applicability_reasoning: { label: "Applicability reasoning (scope decision)", onByDefault: true, setting: "APPLICABILITY_REASONING_ENABLED" },
+  applicability_reasoning: { label: "Does each rule apply (reasoning)", onByDefault: true, setting: "APPLICABILITY_REASONING_ENABLED" },
   engineering_check: { label: "AI engineering check", onByDefault: true, setting: "REVIEW_AI_CHECK_ENABLED" },
   wording: { label: "AI wording of the comments", onByDefault: true, setting: "CRS_AI_WORDING_ENABLED" },
 };
@@ -255,6 +255,6 @@ export function defaultLine(key: string): string {
   const d = AI_STEP_DEFAULTS[key];
   if (!d) return "";
   return d.onByDefault
-    ? `On by default (setting ${d.setting}); rule 1: turning it off by default needs the owner's written approval.`
-    : `Off by default (setting ${d.setting}); it runs only when switched on.`;
+    ? `On by default; rule 1: turning it off by default needs the owner's written approval.`
+    : `Off by default; it runs only when switched on.`;
 }

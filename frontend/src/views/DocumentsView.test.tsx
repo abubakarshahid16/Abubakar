@@ -422,7 +422,7 @@ describe("worker panel", () => {
       },
     });
     renderDocuments();
-    await screen.findByText(/Ingestion worker/);
+    await screen.findByText(/Background reader/);
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 });
@@ -432,7 +432,7 @@ describe("B3 chunk inspector", () => {
     mockApi([makeDoc()]);
     renderDocuments();
 
-    fireEvent.click(await screen.findByRole("button", { name: /passages/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /page parts/i }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();

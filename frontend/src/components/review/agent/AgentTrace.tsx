@@ -39,7 +39,7 @@ export function AgentTrace({ runId, itemId, onClose }: { runId: string; itemId: 
             {trace.other_quote && (<><dt className="text-slateish-400">Second quote</dt><dd className="break-words">{trace.other_quote}</dd></>)}
             <dt className="text-slateish-400">Rule book</dt><dd>{trace.rule_book}</dd>
             <dt className="text-slateish-400">Clause</dt><dd>{trace.clause}</dd>
-            <dt className="text-slateish-400">Model</dt><dd>{trace.model}</dd>
+            <dt className="text-slateish-400">Which AI</dt><dd>{trace.model}</dd>
             <dt className="text-slateish-400">Reason</dt><dd className="break-words">{trace.reason}</dd>
           </dl>
           <h4 className="font-semibold text-slateish-200">Checks this line passed through</h4>

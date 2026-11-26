@@ -47,7 +47,7 @@ describe("PaperHistoryList", () => {
   it("says Earlier version for the older runs and General review for the new one, with a count only where one is stored", () => {
     render(<PaperHistoryList history={HISTORY} onProblem={() => undefined} />);
     const rows = screen.getAllByTestId("history-run").map((r) => r.textContent ?? "");
-    expect(rows[0]).toContain("General review");
+    expect(rows[0]).toContain("Current method");
     expect(rows[0]).toContain("55 points");
     expect(rows[0]).not.toContain("Earlier version");
     expect(rows[1]).toContain("Earlier version");

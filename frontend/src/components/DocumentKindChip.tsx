@@ -11,7 +11,7 @@
  * The picker appears only for an admin: the confirm route 404s everyone else,
  * and a control that always 404s is worse than none.
  *
- * A pick is never silent (order 14, G2): while the save is on its way the card says "Saving the kind...", and when the save
+ * A pick is never silent (order 14, G2): while the save is on its way the card says "Saving the type...", and when the save
  * fails the card says so next to the picker (the caller's `onConfirm` resolves to the problem in words, or null when saved).
  * The old card went straight back to "Choose kind" and told the page-top notice, which a reader far down a long list never saw.
  */
@@ -51,7 +51,7 @@ export function DocumentKindChip({
     try {
       said = await onConfirm?.(kind);
     } catch {
-      said = "The kind could not be saved. Try again.";
+      said = "The type could not be saved. Try again.";
     }
     setSaving(false);
     if (said) {
@@ -86,9 +86,9 @@ export function DocumentKindChip({
       <span
         data-testid="kind-chip"
         className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"
-        title={classification.document_kind_evidence?.reason ?? "The router could not tell what kind of document this is."}
+        title={classification.document_kind_evidence?.reason ?? "The app could not tell what type of document this is."}
       >
-        Kind unclear, engineer to choose
+        Type unclear, engineer to choose
       </span>
     );
   }
@@ -97,7 +97,7 @@ export function DocumentKindChip({
   return (
     <>
       {chip}
-      {saving && <span role="status" data-testid="kind-saving" className="text-xs text-slateish-400">Saving the kind...</span>}
+      {saving && <span role="status" data-testid="kind-saving" className="text-xs text-slateish-400">Saving the type...</span>}
       {problem && <span role="alert" data-testid="kind-problem" className="text-xs text-danger-500">{problem}</span>}
       {canPick && !saving && state !== "confirmed" && !changing && (
         <button
@@ -109,18 +109,18 @@ export function DocumentKindChip({
             else keepScroll(from, () => setChanging(true));
           }}
         >
-          {state === "suggested" && kind ? "Confirm kind" : "Choose kind"}
+          {state === "suggested" && kind ? "Confirm type" : "Choose type"}
         </button>
       )}
       {canPick && !saving && (state === "suggested" || state === "confirmed") && !changing && (
         <button type="button" className="text-xs text-slateish-400 underline" onClick={(e) => keepScroll(e.currentTarget, () => setChanging(true))}>
-          Change kind
+          Change type
         </button>
       )}
       {canPick && changing && !saving && (
         <select
           ref={picker}
-          aria-label="Document kind"
+          aria-label="Document type"
           className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-800 px-1 py-0.5 text-xs"
           defaultValue=""
           onChange={(e) => {
@@ -131,7 +131,7 @@ export function DocumentKindChip({
           }}
         >
           <option value="" disabled>
-            Pick a kind
+            Pick a type
           </option>
           {kinds?.map((k) => (
             <option key={k.id} value={k.id}>

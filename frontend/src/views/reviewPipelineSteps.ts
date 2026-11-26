@@ -5,7 +5,7 @@ export const STEP_NAMES: Record<string, string> = {
   CLEAN: "Clean the values",
   EQUIPMENT: "Identify equipment and tags",
   STANDARDS: "Choose standards",
-  CHECKLIST: "Checklist",
+  CHECKLIST: "List of checks",
   RULES: "Library rules",
   DECIDE: "Decisions",
   COVERAGE: "Reader coverage",

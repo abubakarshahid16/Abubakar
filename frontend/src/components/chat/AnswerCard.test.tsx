@@ -255,34 +255,34 @@ describe("a Claude request answered by the local model says so", () => {
   it("shows the reason as a note, not as an error", () => {
     renderView({ requested_provider: "claude", provider: "ollama", provider_note: NOTE });
 
-    expect(screen.getByRole("note", { name: /which model answered/i })).toHaveTextContent(NOTE);
+    expect(screen.getByRole("note", { name: /which AI answered/i })).toHaveTextContent(NOTE);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("shows nothing when Claude answered", () => {
     renderView({ requested_provider: null, provider: "claude", provider_note: null });
 
-    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+    expect(screen.queryByRole("note", { name: /which AI answered/i })).toBeNull();
   });
 
   it("shows nothing when the reader chose the local model", () => {
     renderView({ requested_provider: null, provider: "ollama", provider_note: null });
 
-    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+    expect(screen.queryByRole("note", { name: /which AI answered/i })).toBeNull();
   });
 
   it("renders a turn stored before the keys existed exactly as before", () => {
     const { container } = renderView({});
     const before = container.innerHTML;
 
-    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+    expect(screen.queryByRole("note", { name: /which AI answered/i })).toBeNull();
     expect(before).not.toMatch(/Claude was not/i);
   });
 
   it("does not invent a reason when the note is missing", () => {
     renderView({ requested_provider: "claude", provider: "ollama", provider_note: null });
 
-    expect(screen.queryByRole("note", { name: /which model answered/i })).toBeNull();
+    expect(screen.queryByRole("note", { name: /which AI answered/i })).toBeNull();
   });
 });
 

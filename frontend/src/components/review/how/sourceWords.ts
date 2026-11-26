@@ -31,7 +31,7 @@ const LABELS: Record<string, string> = {
   "requirement_split.reader.code_only": "the pages left to the code readers",
   completed_at: "the time the review finished",
   created_at: "the time the review started",
-  standards_in_scope: "the standards in scope",
+  standards_in_scope: "the standards that apply",
   findings_total: "the findings of this review",
 };
 

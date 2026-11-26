@@ -235,7 +235,7 @@ describe("SubmittalsLandingView", () => {
     render(<SubmittalsLandingView inbox onOpenRun={onOpenRun} />);
     await userEvent.click(await screen.findByRole("button", { name: "Review all not reviewed (2)" }));
     const status = await screen.findByRole("status");
-    expect(status).toHaveTextContent("Queued 1 of 2 reviews asked for.");
+    expect(status).toHaveTextContent("Waiting to start: 1 of 2 reviews asked for.");
     expect(status).toHaveTextContent("b.pdf: a review of this submittal is already running");
     // "Review all" runs on this computer only: Local only, no list needed
     expect(startReviewRun.mock.calls.map((call) => call.slice(0, 3))).toEqual([["a", "local", []], ["b", "local", []]]);
@@ -304,7 +304,7 @@ describe("SubmittalsLandingView", () => {
       documents.mockResolvedValue({ ok: true, data: [{ id: "doc-1", filename: "psv.pdf" }] });
       reviewRuns.mockResolvedValueOnce(runOf("running")).mockResolvedValue(runOf("completed"));
       render(<SubmittalsLandingView inbox onOpenRun={vi.fn()} />);
-      await screen.findByRole("button", { name: "Queued or running (1 of 1)" });
+      await screen.findByRole("button", { name: "Waiting or running (1 of 1)" });
       expect(reviewRuns).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(INBOX_REFRESH_MS);
       await screen.findByRole("button", { name: "Needs me (1 of 1)" });

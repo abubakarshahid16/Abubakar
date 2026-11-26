@@ -17,16 +17,16 @@ function later<T>() {
 
 async function pick(onConfirm: (kind: string) => Promise<string | null>) {
   render(<DocumentKindChip classification={CLS} kinds={KINDS} isAdmin onConfirm={onConfirm} />);
-  await userEvent.click(screen.getByText("Choose kind"));
-  await userEvent.selectOptions(screen.getByLabelText("Document kind"), "datasheet");
+  await userEvent.click(screen.getByText("Choose type"));
+  await userEvent.selectOptions(screen.getByLabelText("Document type"), "datasheet");
 }
 
 describe("DocumentKindChip: a pick is never silent", () => {
   it("says it is saving, with no second 'Choose kind' to click, until the save answers", async () => {
     const wait = later<string | null>();
     await pick(() => wait.promise);
-    expect(screen.getByTestId("kind-saving")).toHaveTextContent("Saving the kind");
-    expect(screen.queryByText("Choose kind")).toBeNull();
+    expect(screen.getByTestId("kind-saving")).toHaveTextContent("Saving the type");
+    expect(screen.queryByText("Choose type")).toBeNull();
     await act(async () => wait.resolve(null));
     expect(screen.queryByTestId("kind-saving")).toBeNull();
     expect(screen.queryByTestId("kind-problem")).toBeNull();
@@ -35,7 +35,7 @@ describe("DocumentKindChip: a pick is never silent", () => {
   it("shows the problem beside the card and brings the picker back when the save failed", async () => {
     await pick(() => Promise.resolve("Could not save the kind for a.pdf. Try again."));
     expect(await screen.findByTestId("kind-problem")).toHaveTextContent("Could not save the kind for a.pdf");
-    expect(screen.getByLabelText("Document kind")).toBeInTheDocument();
+    expect(screen.getByLabelText("Document type")).toBeInTheDocument();
   });
 
   it("treats a thrown save as a problem, never as silence", async () => {

@@ -189,7 +189,7 @@ describe("a comparison asked in Chat is answered with its scope stated", () => {
     await ask("please compare the mechanical requirements from all documents");
     const notice = await screen.findByRole("note");
     expect(notice.textContent).toMatch(/Answered from 1 document\b/);
-    expect(notice.textContent).toMatch(/comparison across the corpus is not performed in Chat/i);
+    expect(notice.textContent).toMatch(/comparison across the whole library is not done in Chat/i);
   });
 
   it("still shows the passages it did match, unchanged", async () => {

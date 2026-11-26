@@ -196,10 +196,10 @@ export function SummaryCard({
               id="summary-card-heading"
               className="text-xs font-semibold uppercase tracking-wider text-info-500"
             >
-              Written by the model — not the document's words
+              Written by the AI on this computer — not the document's words
             </p>
             <span className="font-mono text-xs text-slateish-500">
-              Summary of {n} passage{n === 1 ? "" : "s"}
+              Summary of {n} part{n === 1 ? "" : "s"} of pages
             </span>
           </div>
 
@@ -215,8 +215,8 @@ export function SummaryCard({
 
           {result.summary_truncated && (
             <p className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
-              This summary reached its length limit and stops early — the model had
-              more to say. The passages it cites are complete; open them for the rest.
+              This summary reached its length limit and stops early — the AI on this computer had
+              more to say. The parts of pages it cites are complete; open them for the rest.
             </p>
           )}
           {(result.evidence_removed ?? []).length > 0 && (

@@ -197,19 +197,19 @@ describe("P3 - a row with no baseline passage carries no label over nothing", ()
     renderCard([item({ baseline_span: "", baseline_citation_id: "ev_baseline00000001" })]);
 
     expect(screen.queryByText("Baseline, quoted verbatim")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Show baseline passage" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show the baseline part of the page" })).toBeNull();
   });
 
   it("treats a whitespace-only span as no span", () => {
     renderCard([item({ baseline_span: "   \n  " })]);
     expect(screen.queryByText("Baseline, quoted verbatim")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Show baseline passage" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show the baseline part of the page" })).toBeNull();
   });
 
   it("still renders both when there is a passage", () => {
     renderCard([item()]);
     expect(screen.getByText("Baseline, quoted verbatim")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show baseline passage" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show the baseline part of the page" })).toBeInTheDocument();
     expect(screen.getByText(SPAN)).toBeInTheDocument();
   });
 

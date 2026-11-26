@@ -146,7 +146,7 @@ describe("the pairing is labelled", () => {
     ];
     render(<FindingsTable findings={rows} selectedId={null} onSelect={vi.fn()} />);
 
-    expect(screen.getByText("paired by model")).toBeInTheDocument();
+    expect(screen.getByText("paired by the AI")).toBeInTheDocument();
     expect(screen.getByText("matched by rule")).toBeInTheDocument();
   });
 

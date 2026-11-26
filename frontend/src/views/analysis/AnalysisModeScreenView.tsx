@@ -271,9 +271,9 @@ export function AnalysisModeScreen() {
   // documents are silent on something the filter simply excluded.
   const filteredEmptyHint = (base: string): string =>
     filtering
-      ? "The type filter narrowed the search, and nothing in scope matched this question. " +
+      ? "The type filter narrowed the search, and nothing it covers matched this question. " +
         "That is not the same as the documents having nothing to say - clear or change the " +
-        "filter to search the rest of the corpus."
+        "filter to search the rest of the library."
       : base;
 
   const notImplemented =
@@ -322,10 +322,10 @@ export function AnalysisModeScreen() {
               Execution-plan boundary
             </h2>
             <ul className="mt-3 space-y-2 text-xs text-slateish-300">
-              <li>Backend algorithms and routes are unchanged in this frontend pass.</li>
-              <li>Live market research requires an approved provider and privacy gate.</li>
+              <li>How answers are found has not changed.</li>
+              <li>Live market research needs an approved data service and the privacy check.</li>
               <li>Current market output is the labelled local sample dataset.</li>
-              <li>Durable 202 analysis jobs are not exposed by this backend.</li>
+              <li>A long analysis cannot yet run in the background.</li>
             </ul>
           </section>
 

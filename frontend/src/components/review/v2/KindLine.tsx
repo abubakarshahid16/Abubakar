@@ -36,11 +36,11 @@ export function KindLine({ documentId, pages, isAdmin, aiEquipment }: {
           if (!documentId) return null;
           const r = await classification.confirmKind(documentId, kind);
           if (r.ok) { setCls(r); return null; }
-          return "The kind could not be saved. Try again."; // shown beside the picker, never silent (G2)
+          return "The type could not be saved. Try again."; // shown beside the picker, never silent (G2)
         }} />}
       {equipment && <span>· {equipment}{named ? " (named by the AI for this review)" : !c?.confirmed && " (suggested)"}</span>}
       {pages != null && <span>· {pages} page{pages === 1 ? "" : "s"}</span>}
-      {how && <span>· kind decided by {how}</span>}
+      {how && <span>· type decided by {how}</span>}
     </p>
   );
 }

@@ -417,8 +417,8 @@ export function DocumentsView({
       }
       // The problem is returned to the card (shown beside the picker, where the reader is looking) AND kept as the page notice.
       const problem = !result.disconnected && result.error.code === "not_found"
-        ? "You do not have permission to confirm this document's kind."
-        : `Could not save the kind for ${doc.filename}${result.error?.message ? `: ${result.error.message}` : ""}. Try again.`;
+        ? "You do not have permission to confirm this document's type."
+        : `Could not save the type for ${doc.filename}${result.error?.message ? `: ${result.error.message}` : ""}. Try again.`;
       setNotice(problem);
       return problem;
     },
@@ -446,7 +446,7 @@ export function DocumentsView({
     onPreview: (doc) => keepScroll(document.activeElement, () => setDrawer({ kind: "preview", doc })),
     onDetails: (doc) => keepScroll(document.activeElement, () => setDrawer({ kind: "details", doc })),
     onExtract: (doc) => void run(doc, "Extract", () => api.extract(doc.id)),
-    onChunk: (doc) => void run(doc, "Chunk", () => api.chunk(doc.id)),
+    onChunk: (doc) => void run(doc, "Split into parts", () => api.chunk(doc.id)),
     onEmbed: (doc) => void run(doc, "Embed", () => api.embed(doc.id)),
     onDelete: (doc) =>
       void run(doc, "Delete", async () => {
@@ -617,7 +617,7 @@ export function DocumentsView({
               own grants, and this line is the one place that says so. */}
           <p className="text-xs text-slateish-500">
             {vocabulary.corpusWide
-              ? "Counts cover every document in the corpus."
+              ? "Counts cover every document in the library."
               : "Counts cover the documents you can open."}
           </p>
         </div>

@@ -235,7 +235,7 @@ describe("which corpus these counts describe", () => {
   it("says the counts are corpus-wide when the caller is told they are", async () => {
     mockApi(makeMetrics({ corpus_wide: true }));
     await openDashboard();
-    expect(await screen.findByText(/Corpus-wide system figures/)).toBeInTheDocument();
+    expect(await screen.findByText(/Figures for the whole library/)).toBeInTheDocument();
     expect(
       screen.getByText(/including documents you cannot open/),
     ).toBeInTheDocument();
@@ -246,7 +246,7 @@ describe("which corpus these counts describe", () => {
     mockApi(makeMetrics({ corpus_wide: false }));
     await openDashboard();
     expect(await screen.findByText(/Your documents only/)).toBeInTheDocument();
-    expect(screen.queryByText(/Corpus-wide system figures/)).toBeNull();
+    expect(screen.queryByText(/Figures for the whole library/)).toBeNull();
   });
 });
 
@@ -285,7 +285,7 @@ describe("unmeasured values", () => {
     await openDashboard();
     expect(await screen.findByText("Typical search time")).toBeInTheDocument();
     expect(screen.queryByText("Typical answer")).toBeNull();
-    expect(screen.getByText(/time to find the passages for a question, not to write an answer/)).toBeInTheDocument();
+    expect(screen.getByText(/time to find the parts of pages for a question, not to write an answer/)).toBeInTheDocument();
   });
 
   it("shows real latency percentiles when they exist", async () => {
@@ -673,7 +673,7 @@ describe("audit 2026-09-30: every block's label is true of that block", () => {
     mockApi(makeMetrics({ corpus_wide: true }), makeCoverage(),
             { "/reviews/dashboard": reviewDashboard });
     await openDashboard();
-    expect(await screen.findByText(/The AI Submittal Review counts are not corpus-wide/))
+    expect(await screen.findByText(/The AI Submittal Review counts are not library-wide/))
       .toBeInTheDocument();
     expect(await screen.findByTestId("review-boundary"))
       .toHaveTextContent("only the documents you can open");

@@ -227,10 +227,10 @@ export function LoginView({
               }}
             >
               <p className="text-xs text-slateish-400">
-                Enter the one-time token provided by an administrator. It expires after 24 hours.
+                Enter the one-time code from your administrator. It expires after 24 hours.
               </p>
               <label className="block text-xs font-medium text-slateish-300">
-                One-time reset token
+                One-time reset code
                 <input required value={resetToken} onChange={(e) => setResetToken(e.target.value)}
                   autoComplete="one-time-code"
                   className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
@@ -271,7 +271,7 @@ export function LoginView({
             words the sidebar uses once signed in (CLAUDE.md rule 1). */}
         <p className="mt-2 text-xs text-slateish-500">
           Your documents are stored on this machine. When Claude is switched on,
-          the passages an answer needs are sent to it.
+          the parts of pages an answer needs are sent to it.
         </p>
       </div>
     </main>

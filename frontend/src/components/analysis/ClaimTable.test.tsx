@@ -29,7 +29,7 @@ describe("ClaimTable: empty", () => {
     expect(clusters).toHaveLength(0);
     render(<ClaimTable clusters={clusters} onCite={vi.fn()} />);
     expect(
-      screen.getByText("No comparable claims were extracted from the retrieved passages."),
+      screen.getByText("No comparable claims were found in the parts of pages searched."),
     ).toBeInTheDocument();
   });
 });

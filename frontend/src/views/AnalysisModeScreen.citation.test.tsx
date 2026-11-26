@@ -155,7 +155,7 @@ describe("citation row: the whole row is the click target", () => {
     // must still reach the row.
     await user.click(within(row).getByText(PASSAGE));
 
-    const panel = await screen.findByRole("region", { name: "Selected passage" });
+    const panel = await screen.findByRole("region", { name: "Selected part of a page" });
     expect(within(panel).getByText(PASSAGE)).toBeInTheDocument();
     expect(screen.queryByText(/Select a citation or evidence row/)).not.toBeInTheDocument();
   });
@@ -169,7 +169,7 @@ describe("citation row: the whole row is the click target", () => {
     const row = await runQuoteAnalysis(user);
     await user.click(within(row).getByText("p.12"));
 
-    expect(await screen.findByRole("region", { name: "Selected passage" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Selected part of a page" })).toBeInTheDocument();
   });
 
   it("exposes the row as a real control: a name, a role and a tab stop", async () => {
@@ -199,7 +199,7 @@ describe("citation row: keyboard activation", () => {
     expect(row).toHaveFocus();
     await user.keyboard("{Enter}");
 
-    expect(await screen.findByRole("region", { name: "Selected passage" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Selected part of a page" })).toBeInTheDocument();
   });
 
   it("selects the citation on SPACE", async () => {
@@ -212,7 +212,7 @@ describe("citation row: keyboard activation", () => {
     row.focus();
     await user.keyboard("[Space]");
 
-    expect(await screen.findByRole("region", { name: "Selected passage" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Selected part of a page" })).toBeInTheDocument();
   });
 
   it("ignores a key that is neither Enter nor Space", async () => {

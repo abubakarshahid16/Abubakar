@@ -13,9 +13,9 @@ export function paperTextStopped(p: AgentPaperText | null | undefined): boolean 
 }
 
 const BARE_CODE_WORDS: Record<string, string> = {
-  paper_kind_unknown: "The paper kind is unknown, so no rule was asked.",
+  paper_kind_unknown: "The type of paper is unknown, so no rule was asked.",
   kind_not_enabled: "The AI review is not enabled for this kind of paper, so no rule was asked.",
-  gate_closed: "The Claude lane is closed, so the AI could not be asked.",
+  gate_closed: "Sending to Claude is switched off, so Claude could not be asked.",
   usd_cap_reached: "The review stopped because a spending cap was reached.",
   app_step_cap: "The review stopped because a spending cap was reached.",
   budget_stop: "The review stopped because a spending cap was reached.",

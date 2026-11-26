@@ -66,7 +66,7 @@ const KNOWN: ReadonlyArray<readonly [string, string]> = [
   ["no second opinion on the absence", "No second AI reader confirmed that this is absent"],
   ["the second opinion did not agree the item is absent", "The second AI reader did not agree that this is absent"],
   ["second opinion model is the same or unknown",
-    "The second check could not be shown to come from a different model, so this stays an opinion"],
+    "The second check could not be shown to come from a different AI, so this stays an opinion"],
   ["second opinion disagreed", "The second AI reader disagreed with the first"],
   ["no second opinion", "No second AI reader checked this, so it stays an opinion"],
   ["the AI did not give pass or fail", "The AI did not decide"],
@@ -129,7 +129,7 @@ export function lineName(line: Pick<AgentLine, "item_id" | "rule_book" | "clause
   const where = [line.rule_book, line.clause].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
   const check = CHECK.exec(line.item_id) ?? CHECK_PLAIN.exec(line.item_id);
   if (check) {
-    return { title: `Checklist point ${check[1]}${where ? ` (${where})` : ""}`, id: line.item_id };
+    return { title: `Check ${check[1]}${where ? ` (${where})` : ""}`, id: line.item_id };
   }
   if (/^R-/.test(line.item_id)) {
     return { title: where ? `Rule: ${where}` : "Rule (no rule book or clause named)", id: line.item_id };

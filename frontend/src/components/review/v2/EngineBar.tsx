@@ -64,7 +64,7 @@ export function EngineBar({ documentId, isAdmin, onStarted }: {
   return (
     <div data-testid="v2-engine" className="space-y-2">
       <div className="flex flex-wrap items-center justify-end gap-3">
-        <div role="radiogroup" aria-label="Which engine reads this paper" className="inline-flex overflow-hidden rounded-[var(--radius-sm)] border border-ink-500">
+        <div role="radiogroup" aria-label="Who reviews this paper" className="inline-flex overflow-hidden rounded-[var(--radius-sm)] border border-ink-500">
           {ENGINE_CHOICES.map((c) => (
             <button key={c} type="button" role="radio" aria-checked={engine === c} onClick={() => choose(c)}
               className={`px-3 py-1.5 text-sm ${engine === c ? "bg-signal-500 text-ink-950" : "text-slateish-200 hover:bg-ink-700"}`}>
