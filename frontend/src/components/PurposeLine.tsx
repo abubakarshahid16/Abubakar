@@ -4,8 +4,8 @@
  */
 import type { ViewId } from "./Shell";
 
+//  Reviews has none here: its page already opens with its own line ("To check a new file, pick it and press Start review ...").
 export const PURPOSE: Partial<Record<ViewId, string>> = {
-  review: "Reviews: pick a contractor document and start its review; open a finished review to decide each comment and sign the sheet.",
   technicalQueries:
     "Technical Queries and CFCs: open a query, check the question and the contract clauses found for it, then approve the draft reply.",
   chat: "Ask: type a question about our documents; every answer names the document and the page it comes from.",
@@ -16,7 +16,7 @@ export function PurposeLine({ view }: { view: ViewId }) {
   const line = PURPOSE[view];
   if (!line) return null;
   return (
-    <p className="mx-auto w-full max-w-6xl px-4 pt-4 text-sm text-slateish-300" data-testid="screen-purpose">
+    <p role="note" className="border-b border-ink-700 bg-ink-850 px-6 py-2 text-sm text-slateish-300" data-testid="screen-purpose">
       {line}
     </p>
   );

@@ -61,7 +61,8 @@ describe("Home: the three jobs first (owner, 26 Nov 2026, G9)", () => {
 
 describe("every main screen starts with one line: what it is for and what to do next (E4)", () => {
   it("has a line for each main screen and none for the others", () => {
-    for (const view of ["review", "technicalQueries", "chat", "documents"] as const) {
+    // Reviews opens with its own line already ("To check a new file, pick it and press Start review ..."), so it gets none here
+    for (const view of ["technicalQueries", "chat", "documents"] as const) {
       const { unmount } = render(<PurposeLine view={view} />);
       expect(screen.getByTestId("screen-purpose").textContent).toBe(PURPOSE[view]);
       unmount();
