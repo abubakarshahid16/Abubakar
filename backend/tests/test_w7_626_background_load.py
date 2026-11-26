@@ -88,7 +88,10 @@ def test_a_changed_host_or_model_is_asked_again_at_once(monkeypatch):
     metrics._ollama_state()
     monkeypatch.setattr(settings, "answer_model", "another-model")
     metrics._ollama_state()
-    assert len(calls) == 4
+    # the probe pair is asked again at once for the changed model ...
+    assert calls.count("/api/ps") == 2 and calls[:2] == ["/api/tags", "/api/ps"]
+    # ... plus one list read by `answer_model_choice` (update 11): is the changed model usable here (at most once a minute)
+    assert len(calls) == 5
 
 
 def test_a_refused_host_is_never_cached(monkeypatch):
