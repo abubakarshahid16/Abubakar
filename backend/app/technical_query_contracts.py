@@ -21,7 +21,10 @@ log = logging.getLogger(__name__)
 WIDE_CANDIDATES = 60
 WIDE_SHORTLIST = 40
 PER_CONTRACT = 8
-MAX_PASSAGES = 20
+#: FAIR SHARE (lead-4 score of 26 Nov 2026: 8 of 12 right pages; all 4 misses were parts never listed, while one part filled up to 8 of 14
+#: places): every searched part's best passage is listed, no part holds more than PER_PART_LISTED, and the list holds up to MAX_PASSAGES.
+PER_PART_LISTED = 3
+MAX_PASSAGES = 30
 ROLE = "CONTRACT_DOCUMENT"
 
 
@@ -49,12 +52,13 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
 
 
 def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[str, Any]:
-    """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, the best
-    MAX_PASSAGES overall by score. A search that fails is counted, logged by type, and never stops the others."""
+    """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, then
+    `fair_share` (every part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all). A search that fails is counted, logged by type, and never stops the others."""
     from . import search
 
     contracts = contract_ids(allowed)
     hits: list[dict] = []
+    per_part: list[list[dict]] = []
     searched = failed = hits_in = 0
     for n, document_id in enumerate(contracts, 1):
         if progress:
@@ -72,9 +76,9 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
                 candidates=WIDE_CANDIDATES,
                 rerank_candidates=WIDE_SHORTLIST,
             )
-            found = [h for h in (res.get("hits") or []) if (h.get("text") or "").strip()][
-                :PER_CONTRACT
-            ]
+            found = [
+                h for h in (res.get("hits") or []) if (h.get("text") or "").strip()
+            ][:PER_CONTRACT]
         except Exception as exc:  # noqa: BLE001 - counted as not searched and said in the coverage line; the other contracts go on
             log.warning(
                 "technical query: a contract could not be searched (%s)",
@@ -84,16 +88,8 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
             continue
         searched += 1
         hits_in += 1 if found else 0
-        hits.extend(found)
-    # ranked by the RERANKER's own score (the search's `score` adds boosts and penalties on top of it); a passage with none ranks by its score
-    hits.sort(
-        key=lambda h: float(
-            h["rerank_score"]
-            if h.get("rerank_score") is not None
-            else (h.get("score") or 0.0)
-        ),
-        reverse=True,
-    )
+        per_part.append(found)
+    hits = fair_share(per_part)
     coverage = {
         "searched": searched,
         "of": len(contracts),
@@ -101,4 +97,35 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
         "failed": failed,
         "line": coverage_line(searched, len(contracts), hits_in, failed),
     }
-    return {"hits": hits[:MAX_PASSAGES], "coverage": coverage}
+    return {"hits": hits, "coverage": coverage}
+
+
+def _score(hit: dict) -> float:
+    """The RERANKER's own score (the search's `score` adds boosts and penalties on top of it); a passage with none ranks by its score."""
+    return float(
+        hit["rerank_score"]
+        if hit.get("rerank_score") is not None
+        else (hit.get("score") or 0.0)
+    )
+
+
+def fair_share(per_part: list[list[dict]]) -> list[dict]:
+    """The listed passages from each part's own hits: the best passage of EVERY part first (no part is crowded out), then the next best
+    overall while a part holds fewer than PER_PART_LISTED, at most MAX_PASSAGES; listed in the reranker's order."""
+    ranked = [sorted(found, key=_score, reverse=True) for found in per_part if found]
+    chosen = sorted((found[0] for found in ranked), key=_score, reverse=True)[
+        :MAX_PASSAGES
+    ]
+    held = {}
+    for hit in chosen:
+        held[hit.get("document_id")] = held.get(hit.get("document_id"), 0) + 1
+    for hit in sorted(
+        (h for found in ranked for h in found[1:]), key=_score, reverse=True
+    ):
+        if len(chosen) >= MAX_PASSAGES:
+            break
+        part = hit.get("document_id")
+        if held.get(part, 0) < PER_PART_LISTED:
+            chosen.append(hit)
+            held[part] = held.get(part, 0) + 1
+    return sorted(chosen, key=_score, reverse=True)
