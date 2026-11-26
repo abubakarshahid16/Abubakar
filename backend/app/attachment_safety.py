@@ -13,6 +13,7 @@ All PyMuPDF work goes through pdf_guard.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -60,15 +61,7 @@ DOCX_ACTIVE_TYPES = frozenset(
 )  # fmt: skip
 #: Content types that name active content.
 DOCX_ACTIVE_CONTENT_TYPES = ("vbaproject", "activex", "oleobject", "macroenabled")
-#: Field codes that fetch from outside or run something when the document is opened or updated.
-DOCX_FETCHING_FIELDS = (
-    "DDEAUTO",
-    "DDE ",
-    "INCLUDETEXT",
-    "INCLUDEPICTURE",
-    "IMPORT ",
-    "LINK ",
-)
+#: Field codes that fetch from outside or run something when the document is opened or updated: `_FETCHING`.
 MAX_DOCX_ENTRIES = 5_000
 #: Unpacked size limits: a part or a whole file above them is "could not be checked" (a zip bomb is never read whole).
 MAX_DOCX_XML_BYTES = 20 * 1024 * 1024
@@ -89,13 +82,43 @@ def _xml(package, name: str):
     return SafeXML.fromstring(package.read(name))
 
 
-def _field_code(element) -> str:
-    """The code of a Word field: the text of an instrText element or the instr attribute of a simple field ("" for anything else)."""
-    if _local(element.tag) == "instrText":
-        return element.text or ""
-    if _local(element.tag) == "fldSimple":
-        return next((v for k, v in element.attrib.items() if _local(k) == "instr"), "")
-    return ""
+_FETCHING = re.compile(r"\b(DDEAUTO|DDE|INCLUDETEXT|INCLUDEPICTURE|IMPORT|LINK)\b")
+
+
+#: The Word parts that hold text and so can hold fields: the body, headers, footers, footnotes, endnotes, comments, the glossary.
+_TEXT_PART = re.compile(
+    r"^word/(document|header\d*|footer\d*|footnotes|endnotes|comments|glossary/document)\.xml$"
+)
+
+
+def _field_codes(root) -> list[str]:
+    """Every field code of one Word part, each JOINED from all its runs (a code split as "INCLUDE" + "PICTURE" is read as one): the
+    instrText of a complex field from its begin to its end, and the instr of a simple field. Review of update 12, R1."""
+    codes: list[str] = []
+    open_fields: list[list[str]] = []
+    loose: list[str] = []
+    for element in root.iter():
+        tag = _local(element.tag)
+        if tag == "fldChar":
+            kind = next(
+                (v for k, v in element.attrib.items() if _local(k) == "fldCharType"), ""
+            )
+            if kind == "begin":
+                open_fields.append([])
+            elif kind == "end" and open_fields:
+                codes.append("".join(open_fields.pop()))
+        elif tag == "instrText":
+            (open_fields[-1] if open_fields else loose).append(element.text or "")
+        elif tag == "fldSimple":
+            codes.append(
+                next((v for k, v in element.attrib.items() if _local(k) == "instr"), "")
+            )
+    codes.extend(
+        "".join(parts) for parts in open_fields
+    )  # a field never closed is still read
+    if loose:
+        codes.append("".join(loose))
+    return [" ".join(code.split()).upper() for code in codes]
 
 
 def _docx_findings(package) -> set[str] | str:
@@ -104,6 +127,10 @@ def _docx_findings(package) -> set[str] | str:
     names = {
         i.filename.casefold(): i.filename for i in infos
     }  # package part names are not case-sensitive
+    if (
+        len(names) != len(infos)
+    ):  # two parts with one name (or names differing only by case): which one Word reads is unknown
+        return "duplicate_parts"
     if "word/document.xml" not in names:
         return "not_a_word_document"
     if (
@@ -145,14 +172,12 @@ def _docx_findings(package) -> set[str] | str:
                 findings.add(
                     "external_link"
                 )  # anything fetched from outside on opening: a remote picture, template, data
-    instr = " ".join(
-        _field_code(e) for e in _xml(package, names["word/document.xml"]).iter()
-    ).upper()
-    findings.update(
-        "fetching_field"
-        for f in DOCX_FETCHING_FIELDS
-        if f.strip() and f in f" {instr} "
-    )
+    # every Word text part: the body, headers, footers, footnotes, endnotes and comments (review of update 12, R2)
+    for name in (n for n in names if _TEXT_PART.match(n)):
+        if any(
+            _FETCHING.search(code) for code in _field_codes(_xml(package, names[name]))
+        ):
+            findings.add("fetching_field")
     return findings
 
 
