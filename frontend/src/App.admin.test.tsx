@@ -15,7 +15,7 @@
  * `current_admin`); this is the UI declining to advertise a door it knows is
  * locked, and declining to open it either.
  */
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -88,6 +88,9 @@ function mockApi(me: Me | null, opts: { required?: boolean } = {}) {
 function adminNavButton() {
   const nav = screen.queryByRole("navigation", { name: "Main" });
   if (!nav) return null;
+  // Administration sits in the folded "Advanced" group (owner, 26 Nov 2026, G9): open it first when it is there.
+  const advanced = within(nav).queryByRole("button", { name: /Advanced/ });
+  if (advanced?.getAttribute("aria-expanded") === "false") fireEvent.click(advanced);
   return within(nav).queryByRole("button", { name: /Administration/ });
 }
 
@@ -122,7 +125,10 @@ describe("hasAdminCapability: the gate itself", () => {
 
   it("appends the entry rather than mutating the shared NAV constant", () => {
     const before = NAV.length - 1; // the Technical Queries entry is off by default
-    expect(navFor({ required: true, user: PLAIN })).toHaveLength(before);
+    // a non-admin gets the main entries only: the "Advanced" screens are administrators' (owner, 26 Nov 2026, G9)
+    expect(navFor({ required: true, user: PLAIN })).toEqual(
+      NAV.filter((i) => i.group !== "advanced" && i.id !== "technicalQueries"),
+    );
     expect(navFor({ required: true, user: ADMIN })).toHaveLength(before + 1);
     expect(navFor({ required: true, user: ADMIN }).at(-1)?.id).toBe("admin");
     expect(NAV).toHaveLength(before + 1);
@@ -258,7 +264,8 @@ describe("a non-admin", () => {
     // The six ordinary entries are still there, so this is not "the nav failed
     // to render" passing as "the admin entry is absent".
     expect(screen.getByRole("button", { name: /Documents/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Reports/ })).toBeInTheDocument();
+    // Reports moved under "Advanced", which a non-admin does not get (G9); Ask is an everyday entry
+    expect(screen.getByRole("button", { name: /^Ask/ })).toBeInTheDocument();
   });
 
   it("does not get the screen even with the view state already set to admin", async () => {

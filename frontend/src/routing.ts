@@ -91,16 +91,17 @@ export function panelForReviewScreen(
 }
 
 const titles: Record<ViewId, string> = {
-  dashboard: "Dashboard",
+  home: "Home",
+  dashboard: "System",
   documents: "Documents",
   chat: "Chat",
-  analysis: "Analysis Hub",
+  analysis: "Analysis",
   reports: "CRS & Reports",
   deliverables: "Deliverables and timeline",
   ingestion: "Ingestion",
   admin: "Administration",
   standards: "Standards Library",
-  review: "AI Submittal Review",
+  review: "Reviews",
   technicalQueries: "Technical Queries",
 };
 
@@ -126,7 +127,8 @@ export function parseRoute(pathname: string): AppRoute {
       return part;
     }
   });
-  if (parts.length === 0) return { kind: "view", view: "documents" };
+  // The app opens on Home: the three jobs first (owner, 26 Nov 2026, G9). Documents keeps its own address, /documents.
+  if (parts.length === 0) return { kind: "view", view: "home" };
   const view = parts[0] as ViewId;
   if (!isRoutableView(view)) {
     return { kind: "forbidden", path: pathname };

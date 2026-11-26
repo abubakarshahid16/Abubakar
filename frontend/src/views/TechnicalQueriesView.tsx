@@ -30,6 +30,10 @@ const SCAN_LABELS: Record<string, string> = {
 };
 
 /** A mail's signature, legal notices and quoted earlier mail, folded behind "show" (the server decides the cut; the full text stays stored). */
+/** The empty queue says why it is empty and what to press (owner, 26 Nov 2026, G9, E4). */
+export const NO_QUERIES =
+  'No technical queries yet: none has been imported. An administrator presses "Connect Gmail" above, then "Activate selected label"; the queries then appear here.';
+
 function Folded({ text }: { text?: string | null }) {
   if (!text) return null;
   return (
@@ -357,7 +361,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           )}
         </div>
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
-          {items.length === 0 && <p className="text-sm text-slateish-500">{importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</p>}
+          {items.length === 0 && <p className="text-sm text-slateish-500">{importing ? "The import is running: queries appear here as their messages arrive." : NO_QUERIES}</p>}
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
