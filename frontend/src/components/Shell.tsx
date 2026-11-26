@@ -10,6 +10,7 @@ import { api, type Health } from "../api/client";
 import type { AuthStatus } from "../types/api";
 
 export type ViewId =
+  | "home"
   | "documents"
   | "chat"
   | "analysis"
@@ -30,19 +31,25 @@ interface NavItem {
   label: string;
   hint: string;
   built: boolean;
+  /** "advanced": shown to administrators only, folded under one "Advanced" entry (owner, 26 Nov 2026: "very easy to use"). */
+  group?: "advanced";
 }
 
+/** The menu (owner, 26 Nov 2026, G9: "we want an app that is very easy to use"): the three jobs and the documents first, in everyday
+ *  words; every other screen under one folded "Advanced" group that administrators get. "Reviews" is the AI Submittal Review workflow.
+ *  Addresses are unchanged. */
 export const NAV: NavItem[] = [
-  { id: "dashboard", label: "Dashboard", hint: "Metrics, models, readiness", built: true },
-  { id: "review", label: "AI Submittal Review", hint: "Upload, AI review, findings, CRS", built: true },
-  { id: "documents", label: "Documents", hint: "Upload, inspect, verify", built: true },
-  { id: "standards", label: "Standards Library", hint: "Clauses, requirements, revisions", built: true },
-  { id: "analysis", label: "Analysis Hub", hint: "Summary, gaps, advice", built: true },
-  { id: "chat", label: "Chat", hint: "Ask anything, with sources", built: true },
-  { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true },
-  { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true },
-  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true },
-  { id: "technicalQueries", label: "Technical Queries and CFCs", hint: "Email questions and approvals", built: true },
+  { id: "home", label: "Home", hint: "Start here: the three jobs", built: true },
+  { id: "review", label: "Reviews", hint: "Check a contractor document", built: true },
+  { id: "technicalQueries", label: "Technical Queries and CFCs", hint: "Answer a contractor's question", built: true },
+  { id: "chat", label: "Ask", hint: "Ask about our documents", built: true },
+  { id: "documents", label: "Documents", hint: "Upload and find our documents", built: true },
+  { id: "dashboard", label: "System", hint: "Counts, models, readiness", built: true, group: "advanced" },
+  { id: "standards", label: "Standards Library", hint: "Clauses, requirements, revisions", built: true, group: "advanced" },
+  { id: "analysis", label: "Analysis", hint: "Summary, gaps, advice", built: true, group: "advanced" },
+  { id: "reports", label: "CRS & Reports", hint: "Frozen evidence, as PDF", built: true, group: "advanced" },
+  { id: "deliverables", label: "Deliverables", hint: "WBS, revisions, due dates", built: true, group: "advanced" },
+  { id: "ingestion", label: "Ingestion", hint: "Queue and throughput", built: true, group: "advanced" },
 ];
 
 /** The one role name that means "may administer". `admin` is a CAPABILITY and
@@ -59,6 +66,7 @@ export const ADMIN_NAV: NavItem = {
   label: "Administration",
   hint: "Users, disciplines, access",
   built: true,
+  group: "advanced",
 };
 
 /**
@@ -92,7 +100,8 @@ export function hasAdminCapability(auth: AuthStatus | null | undefined): boolean
 export function navFor(auth: AuthStatus | null | undefined): NavItem[] {
   // Technical Queries is switched off by default on the server (`/api/auth/me` says `technical_queries`): no entry in the DOM then.
   const base = auth?.technical_queries === true ? NAV : NAV.filter((item) => item.id !== "technicalQueries");
-  return hasAdminCapability(auth) ? [...base, ADMIN_NAV] : base;
+  // The "Advanced" screens and Administration are for administrators only (owner, 26 Nov 2026): absent from anyone else's menu.
+  return hasAdminCapability(auth) ? [...base, ADMIN_NAV] : base.filter((item) => item.group !== "advanced");
 }
 
 export type Connection =
@@ -334,6 +343,50 @@ export function Shell({
     catch { return "comfortable"; }
   });
   const items = navFor(auth);
+  const mainItems = items.filter((item) => item.group !== "advanced");
+  const advancedItems = items.filter((item) => item.group === "advanced");
+  const inAdvanced = advancedItems.some((item) => item.id === view);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const navButton = (item: NavItem) => {
+    const active = item.id === view;
+    return (
+      <li key={item.id}>
+        <button
+          type="button"
+          aria-current={active ? "page" : undefined}
+          aria-disabled={!item.built}
+          onClick={() => {
+            onNavigate(item.id);
+            setMenuOpen(false);
+          }}
+          className={[
+            "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm motion-safe:transition-colors",
+            active
+              ? "bg-signal-500/10 text-slateish-100 shadow-[var(--shadow-resting)] before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-signal-500 before:content-['']"
+              : "text-slateish-300 hover:bg-ink-800",
+            item.built ? "" : "opacity-70",
+          ].join(" ")}
+        >
+          <span className="min-w-0">
+            <span className="block leading-snug">{item.label}</span>
+            {/* The hint is orientation, not a label: it teaches the
+                screen once and is read past forever after. Dimmer and
+                a size down, so the seven destinations scan as seven
+                destinations rather than fourteen lines of equal
+                weight. */}
+            <span className="block truncate text-xs leading-snug text-slateish-500">
+              {item.hint}
+            </span>
+          </span>
+          {!item.built && (
+            <span className="ms-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300">
+              not built
+            </span>
+          )}
+        </button>
+      </li>
+    );
+  };
   useEffect(() => {
     document.documentElement.setAttribute("data-density", density);
     try { localStorage.setItem("rag-intelligence-density", density); } catch { /* memory-only fallback */ }
@@ -402,53 +455,19 @@ export function Shell({
             work anywhere else. A non-admin simply has no seventh entry, so
             there is no gap where something was removed. */}
         <ul className="space-y-0.5 px-3 pb-4">
-          {items.map((item, i) => {
-            const active = item.id === view;
-            const startsAdmin = item.id === "admin" && i > 0;
-            // A RULE, NOT A HEADING. The first version put an "ADMINISTRATION"
-            // label above an item already labelled "Administration", so the
-            // word appeared twice in a row and read as a rendering fault. The
-            // separator alone carries the meaning - this is a different kind
-            // of destination - and the item names itself.
-            return (
-              <li key={item.id} className={startsAdmin ? "mt-3 border-t border-ink-700 pt-3" : ""}>
-                <button
-                  type="button"
-                  aria-current={active ? "page" : undefined}
-                  aria-disabled={!item.built}
-                  onClick={() => {
-                    onNavigate(item.id);
-                    setMenuOpen(false);
-                  }}
-                  className={[
-                    "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm motion-safe:transition-colors",
-                    active
-                      ? "bg-signal-500/10 text-slateish-100 shadow-[var(--shadow-resting)] before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-signal-500 before:content-['']"
-                      : "text-slateish-300 hover:bg-ink-800",
-                    item.built ? "" : "opacity-70",
-                  ].join(" ")}
-                >
-                  <span className="min-w-0">
-                    <span className="block leading-snug">{item.label}</span>
-                    {/* The hint is orientation, not a label: it teaches the
-                        screen once and is read past forever after. Dimmer and
-                        a size down, so the seven destinations scan as seven
-                        destinations rather than fourteen lines of equal
-                        weight. */}
-                    <span className="block truncate text-xs leading-snug text-slateish-500">
-                      {item.hint}
-                    </span>
-                  </span>
-                  {!item.built && (
-                    <span className="ms-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300">
-                      not built
-                    </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
+          {mainItems.map(navButton)}
         </ul>
+        {/* EVERYTHING ELSE IS "ADVANCED" (owner, 26 Nov 2026): one folded entry, administrators only, open by itself when one of its
+            screens is the current one. A non-admin has no such entry at all. */}
+        {advancedItems.length > 0 && (
+          <div className="border-t border-ink-700 px-3 pb-4 pt-3">
+            <button type="button" aria-expanded={advancedOpen || inAdvanced} onClick={() => setAdvancedOpen((open) => !open)}
+              className="w-full rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm text-slateish-400 hover:bg-ink-800">
+              Advanced {advancedOpen || inAdvanced ? "▾" : "▸"}
+            </button>
+            {(advancedOpen || inAdvanced) && <ul className="mt-1 space-y-0.5">{advancedItems.map(navButton)}</ul>}
+          </div>
+        )}
 
         {navExtra}
 

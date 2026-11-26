@@ -98,7 +98,7 @@ function mockApi({ messages = [question, consent()], webAvailable = true, afterS
 
 async function openConversation() {
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /^Chat/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Ask/ }));
   const recent = await screen.findByRole("region", { name: "Recent chats" });
   await userEvent.click(within(recent).getByRole("button", { name: "Newer edition" }));
 }

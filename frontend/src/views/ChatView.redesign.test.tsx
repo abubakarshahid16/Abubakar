@@ -205,7 +205,7 @@ function mockApi({
 
 async function openChat() {
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /^Chat/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Ask/ }));
 }
 
 async function ask(text: string) {
@@ -223,7 +223,7 @@ describe("the first screen", () => {
     await openChat();
     expect(await screen.findByText("What can I help with?")).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Main" });
-    expect(within(nav).getByRole("button", { name: /^Chat\s*Ask anything, with sources/ })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /^Ask\s*Ask about our documents/ })).toBeInTheDocument();
     expect(screen.getByText(/AI can be wrong\. Open a source to check the page it came from\./)).toBeInTheDocument();
     // the conversation column is gone from the chat itself
     expect(screen.queryByRole("complementary", { name: "Recent conversations" })).toBeNull();

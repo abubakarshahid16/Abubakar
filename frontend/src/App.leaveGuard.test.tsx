@@ -168,6 +168,7 @@ describe("the navigation guard (v2.1 N1)", () => {
     mockApi();
     await openWorkspaceWithUnsaved(user);
     await user.click(screen.getByRole("button", { name: "Offer a save" }));
+    await user.click(screen.getByRole("button", { name: /Advanced/ })); // the Standards Library is in the folded "Advanced" group (G9)
     await user.click(screen.getAllByRole("button", { name: /Standards Library/ })[0]);
     await user.click(screen.getByRole("button", { name: "Save and leave" }));
     expect(await screen.findByText("standards page")).toBeInTheDocument();
@@ -178,6 +179,7 @@ describe("the navigation guard (v2.1 N1)", () => {
     const user = userEvent.setup();
     mockApi();
     await openWorkspaceWithUnsaved(user);
+    await user.click(screen.getByRole("button", { name: /Advanced/ })); // the Standards Library is in the folded "Advanced" group (G9)
     await user.click(screen.getAllByRole("button", { name: /Standards Library/ })[0]);
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     expect(screen.getByText("workspace for run-1")).toBeInTheDocument();

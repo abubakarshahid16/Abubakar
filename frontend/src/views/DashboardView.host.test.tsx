@@ -27,7 +27,6 @@
  * (test_metrics_host_telemetry.py); that it still RENDERS is this file's.
  */
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
@@ -120,8 +119,7 @@ function mockApi(metrics: Metrics) {
 
 async function openDashboard(metrics: Metrics) {
   mockApi(metrics);
-  render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Dashboard/ }));
+  render(<App initialView="dashboard" />); // in the administrators' "Advanced" group now (G9)
 }
 
 afterEach(() => {

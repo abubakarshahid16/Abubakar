@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { attachmentsRead, notReadWhy, peopleLine } from "../api/technicalQueries";
-import { TechnicalQueriesView } from "./TechnicalQueriesView";
+import { NO_QUERIES, TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
   id: "q1",
@@ -219,7 +219,7 @@ describe("Technical Queries screen", () => {
       api.list.mockResolvedValue({ ok: true, data: { items: [] } });
       render(<TechnicalQueriesView />);
       expect(await screen.findByText("The import is running: queries appear here as their messages arrive.")).toBeTruthy();
-      expect(screen.queryByText("No technical queries have been imported.")).toBeNull();
+      expect(screen.queryByText(NO_QUERIES)).toBeNull();
       api.list.mockClear();
       api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q-new", subject: "Arrived during the import" }] } });
       await vi.advanceTimersByTimeAsync(3100);

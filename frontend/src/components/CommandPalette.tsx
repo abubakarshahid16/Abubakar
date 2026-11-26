@@ -4,6 +4,7 @@ import { hasAdminCapability, type Connection, type ViewId } from "./Shell";
 import type { AuthStatus } from "../types/api";
 
 const NAV_COMMANDS: Array<{ id: ViewId; label: string }> = [
+  { id: "home", label: "Open home" },
   { id: "dashboard", label: "Open dashboard" }, { id: "documents", label: "Open documents" },
   { id: "standards", label: "Open standards library" }, { id: "chat", label: "Open chat" },
   { id: "analysis", label: "Open analysis" }, { id: "reports", label: "Open reports" },
