@@ -77,3 +77,26 @@ def test_the_question_finder_never_reads_the_signature_or_the_notice(monkeypatch
         and "regards" not in seen["question"].lower()
     )
     assert message_itself(SIGNED) == QUESTION
+
+
+def test_a_paragraph_that_asks_is_never_taken_out_but_a_notice_with_its_own_requests_is():
+    # recheck of update 12, R4
+    important = f"Dear all,\nImportant: {QUESTION}\n\nBest regards,\nInvented Person"
+    main, rest = split_body(important)
+    assert (
+        QUESTION in main
+        and QUESTION in message_itself(important)
+        and "Best regards" in rest
+    )
+    request = (
+        "Important: please advise the invented flange rating for the invented line."
+    )
+    assert request in split_body(f"Dear all,\n{request}\n\nRegards,\nX")[0]
+    legal = ("Dear all,\nPlease see the attached invented form.\n\nThis e-mail is confidential and intended only for the invented "
+             "addressee. If you are not the intended recipient, please notify the sender and delete it.")  # fmt: skip
+    main, rest = split_body(legal)
+    assert (
+        "confidential" in rest
+        and "notify the sender" in rest
+        and "attached invented form" in main
+    )

@@ -8,4 +8,5 @@ way; a real unused variable gets deleted, not listed here.
 """
 mtime_ns   # lru_cache KEY: the file's mtime makes a changed file miss the cache (datasheet_inputs)
 mtime      # lru_cache KEY: same idiom (subject_scope vocabulary file, doc_router cues)
+local_mtime  # lru_cache KEY: the local groups file's mtime, so a changed local file is read again (document_groups._load, update 13)
 rect_num   # parameter the PDF library calls `rectfn` with; it must be accepted, not used (reports)

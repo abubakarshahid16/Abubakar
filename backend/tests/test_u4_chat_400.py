@@ -1,3 +1,4 @@
+# ruff: noqa: F811 - the fixture is imported by name and taken as an argument
 """The chat's Claude 400 (12 Nov 2026): a 4xx now names its cause (type + short message, never the request) in the log and on
 the screen; and what the first send holds when no document is selected is pinned. Invented values; no socket."""
 from __future__ import annotations
@@ -134,7 +135,6 @@ def test_a_streamed_400_names_its_cause_too(monkeypatch, caplog):
 
 
 def test_the_screen_reason_carries_the_apis_cause_not_just_the_provider_name(monkeypatch, tmp_path):
-    seen: list = []
     _lane(monkeypatch, tmp_path)
     _ollama(monkeypatch, [])
     cause = "400 from api.anthropic.com (invalid_request_error: max_tokens 5 is above the model's limit 4.)"

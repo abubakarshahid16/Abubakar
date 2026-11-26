@@ -114,30 +114,121 @@ def _squash(text: str) -> str:
     return " ".join((text or "").split())
 
 
+#: A clause number standing ALONE on its line ("4.2.1", "4.", "Clause 7") whose title is the next line (a form found in the contract
+#: parts: the number in one column, the title in the next). A dotted number of two levels or more, or a number with its dot.
+_NUMBER_ALONE = re.compile(
+    rf"^\s*(?:{KEYWORD}\s+)?(?P<num>(?:\d+\.)+\d+\.?|\d+\.)\s*$", re.IGNORECASE
+)
+_TITLE_LINE = re.compile(
+    r"^\s*[A-Z(][^\n]{2,}$"
+)  # a title, or a list item's text (any length: `_item_or_title` tells them apart)
+
+
+#: A list item's text (not a title): a sentence, a long line, or a line holding a reference in brackets.
+_ITEM_TEXT = re.compile(r"[.;:)]\s*$|\(|\S+(\s+\S+){7,}")
+
+
+def _item_or_title(number: str, nxt: str, after: str) -> str | None:
+    """A number standing alone ("4.2.1", "7.") with the next line: a clause heading "4.2.1 Title", or for a single number before a sentence
+    a numbered LIST ITEM "Item 7", with the clause it refers to beside it when its text names one ("Item 7 (refers to 3.2.1)")."""
+    if "." in number.rstrip("."):
+        # a clause heading's title is heading-length: a dotted number before a long sentence is a wrapped reference, not a heading
+        return (
+            f"{number.rstrip('.')} {_squash(nxt)}"[:100].strip()
+            if len(nxt.strip()) <= 80
+            else None
+        )
+    # an item's reference may stand on the line after its text ("(Ref. ..., 7.1.15)"): still an item (run 8: Q7)
+    if not _ITEM_TEXT.search(nxt.strip()) and not after.strip().startswith("("):
+        return f"{number.rstrip('.')} {_squash(nxt)}"[:100].strip()
+    ref = CLAUSE_NUMBER.search(f"{nxt} {after}")
+    return f"Item {number.rstrip('.')}" + (
+        f" (refers to {ref.group(1)})" if ref else ""
+    )
+
+
+#: A value in a table's column: a number with at most one decimal point, perhaps with a short unit ("2.0", "12 bar", "0.75 mm").
+_VALUE = re.compile(r"^\s*[-+]?\d+([.,]\d+)?\s*\S{0,6}\s*$")
+
+
+def _table_value(lines: list[str], i: int, number: str) -> bool:
+    """A decimal-looking number alone ("1.5") with a table value one or two lines before it or two lines after it (value, unit, value,
+    unit) is a value in a table's column, never a clause heading (review of update 13, N5)."""
+    near = [lines[k] for k in (i - 2, i - 1, i + 2) if 0 <= k < len(lines)]
+    return bool(re.fullmatch(r"\d+\.\d+", number)) and any(
+        _VALUE.match(line) for line in near
+    )
+
+
+def _headings(lines: list[str]) -> list[tuple[int, str]]:
+    """(line index, heading) of every clause heading of a page: one line ("6.1 Painting"), a number alone with its title on the next line,
+    or a numbered list item of a schedule ("Item 7", review of evidence run 5: Q7)."""
+    out = []
+    for i, line in enumerate(lines):
+        heading = _heading_of(line)
+        if (
+            heading is None
+            and (m := _NUMBER_ALONE.match(line))
+            and i + 1 < len(lines)
+            and _TITLE_LINE.match(lines[i + 1])
+            and not _table_value(lines, i, m.group("num"))
+        ):
+            kw = m.group("kw")
+            after = lines[i + 2] if i + 2 < len(lines) else ""
+            found = _item_or_title(m.group("num"), lines[i + 1], after)
+            heading = (
+                f"{kw.capitalize()} {found}"
+                if found and kw and not found.startswith("Item")
+                else found
+            )
+        if heading:
+            out.append((i, heading))
+    return out
+
+
+#: How far into a passage a heading may stand and still be its locator, when no heading stands above it on the page.
+HEADING_IN_PASSAGE = 300
+
+
 def heading_above(page_text: str, quote: str) -> str | None:
-    """The nearest clause heading above the quote on this page, or None (also None when the quote cannot be placed on the page)."""
+    """The nearest clause heading above the quote on this page (the line the quote starts on counts); when there is none above, the first
+    heading in the quote's own first lines. None when there is none, or the quote cannot be placed on the page."""
     lines = (page_text or "").splitlines()
     squashed, offsets = "", []
     for line in lines:
         offsets.append(len(squashed))
-        squashed += _squash(line) + " "
+        # a blank line adds nothing: a sentence across a heading, a blank line and its text is still found (run 8: Q1)
+        squashed += f"{_squash(line)} " if line.strip() else ""
     anchor = _squash(quote)[:80]
     at = squashed.find(anchor) if anchor else -1
     if at < 0:
         return None
-    found = None
-    for line, offset in zip(lines, offsets, strict=True):
-        if offset >= at:
-            break
-        found = _heading_of(line) or found
-    return found
+    above = [h for i, h in _headings(lines) if offsets[i] <= at]
+    if above:
+        return above[-1]
+    inside = [
+        h for i, h in _headings(lines) if at < offsets[i] < at + HEADING_IN_PASSAGE
+    ]
+    return inside[0] if inside else None
 
 
 def last_heading(page_text: str) -> str | None:
-    found = None
-    for line in (page_text or "").splitlines():
-        found = _heading_of(line) or found
-    return found
+    found = _headings((page_text or "").splitlines())
+    return found[-1][1] if found else None
+
+
+_SENTENCE = re.compile(r"(?<=[.;:!?])\s+|\n+")
+
+
+def best_sentence(terms: list[str], text: str) -> str | None:
+    """The sentence of a passage holding the most of the question's key terms (the first of equals), or None when none holds one: where the
+    matched words sit, so a passage spanning several clauses is located at the clause that answers (review of evidence run 2: Q1, Q4)."""
+    best, most = None, 0
+    for sentence in (x.strip() for x in _SENTENCE.split(text or "")):
+        held = score(terms, sentence)["count"] if sentence else 0
+        if held > most:
+            best, most = sentence, held
+    return best
 
 
 def locator_for(
@@ -154,3 +245,25 @@ def locator_for(
     return heading_above(page_text, quote) or (
         last_heading(earlier_page_text) if earlier_page_text else None
     )
+
+
+_SENTENCE_END = re.compile(r"[.!?](?= )")
+_NEGATION = re.compile(
+    r"\b(not|no|never|nor|neither|without|except|unless)\b", re.IGNORECASE
+)
+
+
+def whole_sentences(on: str, run: str, reach: int = 600) -> str | None:
+    """A verbatim run widened ON THE PAGE to its sentences' start and end (review of update 13, N4: a fragment starting after "shall not"
+    inverts the meaning); None when the start cannot be found within `reach` characters and a negation stands just before the run."""
+    at = on.find(run)
+    ends = [m.end() for m in _SENTENCE_END.finditer(on, max(0, at - reach), at)]
+    if (
+        not ends
+        and at > 0
+        and _NEGATION.search(" ".join(on[max(0, at - 60) : at].split()[-4:]))
+    ):
+        return None
+    start = ends[-1] if ends else (0 if at <= reach else at)
+    after = _SENTENCE_END.search(on, at + len(run) - 1, at + len(run) + reach)
+    return on[start : after.end() if after else at + len(run)].strip()

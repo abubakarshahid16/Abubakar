@@ -241,8 +241,9 @@ def test_question_in_pdf_attachment_is_extracted_but_not_used_as_answer_evidence
     )
     assert "What is the permitted coating thickness?" in captured["question"]
     assert "[Attachment" not in captured["question"]
-    # The email's own question stays as written; the attachment is kept apart.
-    assert result["extracted_question"] == "Please see attached."
+    # A cover note ("Please see attached.") is not a question (lead-4, 26 Nov 2026): the page says the question is in the attachment.
+    assert result["extracted_question_main"] == ""
+    assert "query.pdf" in result["email_question_note"]
     assert result["attachment_context"] == [
         {
             "filename": "query.pdf",
@@ -2209,10 +2210,8 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
         False,
         reviewer=True,
     )
-    assert (
-        prepared["proposed_question"]
-        == "See attached.\n1. What coating does carbon steel need?"
-    )
+    # the cover note "See attached." is not a question (lead-4, 26 Nov 2026)
+    assert prepared["proposed_question"] == "1. What coating does carbon steel need?"
     assert (
         prepared["evidence_coverage"]["line"] == "Searched 1 of 1 contracts, hits in 1."
     )
@@ -2279,7 +2278,8 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
         word = package.read("word/document.xml").decode()
     for expected in (
         "Technical Query Response",
-        "See attached.",
+        # "See attached." is a cover note, not a question
+        "No question in the email text. The question is in the attachment: query.pdf",
         "Attachment text: query.pdf, page 1",
         "Question answered (confirmed by the engineer)",
         "Three coats [S1].",

@@ -33,6 +33,10 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 PATH = Path(__file__).parent / "reference" / "document_groups.json"
+#: THE CLIENT'S OWN GROUP LIST lives OUTSIDE the public repository (update 13, lead-4 16:03): this file in the app's data folder (git-ignored,
+#: `backend/data/`), when present, adds its groups to the repository file's (which keeps the six families and invented examples only).
+#: Without it the app works on the repository file alone. Its group ids may not reuse a repository id; it is checked by the same rules.
+LOCAL_NAME = "document_groups.local.json"
 KIND, GROUP, NEAREST, DEFAULT = "kind", "group", "nearest", "default"
 #: Words that say nothing about a document's kind, left out of the nearest-family count.
 _STOP = frozenset(
@@ -91,12 +95,42 @@ def _norm(text: str | None) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
 
 
+def local_path() -> Path:
+    """Where the client's own group list is read from (the data folder, git-ignored)."""
+    from .config import settings
+
+    return Path(settings.data_dir) / LOCAL_NAME
+
+
+def _with_local(data: dict, local: Path | None) -> dict:
+    """The repository table with the local file's groups added (`local_groups`: their ids, for counting only)."""
+    if local is None:
+        return {**data, "local_groups": []}
+    extra = json.loads(local.read_text(encoding="utf-8"))
+    groups = extra.get("groups") if isinstance(extra, dict) else None
+    if not isinstance(groups, dict) or not groups:
+        raise DocumentGroupsError("the local groups file needs `groups`")
+    if set(groups) & set(data.get("groups") or {}):
+        raise DocumentGroupsError("the local groups file reuses a repository group id")
+    return {
+        **data,
+        "groups": {**(data.get("groups") or {}), **groups},
+        "local_groups": sorted(groups),
+    }
+
+
 @lru_cache(maxsize=1)
-def _load(mtime: float) -> dict:  # noqa: ARG001 - the cache key: re-read when the file changes
+def _load(
+    mtime: float,  # noqa: ARG001 - with `local_mtime`, the cache key: re-read when a file changes
+    local: str | None = None,
+    local_mtime: float | None = None,  # noqa: ARG001
+) -> dict:
     from . import kind_list
     from .aim_review.library import KINDS
 
-    data = json.loads(PATH.read_text(encoding="utf-8"))
+    data = _with_local(
+        json.loads(PATH.read_text(encoding="utf-8")), Path(local) if local else None
+    )
     fams, groups = data.get("families"), data.get("groups")
     if not isinstance(fams, dict) or set(fams) != set(kind_list.families()):
         raise DocumentGroupsError("`families` must be the kind list's six families")
@@ -136,7 +170,13 @@ def _load(mtime: float) -> dict:  # noqa: ARG001 - the cache key: re-read when t
 
 def table() -> dict:
     try:
-        return _load(PATH.stat().st_mtime)
+        lp = local_path()
+        lp = lp if lp.is_file() else None
+        return _load(
+            PATH.stat().st_mtime,
+            str(lp) if lp else None,
+            lp.stat().st_mtime if lp else None,
+        )
     except (OSError, ValueError) as exc:
         if isinstance(exc, DocumentGroupsError):
             raise

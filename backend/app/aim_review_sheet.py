@@ -32,6 +32,9 @@ COMMENTS = "Comments"
 ALL_POINTS = "All points"
 CONFIRMATIONS = "Confirmations (not sent)"
 HOW = "How it was reviewed"
+#: Team only, and only when the learner moved a comment (`aim_review_learner`, switch off by default): a comment an engineer
+#: rejected before on the same rule and kind of paper, with its note.
+REJECTED_BEFORE = "Rejected before"
 SHEETS = (SUMMARY, COMMENTS, CONFIRMATIONS, ALL_POINTS, HOW)
 
 
@@ -244,6 +247,8 @@ def comment_rows(model: dict, part: str = "comments") -> list[list]:
         ask, c4 = cut(p.get("we_ask") or "")
         if c3 or (c4 and note is None):
             note = f"Cut: the full text of each place is on the sheet {ALL_POINTS}, No. {lines_cell(lines)}."
+        if p.get("rejected_before"):  # the learner's note leads (team file only)
+            note = " ".join(x for x in (p["rejected_before"]["note"], note) if x)
         cells = {
             "No.": p["n"], "Severity": p.get("severity"), "Title": p.get("title"), "Paper says": said or None,
             "Rule says": p.get("rule_says") or None, "We ask": ask or None, "Applies to": applies_text(p.get("applies_to")),
@@ -547,6 +552,17 @@ def build(model: dict) -> bytes:
         f"every point is on the sheet {ALL_POINTS}.",
     )
     _table(ws, COMMENT_HEADERS, comment_rows(model, "confirmations"))
+    if model.get("rejected_before"):
+        ws = wb.create_sheet(REJECTED_BEFORE)
+        n = len(model["rejected_before"])
+        _head(ws, f"Rejected before (not raised again): {n}")
+        _put(
+            ws,
+            3,
+            1,
+            f"{n} comments an engineer rejected before on the same rule and kind: kept here, never sent.",
+        )
+        _table(ws, COMMENT_HEADERS, comment_rows(model, "rejected_before"))
     ws = wb.create_sheet(ALL_POINTS)
     _head(ws, f"All points: {model['counts']['points']}")
     _put(ws, 3, 1, team_statement(model["counts"]["points"]))

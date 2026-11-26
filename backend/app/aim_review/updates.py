@@ -8,7 +8,8 @@ Code-only and screen-only parts stay on.
     component and vendor-field rules, the pass-as-Question fix (converted figures, an unproven Met), one point one comment
     (the editor's groups in the merge keys) and the upload-time picture stage.
   * AIM_U8_ENABLED: the second-model rule approvals in the rule pool, the cross-document check.
-  * AIM_FORMULA_CHECKS_ENABLED (update 9, ON by default): the formula checks, out of AIM_U8_ENABLED."""
+  * AIM_FORMULA_CHECKS_ENABLED (update 9, ON by default): the formula checks, out of AIM_U8_ENABLED.
+  * AIM_U13_ENABLED: the always-on items G2 and G3 read the app's own consistency pairs and form entries (planner, 26 Nov 2026)."""
 
 from __future__ import annotations
 
@@ -25,6 +26,12 @@ def u7b() -> bool:
 
 def u8() -> bool:
     return bool(settings.aim_u8_enabled)
+
+
+def u13() -> bool:
+    """Update 13's method part, OFF until a quick score: G2 is given the app's consistency pairs and G3 the entries this kind of
+    paper must state (`always.form_context`); off: G2 and G3 exactly as main."""
+    return bool(settings.aim_u13_enabled)
 
 
 def formula_checks() -> bool:

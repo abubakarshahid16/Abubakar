@@ -13,6 +13,7 @@ All PyMuPDF work goes through pdf_guard.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -60,15 +61,7 @@ DOCX_ACTIVE_TYPES = frozenset(
 )  # fmt: skip
 #: Content types that name active content.
 DOCX_ACTIVE_CONTENT_TYPES = ("vbaproject", "activex", "oleobject", "macroenabled")
-#: Field codes that fetch from outside or run something when the document is opened or updated.
-DOCX_FETCHING_FIELDS = (
-    "DDEAUTO",
-    "DDE ",
-    "INCLUDETEXT",
-    "INCLUDEPICTURE",
-    "IMPORT ",
-    "LINK ",
-)
+#: Field codes that fetch from outside or run something when the document is opened or updated: `_FETCHING`.
 MAX_DOCX_ENTRIES = 5_000
 #: Unpacked size limits: a part or a whole file above them is "could not be checked" (a zip bomb is never read whole).
 MAX_DOCX_XML_BYTES = 20 * 1024 * 1024
@@ -89,13 +82,37 @@ def _xml(package, name: str):
     return SafeXML.fromstring(package.read(name))
 
 
-def _field_code(element) -> str:
-    """The code of a Word field: the text of an instrText element or the instr attribute of a simple field ("" for anything else)."""
-    if _local(element.tag) == "instrText":
-        return element.text or ""
-    if _local(element.tag) == "fldSimple":
-        return next((v for k, v in element.attrib.items() if _local(k) == "instr"), "")
-    return ""
+_FETCHING = re.compile(r"\b(DDEAUTO|DDE|INCLUDETEXT|INCLUDEPICTURE|IMPORT|LINK)\b")
+
+
+def _field_codes(root) -> list[str]:
+    """Every field code of one Word part, each JOINED from all its runs (a code split as "INCLUDE" + "PICTURE" is read as one): the
+    instrText of a complex field from its begin to its end, and the instr of a simple field. Review of update 12, R1."""
+    codes: list[str] = []
+    open_fields: list[list[str]] = []
+    loose: list[str] = []
+    for element in root.iter():
+        tag = _local(element.tag)
+        if tag == "fldChar":
+            kind = next(
+                (v for k, v in element.attrib.items() if _local(k) == "fldCharType"), ""
+            )
+            if kind == "begin":
+                open_fields.append([])
+            elif kind == "end" and open_fields:
+                codes.append("".join(open_fields.pop()))
+        elif tag == "instrText":
+            (open_fields[-1] if open_fields else loose).append(element.text or "")
+        elif tag == "fldSimple":
+            codes.append(
+                next((v for k, v in element.attrib.items() if _local(k) == "instr"), "")
+            )
+    codes.extend(
+        "".join(parts) for parts in open_fields
+    )  # a field never closed is still read
+    if loose:
+        codes.append("".join(loose))
+    return [" ".join(code.split()).upper() for code in codes]
 
 
 def _docx_findings(package) -> set[str] | str:
@@ -104,6 +121,10 @@ def _docx_findings(package) -> set[str] | str:
     names = {
         i.filename.casefold(): i.filename for i in infos
     }  # package part names are not case-sensitive
+    if (
+        len(names) != len(infos)
+    ):  # two parts with one name (or names differing only by case): which one Word reads is unknown
+        return "duplicate_parts"
     if "word/document.xml" not in names:
         return "not_a_word_document"
     if (
@@ -145,15 +166,22 @@ def _docx_findings(package) -> set[str] | str:
                 findings.add(
                     "external_link"
                 )  # anything fetched from outside on opening: a remote picture, template, data
-    instr = " ".join(
-        _field_code(e) for e in _xml(package, names["word/document.xml"]).iter()
-    ).upper()
-    findings.update(
-        "fetching_field"
-        for f in DOCX_FETCHING_FIELDS
-        if f.strip() and f in f" {instr} "
-    )
-    return findings
+    # EVERY XML part, whatever its name: a part renamed or added by hand can hold a field too (review of update 13, N6)
+    unparsed = False
+    for name in (n for n in names if n.endswith(".xml")):
+        try:
+            codes = _field_codes(_xml(package, names[name]))
+        except Exception as exc:  # noqa: BLE001 - a part that cannot be parsed is not checked: never "clean"
+            log.info(
+                "attachment check: a Word part could not be parsed (%s)",
+                type(exc).__name__,
+            )
+            unparsed = True
+            continue
+        if any(_FETCHING.search(code) for code in codes):
+            findings.add("fetching_field")
+    # active content found elsewhere still flags the file; with none found, a part not parsed means "could not be checked"
+    return "part_not_parsed" if unparsed and not findings else findings
 
 
 def check_docx(data: bytes) -> dict[str, Any]:

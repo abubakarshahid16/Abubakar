@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import pytest
 
-
 from app import crs_one, review_points
 from app import review_points_content as c
 from tests.test_b1_review_points import world_with_both
 from tests.test_crs_endpoint import temp_db  # noqa: F401 - fixture
-from tests.test_k4_one_crs import on, rows_after, scope_all, sheet  # noqa: F401 - fixtures and helpers
+from tests.test_k4_one_crs import (  # noqa: F401 - fixtures and helpers
+    on,
+    rows_after,
+    scope_all,
+    sheet,
+)
 
 CTX = {"run_id": "r", "paper_document_id": "doc1", "readable": frozenset({"doc1"})}
 PLACEHOLDER = "AI suggestion awaiting an engineer's decision - its words are in AI Review Comments. Not issued to the contractor until an engineer confirms it."
@@ -139,8 +143,9 @@ def test_the_pages_line_cannot_contradict_itself_and_the_files_line_has_no_api_p
     assert crs_one.pages_line({"pages_total": 69, "pages_read": [1, 2, 3]}, [4, 5]) == "69 pages: 3 read, 2 not fully read (pages 4, 5)"
     doc, rc, ai, client = world_with_both()
     data = crs_one.build_team(doc, scope_all())
-    from openpyxl import load_workbook
     from io import BytesIO
+
+    from openpyxl import load_workbook
 
     wb = load_workbook(BytesIO(data))
     every = "\n".join(str(x) for ws in wb.worksheets for r in ws.iter_rows(values_only=True) for x in r if x is not None)
@@ -176,8 +181,7 @@ OPEN_TEXT = "Alpha tags shall be engraved"
 
 
 def _two_books_world():
-    from app import db
-    from tests.test_crs_endpoint import NOW, _client, _finding, _run, _submittal
+    from tests.test_crs_endpoint import _client, _finding, _run, _submittal
 
     doc = _submittal()
     _submittal("doc_open", "OPEN-100.pdf")
@@ -207,7 +211,7 @@ def test_a_viewer_who_may_not_read_a_rule_book_gets_nothing_of_it_on_the_page_or
 
     from openpyxl import load_workbook
 
-    from app import access, db, review_points_service
+    from app import access, review_points_service
 
     doc, client = _two_books_world()
     scope = access.AccessScope(user_id="eng", allowed_document_ids=frozenset({doc, "doc_open"}))
@@ -271,7 +275,7 @@ def test_the_readability_proof_is_proven_or_hidden():
 
 
 def _unlinked_world():
-    from tests.test_crs_endpoint import _client, _finding, _run, _submittal
+    from tests.test_crs_endpoint import _finding, _run, _submittal
 
     doc = _submittal()
     _submittal("doc_open", "OPEN-100.pdf")

@@ -49,6 +49,16 @@ def why_of(exc: BaseException | str) -> str:
     return type(exc).__name__ if isinstance(exc, BaseException) else str(exc)
 
 
+def record_once(step: str, what: str, exc: BaseException | str) -> None:
+    """`record`, but once per run for `step` (a read that fails before every call is one fault, not one per call)."""
+    calls = _CALLS.get()
+    if calls is not None and any(
+        getattr(c, "step", None) == step and not getattr(c, "ok", True) for c in calls
+    ):
+        return
+    record(step, what, exc)
+
+
 def record(step: str, what: str, exc: BaseException | str) -> None:
     """One row of the run's calls for a step that did not run: step `step`, code "<what> not applied: <why>"."""
     from .engine import CallRecord
@@ -80,6 +90,15 @@ NOT_APPLIED_WORDS = {
     "aim_unread_check": "The check of which pages were read did not run on this sheet ({why}): pages with no text are not "
     "named, so do not take every page as read.",
     "aim_picture_readings": "The stored picture readings could not be read ({why}): every picture is named as not read.",
+    "aim_kind_table": "The kind table was not read ({why}): the checklist was made with no coverage floor for its kind.",
+    "aim_kind_reading": "The stored reading of the paper's kind was not read ({why}): the review named the kind itself.",
+    "aim_equipment_reading": "The stored reading of the paper's equipment was not read ({why}): the books were chosen without "
+    "it.",
+    "aim_cross_document": "The cross-document check by tag did not run on this sheet ({why}): no tag was compared with the "
+    "other papers.",
+    "local_swap_check": "The swap check of the memory rule could not read the swap ({why}): this run was not stopped by it.",
+    "local_model_description": "The local model's own description was not read ({why}): its default window and settings "
+    "were used.",
     "aim_g1_facts": "The library facts for the cited-standards check (G1) were not read ({why}): G1 was judged on the paper "
     "alone.",
     "aim_contract_code": "A code check of the contract did not run on this sheet ({why}): the points it checks are not "

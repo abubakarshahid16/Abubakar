@@ -232,10 +232,11 @@ def auto_prepare(query_id: str | None, actor_user_id: str | None) -> None:
             scope.unrestricted,
             start_thread=False,
         )
-    except Exception as exc:  # noqa: BLE001 - logged by its class; the import goes on
+    except Exception as exc:  # noqa: BLE001 - logged by its class; the import goes on, and the query's history says so (D2)
         log.info(
             "technical query: evidence not queued after import (%s)", type(exc).__name__
         )
+        _evidence_not_queued(query_id, actor_user_id, exc)
 
 
 MAX_TRIES = 3
@@ -415,3 +416,23 @@ def activate_label(
         if changed.rowcount != 1:
             raise RuntimeError("mailbox activation changed; retry safely")
     return results
+
+
+#: The query history's event when its evidence could not be prepared after the import (the engineer presses "Prepare evidence").
+EVIDENCE_NOT_QUEUED = "evidence_not_prepared_after_import"
+
+
+def _evidence_not_queued(query_id: str, actor_user_id, exc: BaseException) -> None:
+    """One event on the query (its history on the page): the class of the fault only, never its text."""
+    from . import technical_queries
+
+    try:
+        with connect() as conn:
+            technical_queries._event(
+                conn, query_id, EVIDENCE_NOT_QUEUED, actor_user_id, type(exc).__name__
+            )
+    except Exception as again:  # noqa: BLE001 - the event itself could not be written: logged by class
+        log.warning(
+            "technical query: the evidence fault was not recorded (%s)",
+            type(again).__name__,
+        )

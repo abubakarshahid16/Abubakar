@@ -317,9 +317,10 @@ def test_the_attachment_pages_are_not_copied_in_bulk_and_an_invented_question_is
     ]
     for stray in ("Contractor query form", "Ref 12", "Thanks", "insured", "holiday"):
         assert stray not in result["proposed_question"]
+    # the cover note is not a question (lead-4, 26 Nov 2026)
     assert (
         result["proposed_question"]
-        == "See attached.\n1. Q1 What is the minimum coating thickness for the tank?"
+        == "1. Q1 What is the minimum coating thickness for the tank?"
     )
     assert (
         result["confirmed_question"] is None
@@ -342,7 +343,9 @@ def test_a_model_that_cannot_answer_proposes_nothing_and_says_so(monkeypatch):
         result["proposed_questions"] == []
         and result["proposal_note"] == "model_unavailable"
     )
-    assert result["proposed_question"] == "See attached."
+    # the mail only says "See attached.": nothing is proposed and nothing is searched for (lead-4, 26 Nov 2026)
+    assert result["proposed_question"] == ""
+    assert result["evidence_coverage"]["line"] == tq.NOT_SEARCHED
 
 
 # ---------------------------------------------------------------- F5: Claude for the draft: the owner's lane, its own consent record

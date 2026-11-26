@@ -688,6 +688,10 @@ class SettingsExt(BaseModel):
     #: refused before the start, as before the local route, and a queued local run stops before it loads a model.
     #: Env: GENERAL_REVIEW_LOCAL_ENABLED.
     general_review_local_enabled: bool = True
+    #: THE LEARNER, v1 (planner 26 Nov 2026 16:03): a comment an engineer rejected before on the same rule and kind of paper is
+    #: moved to the team-only "Rejected before" section with its note, not raised again (`aim_review_learner`). OFF until a
+    #: scored read says it helps. Env: LEARNER_REJECTED_BEFORE_ENABLED.
+    learner_rejected_before_enabled: bool = False
     #: Chat in Claude mode may call the database tools (list documents, a paper's latest review, technical-query open items)
     #: whose answers go to Claude: titles, ids, counts and review comments of documents the caller may read; never the
     #: register or a blocked file; never document text (owner, 25 Nov 2026, #1584). Env: CHAT_DATABASE_TOOLS_ENABLED.

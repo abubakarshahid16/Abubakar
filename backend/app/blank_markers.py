@@ -326,6 +326,32 @@ def is_provisional_figure(quote: str | None) -> bool:
     return names_who_supplies(quote) and not value_left_open(quote)
 
 
+def states_value(quote: str | None, field: str | None) -> bool:
+    """The quote STATES the field's value: it names the field (each word of 3 or more letters of the field's own label stands in it)
+    and holds other words or numbers than the label, and `value_left_open` does not read it as open. By the quote's structure only,
+    never the AI's wording. Used only by update 13's required-entries filter (`asks.entry_filled`, switch off); too loose for any
+other use (review of update 13, B1/N7: a who-supplies word or a note pointer passes): to be rebuilt before that switch goes on. Pure."""
+    text, label = " ".join(str(quote or "").split()), str(field or "")
+    words = re.findall(r"[a-z]{3,}", label.lower())
+    if (
+        not text
+        or not words
+        or value_left_open(text)
+        or not all(w in text.lower() for w in words)
+    ):
+        return False
+    from app.claims import is_unit
+
+    own = set(re.findall(r"\w+", label.lower()))
+    rest = [
+        w
+        for w in re.findall(r"\w+", re.sub(r"^\s*\d{1,3}\s+", "", text).lower())
+        if w not in own
+    ]
+    # a value is a number, or a word that is not a unit: "Set pressure barg" (a label and its unit) states nothing
+    return any(re.search(r"\d", w) or (len(w) >= 2 and not is_unit(w)) for w in rest)
+
+
 def value_left_open(quote: str | None) -> bool:
     """THE general review's question "does this paper quote leave the value open?" (the lead's decision of 18 Nov 2026).
 

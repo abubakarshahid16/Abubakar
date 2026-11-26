@@ -44,7 +44,12 @@ WHY_WORDS = {
     CAPPED: "it is past the limit of pages Claude reads as pictures in one review",
     REFUSED: "Claude's picture reading of it was refused (a spending cap, the lane or the approval)",
     BEING_READ: "it is being read at upload, not read in this review",
+    # a DRAWING page (update 13, `drawing_pages`): picture only, or read on its text and title block with its drawing not read
+    "drawing_picture_only": "it holds only a few words of text (under 50 characters): the drawing is a picture, and its picture reading has not run",
+    "picture_part_not_read": "its text and title block were read; the drawing itself (its lines and symbols) was not",
 }
+#: Entries whose page WAS read (its text came back), only its drawing was not: said apart, never counted as a page not read.
+PART_READ = frozenset({"picture_part_not_read"})
 
 STEP = "aim_unread_pages"
 #: The run's calls row when the check itself failed (`faults`); its own step, so `record_state` still reads "not checked".
@@ -69,6 +74,13 @@ def with_unread(conn, paper_id: str, paper, _reload):
             return paper
         # 7a: a page waiting for the upload's own picture reading is only NAMED (WAITING); the review never runs recognition itself
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
+        from . import (
+            drawing_pages,
+        )  # a paper an engineer confirmed as a drawing: its pages' picture part (update 13); any other paper: nothing
+
+        paper.unread += drawing_pages.marks(
+            conn, paper_id, paper, ref["path"], MIN_PAGE_CHARS
+        )
         paper.unread_checked = True
     except Exception as exc:  # noqa: BLE001 - never a failed review: the pages are not claimed, and the run says the check failed
         from . import faults
@@ -245,13 +257,26 @@ def record_state(calls) -> str:
 
 
 def sentence(where: str, why: str) -> str:
+    if why in PART_READ:
+        return f"{where[0].upper()}{where[1:]}: the picture part was not read ({WHY_WORDS[why]})."
     return f"{where[0].upper()}{where[1:]} was not read: {WHY_WORDS.get(why, 'no reading came back')}."
 
 
 def summary(items: list[dict]) -> str:
     """One line for the page and the file: how many were not read and which ("Not read: pages 7, 9; picture 3")."""
+    part = [
+        i["where"].split()[1]
+        for i in items
+        if i.get("why") in PART_READ and i["where"].startswith("page")
+    ]
+    items = [i for i in items if i.get("why") not in PART_READ]
+    tail = (
+        f" Picture part not read (text and title block read): page{'s' if len(part) > 1 else ''} {', '.join(part)}."
+        if part
+        else ""
+    )
     if not items:
-        return ""
+        return tail.strip()
     pages = [i["where"].split()[1] for i in items if i["where"].startswith("page")]
     pics = [i["where"].split()[1] for i in items if i["where"].startswith("picture")]
     parts = (
@@ -261,6 +286,7 @@ def summary(items: list[dict]) -> str:
         "Not read (no text and no picture reading came back, or it has not run): "
         + "; ".join(parts)
         + "."
+        + tail
     )
 
 

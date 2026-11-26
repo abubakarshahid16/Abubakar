@@ -52,7 +52,8 @@ def test_every_whitelisted_name_is_a_real_identifier_with_its_reason_beside_it()
             comment = lines[node.lineno - 1].partition("#")[2].strip()
             assert comment, f"{node.value.id} is whitelisted with no reason beside it"
             names[node.value.id] = comment
-    assert set(names) == {"mtime_ns", "mtime", "rect_num"}, names
+    # local_mtime (update 13): the lru_cache key of document_groups._load, so a changed local groups file is read again
+    assert set(names) == {"mtime_ns", "mtime", "rect_num", "local_mtime"}, names
     source = " ".join(p.read_text(encoding="utf-8") for p in APP.glob("*.py"))
     for name in names:
         assert re.search(rf"\b{name}\b", source), f"{name} is whitelisted but no longer exists"

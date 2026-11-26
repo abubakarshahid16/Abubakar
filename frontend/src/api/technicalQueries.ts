@@ -38,6 +38,7 @@ export interface TechnicalQuery {
   due_at: string | null;
   extracted_question_main?: string | null;
   extracted_question_folded?: string | null;
+  email_question_note?: string | null;
   messages?: Array<{ id: string; is_inbound?: number | boolean; body_main?: string; body_folded?: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; inline_picture?: number | boolean; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
@@ -213,11 +214,21 @@ export function attachmentsRead(messages: Array<{ attachments: QueryAttachment[]
   return { line: `${read}${signs}`, notRead };
 }
 
+/** More than this many people on a mail's To and Cc are folded to one line, "To/Cc: 43 people" (lead-4, 26 Nov 2026). */
+export const PEOPLE_SHOWN = 5;
+
+/** The mail's To / Cc line: in full for a few people, else one count line with the full list kept for "show". */
+export function peopleLine(to: string[], cc: string[]): { lines: string[]; folded: string | null } {
+  const count = to.length + cc.length;
+  if (count <= PEOPLE_SHOWN) return { lines: [`To: ${to.join(", ")}`, ...(cc.length ? [`CC: ${cc.join(", ")}`] : [])], folded: null };
+  return { lines: [`To/Cc: ${count} people`], folded: [`To: ${to.join(", ")}`, ...(cc.length ? [`CC: ${cc.join(", ")}`] : [])].join("\n") };
+}
+
 /** "Prepare evidence for all unprepared queries": counts only. */
 export interface PrepareAll { unprepared: number; minutes_each?: number | null; waiting_or_running: number; queued_now?: number | null }
 
 /** The sentence said BEFORE the round starts: how many, how long each (measured, or said to be not measured), one at a time. */
 export function prepareAllWords(plan: PrepareAll): string {
   const each = typeof plan.minutes_each === "number" ? `about ${plan.minutes_each} min each (measured on the last prepared queries)` : "the time per query is not measured yet";
-  return `${plan.unprepared} ${plan.unprepared === 1 ? "query is" : "queries are"} not prepared yet: ${each}, one at a time in the background. Prepared queries are skipped.`;
+  return `${plan.unprepared} ${plan.unprepared === 1 ? "query is" : "queries are"} not prepared yet, or were prepared by older question rules with no confirmed question (their question is proposed again from the attached form): ${each}, one at a time in the background. Prepared queries and confirmed questions are kept.`;
 }

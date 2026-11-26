@@ -213,6 +213,7 @@ EGRESS_SAFE: dict[str, object] = {
     "review_old_engine_enabled": True,
     # 26 Nov (A3): Local only runs the general review on the local model; nothing leaves; the model URL is the dead port here
     "general_review_local_enabled": True,
+    "learner_rejected_before_enabled": False,  # 26 Nov: the learner v1, off; its own tests turn it on
     "general_review_max_usd_per_run": 5.0,  # the general review run's own meter (refused above 15)
     "general_review_lead_model": "claude-sonnet-5-5",  # only on the Claude lane, which stays closed in tests
     "general_review_strong_model": "claude-opus-5-5",
@@ -221,6 +222,7 @@ EGRESS_SAFE: dict[str, object] = {
     "aim_u6b_enabled": False,
     "aim_u7b_enabled": False,
     "aim_u8_enabled": False,
+    "aim_u13_enabled": False,  # update 13's method part (G2/G3 read the app's form and pair data), off until a quick score
     "aim_page_pictures_enabled": False,  # J3: page pictures in a review, off by default (owner 26 Nov, #1584 7188761254)
     "aim_formula_checks_enabled": True,  # the formula checks, ON by default (update 9); "all off = main" pins it off itself
     "aim_discipline_reviewers_enabled": False,  # discipline reviewers on Claude, off; the local route gives their examples

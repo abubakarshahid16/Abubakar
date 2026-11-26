@@ -51,6 +51,7 @@ HEADERS = (
 )
 REASON_REJECTED = "rejected by the engineer"
 REASON_NOT_COMMENT = "points that need no comment (met, not applicable, not judged)"
+REASON_REJECTED_BEFORE = "rejected before by an engineer on the same rule"
 #: What a contractor file must never carry: ids, the AI mark, model names, recorded code notes. A hit names the comment.
 INTERNAL = (
     (r"\bdoc_[0-9a-f]{6,}\b", "a document id"),
@@ -151,7 +152,17 @@ def counts_of(view: dict) -> dict:
     n = view["counts"]["points"]
     covered = sum(len(c.get("lines") or [c["n"]]) for _p, c in (*mine, *rejected))
     m = sum(len(c.get("lines") or [c["n"]]) for _p, c in mine)
-    reasons = Counter({REASON_REJECTED: covered - m, REASON_NOT_COMMENT: n - covered})
+    # the learner's moved comments (team only, switch off by default): their points are not issued, for their own reason
+    before = sum(
+        len(c.get("lines") or [c["n"]]) for c in view.get("rejected_before") or []
+    )
+    reasons = Counter(
+        {
+            REASON_REJECTED: covered - m,
+            REASON_REJECTED_BEFORE: before,
+            REASON_NOT_COMMENT: n - covered - before,
+        }
+    )
     return {"points": n, "in_file": m, "not_issued": n - m, "reasons": {k: v for k, v in reasons.items() if v},
             "comments": sum(1 for p, _ in mine if p == "comment"), "confirmations": sum(1 for p, _ in mine if p == "confirmation")}  # fmt: skip
 

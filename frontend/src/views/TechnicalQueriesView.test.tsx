@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { attachmentsRead, notReadWhy } from "../api/technicalQueries";
+import { attachmentsRead, notReadWhy, peopleLine } from "../api/technicalQueries";
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -230,6 +230,18 @@ describe("Technical Queries screen", () => {
     }
   });
 
+  it("folds a long To/Cc list to one count line and says when the question is in the attachment, not the email text (lead-4, 26 Nov 2026)", async () => {
+    const people = Array.from({ length: 43 }, (_, n) => `person${n}@invented.example`);
+    const message = { id: "m", from_address: "x@example.test", to_addresses: people.slice(0, 3), cc_addresses: people.slice(3), sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null, attachments: [] };
+    const note = "No question in the email text. The question is in the attachment: form.docx; the proposed question below comes from it.";
+    api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "From: someone", extracted_question_main: "", email_question_note: note, messages: [message] } });
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText(note)).toBeTruthy();
+    expect(screen.getAllByTestId("mail-people").map((p) => p.textContent)).toEqual(["To/Cc: 43 people"]);
+    expect(screen.queryByText("From: someone")).toBeNull();
+    expect(peopleLine(["a@x.example"], ["b@x.example"]).lines).toEqual(["To: a@x.example", "CC: b@x.example"]);
+  });
+
   it("says how many of the query's attachments were read and names each one not read with why (nothing silently missing)", async () => {
     const att = (filename: string, media_type: string, read: boolean) => ({ id: filename, filename, media_type, size_bytes: 1, document_id: read ? "d" : null, scan_status: read ? "static_check_clean" : "pending", parse_status: read ? "ready" : "pending" });
     const message = { id: "m", from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null,
@@ -272,7 +284,7 @@ describe("Technical Queries screen", () => {
     fireEvent.click(await screen.findByText("Second"));
     await waitFor(() => expect(narrow).toHaveBeenCalledWith("(max-width: 1023px)"));
     expect(scroll.mock.calls.length).toBeGreaterThanOrEqual(2); // the page top on arrival, then the detail
-    const region = screen.getByRole("region", { name: "Technical Queries" });
+    const region = screen.getByRole("region", { name: "Technical Queries and CFCs" });
     expect(region.className).toContain("minmax(0,1fr)");
   });
 
@@ -314,7 +326,7 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView />);
     fireEvent.click(await screen.findByText("Prepare evidence for all unprepared queries"));
     expect((await screen.findByTestId("confirm-prepare-all")).textContent).toContain(
-      "33 queries are not prepared yet: about 5 min each (measured on the last prepared queries), one at a time in the background. Prepared queries are skipped.",
+      "33 queries are not prepared yet, or were prepared by older question rules with no confirmed question (their question is proposed again from the attached form): about 5 min each (measured on the last prepared queries), one at a time in the background. Prepared queries and confirmed questions are kept.",
     );
     expect(api.prepareAllStart).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Yes, prepare them"));

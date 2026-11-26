@@ -27,6 +27,7 @@ from . import library as L
 from . import prompts as P
 from . import retry as RT
 from . import scope_books as SB
+from . import service_books as SVC
 from .answer_schema import items_at_most
 from .budget import is_local
 from .carried import knowledge_rows, say_none, set_aside
@@ -46,7 +47,7 @@ from .material import (  # noqa: F401 - the clause material S3 and the attack re
     halves,
     material,
 )
-from .updates import checklist_method
+from .updates import checklist_method, u13
 
 log = logging.getLogger(__name__)
 HELD = "held standard"
@@ -207,6 +208,13 @@ def wanted(
             listed.setdefault(e["id"], L.WHY_METHOD)
         elif e["id"] not in unlisted:
             unlisted.append(e["id"])
+    for e, _name in SVC.service_books(
+        conn, str(paper_id), lib
+    ):  # update 13: the service the paper declares
+        if e and e["id"] in allowed_books:
+            listed.setdefault(e["id"], SVC.WHY_SERVICE)
+        elif e and e["id"] not in unlisted:
+            unlisted.append(e["id"])
     return {"listed": listed, "unlisted": unlisted, "not_held": not_held}
 
 
@@ -321,7 +329,8 @@ def _catalog(
                     "text_only": True,
                 }
             )
-    cat = [c for c in cat if L.role_applies(by_id[c["book"]], kind)]
+    # update 13: a book the paper itself cites applies to it, whatever its committee's role (the stored procedure runs had none left)
+    cat = [c for c in cat if (u13() and c["book"] in cited) or L.role_applies(by_id[c["book"]], kind)]  # fmt: skip
     # a book only when it is public, the client's own (its recorded role) or cited (the build sees no paper: the job passes the
     # cited ids, no text)
     cat = [c for c in cat if L.usable(by_id[c["book"]])]

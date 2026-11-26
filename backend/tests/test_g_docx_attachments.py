@@ -227,3 +227,66 @@ def test_a_field_that_fetches_from_outside_is_flagged():
         z.writestr("[Content_Types].xml", TYPES)
         z.writestr("word/document.xml", fetch)
     assert S.check_before_library(out.getvalue())["findings"] == ["fetching_field"]
+
+
+# ---- recheck of update 12, R1-R3
+def _word(parts: dict[str, str]) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("[Content_Types].xml", TYPES)
+        for name, body in parts.items():
+            z.writestr(name, body)
+    return out.getvalue()
+
+
+W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+
+
+def test_a_fetching_field_split_over_runs_is_read_as_one_code():
+    split = (f"<w:document {W}><w:body><w:p><w:r><w:fldChar w:fldCharType=\"begin\"/></w:r><w:r><w:instrText> INCLUDE</w:instrText></w:r>"
+             '<w:r><w:instrText>PICTURE "http://invented.example/p.png"</w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>'
+             "</w:p></w:body></w:document>")  # fmt: skip
+    assert S.check_before_library(_word({"word/document.xml": split}))["findings"] == [
+        "fetching_field"
+    ]
+    harmless = split.replace("> INCLUDE<", "> HYPER<").replace(
+        ">PICTURE ", ">LINK "
+    )  # a HYPERLINK field is not a fetching one
+    assert (
+        S.check_before_library(_word({"word/document.xml": harmless}))["status"]
+        == S.CLEAN
+    )
+
+
+def test_a_fetching_field_in_a_header_footer_or_footnote_is_flagged():
+    field = f'<w:hdr {W}><w:p><w:fldSimple w:instr=" INCLUDETEXT &quot;http://invented.example/t.docx&quot; "/></w:p></w:hdr>'
+    # every XML part, a renamed or invented one too (review of update 13, N6)
+    for part in (
+        "word/header1.xml",
+        "word/footer2.xml",
+        "word/footnotes.xml",
+        "word/invented-part.xml",
+        "customXml/item9.xml",
+    ):
+        got = S.check_before_library(_word({"word/document.xml": DOC, part: field}))
+        assert got["findings"] == ["fetching_field"], part
+
+
+def test_duplicate_part_names_or_names_differing_only_by_case_cannot_be_checked():
+    import warnings
+
+    out = io.BytesIO()
+    with warnings.catch_warnings():
+        warnings.simplefilter(
+            "ignore"
+        )  # zipfile warns about the duplicate name on purpose here
+        with zipfile.ZipFile(out, "w") as z:
+            z.writestr("[Content_Types].xml", TYPES)
+            z.writestr("word/document.xml", DOC)
+            z.writestr("word/document.xml", DOC)
+    assert S.check_before_library(out.getvalue()) == {
+        "status": S.UNREADABLE,
+        "findings": ["duplicate_parts"],
+    }
+    case = _word({"word/document.xml": DOC, "WORD/Document.xml": DOC})
+    assert S.check_before_library(case)["findings"] == ["duplicate_parts"]

@@ -194,3 +194,22 @@ def test_the_lane_is_never_opened_inside_a_run_named_only_through_the_spend_ledg
         pytest.fail("never inside a run the spend ledger names")
     with standards_lane.open_for(conn, ["std"], user="rule approval"), claude_spend.for_run("rule-second"):
         assert claude_approved.carried() == {"std"}
+
+
+def test_a_file_name_whose_family_word_is_followed_by_an_underscore_or_a_digit_has_that_family(conn):
+    """26 Nov 2026: 'NACE_MR0175_..._2020.pdf' read as no family (the word boundary does not fall before '_'), so a held NACE book
+    stood outside the lane. A family word later in a name still never counts."""
+    from app.standards_inventory import FAMILY_OTHER
+
+    assert standards_lane.family_of(conn, "no_record", "NACE_MR0175_ISO_15156_2_2020.pdf") == "NACE"
+    assert standards_lane.family_of(conn, "no_record", "API650.pdf") == "API"
+    assert standards_lane.family_of(conn, "no_record", "Notes on API pumps.pdf") == FAMILY_OTHER
+
+
+def test_an_accented_letter_after_a_family_word_makes_a_longer_word_with_no_family(conn):
+    """Review of update 13, N1: "APIé..." is not the API family (the old look-ahead saw only A to Z)."""
+    from app.standards_inventory import FAMILY_OTHER
+
+    for name in ("APIé-notes.pdf", "NACEñ_2020.pdf", "ISOü 9.pdf"):
+        assert standards_lane.family_of(conn, "no_record", name) == FAMILY_OTHER, name
+    assert standards_lane.family_of(conn, "no_record", "ISO-15156.pdf") == "ISO"

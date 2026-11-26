@@ -49,8 +49,9 @@ def family_of(conn, document_id: str, filename: str) -> str:
     return family_from_identifier(start.group(1)) if start else FAMILY_OTHER
 
 
-#: The family word a file name starts with (after any leading punctuation or spaces).
-_START = re.compile(r"^[\W_]*([A-Za-z]+)\b")
+#: The family word a file name starts with (after any leading punctuation or spaces), ended by an underscore, a digit or any
+#: other non-letter ("NACE_MR0175_..." is NACE); a letter of any alphabet after it, accented too, means a longer word: no family.
+_START = re.compile(r"^[\W_]*([A-Za-z]+)(?![^\W\d_])")
 
 
 def _held_for_confirmation(conn, document_id: str) -> bool:

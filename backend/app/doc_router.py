@@ -130,10 +130,50 @@ class Routing:
     #: cue locations that fired for the leading kinds: "datasheet: title (3)".
     evidence: list[str] = field(default_factory=list)
     reason: str = ""
+    #: who suggested it, when it is not the cue scores ("page_shape": the drawing page test). Such a suggestion is a guess: it
+    #: decides nothing (no rule set, no equipment, no kind path) until an engineer confirms it.
+    by: str = ""
 
     def as_json(self) -> str:
-        return json.dumps({"scores": self.scores, "evidence": self.evidence,
-                           "reason": self.reason}, sort_keys=True)
+        out = {"scores": self.scores, "evidence": self.evidence, "reason": self.reason}
+        if self.by:  # a cue routing's record is exactly as before
+            out.update(by=self.by, guess=True)
+        return json.dumps(out, sort_keys=True)
+
+
+#: The suggestion made from page shapes (update 13): `procedure_text.document_kind` and the kind readers treat it as a guess.
+BY_PAGE_SHAPE = "page_shape"
+_NOT_A_DRAWING_ROLE = frozenset({"COMPANY_STANDARD", "CONTRACT_DOCUMENT"})
+
+
+def _drawing_by_shape(document_id: str, routing: Routing, role: str | None) -> Routing:
+    """The router could not tell: when the pages pass the drawing page test (`aim_review.drawing_pages.looks_drawn`), SUGGEST
+    "drawing" for an engineer to confirm. Never confirms; a standard or a contract document is never suggested. Never raises."""
+    if routing.kind is not None or role in _NOT_A_DRAWING_ROLE:
+        return routing
+    try:
+        from . import agent_review_pages
+        from .aim_review import drawing_pages
+        from .config import settings
+
+        conn = connect()
+        row = conn.execute("SELECT stored_path, filename FROM documents WHERE id = ?", (document_id,)).fetchone()
+        if row is None or not str(row["filename"] or "").lower().endswith(".pdf"):
+            return routing
+        pages = {r["page_no"]: r["text"] or "" for r in conn.execute(
+            "SELECT page_no, text FROM pages WHERE document_id = ? ORDER BY page_no", (document_id,))}
+        path = agent_review_pages.pdf_path({"stored_path": row["stored_path"]}, settings.data_dir)
+        passed, of = drawing_pages.page_test(pages, path)
+    except Exception as exc:  # noqa: BLE001 - an upload never fails on a suggestion: the router's own answer stands, logged
+        log.warning("drawing page test for %s not run (%s)", document_id, type(exc).__name__)
+        return routing
+    if not (of > 0 and 2 * passed > of):
+        return routing
+    return Routing(
+        drawing_pages.DRAWING_KIND, STATE_SUGGESTED, routing.scores,
+        [*routing.evidence, f"drawing: page shape ({passed} of {of} pages hold a title block and are drawn)"],
+        f"looks like a drawing: {passed} of {of} pages hold a title block and are drawn over a quarter of the page; "
+        "an engineer confirms the kind", by=BY_PAGE_SHAPE)
 
 
 def _title_text(pages: list[str]) -> str:
@@ -254,8 +294,7 @@ def route_document(document_id: str) -> Routing | None:
                 (version, _now(), document_id),
             )
         return None
-    routing = route(doc["filename"], _pages_of(document_id),
-                    recorded["document_role"] if recorded is not None else None)
+    routing = _drawing_by_shape(document_id, route(doc["filename"], _pages_of(document_id), role), role)
     with conn:
         conn.execute(
             "INSERT INTO document_kinds (document_id, kind, state, evidence, router_version, routed_at)"
