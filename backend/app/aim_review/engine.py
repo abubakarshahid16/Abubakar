@@ -459,7 +459,9 @@ def _steps(
     say(5, "name the paper")
     ident = S.s1_identify(mdl, paper, _known_keys(store), lead)
     state.identity = _identity_record(ident)
-    _store_identity(conn, state)
+    from app import aim_review_store
+
+    aim_review_store.keep_identity(conn, state.run_id, state.identity)
     if state.cited is None:
         state.cited = L.cited_company(conn, state.paper_id)
     state.key = L.cited_key(
@@ -602,9 +604,7 @@ def _saved_current(store, state: _RunState) -> dict | None:
 
 def _lost_knowledge(checklist: dict, sel: dict, run_id: str) -> bool:
     """True when books are needed but not held and the knowledge step wrote NO item (a failed call, every item set aside): such a
-    checklist is used for this run only and never saved, so no later run reuses the loss (18 Nov 2026: a HAZOP checklist built
-    with every knowledge item set aside was saved and would have been reused; HAZOP holds no rule book, so it lost its risk
-    items). The run's calls already say why (`carried.say_none`)."""
+    checklist is used for this run only and never saved (18 Nov 2026: a HAZOP one saved without its risk items would be reused)."""
     if not sel.get("not_held") or checklist.get("knowledge_items"):
         return False
     log.warning(
@@ -614,19 +614,8 @@ def _lost_knowledge(checklist: dict, sel: dict, run_id: str) -> bool:
     return True
 
 
-def _store_identity(conn, state) -> None:
-    """The named kind goes on the run row while it runs (the progress page's measured minutes read it). A failure here never stops a review."""
-    try:
-        from app import aim_review_store
-
-        aim_review_store.set_identity(conn, state.run_id, state.identity)
-    except Exception as exc:  # noqa: BLE001 - never stops a review; logged by its class only
-        log.info("run identity not stored early (%s)", type(exc).__name__)
-
-
 def _identity_record(ident: dict) -> dict:
-    """What the run record keeps of S1's answer: the paper's kind, type, subject, service and verified scope, and the standards
-    S1 read on the paper by name and page only (no quote), so a later test can show what it found."""
+    """What the run record keeps of S1's answer: kind, type, subject, service, verified scope, and the standards read by name and page only."""
     return {
         # the standards S1 read on the paper, names and pages only (the run record shows what it found; no quote)
         "cited": [

@@ -163,3 +163,8 @@ def test_the_job_the_page_gets_carries_the_note(monkeypatch):
     assert "local_note" not in review_jobs.job_for_run(
         "r1"
     )  # a note that cannot be made is left out
+
+
+def test_a_failure_storing_the_kind_early_never_stops_a_review():
+    broken = sqlite3.connect(":memory:")  # no aim_runs table: the update fails
+    store.keep_identity(broken, "r", {"kind": "valve"})  # does not raise
