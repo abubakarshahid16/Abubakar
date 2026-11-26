@@ -58,8 +58,8 @@ describe("inboxStateOf", () => {
   });
 
   it("a queued run or job is Queued", () => {
-    expect(stateLabel(inboxStateOf(run({ status: "queued" })))).toBe("Queued");
-    expect(stateLabel(inboxStateOf(run({ status: "pending", job: job({ state: "retrying" }) })))).toBe("Queued");
+    expect(stateLabel(inboxStateOf(run({ status: "queued" })))).toBe("Waiting");
+    expect(stateLabel(inboxStateOf(run({ status: "pending", job: job({ state: "retrying" }) })))).toBe("Waiting");
   });
 
   it("a running job shows its step, one-based, with its name", () => {

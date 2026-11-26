@@ -240,7 +240,7 @@ export function TypeFilter({
       {applied?.applied && (
         <span className="ms-auto font-mono text-xs tabular-nums text-slateish-400">
           {applied.documents_in_scope} document
-          {applied.documents_in_scope === 1 ? "" : "s"} in scope
+          {applied.documents_in_scope === 1 ? "" : "s"} covered
         </span>
       )}
     </div>

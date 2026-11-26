@@ -50,12 +50,12 @@ describe("Your documents line (update 12)", () => {
   it("says how many technical-query attachments are counted apart, never inside the library's numbers", () => {
     render(<ReadinessPanel metrics={withCorpus({ technical_query_attachments: 2 })} />);
     expect(
-      screen.getByText(/3 documents loaded, 40 passages a question can reach \(2 technical-query attachments counted apart/),
+      screen.getByText(/3 documents loaded, 40 parts of pages a question can reach \(2 technical-query attachments counted apart/),
     ).toBeInTheDocument();
   });
 
   it("says nothing more when there are none, or when the view is scoped (null)", () => {
     render(<ReadinessPanel metrics={withCorpus({ technical_query_attachments: 0 })} />);
-    expect(screen.getByText("3 documents loaded, 40 passages a question can reach")).toBeInTheDocument();
+    expect(screen.getByText("3 documents loaded, 40 parts of pages a question can reach")).toBeInTheDocument();
   });
 });

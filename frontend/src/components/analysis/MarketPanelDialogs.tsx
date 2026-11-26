@@ -219,7 +219,7 @@ export function ConfirmDialog({
                 and "here is what it would be asked" are the same list. */}
             <p className="mt-3 text-xs uppercase tracking-wider text-slateish-500">
               {preview.data.payloads.length === 1
-                ? "The exact outbound payload, as the backend states it"
+                ? "Exactly what would be sent, as the server states it"
                 : `The exact outbound payloads, as the backend states them (${preview.data.payloads.length})`}
             </p>
             {preview.data.payloads.map((entry) => (

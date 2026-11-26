@@ -57,6 +57,15 @@ class SettingsExt(BaseModel):
     #: the method calls `other` is reviewed as `other`, as before. On: with its family's rule labels, method books and checklist
     #: floor. Either way the paper is placed, logged "new kind seen" when no list holds it, and labelled "not yet scored for this kind".
     kind_family_route_enabled: bool = False
+    #: Order 14 builder H, the cross-document check, lane 1 (`cross_doc.py`): exact facts by code across the papers of one
+    #: package (tag, number plus unit after conversion, standard plus edition), each a Question with both quotes found on their
+    #: pages. OFF: a review keeps builder C's check by tag (`tag_cross`) exactly. Env: CROSS_DOC_FACTS_ENABLED.
+    cross_doc_facts_enabled: bool = False
+    #: Lane 2 (`cross_doc_meaning.py`): meaning mismatches the LOCAL model finds, shown only as a Question to the engineer on
+    #: "All points" (never sent, never Pass or Fail). OFF: nothing is asked. Env: CROSS_DOC_MEANING_ENABLED.
+    cross_doc_meaning_enabled: bool = False
+    #: Lane 2's local model (never the 35B, owner 25 Nov 2026). Env: CROSS_DOC_MEANING_MODEL.
+    cross_doc_meaning_model: str = "ministral-3:14b"
     #: #805 plan change 6: a second call per compiled rule names its field from the equipment type's fixed list
     #: (`rule_field_naming.py`, `scripts/name_rule_fields.py`). "off" sends nothing; "claude" goes through
     #: `reader_transport`, under the compiler's gates and caps. Env: RULE_FIELD_NAMING_ENGINE.
@@ -695,4 +704,6 @@ class SettingsExt(BaseModel):
     #: Chat in Claude mode may call the database tools (list documents, a paper's latest review, technical-query open items)
     #: whose answers go to Claude: titles, ids, counts and review comments of documents the caller may read; never the
     #: register or a blocked file; never document text (owner, 25 Nov 2026, #1584). Env: CHAT_DATABASE_TOOLS_ENABLED.
+    #: OFF by default. Turning it on by default (update 14) was held back by the update 14 review: the review-comment and
+    #: records answers did not yet check every referenced paper against the register and block list.
     chat_database_tools_enabled: bool = False

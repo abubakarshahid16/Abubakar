@@ -97,12 +97,12 @@ def test_the_import_reads_the_real_shapes(imported):
             "SELECT ref_type, ref_number, needs_person FROM technical_queries ORDER BY ref_number"
         ).fetchall()
     assert (
-        job["total"] == 12
+        job["total"] == 13
         and job["failed"] == 0
         and job["skipped"] == {technical_query_replies.ATTACHED: 1}
     )
     assert (
-        job["queries"] == 10 and job["imported"] == 11
+        job["queries"] == 11 and job["imported"] == 12
     )  # the forward of a forward joins TQ-11; ours too
     assert {tuple(q) for q in queries} == {
         (None, None, 1),
@@ -115,6 +115,7 @@ def test_the_import_reads_the_real_shapes(imported):
         ("TQ", "17", 0),
         ("TQ", "13", 0),
         ("TQ", "18", 0),
+        ("TQ", "19", 0),
     }
     tq = _query("11")
     assert [m["is_inbound"] for m in tq["messages"]] == [
@@ -219,14 +220,14 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
         AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
     )
     box = next(b for b in got["mailboxes"] if b["mailbox"] == "mb")
-    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (12, 1, 10)
+    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (13, 1, 11)
     assert (
         box["tq"],
         box["cfc"],
         box["needs_a_person"],
         box["signature_pictures"],
-    ) == (8, 1, 1, 8)
-    assert box["attachments_read"] == 3 and box["attachments_not_read"] == {
+    ) == (9, 1, 1, 8)
+    assert box["attachments_read"] == 4 and box["attachments_not_read"] == {
         "PDF": 1,
         "active content found": 2,
     }
@@ -237,7 +238,7 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
             conn.execute(
                 "SELECT COUNT(DISTINCT query_id) FROM query_evidence_jobs"
             ).fetchone()[0]
-            == 10
+            == 11
         )
 
 
@@ -287,3 +288,35 @@ def test_a_mail_that_only_introduces_its_form_gets_the_question_from_the_form(
     assert prepared["extracted_question_main"] == ""
     assert "tq-form-18.docx" in prepared["email_question_note"]
     assert searched and all(q == T.INTRO_FORM_QUESTION for q in searched)
+
+
+def test_the_live_shape_proposes_the_form_s_request_never_the_mail_and_says_why(
+    imported, monkeypatch
+):
+    # lead-4's live walk on update 13: "Please, find attached our TQ: ..." was proposed and searched; the model's empty answer said nothing
+    monkeypatch.setattr("app.technical_query_questions._ask", lambda page_text: [])
+    searched: list[str] = []
+    monkeypatch.setattr(
+        "app.search.search", lambda q, **k: searched.append(q) or {"hits": []}
+    )
+    tq = _query("19")
+    allowed = frozenset(
+        a["document_id"]
+        for m in tq["messages"]
+        for a in m["attachments"]
+        if a["document_id"]
+    )
+    prepared = prepare_evidence(tq["id"], allowed | {CONTRACT}, "u1", True, True, "u1")
+    assert (
+        prepared["extracted_question_main"] == ""
+    )  # the mail introduces the form, a footer and a link ask nothing
+    assert "tq-form-19.docx" in prepared["email_question_note"]
+    assert (
+        prepared["proposal_note"] == "none_found"
+    )  # why nothing was proposed is recorded, never silent
+    assert T.LIVE_FORM_REQUEST in prepared["proposed_question"]
+    assert (
+        "attached" not in prepared["proposed_question"]
+        and "Approved" not in prepared["proposed_question"]
+    )
+    assert searched and all("attached" not in q for q in searched)

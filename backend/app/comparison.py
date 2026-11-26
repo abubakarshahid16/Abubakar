@@ -2536,10 +2536,10 @@ def _run_comparison(
     # B4 (#193 5.2/5.3), FLAG-GATED: canonical field names for the numeric
     # requirements and the facts' labels, named by the labelling model under
     # code-verified gates (see field_naming). None with the flag off - the
-    # pre-B4 matching, untouched.
+    # pre-B4 matching. Its own switch was retired 26 Nov 2026 (OFF kept).
     field_names = None
     field_name_matches = 0
-    if settings.geometry_reader_enabled or settings.field_naming_enabled:
+    if settings.geometry_reader_enabled:
         from . import field_vocabulary
         field_names = field_vocabulary.names_for(requirements, facts, stored)
     for requirement in job_progress.counting(requirements):

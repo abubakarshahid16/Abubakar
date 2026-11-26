@@ -105,7 +105,7 @@ MUTATIONS: tuple[Mutation, ...] = (
              description="the corpus-wide banner claims the scope-limited review counts too",
              path=_DASH,
              anchor="                them because you hold the admin capability. The AI Submittal\n"
-                    "                Review counts are not corpus-wide: they cover only the\n"
+                    "                Review counts are not library-wide: they cover only the\n"
                     "                documents you can open, and say so on their own block.",
              replacement="                them because you hold the admin capability.",
              target=_T_DASH, keyword="scope-limited review counts",

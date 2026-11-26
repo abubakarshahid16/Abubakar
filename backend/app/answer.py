@@ -21,7 +21,7 @@ import contextvars
 import re
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 
-from . import answer_prompts, corpus as corpus_mod
+from . import answer_field_label, answer_prompts, corpus as corpus_mod
 from . import intent as intent_mod
 from . import fts_index
 from . import condition_choice as cc
@@ -295,7 +295,7 @@ def _front_matter_vouches(lead: dict, hits: list[dict], question: str) -> bool:
         return False
     return any(h["document_id"] == lead["document_id"]
                and front_matter.demoted(h, question)
-               and _is_semantically_credible(h) for h in hits)
+               and _is_semantically_credible(h, question) for h in hits)
 
 
 def _past_front_matter(question: str, gate_question: str, hits: list[dict], *, limit: int,
@@ -380,10 +380,13 @@ def _coverage(
     )
 
 
-def _is_semantically_credible(hit: dict) -> bool:
+def _is_semantically_credible(hit: dict, question: str | None = None) -> bool:
     """The semantic half of the gate, applied only to lexically plausible
     candidates. On its own this was one knob for two independent failures -
-    see app/lexical.py."""
+    see app/lexical.py. A passage holding the question's field label word for
+    word also passes (`answer_field_label`, measured on datasheet fields)."""
+    if answer_field_label.vouches(hit, question):
+        return True
     if hit.get("rerank_score") is not None:
         return hit["rerank_score"] >= MIN_RERANK_SCORE
     return hit.get("rrf", 0.0) >= MIN_RRF_SCORE
@@ -464,7 +467,7 @@ def _second_passage(
             primary = first.get("rerank_score")
             score = hit.get("rerank_score")
             if primary is None or score is None:
-                if not _is_semantically_credible(hit):
+                if not _is_semantically_credible(hit, question):
                     continue
             elif primary - score > SECOND_PASSAGE_MAX_GAP:
                 continue
@@ -502,19 +505,19 @@ def _second_passage(
 CONDITION_OPTIONS = 3
 
 
-def _close_enough(hit: dict, first: dict) -> bool:
+def _close_enough(hit: dict, first: dict, question: str | None = None) -> bool:
     """The rule `_second_passage` uses for "near the top": a fraction of the
     query's own spread, or the measured absolute gap on a field too small.
     And ALWAYS above the credibility floor: a clause chosen by its condition
     is quoted as the answer, so it must pass the gate the top one passed."""
-    if not _is_semantically_credible(hit):
+    if not _is_semantically_credible(hit, question):
         return False
     apart = hit.get("separation")
     if apart is not None:
         return apart <= SUPPORTING_SEPARATION
     primary, score = first.get("rerank_score"), hit.get("rerank_score")
     if primary is None or score is None:
-        return _is_semantically_credible(hit)
+        return _is_semantically_credible(hit, question)
     return primary - score <= SECOND_PASSAGE_MAX_GAP
 
 
@@ -562,7 +565,7 @@ def _condition_choice(
         if (hit["document_id"] == lead["document_id"] and hit.get("section")
                 and hit.get("section") == lead.get("section")):
             continue
-        if not _close_enough(hit, lead):
+        if not _close_enough(hit, lead, question):
             continue
         conditions = cc.extract(_searchable_text(hit))
         kinds = cc.differing_kinds(lead_conditions, conditions)
@@ -1896,6 +1899,8 @@ def _answer_from_documents(
                 lexical_verdict = fm_verdict
                 gate_index = next(i for i, h in enumerate(hits)
                                   if h["chunk_id"] == front[fm_index]["chunk_id"])
+    if lexical_verdict["ok"] and not vp.active():  # a field question quotes the passage that states the value, not a note (Chat)
+        gate_index = answer_field_label.stated_first(gate_question, hits, gate_index, lambda h: lexical.assess(gate_question, h["text"], document_id, allowed_document_ids=allowed_document_ids)["ok"], gate_candidates())  # fmt: skip
     base["lexical"] = {
         k: lexical_verdict[k]
         for k in ("coverage", "terms", "covered", "absent_from_corpus")
@@ -1917,7 +1922,7 @@ def _answer_from_documents(
     lead = hits[gate_index] if hits else None
     review_fallback = _is_broad_review_request(question, lexical_verdict, tier)
     only_front_matter = bool(lead) and lexical_verdict["ok"] and front_matter.demoted(lead, question)
-    credible = bool(lead) and (_is_semantically_credible(lead)
+    credible = bool(lead) and (_is_semantically_credible(lead, question)
                                or _front_matter_vouches(lead, hits, question))
     if (not hits or not lexical_verdict["ok"] or only_front_matter
             or (not credible and not review_fallback)):

@@ -129,7 +129,7 @@ export function MarketPanel({
         </h3>
         <div className="flex flex-wrap gap-1.5" aria-live="polite">
           {egress.web_search_enabled === false && <MarketPill>Web search off</MarketPill>}
-          {egress.allow_public_egress === false && <MarketPill>Public egress blocked</MarketPill>}
+          {egress.allow_public_egress === false && <MarketPill>Sending outside blocked</MarketPill>}
         </div>
       </div>
 

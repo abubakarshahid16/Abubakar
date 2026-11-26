@@ -81,7 +81,7 @@ const ERROR_TITLES: Record<string, string> = {
   extract_failed: "This document could not be read",
   chunk_failed: "This document could not be prepared",
   embed_failed: "This document could not be indexed",
-  model_unavailable: "The local answer model is not running",
+  model_unavailable: "The AI on this computer is not running",
   disk_full: "There is not enough disk space",
   no_searchable_content: "Nothing in this document is searchable",
   internal: "Something went wrong",

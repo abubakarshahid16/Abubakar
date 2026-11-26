@@ -21,7 +21,7 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
   return (
     <HowSection meta={pair ? { ...CLAUSES_META, explains: "Of all the clauses in the standards used, how many apply to this document, how many of those code decided, and why the rest were not decided." } : CLAUSES_META}>
       <FactList label="Clauses">
-        <Fact label="Clauses in scope (repeats counted once)" fact={c.total} testId="clauses-total" />
+        <Fact label="Clauses that apply (repeats counted once)" fact={c.total} testId="clauses-total" />
         <Fact label="Apply to this document" fact={c.applied} testId="clauses-applied" />
         {pair ? (
           <>
@@ -37,8 +37,8 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
           </>
         )}
         <Fact label="Do not apply" fact={c.doesNotApply} testId="clauses-not-applicable" />
-        <Fact label={pair ? "Not one by one: covered by the equipment checklist" : "Not checked one by one: covered by the equipment checklist"} fact={c.notUsed} testId="clauses-not-used"
-          detail={pair ? "(the checklist is stated apart; not in the rules that apply)" : "(the checklist item was checked instead; not in the unchecked share)"} />
+        <Fact label={pair ? "Not one by one: covered by the equipment's list of checks" : "Not checked one by one: covered by the equipment's list of checks"} fact={c.notUsed} testId="clauses-not-used"
+          detail={pair ? "(the list of checks is stated apart; not in the rules that apply)" : "(its item on the list of checks was checked instead; not in the unchecked share)"} />
         <Fact label="Repeats ignored" fact={c.repeatsIgnored} testId="clauses-repeats"
           detail="(the same standard and text, counted once)" />
       </FactList>
@@ -55,7 +55,7 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
           : `${NOT_RECORDED} (no clause applies, or the run stored no split)`}
         {c.storedShare.value !== null && (
           <span className="block text-xs text-slateish-500">
-            The engine stored the same share as {Math.round(c.storedShare.value * 1000) / 10}% (requirement_split.unchecked_share).
+            The app stored the same share as {Math.round(c.storedShare.value * 1000) / 10}% (requirement_split.unchecked_share).
           </span>
         )}
       </p>
@@ -80,15 +80,15 @@ export function ClausesSection({ run }: { run: ReviewRunSummary }) {
         <p className="text-sm text-slateish-300" data-testid="clauses-coverage-pair">
           {run.coverage_pair.line} {run.coverage_pair.checklist_line} {run.coverage_pair.boundary}
           {run.clause_coverage && !run.clause_coverage.adds_up && (
-            <span className="text-warn-500"> The stored clause counts do not add up; the engine flagged this itself.</span>
+            <span className="text-warn-500"> The stored clause counts do not add up; the app flagged this itself.</span>
           )}
         </p>
       ) : (
         <p className="text-sm text-slateish-300" data-testid="clauses-coverage-line">
-          Clause coverage as the engine stored it:{" "}
+          Clause coverage as the app stored it:{" "}
           {run.clause_coverage ? run.clause_coverage.line : NOT_RECORDED}
           {run.clause_coverage && !run.clause_coverage.adds_up && (
-            <span className="text-warn-500"> The stored counts do not add up; the engine flagged this itself.</span>
+            <span className="text-warn-500"> The stored counts do not add up; the app flagged this itself.</span>
           )}
         </p>
       )}

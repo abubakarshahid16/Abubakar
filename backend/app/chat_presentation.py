@@ -261,7 +261,8 @@ def used_line(result: dict) -> str:
                   else "General knowledge, not from your documents")
         return f"{prefix} · {_engine(result)}" + tail
     if kind == "metadata":
-        return "Counted from your library, not from document text" + tail
+        records = result.get("input_kind") == "records_question"  # chat_records: reviews, queries, papers by kind
+        return ("Read from the app's records" if records else "Counted from your library") + ", not from document text" + tail
     if kind == "comparison":
         line = _comparison_line(result)
         if line:

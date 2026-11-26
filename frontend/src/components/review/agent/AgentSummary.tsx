@@ -17,7 +17,7 @@ export function AgentSummary({ summary }: { summary: AgentRunSummary }) {
     <section aria-labelledby="agent-summary-title" data-testid="agent-summary" className="space-y-3">
       <h2 id="agent-summary-title" className="text-lg font-semibold text-slateish-100">AI review summary</h2>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-        <dt className="text-slateish-400">Paper kind</dt>
+        <dt className="text-slateish-400">Type of paper</dt>
         <dd className="text-slateish-100">{summary.paper_kind} <span className="text-slateish-400">(decided by: {summary.paper_kind_source})</span></dd>
         <dt className="text-slateish-400">Review</dt>
         <dd className="text-slateish-100" data-testid="agent-mode">{modeWords(summary.mode)}</dd>

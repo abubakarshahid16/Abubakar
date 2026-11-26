@@ -60,8 +60,9 @@ describe("durations and defaults", () => {
   });
   it("names rule 1 on every step that is on by default, and says off for any that is not", () => {
     for (const [key, d] of Object.entries(AI_STEP_DEFAULTS)) {
-      expect(defaultLine(key)).toContain(d.setting);
-      expect(defaultLine(key)).toMatch(d.onByDefault ? /^On by default .*rule 1/ : /^Off by default/);
+      // E3 (everyday words): the line says what the setting does, never its code name
+      expect(defaultLine(key)).not.toContain(d.setting);
+      expect(defaultLine(key)).toMatch(d.onByDefault ? /^On by default; rule 1/ : /^Off by default/);
     }
   });
 });
@@ -92,7 +93,7 @@ describe("pagesMeaning reads the stored reading record", () => {
     expect(line).not.toMatch(/every/i);
     expect(line).toContain("not recorded");
   });
-  it("names pages read with no checklist field apart from the pages fields were read from (order 165)", () => {
+  it("names pages read with no field from the list of checks apart from the pages fields were read from (order 165)", () => {
     const run = { ...base, page_coverage: {
       pages_total: 11, fact_pages: [4, 5, 6, 7, 8, 9, 10, 11], pages_not_read_into_fields: [], not_read_reasons: {},
       pages_read_no_field: [1, 2, 3],
@@ -100,10 +101,10 @@ describe("pagesMeaning reads the stored reading record", () => {
     } } as unknown as ReviewRunSummary;
     expect(pageFacts(run).readNoField.value).toEqual([1, 2, 3]);
     const line = pagesMeaning(run);
-    expect(line).toContain("3 of 11 pages (pages 1-3) were read and held no checklist field");
+    expect(line).toContain("3 of 11 pages (pages 1-3) were read and held no field from the list of checks");
     expect(line).toContain("not counted as pages fields were read from");
     expect(pagesMeaning({ ...run, page_coverage: { ...run.page_coverage, pages_read_no_field: undefined } } as unknown as ReviewRunSummary))
-      .not.toContain("no checklist field");
+      .not.toContain("no field from the list of checks");
   });
   it("#1550: a run stored with the page-read switch counts 'not read' as pages with no reading", () => {
     const run = { ...base, page_coverage: {

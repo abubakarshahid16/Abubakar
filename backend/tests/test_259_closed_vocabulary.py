@@ -167,7 +167,9 @@ def test_a_stored_name_pairs_through_the_run_and_never_carries_a_verdict(monkeyp
     """Stored closed-vocabulary name on the requirement + the rule name of the fact: paired by
     name equality, held for an engineer, no model call during the run."""
     req, fact, run, scope = _world("Max allowable working pressure", "12 bar")
-    monkeypatch.setattr(settings, "field_naming_enabled", True)
+    monkeypatch.setattr(
+        settings, "geometry_reader_enabled", True
+    )  # was field_naming_enabled: field_naming_enabled retired 26 Nov 2026 (OFF kept): the naming step runs through the geometry reader only
     fake = Fake(lambda t: "mawp", lambda t: "maximum allowable working pressure")
     field_vocabulary.name_requirements(
         [

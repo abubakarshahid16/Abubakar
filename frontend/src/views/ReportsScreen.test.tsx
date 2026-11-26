@@ -57,7 +57,7 @@ describe("ReportsScreen", () => {
     // The count is on screen; the hidden reports themselves are not, because
     // the API never sent them - that is the point of sending a count.
     expect(
-      screen.getByText(/2 reports are not shown because a document they cite is no longer in your scope/),
+      screen.getByText(/2 reports are not shown because a document they cite is no longer open to you/),
     ).toBeInTheDocument();
   });
 

@@ -74,7 +74,7 @@ export function StandardsSection({ run, record, error }: {
   return (
     <HowSection meta={STANDARDS_META}>
       <FactList label="Standards">
-        <Fact label="Standards in scope" testId="standards-in-scope"
+        <Fact label="Standards that apply" testId="standards-in-scope"
           fact={{ value: run.standards_in_scope ?? null, source: "standards_in_scope" }} />
         <Fact label="Cited by the document and in the library" testId="standards-cited"
           fact={{ value: cited ? cited.length : null, source: `${STANDARDS_SOURCE}, cited by the document` }} />

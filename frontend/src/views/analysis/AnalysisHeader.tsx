@@ -19,7 +19,7 @@ export function AnalysisHeader() {
       </MoreText>
       {/* An honesty label (rule 4: samples are labelled samples): always visible, never folded. */}
       <div className="mt-3 max-w-3xl">
-        <Rule title="Market rule" warning>Public market rows are sample data unless a governed provider is enabled.</Rule>
+        <Rule title="Market rule" warning>Public market rows are sample data unless an approved market data service is switched on.</Rule>
       </div>
     </header>
   );

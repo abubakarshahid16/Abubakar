@@ -150,13 +150,6 @@ def card_rules(conn, run_id: str) -> tuple[str, ...]:
     return tuple(r for r in CARD_RULES if r in recorded)
 
 
-def _rules_now() -> list[str]:
-    """The card wording rules in force now: a sign-off records them, so a later rule never rewrites its review."""
-    from .aim_review_card import CARD_RULES
-
-    return list(CARD_RULES)
-
-
 def rough_draft(view: dict) -> bool:
     """True for a review made on the local model (`aim_review_view`'s engine, from the run's own calls)."""
     return bool((view.get("engine") or {}).get("local"))
@@ -259,8 +252,9 @@ def sign(
             "the contractor copy cannot be issued yet: " + str(exc), exc.blockers
         ) from exc
     # the record says what the sign-off was made from (the contractor copy itself is unchanged)
-    # with the card wording rules it is signed under (`card_rules`), and whether it is a local rough draft
-    counts = {**counts, "card_rules": _rules_now(), **({"rough_draft": True} if rough_draft(view) else {})}  # fmt: skip
+    # with the card wording rules the SIGNED VIEW was built with (`card_rules`: every rule for a first sign-off, the earlier
+    # sign-off's for a re-sign, so a re-sign never rewrites the wording the engineer read), and whether it is a local rough draft
+    counts = {**counts, "card_rules": list(card_rules(conn, run["run_id"])), **({"rough_draft": True} if rough_draft(view) else {})}  # fmt: skip
     signoff_id = str(uuid.uuid4())
     with conn:
         if not conn.in_transaction:

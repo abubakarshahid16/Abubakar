@@ -149,7 +149,7 @@ export function DeliverablesView() {
 
       <section className="mt-5 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div><h2 className="text-sm font-semibold text-slateish-200">Escalation matrix</h2><p className="mt-1 text-xs text-slateish-500">Reminder and escalation policy applied to overdue deliverables. Sending is enabled by your deployment notification provider.</p></div>
+          <div><h2 className="text-sm font-semibold text-slateish-200">Escalation matrix</h2><p className="mt-1 text-xs text-slateish-500">Reminder and escalation policy applied to overdue deliverables. Sending is switched on by your mail service.</p></div>
           <span className="text-xs uppercase tracking-wide text-signal-400">operational policy</span>
         </div>
         <div className="mt-3 divide-y divide-ink-700/70">

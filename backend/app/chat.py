@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from . import answer as answer_mod
 from . import analysis as analysis_mod
 from . import chat_answers
-from . import chat_db_tools
+from . import chat_db_tools, chat_records
 from . import chat_comparison
 from . import family_search
 from . import chat_model
@@ -923,6 +923,8 @@ def ask(
             original, summary_ids, allowed_document_ids=retrieval_allowed,
             model=model,
             explicit_document_selection=bool(document_ids or selected_document))
+    if collection_result is None and explain_of is None:  # the app's own records (reviews, queries, papers by kind), by code
+        collection_result = chat_records.result(original, allowed=allowed_document_ids, user_id=conversation.get("owner_user_id"), is_admin=include_unowned_records)  # fmt: skip
 
     inventory_result = None
     if collection_result is None and explain_of is None and document_id is None:
@@ -1159,7 +1161,7 @@ def ask(
         from . import chat_coverage
 
         result = chat_coverage.attach(result, original, allowed_document_ids & frozenset(document_ids),
-                                      result.get("passages") or [])
+                                      chat_coverage.sources_of(result))
     result.update(chat_presentation.present(result))
     thought_seconds = result.pop("thought_seconds", None)
     if thought_seconds is not None:

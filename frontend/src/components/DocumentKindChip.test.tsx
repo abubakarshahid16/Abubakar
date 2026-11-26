@@ -48,15 +48,15 @@ describe("DocumentKindChip", () => {
   it("lets an admin confirm the suggestion with one click", () => {
     const onConfirm = vi.fn();
     render(<DocumentKindChip classification={make({ document_kind: "datasheet", document_kind_state: "suggested" })} kinds={KINDS} isAdmin onConfirm={onConfirm} />);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm kind" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm type" }));
     expect(onConfirm).toHaveBeenCalledWith("datasheet");
   });
 
   it("lets an admin choose a kind when the router could not tell", () => {
     const onConfirm = vi.fn();
     render(<DocumentKindChip classification={make({ document_kind_state: "needs_engineer" })} kinds={KINDS} isAdmin onConfirm={onConfirm} />);
-    fireEvent.click(screen.getByRole("button", { name: "Choose kind" }));
-    fireEvent.change(screen.getByLabelText("Document kind"), { target: { value: "procedure" } });
+    fireEvent.click(screen.getByRole("button", { name: "Choose type" }));
+    fireEvent.change(screen.getByLabelText("Document type"), { target: { value: "procedure" } });
     expect(onConfirm).toHaveBeenCalledWith("procedure");
   });
 });

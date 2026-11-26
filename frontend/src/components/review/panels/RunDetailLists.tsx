@@ -23,8 +23,8 @@ export function RequirementSplitPanel({ split, pair }: { split: RequirementSplit
   if (pair) {
     // Plan change 6 B: one meaning. Reaching the comparison is not a decision.
     return (
-      <section aria-label="Requirements in scope" data-testid="requirement-split" className="text-sm">
-        <p className="text-slateish-300" data-testid="split-pair">{`${split.total} requirements in scope. ${pair.line}`}</p>
+      <section aria-label="Requirements that apply" data-testid="requirement-split" className="text-sm">
+        <p className="text-slateish-300" data-testid="split-pair">{`${split.total} requirements that apply. ${pair.line}`}</p>
         <ul className="mt-1 space-y-1">
           {group("decided by code (pass or fail)", pair.decided, [], "split-decided")}
           {group("reached the comparison, not decided", Math.max(split.checked - pair.decided, 0), [], "split-reached")}
@@ -35,9 +35,9 @@ export function RequirementSplitPanel({ split, pair }: { split: RequirementSplit
     );
   }
   return (
-    <section aria-label="Requirements in scope" data-testid="requirement-split" className="text-sm">
+    <section aria-label="Requirements that apply" data-testid="requirement-split" className="text-sm">
       <p className="text-slateish-300">
-        {`${split.total} requirements in scope`}
+        {`${split.total} requirements that apply`}
         {split.unchecked_share !== null &&
           `; ${split.applies_not_checked} of ${applies} (${Math.round(split.unchecked_share * 100)}%) of those that apply were not checked`}
       </p>

@@ -140,6 +140,12 @@ def review_offer(question: str, selected) -> list[dict]:
     ]
 
 
+def sources_of(result: dict) -> list[dict]:
+    """The passages an answer READ: its searched passages and the passages it quotes (an extract answer quotes from
+    `answer_passages` and may leave `passages` empty: counting only those said "read from 0 of 10" under a quoted answer)."""
+    return [*(result.get("passages") or []), *(result.get("answer_passages") or [])]
+
+
 def attach(result: dict, question: str, selected, sources: list[dict]) -> dict:
     """The finished answer with its coverage line and, for "review these", the offer of the real Review (both by code)."""
     read_ids = {

@@ -187,7 +187,7 @@ export function WorkspaceSheet({
         spot={spot} selectedKey={selectedKey} onSelect={selectRow} onOpenEvidence={openEvidence}
         mode={mode} onMode={changeMode} decisions={decisions}
         clausesNotApplicable={numbers.notApplicableClauses}
-        tierHeader="Kind" readOnly={readOnly} showKeys={showKeys}
+        tierHeader="Type" readOnly={readOnly} showKeys={showKeys}
       />
       <SheetGroupingNote rows={rows} notes={serverNotes} stale={groupingStale} />
       {footer}

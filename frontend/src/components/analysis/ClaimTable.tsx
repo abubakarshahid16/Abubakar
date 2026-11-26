@@ -162,7 +162,7 @@ export function ClaimTable({
 
       {clusters.length === 0 ? (
         <p className="mt-2 text-sm text-slateish-500">
-          No comparable claims were extracted from the retrieved passages.
+          No comparable claims were found in the parts of pages searched.
         </p>
       ) : (
         <ul className="mt-3 space-y-4">
@@ -193,8 +193,8 @@ export function ClaimTable({
       )}
 
       <p className="mt-3 border-t border-ink-700 pt-2 text-xs text-slateish-500">
-        Compares the passages this answer retrieved. It does not claim these are the only
-        relevant claims in the corpus.
+        Compares the parts of pages this answer found. It does not claim these are the only
+        relevant claims in the library.
       </p>
     </section>
   );

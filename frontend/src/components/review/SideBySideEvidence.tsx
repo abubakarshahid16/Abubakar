@@ -185,7 +185,7 @@ export function WhyStandardApplies({ finding, entry }: {
             </p>
           )}
           {entry.scope_decision && (
-            <p className="text-xs text-slateish-400">Scope decision: {entry.scope_decision}</p>
+            <p className="text-xs text-slateish-400">Does it apply: {entry.scope_decision}</p>
           )}
         </div>
       ) : (

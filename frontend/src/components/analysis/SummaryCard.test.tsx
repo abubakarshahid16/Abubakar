@@ -69,7 +69,7 @@ describe("SummaryCard: null summary", () => {
     const { container } = render(<SummaryCard result={result} onCite={vi.fn()} />);
     expect(screen.queryByText(/not available in this build/)).toBeNull();
     expect(container.querySelector(".model-prose")).toBeNull();
-    expect(screen.queryByText(/Written by the model/)).toBeNull();
+    expect(screen.queryByText(/Written by the AI/)).toBeNull();
   });
 
   it("renders nothing at all when there is no summary, no omission and no findings", () => {
@@ -86,8 +86,8 @@ describe("SummaryCard: header counts passages", () => {
     const result = makeResult();
     expect(result.summary_cited_evidence_ids).toHaveLength(3);
     render(<SummaryCard result={result} onCite={vi.fn()} />);
-    const header = screen.getByText(/^Summary of \d+ passages?$/);
-    expect(header).toHaveTextContent("Summary of 3 passages");
+    const header = screen.getByText(/^Summary of \d+ parts? of pages$/);
+    expect(header).toHaveTextContent("Summary of 3 parts of pages");
     expect(header.textContent).not.toMatch(/documents/i);
   });
 });
@@ -173,10 +173,10 @@ describe("SummaryCard: the summary states its boundary (#1026)", () => {
     });
     render(<SummaryCard result={result} onCite={vi.fn()} />);
     expect(screen.getByTestId("summary-boundary")).toHaveTextContent(
-      "Passages from 2 of the 5 documents this search could reach (the ones you can read)",
+      "Parts of pages from 2 of the 5 documents this search could reach (the ones you can read)",
     );
     // The header still counts passages only, as before.
-    expect(screen.getByText(/^Summary of \d+ passages?$/)).toHaveTextContent("Summary of 3 passages");
+    expect(screen.getByText(/^Summary of \d+ parts? of pages$/)).toHaveTextContent("Summary of 3 parts of pages");
   });
 
   it("singular: one document in scope", () => {
@@ -184,7 +184,7 @@ describe("SummaryCard: the summary states its boundary (#1026)", () => {
       evidence_ledger: ledgerFor(IDS, ["doc_a", "doc_a", "doc_a"]),
       coverage: inScope(1),
     });
-    expect(summaryBoundary(result)).toBe("Passages from 1 of the 1 document this search could reach (the ones you can read)");
+    expect(summaryBoundary(result)).toBe("Parts of pages from 1 of the 1 document this search could reach (the ones you can read)");
   });
 
   it("states nothing when a cited passage is not in the ledger (never a guessed or zero count)", () => {
@@ -236,7 +236,7 @@ describe("SummaryCard: the line reaches the live hub (#1026)", () => {
     expect(result.evidence_ledger).toHaveLength(3);
     render(<SummaryCard result={result} onCite={vi.fn()} />);
     expect(screen.getByTestId("summary-boundary")).toHaveTextContent(
-      "Passages from 2 of the 4 documents this search could reach (the ones you can read)",
+      "Parts of pages from 2 of the 4 documents this search could reach (the ones you can read)",
     );
   });
 

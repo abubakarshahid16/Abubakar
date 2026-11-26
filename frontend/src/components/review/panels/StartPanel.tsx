@@ -66,7 +66,7 @@ export function StartPanel({ submittalId, starting, onStart, onCancel }: {
     <div role="dialog" aria-label="Before the review starts"
       className="space-y-3 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 p-3 text-sm">
       <fieldset className="flex flex-wrap gap-3">
-        <legend className="sr-only">Engine</legend>
+        <legend className="sr-only">Who reviews it</legend>
         {choices.map((c) => (
           <label key={c.value} className="flex items-center gap-1 text-slateish-100">
             <input type="radio" name="review-engine" checked={chosen === c.value}

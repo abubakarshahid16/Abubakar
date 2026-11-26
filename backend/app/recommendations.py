@@ -49,18 +49,11 @@ CODE = "recommendation_query"
 
 
 def named(applicable: list[dict]) -> set[str]:
-    """The standards the datasheet itself NAMES (its design standards): the only ones whose
-    recommendations a review raises (default house rule, to be confirmed by the client)."""
-    from . import applicability
-    from .config import settings
-
-    if not settings.recommendation_queries_enabled:
-        return set()
-    return {
-        a["standard_document_id"]
-        for a in applicable
-        if a.get("selection_method") == applicability.METHOD_REFERENCED
-    }
+    """The standards whose recommendations a review raises as queries: NONE. The switch that raised those of the standards the
+    datasheet names (`recommendation_queries_enabled`, order 288.2) was RETIRED 26 Nov 2026 (lead-4) with its OFF behaviour kept,
+    so every recommendation is left out of the review and counted (`left_out`)."""
+    del applicable
+    return set()
 
 
 def left_out(

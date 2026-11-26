@@ -76,6 +76,21 @@ contractor copy issued only after that sign-off. Until then every file is the te
    through `standards_lane` (its figure-reading user) and `reader_transport.py` under the `claude_spend` caps; never a
    datasheet, procedure, contract, CRS, submittal or the register; each rule read is marked "from a figure, page N", goes
    to a file first, and joins the library only after a judged sample whose error rate is reported to the owner.
+   CHAT DATABASE TOOLS (owner, 25 Nov 2026, #1584 comment 7171320073: "Yes, allow it"): Chat in Claude mode may call
+   the database tools (`chat_db_tools.py`: documents by kind or role, a paper's latest review with its counts and top
+   comments with page, the open items of a technical query) and the records answers (`chat_records.py`: signed
+   reviews, a paper's review, documents listed by kind, queries waiting), ALL behind one switch,
+   `CHAT_DATABASE_TOOLS_ENABLED`, **off by default** (reverted 26 Nov 2026: update 14's fresh review found two gaps -
+   the block-list check did not cover a cross-referenced OTHER paper's name/value written into a comment by
+   `tag_cross.py`, and `chat_records.py` answers carried no document id, so nothing was ever withheld from a later
+   turn; `chat_records.kind_of` now checks the switch FIRST, before any records answer including "list the <kind>",
+   so with the switch off none of this is reachable - proven by `test_u14_chat_records.py`'s switch-off test. Turning
+   it on by default waits for both underlying gaps to be closed (queued, update 15) and a fresh review to confirm it).
+   Their answers go to Claude only through `reader_transport.py` under the `claude_spend` caps, must hold only
+   documents the caller may read (one outside the caller's grants is counted, never named), must never name or give
+   the client's register or any blocked file, and must never carry document text; each call is logged with ids only;
+   Local only and the local Chat engine send nothing. With the switch off, none of this runs; these are the rule for
+   when it is turned on, not yet a proven property of the code in that state.
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only six modules may open a
    socket, each behind a gate (the two Gmail modules, `gmail_auth.py` and `gmail_client.py`, read-only behind

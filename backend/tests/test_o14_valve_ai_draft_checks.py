@@ -7,8 +7,8 @@ given, is a Query; a limit met is no line. Invented values only.
 from __future__ import annotations
 
 from app import agent_review_calculator as calc
-from app import card_trust
 from app import datasheet_checks as dc
+from app import rule_trust
 
 PSV = "Pressure Safety Valve"
 DRAFTS = ("PSV-A01", "PSV-A02")
@@ -51,7 +51,13 @@ def test_each_ai_draft_item_cites_a_page_of_saes_j_600_says_it_is_a_draft_and_ne
             and item["source"]["page"] >= 1
         )
         assert calc.AI_DRAFT_WORDS in item["text"]
-        assert card_trust.why_not(i) == item["needs"]  # the card never decides
+        assert item["needs"]  # the item still says what it needs before it may decide
+        held = rule_trust.check_label(
+            {"checklist": True, "draft": True, "local": False, "rule_id": i}
+        )
+        assert (
+            held == rule_trust.UNPROVEN
+        )  # the card never decides (was card_trust.why_not: card_trust is retired with the switch tested_cards_decide_enabled (lead-4, 26 Nov 2026))
 
 
 SET = fact("set pressure", "100", "psig")

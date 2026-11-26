@@ -128,12 +128,12 @@ export function DashboardView({
             {metrics.corpus_wide ? (
               <>
                 <span className="font-semibold text-slateish-300">
-                  Corpus-wide system figures.
+                  Figures for the whole library.
                 </span>{" "}
                 The system counts on this screen cover every document in the
-                corpus, including documents you cannot open. You are seeing
+                library, including documents you cannot open. You are seeing
                 them because you hold the admin capability. The AI Submittal
-                Review counts are not corpus-wide: they cover only the
+                Review counts are not library-wide: they cover only the
                 documents you can open, and say so on their own block.
               </>
             ) : (
@@ -142,7 +142,7 @@ export function DashboardView({
                   Your documents only.
                 </span>{" "}
                 These counts cover the documents you have been granted, not the
-                whole corpus.
+                whole library.
               </>
             )}
           </p>
@@ -171,7 +171,7 @@ export function DashboardView({
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="text-sm font-semibold text-slateish-200">EPC delivery overview</h2>
-              <p className="mt-1 text-xs text-slateish-500">Live WBS, review, and overdue-risk counts for your accessible project scope.</p>
+              <p className="mt-1 text-xs text-slateish-500">Live WBS, review, and overdue-risk counts for the projects you can see.</p>
             </div>
             {onOpenDeliverables && (
               <button type="button" onClick={onOpenDeliverables} className="text-xs font-medium text-signal-400 hover:underline">Open deliverables</button>
@@ -234,7 +234,7 @@ export function DashboardView({
               ? "No documents loaded yet."
               : `${nf.format(corpus.chunks_retrievable)} of ${nf.format(
                   corpus.chunks_total,
-                )} passages can be found by a question. The rest are contents pages, front matter and scans — each listed below with the reason it was left out.`
+                )} parts of pages can be found by a question. The rest are contents pages, front matter and scans — each listed below with the reason it was left out.`
           }
         />
         <Headline
@@ -247,7 +247,7 @@ export function DashboardView({
           note={
             retrieval?.p50 == null
               ? "No question has been asked on this machine yet, so there is nothing to average."
-              : `This is the time to find the passages for a question, not to write an answer. Half of searches are faster than this. The slowest one in twenty takes ${(
+              : `This is the time to find the parts of pages for a question, not to write an answer. Half of searches are faster than this. The slowest one in twenty takes ${(
                   (retrieval.p95 ?? retrieval.p50) / 1000
                 ).toFixed(1)}s. Taken from ${nf.format(
                   retrieval.samples,

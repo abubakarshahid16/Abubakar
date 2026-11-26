@@ -214,7 +214,7 @@ export function confidenceLabel(value: string | null | undefined): string {
 export function matchMethodLabel(method: string | null | undefined): string {
   if (!method) return "";
   if (method === "containment") return "matched by rule";
-  if (method === "model") return "paired by model";
+  if (method === "model") return "paired by the AI";
   return method;
 }
 
@@ -276,7 +276,7 @@ export function pageCoverageLine(run: ReviewRunSummary): string {
   // Order 165: pages both readers read and found no checklist field on are
   // said apart from the pages fields were read from, never merged into them.
   const none = pc.pages_read_no_field ?? [];
-  const noField = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, no checklist field found` : "";
+  const noField = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, no field from the list of checks found` : "";
   const unread = pc.pages_not_read_into_fields;
   if (pc.pages_not_read) {
     // #1550: a run stored with PAGE_READ_BY_READING_ENABLED: "not read" is only
@@ -285,7 +285,7 @@ export function pageCoverageLine(run: ReviewRunSummary): string {
     // readers looked at and found none on are a different fact, said as that.
     const notRead = pc.pages_not_read;
     const taken = unread.filter((n) => !notRead.includes(n));
-    const clean = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, both readers found no checklist field` : "";
+    const clean = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, both readers found no field from the list of checks` : "";
     const noTaken = taken.length
       ? `; no datasheet field taken from ${taken.length === 1 ? "page" : "pages"} ${pageList(taken)}, so a value not found may still be there`
       : "";
@@ -443,7 +443,7 @@ export function pagesReadLine(r: {
   // Order 165: pages two readers read and found no checklist field on are said
   // apart from the pages fields were read from, so the pages add up.
   const none = r.pages_read_no_field ?? [];
-  const noField = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, no checklist field found` : "";
+  const noField = none.length ? `; ${none.length === 1 ? "page" : "pages"} ${pageList(none)} read, no field from the list of checks found` : "";
   return `Pages read: ${r.pages_read} of ${r.pages_total}${noField}`;
 }
 

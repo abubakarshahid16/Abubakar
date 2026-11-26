@@ -101,7 +101,7 @@ export function CoverageLedger({
               <tr className="text-xs uppercase tracking-wide text-slateish-500">
                 <th scope="col" className="py-1 pe-3 font-normal">Document</th>
                 <th scope="col" className="py-1 pe-3 font-normal">Status</th>
-                <th scope="col" className="py-1 pe-3 text-right font-normal">Validated passages</th>
+                <th scope="col" className="py-1 pe-3 text-right font-normal">Checked parts of pages</th>
                 <th scope="col" className="py-1 font-normal">Error</th>
               </tr>
             </thead>

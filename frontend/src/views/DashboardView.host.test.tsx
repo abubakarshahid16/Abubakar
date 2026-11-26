@@ -134,12 +134,12 @@ describe("the dashboard for a reader who may not see the machine", () => {
 
     // Proof the dashboard MOUNTED rather than that a throw was swallowed:
     // a scoped corpus figure the same payload carries.
-    expect(await screen.findByText(/1 document loaded, 480 passages/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 document loaded, 480 parts of pages/)).toBeInTheDocument();
   });
 
   it("shows no host measurements at all rather than zeros", async () => {
     await openDashboard(nonAdminMetrics());
-    await screen.findByText(/1 document loaded, 480 passages/);
+    await screen.findByText(/1 document loaded, 480 parts of pages/);
 
     const text = document.body.textContent ?? "";
 

@@ -33,7 +33,7 @@ Counts and code only. No document text, no contractor value. Measured 1 Nov 2026
 | table row, relative limit (not a limit) | NEEDS_ENGINEER_REVIEW | `comparison.py:835, 856` | 1 row |
 | requirement names another document | NOT_IN_DOCUMENT_SCOPE | `comparison.py:~793-818` and the no-field branch `:881` | 2,161 of 4,964 rows on the specification run, 45 of 186 on the PSV sheet |
 | rule_trust, UNPROVEN rule (`rule_auto_use_enabled`) | NON_COMPLIANT and COMPLIANT become NEEDS_ENGINEER_REVIEW, the rule's own word kept in `rule_said` | `rule_trust.py:320-345`; applied to every datasheet check at `comparison.py:3000` and to standard rows at `:2920` | 47 rows, all of them `rule_said` COMPLIANT |
-| tested cards decide (`tested_cards_decide_enabled`) | a tested relief-valve card decides, every other check stays UNPROVEN | `rule_trust.py:328`, `card_trust.py` | 28 decided on the PSV sheet |
+| tested cards decide (`tested_cards_decide_enabled`, RETIRED 26 Nov 2026 with its OFF behaviour kept) | a tested relief-valve card decides, every other check stays UNPROVEN | `rule_trust.py:328`, `card_trust.py` | 28 decided on the PSV sheet |
 | `requirement_split` | a report of the groups; it holds nothing | `comparison.py:3018` | n/a |
 | MISSING_INFORMATION | blank / absent value is never a failure | `comparison.py:~875-905`, `datasheet_checks.py:~700` | by design |
 

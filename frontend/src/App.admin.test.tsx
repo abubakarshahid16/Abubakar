@@ -294,7 +294,7 @@ describe("authentication disabled", () => {
     // the API's answer (`required: false`), not a client-side guess.
     mockApi(null, { required: false });
     render(<App />);
-    expect(await screen.findByText(/Authentication disabled/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sign-in is off on this computer/i)).toBeInTheDocument();
     await waitFor(() => expect(adminNavButton()).not.toBeNull());
   });
 });

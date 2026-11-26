@@ -90,7 +90,7 @@ describe("NewReviewDropZone", () => {
     expect(await screen.findByTestId("drop-zone-step")).toBeInTheDocument();
     expect(onStarted).not.toHaveBeenCalled();
     expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document"]);
-    expect(screen.getByText(/After the upload you choose the engine and see what will be sent/)).toBeInTheDocument();
+    expect(screen.getByText(/After the upload you choose who reviews it and see what will be sent/)).toBeInTheDocument();
     await pressStart();
     await vi.waitFor(() => expect(onStarted).toHaveBeenCalledWith("run-1"));
     expect(calls).toEqual(["me", "disciplines", "upload", "mark", "document", "start"]);

@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { attachmentsRead, notReadWhy, peopleLine } from "../api/technicalQueries";
+import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
+import { formatWhen } from "../format/when";
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -86,6 +87,19 @@ describe("Technical Queries screen", () => {
     expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
     expect(screen.getByTestId("evidence-match").textContent).toBe("1 of 5 key terms");
     expect(container.textContent).not.toMatch(/not covered|weak match/i);
+  });
+
+  it("tells the engineer that a kept passage counts once its source document is confirmed (F's live check, 26 Nov 2026)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query,
+      evidence: [
+        { id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" },
+        { id: "e2", document_id: "c2", page_start: 5, exact_quote: "y", evidence_state: "verified", supersession_state: "current" },
+        { id: "e3", document_id: "c3", page_start: 6, exact_quote: "z", evidence_state: "proposed", supersession_state: "unknown" },
+      ] } });
+    render(<TechnicalQueriesView />);
+    const notes = await screen.findAllByTestId("evidence-needs-confirm");
+    expect(notes).toHaveLength(1);  // only the kept passage whose source is not confirmed
+    expect(notes[0].textContent).toContain("source document is confirmed");
   });
 
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
@@ -311,7 +325,7 @@ describe("Technical Queries screen", () => {
     api.routingRules.mockResolvedValue({ ok: true, data: { items: [] } });
     api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "Unmapped", contractor_name: null }] } });
     render(<TechnicalQueriesView />);
-    expect(await screen.findByText(/contractor not set: add its code under Routing rules/)).toBeTruthy();
+    expect(await screen.findByText(/contractor not set: add its code under Rules for who it goes to/)).toBeTruthy();
     expect(screen.queryByText(/Unknown contractor/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     const options = Array.from((screen.getByLabelText("Rule type") as HTMLSelectElement).options).map((o) => o.textContent);
@@ -397,7 +411,7 @@ describe("Technical Queries screen", () => {
     const toggle = screen.getByRole("button", { name: "Filters" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     const connect = await screen.findByText("Connect Gmail");
-    const list = screen.getByLabelText("Technical query queue");
+    const list = screen.getByLabelText("Technical query list");
     expect(connect.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // Connect Gmail comes before the list
     expect(toggle.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(toggle);
@@ -405,5 +419,39 @@ describe("Technical Queries screen", () => {
     const options = Array.from((screen.getByLabelText("Status") as HTMLSelectElement).options).map((option) => option.textContent);
     expect(options).toContain("Awaiting review");
     expect(options).not.toContain("Sent");
+  });
+
+  it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
+    render(<TechnicalQueriesView />);
+    const question = await screen.findByRole("heading", { name: "Question for the draft" });
+    const response = screen.getByRole("heading", { name: /^Proposed response/ });
+    const generate = screen.getByRole("button", { name: "Generate draft" });
+    const email = screen.getByTestId("tq-folded-email-question");
+    const mail = screen.getByTestId("tq-folded-mail");
+    const evidence = screen.getByTestId("tq-folded-evidence");
+    const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect([before(question, response), before(response, generate), before(generate, email), before(email, mail), before(mail, evidence)]).toEqual([true, true, true, true, true]);
+    for (const part of [email, mail, evidence]) {
+      expect(part.tagName).toBe("DETAILS");
+      expect((part as HTMLDetailsElement).open).toBe(false);  // folded on arrival
+    }
+    expect(within(evidence).getByTestId("evidence-coverage")).toBeTruthy();  // the same parts, only folded
+  });
+
+  it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
+    expect(proposalNoteWords("none_found", true)).toBe("The AI on this computer found no separate question in the attachment. The proposed question below is the form's own question section, as printed. Check it before you confirm it.");
+    expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attachment text below and write the question\./);
+    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI on this computer was not available/);
+    expect(proposalNoteWords(null, true)).toBeNull();
+  });
+
+  it("shows the mail's received time and the confirmation time with their zone, never the stored UTC text (lead-4, 26 Nov 2026)", async () => {
+    const at = "2026-11-20T08:30:00Z";
+    const mail = { id: "m1", received_at: at, from_address: "contractor@example.test", to_addresses: [], cc_addresses: [], subject: "Invented", body: "Invented.", attachments: [] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, confirmed_question: "Invented?", confirmed_question_at: at, messages: [mail] } });
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText(`Received: ${formatWhen(at)}`)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Confirmed by an engineer on ${formatWhen(at).replace(/[+]/g, "\\+")}`))).toBeTruthy();
+    expect(screen.queryByText(new RegExp(at))).toBeNull();
   });
 });

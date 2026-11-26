@@ -27,7 +27,7 @@ export function localOnlyWords(info: MethodInfo | null): string | null {
 /** One line for the "How it was reviewed" tab: the method and, for the general review, its mark. Null until the route answered. */
 export function methodLine(info: MethodInfo | null): string | null {
   if (!info) return null;
-  return info.method === "general" ? `Method: the general review. ${info.mark}.` : "Method: the earlier rule check and AI review.";
+  return info.method === "general" ? `Method: the current review. ${info.mark}.` : "Method: the earlier rule check and AI review.";
 }
 
 /** The one word a person sees for an older review (owner order, 18 Nov 2026): never mixed up with the general review. The same
@@ -52,10 +52,10 @@ export function engineWords(plan: ReviewPlan): string {
   if (plan.refused) return plan.refused.endsWith(".") ? plan.refused : `${plan.refused}.`;
   const onClaude = plan.parts.filter((p) => p.engine === "claude");
   const name = onClaude.length ? "Claude" : "this computer";
-  if (!plan.text_leaves) return `Engine: ${name}. No text leaves this computer.`;
+  if (!plan.text_leaves) return `Reviewed by: ${name}. No text leaves this computer.`;
   const n = plan.documents.rule_books.length;
   const books = n > 0 ? `of ${n} rule book${n === 1 ? "" : "s"}` : "of its rule books";
-  return `Engine: ${name}. Text of this paper and ${books} will leave this computer.`;
+  return `Reviewed by: ${name}. Text of this paper and ${books} will leave this computer.`;
 }
 
 /** "Cost: about USD 0.50, limit USD 15" (the last review's real cost, read from the spend ledger, when there is one) or "Cost: limit USD 15"

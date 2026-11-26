@@ -93,7 +93,7 @@ describe("LoginView: password reset", () => {
     const user = userEvent.setup();
     render(<LoginView onLogin={vi.fn()} onResetPassword={onResetPassword} connected />);
     await user.click(screen.getByRole("button", { name: "Set or reset password" }));
-    await user.type(screen.getByLabelText("One-time reset token"), "t".repeat(43));
+    await user.type(screen.getByLabelText("One-time reset code"), "t".repeat(43));
     await user.type(screen.getByLabelText("New password"), "Cedar#Orbit-42-Glass");
     await user.type(screen.getByLabelText("Confirm new password"), "Cedar#Orbit-42-Glass");
     await user.click(screen.getByRole("button", { name: "Save new password" }));
@@ -107,7 +107,7 @@ describe("LoginView: password reset", () => {
     const user = userEvent.setup();
     render(<LoginView onLogin={vi.fn()} onResetPassword={onResetPassword} connected />);
     await user.click(screen.getByRole("button", { name: "Set or reset password" }));
-    await user.type(screen.getByLabelText("One-time reset token"), "t".repeat(43));
+    await user.type(screen.getByLabelText("One-time reset code"), "t".repeat(43));
     await user.type(screen.getByLabelText("New password"), "Cedar#Orbit-42-Glass");
     await user.type(screen.getByLabelText("Confirm new password"), "Different#Orbit-42");
     await user.click(screen.getByRole("button", { name: "Save new password" }));
@@ -125,7 +125,7 @@ describe("RoleBadge", () => {
     // this label never changes. As a status it also collided with the real
     // status messages on the Dashboard, so a screen reader heard it cut in.
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByText(/Authentication disabled/)).toBeInTheDocument();
+    expect(screen.getByText(/Sign-in is off on this computer/)).toBeInTheDocument(); // everyday words (owner, 26 Nov 2026, G9)
     expect(container.textContent).not.toMatch(/admin|administrator|guest|anonymous/i);
     expect(screen.queryByRole("button")).toBeNull();
   });
@@ -135,6 +135,6 @@ describe("RoleBadge", () => {
     render(<RoleBadge me={me} onLogout={vi.fn()} />);
     expect(screen.getByText("Ali Z")).toBeInTheDocument();
     expect(screen.getByText("engineer")).toBeInTheDocument();
-    expect(screen.queryByText(/Authentication disabled/)).toBeNull();
+    expect(screen.queryByText(/Sign-in is off on this computer/)).toBeNull();
   });
 });

@@ -86,7 +86,7 @@ describe("ReviewPipeline", () => {
     expect(within(read).getByText("p1 Set pressure = 10 barg")).toBeTruthy();
     const ai = screen.getByTestId("trace-ai");
     expect(within(ai).getByText(/2 of 3 proposed item\(s\) kept/)).toBeTruthy();
-    expect(within(ai).getByText(/model ollama:local-test/)).toBeTruthy();
+    expect(within(ai).getByText(/answered by ollama:local-test/)).toBeTruthy();
   });
 
   it("says why when the trace cannot be read", async () => {
@@ -102,7 +102,7 @@ describe("ReviewPipeline", () => {
     Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     await open();
-    await userEvent.click(await screen.findByRole("button", { name: /download trace/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /download the step record/i }));
     expect(click).toHaveBeenCalled();
     expect(JSON.parse(await created[0].text()).review_run_id).toBe("run-1");
     click.mockRestore();

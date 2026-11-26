@@ -54,6 +54,20 @@ function Row({ line, mark, onViewPage }: { line: GeneralLine; mark: string; onVi
   );
 }
 
+/** The verdict line at the top (E5): how many comments still need the engineer's decision, or that they are all decided, or the
+ *  sign-off. With no sign-off state (an older review): the comment count, still marked as the AI's opinion. */
+export function verdict(review: GeneralReview, signoff: GeneralReview["signoff"] | null): string {
+  const n = review.counts.comments;
+  if (signoff?.state === "signed") return `Signed off: ${n} comment${n === 1 ? "" : "s"} decided.`;
+  if (signoff?.state === "changed") return "Changed since sign-off: sign it off again before the contractor copy.";
+  if (signoff) {
+    const todo = signoff.undecided_count;
+    if (todo > 0) return `${todo} comment${todo === 1 ? "" : "s"} need${todo === 1 ? "s" : ""} your decision.`;
+    return "All comments are decided: ready to sign off.";
+  }
+  return `${n} comment${n === 1 ? "" : "s"} to check (${review.counts.points} points reviewed).`;
+}
+
 export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onReload }: {
   review: GeneralReview; howTab: ReactNode; onViewPage: (page: number) => void; onDownloaded?: () => void;
   /** Read the whole review again (after "accept the rest": the cards then show the accepted comments). */
@@ -87,21 +101,24 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
           <strong>This review did not finish.</strong> {review.stop_words}
         </div>
       )}
+      {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the verdict, the decisions, then the comments; how the review
+          was made (counts, cost, model notes, steps that did not run, pages not read) is folded under its own tab, and a
+          one-line pointer keeps what did not run or was not read visible. */}
       <div role="note" data-testid="general-mark" className="rounded-[var(--radius-md)] border border-signal-400 p-3 text-sm text-slateish-100">
         {signoff?.state === "signed" && signoff.signed ? (
           <>
             <strong>Signed off</strong>
-            <span className="ml-2 text-slateish-300">General review, signed off by {signoff.signed.by}. The contractor copy is below; this page is still the team's full list.</span>
+            <span className="ml-2 text-slateish-300">Review signed off by {signoff.signed.by}. The contractor copy is below; this page is still the team's full list.</span>
           </>
         ) : (
           <>
             <strong>{mark}</strong>
-            <span className="ml-2 text-slateish-300">General review. This is the AI's opinion, for the team: nothing here is signed off or ready for the contractor.</span>
+            <span className="ml-2 text-slateish-300">This is the AI's opinion, for the team: nothing here is signed off or ready for the contractor.</span>
           </>
         )}
+        <p data-testid="general-verdict" className="mt-1 text-base font-semibold text-slateish-100">{verdict(review, signoff)}</p>
       </div>
-      <MeasuredBadge measured={review.measured} />
-
+      <MeasuredBadge measured={review.measured} />{/* the kind's real score stays on screen (standing order: "below target" shown) */}
       {review.status === "stopped" && (
         <p role="alert" data-testid="general-stopped" className="text-sm text-danger-500">
           This review stopped early{review.stop_reason && !review.stop_words ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
@@ -114,49 +131,29 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
       )}
 
       {(review.steps_not_applied ?? []).length > 0 && (
-        <div role="note" data-testid="general-steps-not-applied" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
-          <strong>A checking step did not run on this sheet.</strong>
-          <ul className="list-disc pl-5 text-slateish-200">
-            {(review.steps_not_applied ?? []).map((x) => <li key={`${x.step}:${x.why}`}>{x.sentence}</li>)}
-          </ul>
-        </div>
+        <p data-testid="general-steps-pointer" className="text-sm text-pill-review-fg">
+          {(review.steps_not_applied ?? []).length} checking step{(review.steps_not_applied ?? []).length === 1 ? "" : "s"} did not run:{" "}
+          <button type="button" onClick={() => setTab("how")} className="underline">see How this review was made</button>.
+        </p>
       )}
-
       {(review.pages_not_read ?? []).length > 0 && (
-        <div role="note" data-testid="general-pages-not-read" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
-          <strong>{(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read.</strong>
-          <p className="text-slateish-200">Nothing below says anything about them: no text and no picture reading came back, or it has not run yet.</p>
-          <ul className="list-disc pl-5 text-slateish-200">
-            {(review.pages_not_read ?? []).map((x) => <li key={x.where}>{x.sentence}</li>)}
-          </ul>
-        </div>
+        <p data-testid="general-pages-pointer" className="text-sm text-pill-review-fg">
+          {(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read:{" "}
+          <button type="button" onClick={() => setTab("how")} className="underline">see How this review was made</button>.
+        </p>
       )}
 
-      {(review.pages_not_read ?? []).length === 0 && review.pages_not_read_record === "not_recorded" && (
-        <p data-testid="general-pages-not-recorded" className="text-sm text-slateish-300">Which pages were read is not recorded for this review.</p>
-      )}
-
-      <p data-testid="general-counts" className="text-sm text-slateish-200">
-        {review.counts.points} points reviewed, {review.counts.comments} comments sent
-        {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).
-        {Object.entries(review.counts.by_shown_label ?? {}).filter(([k]) => k).map(([k, n]) => (
-          <span key={k} className="ml-2 text-xs text-slateish-400">{n} {SHOWN_WORDS[k] ?? k.toLowerCase()}</span>
-        ))}
-        {" "}{review.counts.decided_by_code?.sentence}
-      </p>
+      {signoff && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" onClick={() => void download()} data-testid="general-download"
           className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-100 hover:bg-ink-700">
           Download the file (team copy)
         </button>
-        {review.cost.usd != null && <span data-testid="general-cost" className="text-xs text-slateish-400">Cost of this review: USD {review.cost.usd.toFixed(2)}</span>}
       </div>
       {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
 
-      {signoff && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
-
-      <div role="tablist" aria-label="General review" className="flex gap-1 border-b border-ink-600">
+      <div role="tablist" aria-label="Review" className="flex gap-1 border-b border-ink-600">
         {([["comments", `Comments (${review.counts.comments})`], ["how", "How this review was made"]] as const).map(([t, label]) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm ${tab === t ? "border-b-2 border-signal-400 text-slateish-100" : "text-slateish-300 hover:text-slateish-100"}`}>
@@ -195,6 +192,39 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
 
       {tab === "how" && (
         <div data-testid="general-how" className="space-y-3 text-sm text-slateish-200">
+          {(review.steps_not_applied ?? []).length > 0 && (
+            <div role="note" data-testid="general-steps-not-applied" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
+              <strong>A checking step did not run on this sheet.</strong>
+              <ul className="list-disc pl-5 text-slateish-200">
+                {(review.steps_not_applied ?? []).map((x) => <li key={`${x.step}:${x.why}`}>{x.sentence}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {(review.pages_not_read ?? []).length > 0 && (
+            <div role="note" data-testid="general-pages-not-read" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
+              <strong>{(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read.</strong>
+              <p className="text-slateish-200">Nothing below says anything about them: no text and no picture reading came back, or it has not run yet.</p>
+              <ul className="list-disc pl-5 text-slateish-200">
+                {(review.pages_not_read ?? []).map((x) => <li key={x.where}>{x.sentence}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {(review.pages_not_read ?? []).length === 0 && review.pages_not_read_record === "not_recorded" && (
+            <p data-testid="general-pages-not-recorded" className="text-sm text-slateish-300">Which pages were read is not recorded for this review.</p>
+          )}
+
+          <p data-testid="general-counts" className="text-sm text-slateish-200">
+            {review.counts.points} points reviewed, {review.counts.comments} comments sent
+            {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).
+            {Object.entries(review.counts.by_shown_label ?? {}).filter(([k]) => k).map(([k, n]) => (
+              <span key={k} className="ml-2 text-xs text-slateish-400">{n} {SHOWN_WORDS[k] ?? k.toLowerCase()}</span>
+            ))}
+            {" "}{review.counts.decided_by_code?.sentence}
+          </p>
+
+          {review.cost.usd != null && <p data-testid="general-cost" className="text-xs text-slateish-400">Cost of this review: USD {review.cost.usd.toFixed(2)}</p>}
           <HowReviewMade review={review} />
           {howTab}
         </div>

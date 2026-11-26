@@ -58,7 +58,7 @@ export const CLASS_WORDS: Record<AgentVerdictClass, readonly string[]> = {
 /** Plain words of a general-review part. */
 export const PART_WORDS: Record<AgentPart, string> = {
   "not held": "Rule book not held",
-  checklist: "Checklist",
+  checklist: "List of checks",
   "paper against itself": "Paper checked against itself",
   "against project papers": "Checked against project papers",
   "engineering comment": "Engineering comment",
@@ -67,11 +67,11 @@ export const PART_ORDER: readonly AgentPart[] = [
   "not held", "paper against itself", "against project papers", "engineering comment", "checklist",
 ];
 
-export const MODEL_WORDS_MARK = "the model's words, not a quote";
+export const MODEL_WORDS_MARK = "the AI's words, not a quote";
 
 export function modeWords(mode: AgentMode): string {
   return mode === "general review"
-    ? "General review: no rule book held; AI notes and queries only, internal"
+    ? "No rule book held: AI notes and questions only, internal"
     : "Rule review";
 }
 
@@ -105,7 +105,7 @@ export const TIERS: readonly AgentRuleTier[] = ["AI approved", "Engineer", "Owne
 export function tierWords(klass: string, tier: string | null): string {
   if (tier != null) return tier;
   if (klass === "Not checked: rule book not held" || klass === "AI note, no rule book") return "no rule book";
-  return klass === "AI opinion, rule not yet approved" ? "tier not given" : "Checklist item";
+  return klass === "AI opinion, rule not yet approved" ? "tier not given" : "Check";
 }
 
 export function isKnownClass(value: string): value is AgentVerdictClass {

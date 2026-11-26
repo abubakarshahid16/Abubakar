@@ -182,7 +182,7 @@ describe("HowReviewedView on a full run", () => {
     expect(reader).toHaveTextContent("qwen2.5vl:7b");
     expect(reader).toHaveTextContent("2 pages (timed_out)");
     expect(reader).toHaveTextContent("40 values (agreed)");
-    expect(reader).toHaveTextContent(/On by default \(setting DATASHEET_AI_READER\)/);
+    expect(reader).toHaveTextContent(/On by default; rule 1/);
     const matcher = screen.getByTestId("ai-step-matcher");
     expect(matcher).toHaveTextContent("9 requirements (asked)");
     expect(matcher).toHaveTextContent("7 requirements (proposed)");

@@ -165,7 +165,6 @@ EGRESS_SAFE: dict[str, object] = {
     "claude_approved_list_enforced": False,
     "review_ai_check_enabled": False,
     "geometry_reader_enabled": False,  # also gates the Claude vision reader
-    "field_naming_enabled": False,  # order 259.5: model-named fields in a review
     "vision_reader_engine": "ollama",  # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,  # a model call per answer
     "ai_senior_review_enabled": False,  # a model call per review item
@@ -287,10 +286,8 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: numbered blocks and hashes for every file (off by default)
     "intake_blocks_enabled": False,
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
-    "tested_cards_decide_enabled": False,
     "rule_auto_use_enabled": False,
     # --- local only, no model or socket: a recommendation is raised as a query (order 288.2, off by default)
-    "recommendation_queries_enabled": False,
     # --- local only, no model or socket: a value marked By Contractor / TBA is a query, never a verdict (#1475, D2, off by default)
     "deferred_value_is_query_enabled": False,
     # --- local only, no model or socket: document kind from the title block (#1474, off by default)
@@ -393,6 +390,10 @@ EGRESS_SAFE: dict[str, object] = {
     "standard_editions_enabled": False,
     # --- local only, no model or socket: L3 routing by document family (off by default, update 12 review B1)
     "kind_family_route_enabled": False,
+    # --- order 14 builder H: lane 1 of the cross-document check is code only (no model, no socket); lane 2 asks the LOCAL
+    # model through model_transport only. All off by default.
+    "cross_doc_facts_enabled": False,
+    "cross_doc_meaning_enabled": False,
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,

@@ -24,17 +24,17 @@ const MODES: { value: AnalysisMode; label: string; description: string }[] = [
   {
     value: "quote",
     label: "Quote",
-    description: "The document's own words. ~2 seconds. No model involved.",
+    description: "The document's own words. ~2 seconds. No AI involved.",
   },
   {
     value: "focused",
     label: "Focused",
-    description: "A generated answer over the top passages. Several minutes on this machine.",
+    description: "An answer written by the AI on this computer from the best parts of pages. Several minutes.",
   },
   {
     value: "comprehensive",
     label: "Comprehensive",
-    description: "The same answer over a wider passage set. Several minutes on this machine.",
+    description: "The same answer from a wider set of parts of pages. Several minutes on this computer.",
   },
 ];
 

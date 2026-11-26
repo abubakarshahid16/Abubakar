@@ -72,7 +72,7 @@ export function PaperHistoryList({ history, onProblem }: { history: PaperHistory
       <ul className="space-y-1">
         {history.runs.map((run) => (
           <li key={run.run_id} data-testid="history-run" className="flex flex-wrap items-center gap-2 text-xs text-slateish-100">
-            <span className="font-semibold">{run.version === "earlier version" ? EARLIER_VERSION : "General review"}</span>
+            <span className="font-semibold">{run.version === "earlier version" ? EARLIER_VERSION : "Current method"}</span>
             <span>{run.part}</span>
             <span className="text-slateish-400">{run.status}{when(run.started_at) ? `, ${when(run.started_at)}` : ""}</span>
             {run.points !== null && <span className="text-slateish-400">{run.points} points</span>}
@@ -107,7 +107,7 @@ export function OlderFiles({ ruleCheckRun, aiRun, documentId }: { ruleCheckRun: 
   return (
     <details data-testid="v2-older-files" aria-label="Older files" className="mt-3 space-y-2 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3">
       <summary className="cursor-pointer text-sm font-semibold text-slateish-100">History: older files, one per review ({EARLIER_VERSION})</summary>
-      <p data-testid="earlier-version-note" className="text-xs text-slateish-400">{EARLIER_VERSION}: these files come from the rule check and the earlier AI review, not from the general review. The buttons at the bottom give one file with every point on this page. These are the files of each single review, as before.</p>
+      <p data-testid="earlier-version-note" className="text-xs text-slateish-400">{EARLIER_VERSION}: these files come from the rule check and the earlier AI review, not from the current review. The buttons at the bottom give one file with every point on this page. These are the files of each single review, as before.</p>
       <div className="flex flex-wrap gap-2">
         {ruleCheckRun && <button type="button" className={btn} onClick={() => void get(() => downloadCrs(ruleCheckRun, "internal"))}>Rule check, internal copy</button>}
         {aiRun && <button type="button" className={btn} onClick={() => void get(() => downloadAgentCrs(aiRun, "internal"))}>AI review, internal copy</button>}

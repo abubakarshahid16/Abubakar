@@ -51,7 +51,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1412", phase=1412,
              description="a rival far below the top competes as an option",
              path=_A,
-             anchor="        if not _close_enough(hit, lead):\n            continue",
+             anchor="        if not _close_enough(hit, lead, question):\n            continue",  # re-anchored: the gate now sees the question (u14)
              replacement="        if False:\n            continue",
              target=_T, keyword="far_below_the_top", tags=("correctness",)),
     Mutation(id="M1413", phase=1413,
@@ -126,7 +126,7 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id='M1425', phase=1425,
              description='a clause below the credibility floor can answer by its condition',
              path=_A,
-             anchor='    if not _is_semantically_credible(hit):\n        return False\n    apart = hit.get("separation")',
+             anchor='    if not _is_semantically_credible(hit, question):\n        return False\n    apart = hit.get("separation")',  # re-anchored (u14)
              replacement='    apart = hit.get("separation")',
              target=_T, keyword='below_the_credibility_floor', tags=('honesty',)),
     Mutation(id='M1420', phase=1420,
