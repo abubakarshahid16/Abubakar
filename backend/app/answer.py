@@ -17,6 +17,7 @@ tell what the document actually says.
 
 from __future__ import annotations
 
+import contextlib
 import contextvars
 import re
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
@@ -753,6 +754,35 @@ def _build_prompt(question: str, passages: list[dict], history: str = "") -> str
     return f"{history}{sources}\n\nQuestion: {question}"
 
 
+#: A technical query's draft reply is not a chat answer: the contractor sends a LIST of requests, so "Lead with Yes / No" made the local
+#: model open most drafts with "No." (builder C's walk, 26 Nov 2026: 21 of 32). Inside `query_reply()` that one rule is swapped for this
+#: one; every other rule and every check on the answer stay as they are. Outside it the prompt is byte for byte what it always was.
+_CHAT_LEAD = """- Lead with a short direct answer ("Yes.", "No.", "Partly."), then bullet
+  points, then "What I'd do:" with the practical next step when there is one.
+  Use markdown (**bold**, bullets). Never a dense wall of text."""
+_QUERY_REPLY_LEAD = """- This is the draft of a reply to a contractor's technical query. Do not open
+  with "Yes" or "No". Take the contractor's numbered requests in order: for each,
+  say what the sources require, with its citation. Where the sources do not cover
+  a request, write for it: "Not found in the documents searched." Then "What I'd
+  do:" with the practical next step when there is one.
+  Use markdown (**bold**, bullets). Never a dense wall of text."""
+_QUERY_REPLY: contextvars.ContextVar[bool] = contextvars.ContextVar("answer_query_reply", default=False)
+
+
+@contextlib.contextmanager
+def query_reply():
+    """Write the answers inside this block as a technical query's draft reply (`_QUERY_REPLY_LEAD`). Used by the query draft only."""
+    token = _QUERY_REPLY.set(True)
+    try:
+        yield
+    finally:
+        _QUERY_REPLY.reset(token)
+
+
+def _fit(system: str) -> str:
+    return system.replace(_CHAT_LEAD, _QUERY_REPLY_LEAD) if _QUERY_REPLY.get() else system
+
+
 def _call_model(prompt: str, timeout: float = 180.0) -> dict:
     """The one generation call - through the chat's model lane.
 
@@ -764,7 +794,7 @@ def _call_model(prompt: str, timeout: float = 180.0) -> dict:
     retrieved passage text, verbatim, so this is the largest outbound lane in
     the system.
     """
-    system = answer_prompts.pick(claude_lane(), SYSTEM_PROMPT, SYSTEM_PROMPT_VERIFIED)
+    system = _fit(answer_prompts.pick(claude_lane(), SYSTEM_PROMPT, SYSTEM_PROMPT_VERIFIED))
     return chat_model.generate(system, prompt,
                                temperature=settings.chat_temperature_document,
                                preference=_PREFERENCE.get(), timeout=timeout)
@@ -1540,11 +1570,11 @@ def context_budget_for_lane() -> dict:
         return {"lane": "claude", "passages": settings.claude_context_passages,
                 "chars": settings.claude_context_chars,
                 "tokens": settings.claude_context_tokens,
-                "system": SYSTEM_PROMPT_VERIFIED}
+                "system": _fit(SYSTEM_PROMPT_VERIFIED)}
     return {"lane": "local", "passages": settings.generated_context_passages,
             "chars": settings.generated_context_chars,
             "tokens": context_budget.evidence_budget(),
-            "system": SYSTEM_PROMPT}
+            "system": _fit(SYSTEM_PROMPT)}
 
 
 def with_gating_passage(hits: list[dict], gate_index: int, n: int) -> list[dict]:

@@ -23,8 +23,14 @@ from .db import connect
 
 log = logging.getLogger(__name__)
 
-#: `query_drafts.prompt_version` of a draft the system wrote by itself after preparing the evidence.
-SYSTEM_DRAFT = "system-draft-1"
+#: `query_drafts.prompt_version` of a draft the system wrote by itself after preparing the evidence. 2 = the query-reply prompt (no
+#: "Yes." / "No." opening; each numbered request answered, or "Not found in the documents searched") and the relevance floor; a query whose
+#: latest draft is an older system draft, with no decision on it, is drafted again at the next start (builder C's walk, 26 Nov 2026).
+SYSTEM_DRAFT = "system-draft-2"
+#: A passage the SYSTEM found is a draft's source only at or above this reranker score: the answer lane's own calibration (answer.py:
+#: answerable questions -1.19 .. 7.36, plausible but wrong -10.32 .. -4.73). Measured on a copy of live (32 drafts): 29 of 82 cited
+#: passages were below it; with it, 23 of 32 queries keep a source (median 7). A passage an engineer KEPT always counts.
+RELEVANCE_FLOOR = -1.19
 #: The passages a system draft is written from when no engineer has kept one: the best found for this wording.
 MAX_DRAFT_PASSAGES = 8
 #: The states in which the wording may change and evidence and draft refresh (as `technical_queries.prepare_evidence` accepts); a query
@@ -33,6 +39,7 @@ PREPARABLE = ("received", "triage", "drafting", "changes_requested")
 
 NO_QUESTION = "no question was found to answer: write it in the question box and the draft follows"
 NO_PASSAGE = "no passage was found in the contract documents and standards you may read"
+TOO_WEAK = "no passage found answers the question closely enough: keep a source by hand, then press Generate draft"
 MODEL_DOWN = "the local drafting model is unavailable; the draft is written on the next preparation"
 OUTSIDE = "the draft cited passages outside the query's evidence, so it was not kept"
 TYPED_KEPT = "an engineer's own draft is kept; press Generate draft for a new one"
@@ -78,9 +85,22 @@ def draft_passages(
     found = [
         e for e in readable
         if e["evidence_state"] in ("verified", "proposed") and e["supersession_state"] != "superseded"
-        and (e["evidence_state"] == "verified" or e.get("found_for") == key(question))
+        and (e["evidence_state"] == "verified" or (e.get("found_for") == key(question) and close_enough(e)))
     ]  # fmt: skip
     return found[:MAX_DRAFT_PASSAGES]
+
+
+def close_enough(row: dict[str, Any]) -> bool:
+    """A system-found passage scores at or above RELEVANCE_FLOOR (a passage with no score, a clause the form itself cites, counts)."""
+    score = row.get("rank_score")
+    return score is None or float(score) >= RELEVANCE_FLOOR
+
+
+def none_usable_note(item: dict[str, Any]) -> str:
+    """Why no passage can carry a draft: nothing was found, or what was found is too far from the question."""
+    question, _source = working(item)
+    found = any(e.get("found_for") == key(question) for e in item.get("evidence", []))
+    return TOO_WEAK if question and found else NO_PASSAGE
 
 
 def citations_of(
@@ -173,11 +193,17 @@ def write_draft(
         item, frozenset(allowed), attachment_documents, unrestricted=unrestricted
     )
     if not passages:
-        _note(query_id, NO_PASSAGE)
-        return NO_PASSAGE
+        note = none_usable_note(item)
+        _note(query_id, note)
+        return note
+    from .answer import query_reply
+
     try:
-        result = verified_passages.answer(question, evidence=passages, tier="generated",
-                                          allowed_document_ids=frozenset(p["document_id"] for p in passages), model="local")  # fmt: skip
+        with (
+            query_reply()
+        ):  # the query-reply prompt: each request answered, no "Yes." / "No." opening
+            result = verified_passages.answer(question, evidence=passages, tier="generated",
+                                              allowed_document_ids=frozenset(p["document_id"] for p in passages), model="local")  # fmt: skip
     except Exception as exc:  # noqa: BLE001 - logged by its class; the page says the draft waits for the model
         log.info("technical query: system draft not written (%s)", type(exc).__name__)
         _note(query_id, MODEL_DOWN)
@@ -357,7 +383,30 @@ def backlog(conn) -> list[str]:
         if row[0] not in seen:
             ids.append(row[0])
             seen.add(row[0])
+    for qid in stale_system_drafts(conn):
+        if qid not in seen:
+            ids.append(qid)
+            seen.add(qid)
     return ids
+
+
+def stale_system_drafts(conn) -> list[str]:
+    """The queries awaiting review whose latest draft is a SYSTEM draft of an older version (no engineer typed it, no decision names it):
+    they are drafted again with the current prompt and floor. Oldest first."""
+    out = []
+    for row in conn.execute(
+        "SELECT q.id, (SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
+        "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model FROM technical_queries q "
+        "WHERE q.status='awaiting_review' AND NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
+        "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at"
+    ):
+        if (
+            row["model"]
+            and (row["pv"] or "").startswith("system-draft-")
+            and row["pv"] != SYSTEM_DRAFT
+        ):
+            out.append(row["id"])
+    return out
 
 
 def queue_backlog() -> int:
@@ -375,6 +424,13 @@ def queue_backlog() -> int:
             continue
         try:
             scope = access.scope_for_user(owner)
+            with (
+                connect() as conn
+            ):  # an older system draft: back to drafting, so the job may prepare and draft again
+                conn.execute(
+                    "UPDATE technical_queries SET status='drafting' WHERE id=? AND status='awaiting_review'",
+                    (query_id,),
+                )
             technical_query_jobs.enqueue(query_id, scope.readable_with_attachments, scope.user_id, scope.is_admin, scope.unrestricted,
                                          start_thread=False)  # fmt: skip
             queued += 1
