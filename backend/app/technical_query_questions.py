@@ -1,6 +1,6 @@
 """The questions a contractor's query attachment asks, proposed ONE BY ONE with their page, for an engineer to confirm each (order 14, F4).
 
-Before, every new line of the first five pages was copied into one block of text. Now the LOCAL model reads one page at a time and lists
+Before, every new line of the first pages was copied into one block of text. Now the LOCAL model reads one page at a time and lists
 each separate question it finds; a proposal is kept only if its words stand on that page as printed (a question the model made up is
 dropped), and it carries its file and page. Nothing here is an answer, a verdict or a pass: the engineer ticks the questions that are
 real and confirms them. No document text leaves the machine (the local engine only, never Claude). A page whose reading fails says so;

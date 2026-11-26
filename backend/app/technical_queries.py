@@ -859,11 +859,11 @@ def get(
                 (query_id,),
             )
         ]
-        from .technical_query_mail import page_body, shown_question
+        from .technical_query_mail import page_bodies, shown_question
 
-        for message in result["messages"]:
-            # the message itself and, folded on the page, its signature, notices and quoted mail (the stored body is unchanged)
-            main, folded = page_body(message.get("body"))
+        bodies = page_bodies([m.get("body") for m in result["messages"]])
+        for message, (main, folded) in zip(result["messages"], bodies, strict=True):
+            # the message itself and, folded on the page, its signature, notices and the earlier mail already shown above (stored body unchanged)
             message["body_main"], message["body_folded"] = main, folded
             message["to_addresses"], message["cc_addresses"] = (
                 json.loads(message["to_addresses"] or "[]"),
@@ -1108,8 +1108,10 @@ def update_evidence(
 
 _ATTACHMENT_MARK = "\n\n[Attachment "
 MAX_PROPOSED_QUESTION = 12_000
-#: Only this many pages of each attachment are read for questions; the screen says which pages were not read (completeness rule).
-ATTACHMENT_PAGES_READ = 5
+#: Pages of each attachment read for questions: every page up to this many (lead-4, 26 Nov 2026: 5 left 36 of 72 pages of the found-
+#: question attachments unread; the longest held is 41 pages). Past it the screen says which pages were not read and why (completeness).
+ATTACHMENT_PAGES_READ = 60
+NOT_READ_WHY = "the reading stops at {n} pages per attachment"
 CUT_MARK = " [cut here: the wording was longer than the limit; the rest is on the attachment pages]"
 MAX_CONFIRMED_QUESTION = 5_000
 
@@ -1347,7 +1349,11 @@ def prepare_evidence(
                     "page_count": total_pages or None,
                     "line": f"{attachment['filename']}: pages 1 to {read_to}"
                     + (f" of {total_pages} read" if total_pages else " read")
-                    + (f"; pages {read_to + 1} to {total_pages} were not read" if total_pages > read_to else "")
+                    + (
+                        f"; pages {read_to + 1} to {total_pages} were not read: " + NOT_READ_WHY.format(n=ATTACHMENT_PAGES_READ)
+                        if total_pages > read_to
+                        else ""
+                    )
                     + ".",
                 }
             )
@@ -1857,7 +1863,31 @@ def set_routing_rule(
                 actor_user_id, now(),
             ),
         )
+        _backfill_by_sender(conn)
     return list_routing_rules()
+
+
+def _backfill_by_sender(conn) -> int:
+    """A saved address or domain rule fills the blank contractor / department of the queries already held, from the sender of each
+    query's first mail, as the code rules do (lead-4, 26 Nov 2026: every held query kept "contractor not set" after a rule was saved).
+    Only blank fields; a value already set is kept. Returns how many queries changed."""
+    changed = 0
+    for q in conn.execute(
+        "SELECT id, contractor_name, department FROM technical_queries WHERE COALESCE(contractor_name,'')='' OR COALESCE(department,'')=''"
+    ).fetchall():
+        first = conn.execute(
+            "SELECT from_address FROM query_messages WHERE query_id=? AND is_inbound=1 ORDER BY received_at LIMIT 1", (q["id"],)
+        ).fetchone()
+        if first is None:
+            continue
+        contractor, department, source = _routed(conn, first["from_address"], q["contractor_name"] or None, q["department"] or None)
+        if source and (contractor, department) != (q["contractor_name"], q["department"]):
+            conn.execute(
+                "UPDATE technical_queries SET contractor_name=?, department=?, routing_source=?, updated_at=? WHERE id=?",
+                (contractor, department, source, now(), q["id"]),
+            )
+            changed += 1
+    return changed
 
 
 def delete_routing_rule(rule_id: str, is_admin: bool) -> list[dict[str, Any]]:
