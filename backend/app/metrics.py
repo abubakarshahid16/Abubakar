@@ -265,13 +265,14 @@ def models() -> dict:
         # which is stated rather than silent.
         "reranker_model": _reranker_name(),
         "reranker_present": reranker_mod.available(),
-        "answer_model": answer_model_choice.name(),
-        "answer_model_why": answer_model_choice.resolve().why,
         "answer_model_reachable": False,
         "answer_model_loaded": False,
         "ollama_error": None,
     }
     info.update(_ollama_state())
+    # after the probe, which shared its model list: the name in use costs no second engine call (#626)
+    in_use = answer_model_choice.resolve()
+    info.update({"answer_model": in_use.name, "answer_model_why": in_use.why})
     return info
 
 
@@ -295,7 +296,7 @@ def _ollama_state() -> dict:
     Keyed on the host and the model, so changing either asks again. A refused
     host is NEVER cached: it raises every time, in the operator's face.
     """
-    key = (model_transport.host_key(), answer_model_choice.name())
+    key = (model_transport.host_key(), str(settings.answer_model))
     now = time.monotonic()
     with _probe_lock:
         hit = _probe_cache.get("entry")
@@ -318,6 +319,7 @@ def _probe_ollama() -> dict:
         tags = model_transport.get_json("/api/tags", timeout=OLLAMA_TIMEOUT)
         available = [m.get("name", "") for m in (tags or {}).get("models", [])]
         info["answer_model_reachable"] = True
+        answer_model_choice.share_list(tags)  # one list read per probe (#626)
         in_use = answer_model_choice.name()
         info["answer_model_installed"] = any(
             n == in_use or n.startswith(in_use) for n in available

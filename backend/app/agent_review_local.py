@@ -48,6 +48,7 @@ from . import (
     heavy_lock,
     model_memory,
     model_transport,
+    reasoning_provider,
 )
 
 log = logging.getLogger(__name__)
@@ -154,7 +155,7 @@ def models_from_settings() -> tuple[str, str]:
 
     a = str(getattr(settings, "agent_review_local_model_a", "") or "").strip()
     b = str(getattr(settings, "agent_review_local_model_b", "") or "").strip()
-    return a or str(settings.answer_model).strip(), b
+    return a or reasoning_provider.answer_model(), b
 
 
 def switch_on() -> bool:

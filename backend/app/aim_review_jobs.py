@@ -36,6 +36,7 @@ from . import (
     aim_review_store,
     claude_auto_approve,
     job_queue,
+    reasoning_provider,
     review_jobs,
     review_shown,
 )
@@ -144,7 +145,6 @@ def claim_next(worker_id: str) -> str | None:
     """Claim the next general review job (one conditional UPDATE). None with the old engine on or nothing queued."""
     if not aim_review_gate.general_on():
         return None
-    from .config import settings
 
     now = _now()
     conn = connect()
@@ -301,8 +301,8 @@ def _done(conn, job_id: str, run_id: str, result: dict) -> str:
         "points": len(result.get("lines") or []),
         # a run that stopped early (run cap, lane closed, a fault) keeps its lines and says so; it is never a finished review
         "partial": result.get("status") == "stopped",
-        # the RESOLVED local default (ANSWER_MODEL after backend/.env), a model name only: live can be checked without that file
-        "answer_model": str(settings.answer_model),
+        # the local answer model IN USE (`answer_model_choice`: never one proven unusable), a model name only
+        "answer_model": reasoning_provider.answer_model(),
     }
     with conn:
         conn.execute(

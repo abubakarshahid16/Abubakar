@@ -1043,7 +1043,7 @@ def collection_summary(question: str, document_ids: frozenset[str], *,
             "cited": list(range(1, len(passages) + 1)),
             "summary_coverage": boundary, "provider": actual_provider,
             "model": (actual_models[-1] if actual_models and actual_models[-1]
-                      else settings.answer_model), "truncated": False,
+                      else answer_model_choice.name()), "truncated": False,
             "retrieval_mode": "collection", "reranked": False,
             "candidates_considered": len(evidence), "timings": {},
             "notices": [f"Summarized searchable content from {len(selected)} selected "

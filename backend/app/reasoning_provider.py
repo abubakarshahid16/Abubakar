@@ -253,7 +253,7 @@ class OllamaProvider:
     ) -> None:
         #: Configuration's ANSWER, not the engine's. Recorded separately from
         #: the tag the response reports, so the two can disagree visibly.
-        self.requested_model = model or _answer_model()
+        self.requested_model = model or answer_model()
         #: Seconds. A 9B model on this four-core CPU takes minutes on a long
         #: packet; model_transport requires the caller to choose.
         self.timeout = timeout
@@ -1000,7 +1000,7 @@ def get_provider(role: str = "reasoning", *, step: str | None = None) -> Reasoni
     return OllamaProvider()
 
 
-def _answer_model() -> str:
+def answer_model() -> str:
     """The local answer model in use (`answer_model_choice`: never a model proven unusable here, such as one too large)."""
     from . import answer_model_choice
 

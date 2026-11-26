@@ -14,7 +14,7 @@ import logging
 
 import pytest
 
-from app import ai_applicability, ai_task_runner, model_transport
+from app import answer_model_choice, ai_applicability, ai_task_runner, model_transport
 from app.config import settings
 from app.reasoning_provider import Response
 from tests.test_141_division_scope import (  # noqa: F401 - temp_storage is a fixture
@@ -43,7 +43,12 @@ def _engine(monkeypatch, names):
         assert path == "/api/tags"
         if names is None:
             raise ConnectionError("down")
-        return {"models": [{"name": n} for n in names]}
+        # as the engine lists a model file: a size and a digest (`answer_model_choice` uses only a model file here)
+        return {
+            "models": [
+                {"name": n, "size": 1_000_000, "digest": "invented"} for n in names
+            ]
+        }
 
     monkeypatch.setattr(model_transport, "get_json", fake_get)
 
@@ -68,7 +73,7 @@ def test_neither_tag_installed_keeps_the_configured_tag_and_says_why(monkeypatch
     _engine(monkeypatch, ["other:1b"])
     status = ai_task_runner.model_status()
     assert status["used"] == "tiny:2b" and status["fallback"] is False
-    assert "neither tiny:2b nor reader:4b is installed" in status["reason"]
+    assert f"neither tiny:2b nor {answer_model_choice.code_default()} is installed"  # the answer model IN USE (N5): reader:4b is not installed, so the 9B in status["reason"]
 
 
 def test_an_engine_that_cannot_be_asked_changes_nothing(monkeypatch):

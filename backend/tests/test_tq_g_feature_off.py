@@ -1031,9 +1031,19 @@ def test_a_workspace_that_has_not_allowed_the_app_is_said_in_one_plain_line(
 
 
 def test_the_drafts_local_model_is_the_one_every_local_answer_uses(monkeypatch):
-    """Lead's note: the draft's local model must not be a model of its own: it follows `settings.answer_model`, the one local default."""
-    from app import chat_model
+    """Lead's note: the draft's local model must not be a model of its own: it follows the one local answer model in use
+    (`answer_model_choice`: ANSWER_MODEL when the engine lists it as a model file here)."""
+    from app import chat_model, model_transport
 
+    monkeypatch.setattr(
+        model_transport,
+        "get_json",
+        lambda *a, **k: {
+            "models": [
+                {"name": "invented-local-model", "size": 1_000_000, "digest": "d"}
+            ]
+        },
+    )
     monkeypatch.setattr(settings, "answer_model", "invented-local-model")
     assert chat_model.provider("local").requested_model == "invented-local-model"
     monkeypatch.setattr(settings, "reasoning_provider", "ollama")
