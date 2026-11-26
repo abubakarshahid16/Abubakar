@@ -388,7 +388,9 @@ def _verbatim_quote(
             run, j = " ".join(words[i:j]), j + 1
         best = run if len(run) > len(best) else best
         i += max(1, len(run.split(" ")) // 2) if run else 1
-    return best if len(best) >= MIN_VERBATIM_RUN else None
+    from .technical_query_match import whole_sentences
+
+    return whole_sentences(on, best) if len(best) >= MIN_VERBATIM_RUN else None
 
 
 def _quote_on_pages(conn, document_id: str, start: int, end: int, quote: str) -> bool:
@@ -1151,6 +1153,12 @@ def query_attachment_document_ids(conn) -> frozenset[str]:
     )
 
 
+NOT_SEARCHED = (
+    "Nothing was searched for: no question was proposed. "
+    "Read the attachment text, write the question and confirm it."
+)
+
+
 def original_email_question(saved: str | None) -> str:
     """The email's own question. Older rows stored the email question and the
     attachment text joined under "[Attachment ...]" labels; only the first part is
@@ -1272,7 +1280,7 @@ def prepare_evidence(
         raise ValueError("evidence cannot be prepared in the current query state")
     with connect() as conn:
         invalidate_attachment_evidence(conn, query_id)
-    from .technical_query_mail import message_itself, shown_question
+    from .technical_query_mail import shown_question
 
     message = (current.get("messages") or [{}])[0]
     # the email's question by the CURRENT rules: never its headers, people lists, signatures, notices or an older stored copy
@@ -1323,20 +1331,14 @@ def prepare_evidence(
     from . import technical_query_questions
 
     proposals, proposal_note = technical_query_questions.from_pages(context, progress)
-    # a mail that asks nothing ("See attached.") is searched for only when the attachment gave no question either
-    fallback = "" if proposals else message_itself(message.get("body"))
+    # when the mail asks nothing, the attached form's own question field: never the mail's introduction (lead-4, 26 Nov 2026)
+    fallback = "" if proposals else technical_query_questions.form_question(context)
     proposal = propose_question(email_question or fallback, proposals)
     # An engineer's confirmed wording, when there is one, is what evidence is found for.
     question = current.get("confirmed_question") or proposal
-    if not question:
-        if proposal_note == technical_query_questions.MODEL_UNAVAILABLE:
-            raise ValueError(
-                "no question could be proposed because the local model cannot answer right now; write the question and confirm it"
-            )
-        if message.get("attachments"):
-            raise ValueError(
-                "the attached question is not readable yet; wait for PDF processing or OCR"
-            )
+    # no question but an attachment: what was read, the pages not read and why nothing was proposed are stored for the engineer to write
+    # the question; nothing is searched for (lead-4, 26 Nov 2026: the mail's introduction is never searched for instead)
+    if not question and not message.get("attachments"):
         raise ValueError("the query contains no extractable question")
     from . import technical_query_contracts, technical_query_match
 
@@ -1344,8 +1346,12 @@ def prepare_evidence(
     # searched on its own (dense + rerank), and the coverage is stored beside the passages.
     with connect() as conn:
         attachment_documents = query_attachment_document_ids(conn)
-    field = technical_query_contracts.search_all(
-        question[:MAX_PROPOSED_QUESTION], frozenset(allowed_document_ids) - attachment_documents, progress
+    allowed = frozenset(allowed_document_ids) - attachment_documents
+    cut = question[:MAX_PROPOSED_QUESTION]
+    field = (
+        technical_query_contracts.search_all(cut, allowed, progress)
+        if question
+        else {"coverage": {"line": NOT_SEARCHED}}
     )
     coverage = field["coverage"]
     hits = field.get("hits") or []

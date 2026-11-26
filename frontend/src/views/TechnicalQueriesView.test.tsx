@@ -326,7 +326,7 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView />);
     fireEvent.click(await screen.findByText("Prepare evidence for all unprepared queries"));
     expect((await screen.findByTestId("confirm-prepare-all")).textContent).toContain(
-      "33 queries are not prepared yet: about 5 min each (measured on the last prepared queries), one at a time in the background. Prepared queries are skipped.",
+      "33 queries are not prepared yet, or were prepared by older question rules with no confirmed question (their question is proposed again from the attached form): about 5 min each (measured on the last prepared queries), one at a time in the background. Prepared queries and confirmed questions are kept.",
     );
     expect(api.prepareAllStart).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Yes, prepare them"));

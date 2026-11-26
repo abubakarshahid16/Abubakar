@@ -85,12 +85,6 @@ def _xml(package, name: str):
 _FETCHING = re.compile(r"\b(DDEAUTO|DDE|INCLUDETEXT|INCLUDEPICTURE|IMPORT|LINK)\b")
 
 
-#: The Word parts that hold text and so can hold fields: the body, headers, footers, footnotes, endnotes, comments, the glossary.
-_TEXT_PART = re.compile(
-    r"^word/(document|header\d*|footer\d*|footnotes|endnotes|comments|glossary/document)\.xml$"
-)
-
-
 def _field_codes(root) -> list[str]:
     """Every field code of one Word part, each JOINED from all its runs (a code split as "INCLUDE" + "PICTURE" is read as one): the
     instrText of a complex field from its begin to its end, and the instr of a simple field. Review of update 12, R1."""
@@ -172,13 +166,22 @@ def _docx_findings(package) -> set[str] | str:
                 findings.add(
                     "external_link"
                 )  # anything fetched from outside on opening: a remote picture, template, data
-    # every Word text part: the body, headers, footers, footnotes, endnotes and comments (review of update 12, R2)
-    for name in (n for n in names if _TEXT_PART.match(n)):
-        if any(
-            _FETCHING.search(code) for code in _field_codes(_xml(package, names[name]))
-        ):
+    # EVERY XML part, whatever its name: a part renamed or added by hand can hold a field too (review of update 13, N6)
+    unparsed = False
+    for name in (n for n in names if n.endswith(".xml")):
+        try:
+            codes = _field_codes(_xml(package, names[name]))
+        except Exception as exc:  # noqa: BLE001 - a part that cannot be parsed is not checked: never "clean"
+            log.info(
+                "attachment check: a Word part could not be parsed (%s)",
+                type(exc).__name__,
+            )
+            unparsed = True
+            continue
+        if any(_FETCHING.search(code) for code in codes):
             findings.add("fetching_field")
-    return findings
+    # active content found elsewhere still flags the file; with none found, a part not parsed means "could not be checked"
+    return "part_not_parsed" if unparsed and not findings else findings
 
 
 def check_docx(data: bytes) -> dict[str, Any]:

@@ -147,6 +147,19 @@ def _item_or_title(number: str, nxt: str, after: str) -> str | None:
     )
 
 
+#: A value in a table's column: a number with at most one decimal point, perhaps with a short unit ("2.0", "12 bar", "0.75 mm").
+_VALUE = re.compile(r"^\s*[-+]?\d+([.,]\d+)?\s*\S{0,6}\s*$")
+
+
+def _table_value(lines: list[str], i: int, number: str) -> bool:
+    """A decimal-looking number alone ("1.5") with a table value one or two lines before it or two lines after it (value, unit, value,
+    unit) is a value in a table's column, never a clause heading (review of update 13, N5)."""
+    near = [lines[k] for k in (i - 2, i - 1, i + 2) if 0 <= k < len(lines)]
+    return bool(re.fullmatch(r"\d+\.\d+", number)) and any(
+        _VALUE.match(line) for line in near
+    )
+
+
 def _headings(lines: list[str]) -> list[tuple[int, str]]:
     """(line index, heading) of every clause heading of a page: one line ("6.1 Painting"), a number alone with its title on the next line,
     or a numbered list item of a schedule ("Item 7", review of evidence run 5: Q7)."""
@@ -158,6 +171,7 @@ def _headings(lines: list[str]) -> list[tuple[int, str]]:
             and (m := _NUMBER_ALONE.match(line))
             and i + 1 < len(lines)
             and _TITLE_LINE.match(lines[i + 1])
+            and not _table_value(lines, i, m.group("num"))
         ):
             kw = m.group("kw")
             after = lines[i + 2] if i + 2 < len(lines) else ""
@@ -231,3 +245,25 @@ def locator_for(
     return heading_above(page_text, quote) or (
         last_heading(earlier_page_text) if earlier_page_text else None
     )
+
+
+_SENTENCE_END = re.compile(r"[.!?](?= )")
+_NEGATION = re.compile(
+    r"\b(not|no|never|nor|neither|without|except|unless)\b", re.IGNORECASE
+)
+
+
+def whole_sentences(on: str, run: str, reach: int = 600) -> str | None:
+    """A verbatim run widened ON THE PAGE to its sentences' start and end (review of update 13, N4: a fragment starting after "shall not"
+    inverts the meaning); None when the start cannot be found within `reach` characters and a negation stands just before the run."""
+    at = on.find(run)
+    ends = [m.end() for m in _SENTENCE_END.finditer(on, max(0, at - reach), at)]
+    if (
+        not ends
+        and at > 0
+        and _NEGATION.search(" ".join(on[max(0, at - 60) : at].split()[-4:]))
+    ):
+        return None
+    start = ends[-1] if ends else (0 if at <= reach else at)
+    after = _SENTENCE_END.search(on, at + len(run) - 1, at + len(run) + reach)
+    return on[start : after.end() if after else at + len(run)].strip()

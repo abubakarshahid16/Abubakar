@@ -32,6 +32,10 @@ INTERRUPTED_WORDS = (
 
 #: False in tests, which run a job by hand (`run_job`) instead of on the thread.
 AUTO_START = True
+#: The rules that propose a query's question: 2 = the mail's introduction, greetings and pointers to the attachment are never the question;
+#: the attached form's own question field is (lead-4, 26 Nov 2026). A query prepared under older rules with no confirmed question is
+#: prepared again by "Prepare evidence for all".
+QUESTION_RULES = 2
 
 _wake = threading.Event()
 _stop = threading.Event()
@@ -45,11 +49,13 @@ def create_table(conn) -> None:
         "progress_done INTEGER NOT NULL DEFAULT 0, progress_total INTEGER NOT NULL DEFAULT 0, label TEXT, error TEXT, "
         "caller_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
     )
+    columns = {r["name"] for r in conn.execute(f"PRAGMA table_info({TABLE})")}
     # when the preparation itself began (waiting in the queue is not counted): the measured minutes per query come from it
-    if "started_at" not in {
-        r["name"] for r in conn.execute(f"PRAGMA table_info({TABLE})")
-    }:
+    if "started_at" not in columns:
         conn.execute(f"ALTER TABLE {TABLE} ADD COLUMN started_at TEXT")
+    # the question rules a preparation ran under (QUESTION_RULES); older ones are proposed again (an engineer's confirmed question never)
+    if "question_rules" not in columns:
+        conn.execute(f"ALTER TABLE {TABLE} ADD COLUMN question_rules INTEGER")
 
 
 def enqueue(
@@ -79,8 +85,9 @@ def enqueue(
             "unrestricted": bool(unrestricted),
         }
         conn.execute(
-            f"INSERT INTO {TABLE}(id,query_id,state,label,caller_json,created_at,updated_at) VALUES (?,?,'queued','queued',?,?,?)",
-            (job_id, query_id, json.dumps(caller), at, at),
+            f"INSERT INTO {TABLE}(id,query_id,state,label,caller_json,created_at,updated_at,question_rules) "
+            "VALUES (?,?,'queued','queued',?,?,?,?)",
+            (job_id, query_id, json.dumps(caller), at, at, QUESTION_RULES),
         )
     _wake.set()
     if AUTO_START and start_thread:
@@ -266,14 +273,16 @@ PREPARABLE = ("received", "triage", "drafting", "changes_requested")
 
 
 def unprepared(conn) -> list[str]:
-    """The queries in a state that can be prepared with no preparation done, queued or running (a failed one counts as unprepared)."""
+    """The queries in a state that can be prepared with no preparation queued, running or done (a failed one counts as unprepared); a
+    preparation done under older question rules counts as not done when no engineer has confirmed the question (re-proposed)."""
     create_table(conn)
     return [
         r[0]
         for r in conn.execute(
             f"SELECT q.id FROM technical_queries q WHERE q.status IN ({','.join('?' * len(PREPARABLE))}) AND NOT EXISTS "
-            f"(SELECT 1 FROM {TABLE} j WHERE j.query_id=q.id AND j.state IN ('queued','running','done')) ORDER BY q.received_at",
-            PREPARABLE,
+            f"(SELECT 1 FROM {TABLE} j WHERE j.query_id=q.id AND (j.state IN ('queued','running') OR (j.state='done' AND "
+            "(COALESCE(j.question_rules,1) >= ? OR COALESCE(q.confirmed_question,'') != '')))) ORDER BY q.received_at",
+            (*PREPARABLE, QUESTION_RULES),
         )
     ]
 

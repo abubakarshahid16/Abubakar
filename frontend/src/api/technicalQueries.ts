@@ -230,5 +230,5 @@ export interface PrepareAll { unprepared: number; minutes_each?: number | null; 
 /** The sentence said BEFORE the round starts: how many, how long each (measured, or said to be not measured), one at a time. */
 export function prepareAllWords(plan: PrepareAll): string {
   const each = typeof plan.minutes_each === "number" ? `about ${plan.minutes_each} min each (measured on the last prepared queries)` : "the time per query is not measured yet";
-  return `${plan.unprepared} ${plan.unprepared === 1 ? "query is" : "queries are"} not prepared yet: ${each}, one at a time in the background. Prepared queries are skipped.`;
+  return `${plan.unprepared} ${plan.unprepared === 1 ? "query is" : "queries are"} not prepared yet, or were prepared by older question rules with no confirmed question (their question is proposed again from the attached form): ${each}, one at a time in the background. Prepared queries and confirmed questions are kept.`;
 }
