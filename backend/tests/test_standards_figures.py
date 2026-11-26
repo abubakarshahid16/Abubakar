@@ -174,3 +174,14 @@ def test_a_captioned_figure_among_text_is_a_figure_page_and_is_read(conn, book_p
         conn, "std", [5], book_pdf, out, provider=reader
     )
     assert counts[standards_figures.READ] == 1 and len(reader.packets) == 1
+
+
+def test_the_apps_own_gate_is_asked_first_and_a_closed_lane_sends_nothing(
+    conn, book_pdf, monkeypatch
+):
+    """Rule 1 (the update 12 suite's script guard): with no provider given, the tool asks the app's gate before any lane opens."""
+    monkeypatch.setattr(settings, "reasoning_provider", "ollama")
+    out = io.StringIO()
+    with pytest.raises(standards_figures.ClaudeNotOpen):
+        standards_figures.read_book(conn, "std", [2], book_pdf, out)
+    assert out.getvalue() == ""
