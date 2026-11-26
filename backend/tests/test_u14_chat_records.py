@@ -165,9 +165,9 @@ def test_the_datasheets_are_listed_by_kind_not_counted_as_submittals():
     text = R.papers_by_kind(
         "list the datasheets", frozenset({"doc_d1", "doc_d2", "doc_p1", "doc_x"})
     )
-    assert text.startswith("2 datasheets of the papers you may read")
+    assert text.startswith("2 datasheets, of the papers you may read")
     assert "INV-DS-1" in text and "INV-DS-2" in text and "INV-PROC-1" not in text
-    assert "1 papers of the papers you may read have no kind recorded yet" in text
+    assert "1 of the papers you may read have no kind recorded yet" in text
     assert "HIDDEN" not in text  # rule 5
 
 

@@ -188,7 +188,7 @@ def paper_review(question: str, allowed: frozenset[str]) -> str:
             f"{e['review_run_id'][:8]} ({e.get('engine_words')}), finished {_day(e.get('completed_at'))}, {state}; {_counts(e)}."
         )
         out.append(line + (f" {e['newer_note']}." if e.get("newer_note") else ""))
-    head = f"{len(named)} reviewed paper{'s' if len(named) > 1 else ''} {BOUNDARY} match{'' if len(named) > 1 else 'es'}:"
+    head = f"{len(named)} reviewed paper{'s' if len(named) > 1 else ''} match{'' if len(named) > 1 else 'es'} the question, {BOUNDARY}:"
     return head + "\n" + _listed(out)
 
 
@@ -230,8 +230,8 @@ def papers_by_kind(question: str, allowed: frozenset[str]) -> str:
     rows, withheld = chat_db_tools._documents(allowed)
     picked = [r for r in rows if str(r.get("kind") or "").lower() == kind]
     unknown = sum(1 for r in rows if not r.get("kind"))
-    head = f"{len(picked)} {said if len(picked) != 1 else kind} {BOUNDARY} (the kind as the app recorded it)."
-    tail = f" {unknown} papers {BOUNDARY} have no kind recorded yet." if unknown else ""
+    head = f"{len(picked)} {said if len(picked) != 1 else kind}, {BOUNDARY} (the kind as the app recorded it)."
+    tail = f" {unknown} {BOUNDARY} have no kind recorded yet." if unknown else ""
     tail += f" {withheld} withheld by the block list." if withheld else ""
     lines = [f"{r.get('title') or r['filename']}" + (f" ({r['filename']})" if r.get("title") and r["title"] != r["filename"] else "") for r in picked]  # fmt: skip
     return head + tail + ("\n" + _listed(lines) if lines else "")
