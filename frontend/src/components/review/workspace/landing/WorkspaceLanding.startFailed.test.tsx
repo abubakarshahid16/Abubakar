@@ -26,6 +26,7 @@ vi.mock("../NewReviewDropZone", () => ({ NewReviewDropZone: () => <p data-testid
 import { LoginView } from "../../../../views/LoginView";
 import { REVIEW_EACH_LINE, WorkspaceLanding } from "./WorkspaceLanding";
 import { resetStartFailures } from "../startFailures";
+import { NEW_LOOK } from "../../../../look";
 
 const doc = (id: string, filename: string) =>
   ({ id, filename, uploaded_at: "2026-11-18T08:00:00Z", indexed_at: null, document_role: null }) as unknown as DocumentRecord;
@@ -62,7 +63,9 @@ describe("Review all while the general review is on", () => {
   it("is not drawn: one plain line says each paper is reviewed on its own", () => {
     show({ generalReviewOn: true });
     expect(screen.queryByRole("button", { name: /Review all not reviewed/ })).toBeNull();
-    expect(screen.getByTestId("review-each-line")).toHaveTextContent(REVIEW_EACH_LINE);
+    // the new look says it once, in the page's "What a review does" fold (SubmittalsLandingView), not again under the list
+    if (NEW_LOOK) expect(screen.queryByTestId("review-each-line")).toBeNull();
+    else expect(screen.getByTestId("review-each-line")).toHaveTextContent(REVIEW_EACH_LINE);
     expect(REVIEW_EACH_LINE).toBe("Each paper is reviewed on its own with the Review button.");
   });
   it("is unchanged with the earlier engine (prop left out)", () => {

@@ -25,6 +25,10 @@ import { setToken, onSignedOut, filenameFromContentDisposition } from "../api/cl
 import type { ReportList, ReportRecord } from "../types/api";
 import { ReportsScreen } from "./ReportsScreen";
 
+// The new look also lists the review CRS sheets on arrival (its own requests, its own tests in ReviewCrsList.test.tsx); this file
+// is about the answer reports, so that list is left out here in both looks.
+vi.mock("./ReviewCrsList", () => ({ ReviewCrsList: () => null }));
+
 const TOKEN = "tok_secret_do_not_log_9f3a2b";
 
 const record: ReportRecord = {
