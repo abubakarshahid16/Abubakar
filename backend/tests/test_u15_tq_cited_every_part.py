@@ -517,3 +517,52 @@ def test_every_evidence_row_says_its_source_kind_and_name(monkeypatch):
         assert C.source_of(conn, "std-co") == (C.SOURCE_COMPANY, "ZQ-STD-001")
         assert C.source_of(conn, "std-pub") == (C.SOURCE_STANDARD, "API 9999")
         assert C.source_of(conn, "doc-unknown") == (C.SOURCE_OTHER, "")
+
+
+# ---- builder C's review notes (26 Nov 2026)
+
+
+def test_a_scanned_page_one_is_read_from_its_recognised_text_for_the_parts_heading(
+    monkeypatch,
+):
+    """A scanned page 1 whose text layer is junk hides the heading unless the page is read as every other page is (needs_ocr)."""
+    on(monkeypatch)
+    hold_contract("con-scan")
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES ('con-scan',1,'~~ junk ~~',10,1,1)"
+        )
+        conn.execute(
+            "INSERT INTO page_ocr(document_id,page_no,text,char_count,engine,model,dpi,box_count,seconds,recognised_at,batch_no)"
+            " VALUES ('con-scan',1,?,?,'invented','invented',300,1,0,'2026-01-01T00:00:00Z',1)",
+            (SCHEDULE_B, len(SCHEDULE_B)),
+        )
+    assert CI.which(["con-scan"], (("schedule", "B"), None)) == ["con-scan"]
+
+
+def test_one_unreadable_cited_document_is_said_and_the_forms_other_citations_go_on(
+    monkeypatch,
+):
+    on(monkeypatch)
+    _reranker(monkeypatch, 1.0)
+    _hold("con-b", {1: SCHEDULE_B, 2: CLAUSE})
+    _hold("con-c", {1: "SCHEDULE C\nINVENTED\n", 2: CLAUSE})
+    real = CI._part_pages
+
+    def pages(conn, doc):
+        if doc == "con-b":
+            raise RuntimeError("invented read error")
+        return real(conn, doc)
+
+    monkeypatch.setattr(CI, "_part_pages", pages)
+    got = CI.cited_first(
+        ["REF.1 Schedule B, clause 4.2.1", "REF.2 Schedule C, clause 4.2.1"],
+        ["con-b", "con-c"],
+        "q",
+        lambda d: [],
+    )
+    assert got["said"] == [
+        "Schedule B clause 4.2.1: that document could not be read",
+        "Schedule C clause 4.2.1: found on page 2",
+    ]
+    assert [h["document_id"] for h in got["hits"]] == ["con-c"]

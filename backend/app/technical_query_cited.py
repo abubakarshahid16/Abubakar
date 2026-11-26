@@ -151,12 +151,16 @@ def cited_standard_refs(texts: list[str]) -> list[tuple[str, str | None]]:
 
 
 def _page_one(conn, document_id: str) -> str:
+    """Page 1's text as every other page is read (`_part_pages`): the recognised text when the page needs it (a scanned page 1 whose
+    stored text layer is junk would hide the part's heading; review of builder C, 26 Nov 2026). Page 1 only."""
     row = conn.execute(
-        "SELECT COALESCE(NULLIF(p.text, ''), o.text, '') FROM pages p LEFT JOIN page_ocr o"
-        " ON o.document_id = p.document_id AND o.page_no = p.page_no WHERE p.document_id = ? AND p.page_no = 1",
+        "SELECT p.text AS native,p.needs_ocr,o.text AS ocr_text FROM pages p LEFT JOIN page_ocr o "
+        "ON o.document_id=p.document_id AND o.page_no=p.page_no WHERE p.document_id=? AND p.page_no=1",
         (document_id,),
     ).fetchone()
-    return str(row[0] or "") if row else ""
+    if row is None:
+        return ""
+    return str((row["ocr_text"] or "") if row["needs_ocr"] else (row["native"] or ""))
 
 
 def which(contracts: list[str], part: Part) -> list[str]:
@@ -358,8 +362,16 @@ def _standards_first(
                 f"{where}: searched first ({len(own)} passage{'s' if len(own) != 1 else ''})"
             )
             continue
-        with connect() as conn:
-            found = find_clause(_part_pages(conn, doc), clause)
+        try:
+            with connect() as conn:
+                found = find_clause(_part_pages(conn, doc), clause)
+        except Exception as exc:  # noqa: BLE001 - one unreadable document is said; the form's other citations go on (review of builder C)
+            log.warning(
+                "technical query: a cited document could not be read (%s)",
+                type(exc).__name__,
+            )
+            said.append(f"{where}: that document could not be read")
+            continue
         if found is None:
             said.append(f"{where}: the clause was not found in that standard")
             continue
@@ -416,8 +428,16 @@ def cited_first(
                 f"{where}: searched first ({len(own)} passage{'s' if len(own) != 1 else ''})"
             )
             continue
-        with connect() as conn:
-            found = find_clause(_part_pages(conn, doc), clause)
+        try:
+            with connect() as conn:
+                found = find_clause(_part_pages(conn, doc), clause)
+        except Exception as exc:  # noqa: BLE001 - one unreadable document is said; the form's other citations go on (review of builder C)
+            log.warning(
+                "technical query: a cited document could not be read (%s)",
+                type(exc).__name__,
+            )
+            said.append(f"{where}: that document could not be read")
+            continue
         if found is None:
             said.append(f"{where}: the clause was not found in that contract")
             continue
