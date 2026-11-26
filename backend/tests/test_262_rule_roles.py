@@ -204,9 +204,19 @@ def test_a_reviewed_name_pairs_through_the_run_and_never_carries_a_verdict(monke
         "field": "design_pressure",
     }
     rule_roles.export(PUMP, [entry])
-    monkeypatch.setattr(settings, "field_naming_enabled", True)
     monkeypatch.setattr(
-        field_naming, "ensure_names", lambda *_a, **_k: pytest.fail("a model was asked")
+        settings, "geometry_reader_enabled", True
+    )  # was field_naming_enabled: field_naming_enabled retired 26 Nov 2026 (OFF kept): the naming step runs through the geometry reader only
+    # With the geometry reader a case with NO stored name asks the model (the first run below is a vessel); here the model
+    # names nothing, so only the reviewed file can pair.
+    monkeypatch.setattr(
+        field_naming,
+        "ensure_names",
+        lambda *_a, **_k: {
+            "requirements": {},
+            "facts": {},
+            "source": "invented: the model named nothing",
+        },
     )
 
     def classify(equipment_type):

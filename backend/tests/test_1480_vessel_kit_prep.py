@@ -430,8 +430,12 @@ def test_a_kit_card_never_decides(
     kit_on,
 ):  # was "even with tested cards deciding": the switch tested_cards_decide_enabled is retired with its OFF behaviour (lead-4, 26 Nov 2026)
     for card in vessel_kit.cards():  # was card_trust.why_not / decides / DECIDING_TYPES: card_trust is retired with the switch tested_cards_decide_enabled (lead-4, 26 Nov 2026)
-        held = rule_trust.check_label({"checklist": True, "draft": True, "local": False, "rule_id": card["id"]})
-        assert held == rule_trust.UNPROVEN, card["id"]  # a kit card never decides: it is held for the engineer
+        held = rule_trust.check_label(
+            {"checklist": True, "draft": True, "local": False, "rule_id": card["id"]}
+        )
+        assert held == rule_trust.UNPROVEN, card[
+            "id"
+        ]  # a kit card never decides: it is held for the engineer
 
 
 def test_the_committed_checklists_and_their_card_report_are_untouched():

@@ -37,7 +37,6 @@ STAYS_OFF = (
     "crs_export_quality_enabled",
     "leading_dot_decimal_enabled",
     "percent_kind_check_enabled",
-    "recommendation_queries_enabled",
     "session_expired_notice_enabled",
     "rule_auto_use_enabled",
     "one_checked_definition_enabled",

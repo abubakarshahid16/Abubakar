@@ -480,8 +480,6 @@ class Settings(SettingsExt, BaseSettings):
     #: A share `rule_audit_rate` (clamped 2-5%, at least one) of automatic findings is drawn for an engineer's
     #: spot-check; one audit error drops the family to unproven. Safety fields and condition words: reference data.
     rule_auto_use_enabled: bool = False
-    #: Order 288.2: a recommendation of a standard the datasheet names is raised as a query (OFF: ignored).
-    recommendation_queries_enabled: bool = False
     rule_proof_min_cases: int = 300
     rule_audit_rate: float = 0.03
     deferred_value_is_query_enabled: bool = True  # D2, #1475
@@ -574,8 +572,6 @@ class Settings(SettingsExt, BaseSettings):
     #: filter (`row_noise.py`) drops page furniture from every reader. Env:
     #: GEOMETRY_READER_ENABLED. The owner flips it.
     geometry_reader_enabled: bool = False
-    #: Order 259.5: field naming (`field_naming.py`) on its OWN switch. Env: FIELD_NAMING_ENABLED.
-    field_naming_enabled: bool = False
     #: #830 / #501: WHICH ENGINE the page-image (vision) reader uses under
     #: REASONING_PROVIDER=per_task. "ollama" (default): none - the local model
     #: reads no images, so under per_task no page image leaves. "claude":
