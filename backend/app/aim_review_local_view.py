@@ -94,7 +94,7 @@ def engine_of(conn, run: dict) -> dict:
         "local": True,
         "models": models,
         # the local model's measured note is in the score line (`measured`), which the page draws (review of update 9, M6)
-        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}.{paper}",
+        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.local_score_words(models)}.{paper}",
         "by_step": steps,
     }
 

@@ -29,8 +29,12 @@ export interface ReviewModelOptions {
   engine_down_words: string | null;
   steps: string[];
   answer_model: string;
+  /** Set when ANSWER_MODEL names a model that cannot be used here and the code's default is used instead: the reason. */
+  answer_model_why?: string | null;
   used_by: string;
   stored: { default: string | null; steps: Record<string, string>; set_by: string | null; set_at: string | null };
+  /** The latest changes, newest first (ids only: the slot, the models, the administrator's id, the time). */
+  history?: { slot: string; old_model: string | null; new_model: string | null; changed_by: string | null; changed_at: string }[];
 }
 
 const isOptions = (b: unknown): boolean =>
@@ -92,6 +96,9 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
       {options && (
         <>
           <p className="text-xs text-slateish-300">{options.used_by}</p>
+          {options.answer_model_why && (
+            <p role="note" data-testid="review-model-fell-back" className="text-xs text-warn-500">{options.answer_model_why}.</p>
+          )}
           <div className="space-y-1">
             <h3 className="text-xs font-semibold text-slateish-300">Claude (the main engine)</h3>
             <ul className="space-y-0.5 text-xs text-slateish-300">
@@ -134,6 +141,19 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
               <span className="text-xs text-slateish-400">Last saved {options.stored.set_at}</span>
             )}
           </div>
+          {(options.history ?? []).length > 0 && (
+            <div className="space-y-1">
+              <h3 className="text-xs font-semibold text-slateish-300">Latest changes</h3>
+              <ul data-testid="review-model-history" className="space-y-0.5 text-xs text-slateish-400">
+                {(options.history ?? []).map((h) => (
+                  <li key={`${h.changed_at}-${h.slot}`}>
+                    {h.changed_at} · {h.slot}: {h.old_model ?? "the default"} → {h.new_model ?? "the default"}
+                    {h.changed_by ? ` (by ${h.changed_by})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {message && <p role={message.error ? "alert" : "status"}
             className={`text-xs ${message.error ? "text-danger-500" : "text-slateish-300"}`}>{message.text}</p>}
         </>

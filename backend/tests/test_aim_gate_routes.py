@@ -33,6 +33,8 @@ SENTENCES = {
     "LOCAL_NOT_SCORED": aim_review_gate.LOCAL_NOT_SCORED,
     "LOCAL_SWITCHED_OFF": aim_review_gate.LOCAL_SWITCHED_OFF,
     "LOCAL_TEST_NOTE": aim_review_gate.LOCAL_TEST_NOTE,
+    "LOCAL_14B_NOTE": aim_review_gate.LOCAL_14B_NOTE,
+    "LOCAL_MEASURED_WORDS": aim_review_gate.LOCAL_MEASURED_WORDS,
     "NO_CONTRACTOR_COPY_WORDS": aim_review_gate.NO_CONTRACTOR_COPY_WORDS,
     "OLD_ENGINE_OFF_WORDS": aim_review_gate.OLD_ENGINE_OFF_WORDS,
     "EARLIER_VERSION": aim_review_gate.EARLIER_VERSION,

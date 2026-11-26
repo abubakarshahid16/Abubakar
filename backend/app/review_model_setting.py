@@ -34,6 +34,19 @@ _SCHEMA = f"""CREATE TABLE IF NOT EXISTS {TABLE} (
     set_by TEXT,
     set_at TEXT NOT NULL
 )"""
+#: EVERY CHANGE IS KEPT (review of update 10, N6): one row per slot whose model changed at a save; ids only (the slot, the
+#: model names, the administrator's user id, the time). Never updated or deleted by the app.
+HISTORY = "review_model_setting_history"
+_HISTORY_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {HISTORY} (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    slot       TEXT NOT NULL,
+    old_model  TEXT,
+    new_model  TEXT,
+    changed_by TEXT,
+    changed_at TEXT NOT NULL
+)"""
+#: How many of the latest changes the Administration page's section is given.
+HISTORY_SHOWN = 10
 
 NOT_INSTALLED = "not installed on this computer"
 TOO_LARGE = "too large for this computer (its file is over 15 GB)"
@@ -51,6 +64,42 @@ def steps() -> tuple[str, ...]:
 
 def _ensure(conn) -> None:
     conn.execute(_SCHEMA)
+    conn.execute(_HISTORY_SCHEMA)
+
+
+def ensure_schema(conn=None) -> None:
+    """Both tables exist afterwards (additive only). Wired into the app's schema start-up (`main.lifespan`), so the first save
+    on the live database is no schema change."""
+    conn = conn or connect()
+    _ensure(conn)
+    conn.commit()
+
+
+def _slots(saved: dict) -> dict[str, str]:
+    return (
+        {DEFAULT: saved["default"], **saved["steps"]}
+        if saved["default"]
+        else dict(saved["steps"])
+    )
+
+
+def history(conn=None, limit: int = HISTORY_SHOWN) -> list[dict]:
+    """The latest changes, newest first: [{"slot", "old_model", "new_model", "changed_by", "changed_at"}]. Reads only; no
+    table yet is no change yet."""
+    conn = conn or connect()
+    try:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (HISTORY,)
+        ).fetchone():
+            return []
+        rows = conn.execute(
+            f"SELECT slot, old_model, new_model, changed_by, changed_at FROM {HISTORY} ORDER BY id DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+    except Exception as exc:  # noqa: BLE001 - the section shows no history rather than fail; the log says why
+        log.warning("review model history not read (%s)", type(exc).__name__)
+        return []
+    return [dict(r) for r in rows]
 
 
 def stored(conn=None) -> dict:
@@ -185,11 +234,11 @@ def _claude_rows() -> list[dict]:
 def options(conn=None) -> dict:
     """The Administration page's Review model section: the Claude models (fixed, as scored), the installed local models with
     whether each may be chosen and why not, the steps, and what is saved."""
-    from . import aim_review_gate
-    from .config import settings
+    from . import aim_review_gate, answer_model_choice
 
     models = installed()
-    default = stored(conn)["default"] or str(settings.answer_model)
+    in_use = answer_model_choice.resolve()
+    default = stored(conn)["default"] or in_use.name
     local = [
         {
             "name": m["name"],
@@ -198,7 +247,7 @@ def options(conn=None) -> dict:
             "approved": True,
             "priced": True,
             "price_words": "USD 0 (runs on this computer)",
-            "score_words": aim_review_gate.LOCAL_NOT_SCORED,
+            "score_words": aim_review_gate.local_score_words([m["name"]]),
             "selectable": _local_why(m["name"], models) is None,
             "why": _local_why(m["name"], models),
             "is_default": m["name"] == default,
@@ -212,8 +261,10 @@ def options(conn=None) -> dict:
         "engine_down": models is None,
         "engine_down_words": ENGINE_DOWN if models is None else None,
         "steps": list(steps()),
-        "answer_model": str(settings.answer_model),
+        "answer_model": in_use.name,
+        "answer_model_why": in_use.why,
         "stored": stored(conn),
+        "history": history(conn),
         "used_by": "Local only runs of the general review; Automatic and Claude never use a local model.",
     }
 
@@ -239,8 +290,16 @@ def save(choice: dict, actor: str | None, conn=None) -> dict:
             raise Refused(f"{name} cannot be chosen for {slot}: {why}")
     when = datetime.now(UTC).isoformat(timespec="seconds")
     conn = conn or connect()
+    before = _slots(stored(conn))
+    after = {slot: name for slot, name in [(DEFAULT, default), *picks.items()] if name}
     with conn:
         _ensure(conn)
+        for slot in sorted(set(before) | set(after)):
+            if before.get(slot) != after.get(slot):
+                conn.execute(
+                    f"INSERT INTO {HISTORY} (slot, old_model, new_model, changed_by, changed_at) VALUES (?, ?, ?, ?, ?)",
+                    (slot, before.get(slot), after.get(slot), actor, when),
+                )
         conn.execute(f"DELETE FROM {TABLE}")
         for slot, name in [(DEFAULT, default), *sorted(picks.items())]:
             if name:
@@ -268,7 +327,8 @@ def default_choice() -> str | None:
 
 def plan_line(default_name: str, per_step: dict[str, str] | None = None) -> str:
     """The plan's line for a Local only run: the default and each step group whose model differs (`local_model.step_models()`:
-    the saved picks and the env setting alike), with the not-yet-scored words."""
+    the saved picks and the env setting alike), with the score label of those models (`aim_review_gate.local_score_words`, the
+    same per-model source as the measured note)."""
     from . import aim_review_gate
     from .aim_review import local_model
 
@@ -285,4 +345,4 @@ def plan_line(default_name: str, per_step: dict[str, str] | None = None) -> str:
         if models:
             per.append(f"{group}: {', '.join(models)}")
     head = f"Review model: {default_name}" + ("; " + ", ".join(per) if per else "")
-    return f"{head} ({aim_review_gate.LOCAL_NOT_SCORED})."
+    return f"{head} ({aim_review_gate.local_score_words({default_name, *per_step.values()})})."

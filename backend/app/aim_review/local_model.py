@@ -73,10 +73,9 @@ WINDOW_MARK = "THIS IS PART OF A LONGER PAPER"
 def model_name() -> str:
     """The local default: the administrator's saved Review model (`review_model_setting`), else `ANSWER_MODEL`; the run
     records what the engine answered."""
-    from app import review_model_setting
-    from app.config import settings
+    from app import answer_model_choice, review_model_setting
 
-    return (review_model_setting.default_choice() or str(settings.answer_model)).strip()
+    return (review_model_setting.default_choice() or answer_model_choice.name()).strip()
 
 
 def step_models() -> dict[str, str]:

@@ -142,16 +142,19 @@ def test_the_run_page_score_line_of_a_local_run_holds_the_local_models_measured_
     nine = {"local": True, "models": ["qwen3.5:9b-q4_K_M"], "by_step": {}}
     line = aim_review_local_view.measured({"kind": "datasheet"}, nine)["sentence"]
     assert (
-        aim_review_gate.LOCAL_NOT_SCORED in line
+        aim_review_gate.LOCAL_MEASURED_WORDS in line
         and aim_review_gate.LOCAL_TEST_NOTE in line
+        and aim_review_gate.NOT_YET_SCORED
+        not in line  # a measured model never says "not yet scored"
     )
-    assert line.index(aim_review_gate.LOCAL_NOT_SCORED) < line.index(
+    assert line.index(aim_review_gate.LOCAL_MEASURED_WORDS) < line.index(
         aim_review_gate.LOCAL_TEST_NOTE
     )
     other = {"local": True, "models": ["invented-local:1b"], "by_step": {}}
     line = aim_review_local_view.measured({"kind": "datasheet"}, other)["sentence"]
     assert aim_review_gate.LOCAL_TEST_NOTE not in line
     assert "Local model (invented-local:1b): not yet scored." in line
+    assert aim_review_gate.LOCAL_NOT_SCORED in line
     claude = aim_review_local_view.measured({"kind": "datasheet"}, {"local": False})
     assert claude is None or aim_review_gate.LOCAL_TEST_NOTE not in (
         claude.get("sentence") or ""

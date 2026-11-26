@@ -350,3 +350,113 @@ def test_the_plan_line_names_a_step_set_only_in_env(engine, world, monkeypatch):
         line
         == f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_NOT_SCORED})."
     )
+
+
+# --- review of update 10, N6: the tables are made at app start, and every change is kept
+
+
+def test_the_app_start_makes_both_tables_and_a_read_still_never_does(world):
+    import inspect
+
+    from app import main
+
+    assert "review_model_setting_mod.ensure_schema()" in inspect.getsource(
+        main.lifespan
+    )
+    assert not _table_exists()  # the test library was made without the start-up
+    review_model_setting.ensure_schema()
+    names = {
+        r[0]
+        for r in db.connect()
+        .execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .fetchall()
+    }
+    assert {review_model_setting.TABLE, review_model_setting.HISTORY} <= names
+
+
+def test_every_change_is_kept_with_who_when_old_and_new_and_nothing_else(engine, world):
+    review_model_setting.save({"default": SMALL}, "u1")
+    review_model_setting.save({"default": OTHER, "steps": {"judge": SMALL}}, "u2")
+    review_model_setting.save(
+        {"default": OTHER, "steps": {"judge": SMALL}}, "u3"
+    )  # no change: nothing kept
+    review_model_setting.save({"default": OTHER}, "u4")  # judge cleared
+    got = [
+        (h["slot"], h["old_model"], h["new_model"], h["changed_by"])
+        for h in review_model_setting.history()
+    ]
+    assert got == [
+        ("judge", SMALL, None, "u4"),
+        ("judge", None, SMALL, "u2"),
+        ("default", SMALL, OTHER, "u2"),
+        ("default", None, SMALL, "u1"),
+    ]
+    assert all(h["changed_at"] for h in review_model_setting.history())
+
+
+def test_a_refused_save_keeps_no_change(engine, world):
+    review_model_setting.save({"default": SMALL}, "u1")
+    with pytest.raises(review_model_setting.Refused):
+        review_model_setting.save({"default": HUGE}, "u2")
+    assert [h["changed_by"] for h in review_model_setting.history()] == ["u1"]
+
+
+def test_the_section_is_given_the_latest_changes_newest_first(engine, world):
+    for i in range(review_model_setting.HISTORY_SHOWN + 2):
+        review_model_setting.save({"default": SMALL if i % 2 else OTHER}, f"u{i}")
+    got = (
+        TestClient(app)
+        .get("/api/admin/review-model", headers=world["headers"])
+        .json()["history"]
+    )
+    assert len(got) == review_model_setting.HISTORY_SHOWN
+    assert got[0]["changed_by"] == f"u{review_model_setting.HISTORY_SHOWN + 1}"
+
+
+# --- lead-4, 26 Nov 2026: the score label and the measured note come from one per-model source
+
+
+@pytest.mark.parametrize(
+    "models",
+    [
+        ["qwen3.5:9b-q4_K_M"],
+        ["ministral-3:14b"],
+        ["invented-other:9b"],
+        ["qwen3.5:9b-q4_K_M", "ministral-3:14b"],
+        [],
+    ],
+)
+def test_the_label_never_says_not_yet_scored_beside_a_measured_score(models):
+    label = aim_review_gate.local_score_words(models)
+    note = aim_review_gate.local_measured_note(models)
+    has_score = "of 10" in note
+    assert (label == aim_review_gate.LOCAL_MEASURED_WORDS) is has_score
+    assert (aim_review_gate.NOT_YET_SCORED in label) is not has_score
+
+
+def test_the_local_only_plan_on_the_9b_says_measured_and_never_not_yet_scored(
+    engine, world, monkeypatch
+):
+    nine = "qwen3.5:9b-q4_K_M"
+    monkeypatch.setattr(
+        model_transport,
+        "get_json",
+        lambda *a, **k: {
+            "models": [{"name": nine, "size": 6_500_000_000, "digest": "d"}]
+        },
+    )
+    review_model_setting.save({"default": nine}, "u1")
+    notes = (
+        TestClient(app)
+        .get(
+            "/api/reviews/plan",
+            params={"submittal_document_id": PAPERS["datasheet"][0], "engine": "local"},
+            headers=world["headers"],
+        )
+        .json()["notes"]
+    )
+    assert f"Review model: {nine} ({aim_review_gate.LOCAL_MEASURED_WORDS})." in notes
+    assert aim_review_gate.LOCAL_TEST_NOTE in notes
+    assert not any(aim_review_gate.NOT_YET_SCORED in n for n in notes)
+    row = next(m for m in review_model_setting.options()["local"] if m["name"] == nine)
+    assert row["score_words"] == aim_review_gate.LOCAL_MEASURED_WORDS

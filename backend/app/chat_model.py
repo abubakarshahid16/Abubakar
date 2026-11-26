@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import re
 
-from . import claude_spend, model_transport
+from . import answer_model_choice, claude_spend, model_transport
 from . import reasoning_provider as rp
 from .ai import output_limits
 from .config import settings
@@ -127,7 +127,7 @@ def available_models() -> dict:
         {"id": CLAUDE, "label": "Claude", "model": settings.claude_reasoning_model,
          "available": ok,
          "reason": None if ok else _PICKER_WORDS.get(code, "Claude cannot be used on this computer right now.")},
-        {"id": LOCAL, "label": "Local model", "model": settings.answer_model,
+        {"id": LOCAL, "label": "Local model", "model": answer_model_choice.name(),
          "available": True, "reason": _local_review_note()},
     ]
     return {"default": CLAUDE if ok and rp._provider_setting() != rp.PER_TASK else LOCAL,
@@ -330,7 +330,7 @@ def generate(system: str, prompt: str, *, temperature: float, preference: str | 
             "cost_usd": response.cost_usd,
         }
     body = {
-        "model": settings.answer_model,
+        "model": answer_model_choice.name(),
         "system": system,
         "prompt": prompt,
         "stream": False,
