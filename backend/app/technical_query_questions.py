@@ -39,6 +39,31 @@ SYSTEM = (
 )
 
 
+#: A request that points at a list: "the following", "the above", "each item", "the positions below", "items 1 to 8".
+_REFERS_TO_LIST = re.compile(
+    r"\b(following|above|below|listed|each (of the )?(item|point|conflict|position|option)s?|these (items|points|conflicts)|"
+    r"items? \d|points? \d|positions?|options?)\b",
+    re.IGNORECASE,
+)
+_REFERENCES_HEAD = re.compile(r"^\s*references?\s*:?\s*$", re.IGNORECASE)
+
+
+def page_items(page_text: str) -> list[str]:
+    """The page's numbered items as printed (wrapped lines joined), never those of a "References" list."""
+    from .technical_query_items import items_of
+
+    kept, skipping = [], False
+    for line in (page_text or "").splitlines():
+        if _REFERENCES_HEAD.match(line):
+            skipping = True
+            continue
+        if skipping and not line.strip():
+            skipping = False
+        if not skipping:
+            kept.append(line)
+    return items_of("\n".join(kept))
+
+
 def _squash(text: str | None) -> str:
     return " ".join((text or "").split()).casefold()
 
@@ -100,6 +125,14 @@ def from_pages(
                         "page": part.get("page"),
                     }
                 )
+        # a request that refers to the page's numbered list ("each item above", "the following positions") brings the items with
+        # it, as printed (lead-4's blind test, 27 Nov 2026: the model lists only the closing request, never the items it refers to)
+        if any(_REFERS_TO_LIST.search(q) for q in found):
+            for item in page_items(page_text):
+                key = _squash(item)
+                if key and key not in seen:
+                    seen.add(key)
+                    out.append({"question": item, "filename": part.get("filename"), "page": part.get("page")})
         if len(out) >= MAX_TOTAL:
             return out[:MAX_TOTAL], ""
     if out or not any(str(part.get("text") or "").strip() for part in context):

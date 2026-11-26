@@ -796,6 +796,21 @@ def query_reply():
         _QUERY_REPLY.reset(token)
 
 
+#: How a query draft is packed on the LOCAL lane (lead-4's blind test, 27 Nov 2026): Chat's local packing (3 passages, a 4,096-token
+#: window, 250 output tokens) was set for a 4B model and one short answer; a contractor's request of many items was answered from 3
+#: passages in about 1,000 characters. Inside `query_reply()` only; Chat's packing is unchanged.
+QUERY_REPLY_PASSAGES = 8
+QUERY_REPLY_NUM_CTX = 12288
+QUERY_REPLY_MAX_OUTPUT = 1200
+
+
+def query_reply_sizes() -> dict | None:
+    """The local lane's window and output cap for a query draft, or None outside `query_reply()` (Chat's settings then)."""
+    if not _QUERY_REPLY.get():
+        return None
+    return {"num_ctx": max(settings.num_ctx, QUERY_REPLY_NUM_CTX), "num_predict": max(settings.max_output_tokens, QUERY_REPLY_MAX_OUTPUT)}
+
+
 def _fit(system: str) -> str:
     return system.replace(_CHAT_LEAD, _QUERY_REPLY_LEAD) if _QUERY_REPLY.get() else system
 
@@ -1588,6 +1603,11 @@ def context_budget_for_lane() -> dict:
                 "chars": settings.claude_context_chars,
                 "tokens": settings.claude_context_tokens,
                 "system": _fit(SYSTEM_PROMPT_VERIFIED)}
+    sizes = query_reply_sizes()
+    if sizes:  # a query draft: more passages in a larger window (see QUERY_REPLY_PASSAGES)
+        return {"lane": "local", "passages": max(settings.generated_context_passages, QUERY_REPLY_PASSAGES),
+                "chars": settings.generated_context_chars, "tokens": sizes["num_ctx"] - sizes["num_predict"],
+                "system": _fit(SYSTEM_PROMPT)}  # fmt: skip
     return {"lane": "local", "passages": settings.generated_context_passages,
             "chars": settings.generated_context_chars,
             "tokens": context_budget.evidence_budget(),

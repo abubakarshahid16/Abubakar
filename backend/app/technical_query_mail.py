@@ -195,6 +195,11 @@ BOILERPLATE_SHARE = 0.3
 _ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
 #: The longest text shown as the question in the mail: a question is a sentence or a short block, not a third of the mail.
 QUESTION_CAP = 600
+#: A line that starts a numbered or lettered item ("1.", "2)", "(3)", "a.", "(b)", "i)") or a bullet: an item of the request's list.
+_ITEM = re.compile(r"(?m)^\s*(\(?(\d{1,2}|[a-hA-H]|i{1,3}|iv|v|vi{0,3})[.)]|[-\u2022*])\s+\S")
+#: A request that is a LIST of items may be longer than one question: up to this, then cut with a visible mark.
+LIST_CAP = 6000
+LIST_CUT = " [cut here: the rest of the list is in the mail]"
 
 
 def _norm(line: str) -> str:
@@ -253,9 +258,20 @@ def email_question(text: str | None, common: frozenset[str] = frozenset()) -> st
     kept = [line for line in kept if not _ADDRESS.search(line)]
     # only the paragraphs that ask: a signature's left-over lines (a name, a telephone number) are not the question
     paragraphs = re.split(r"\n\s*\n", "\n".join(kept))
+    asking = [any(_asks(line) for line in p.splitlines()) for p in paragraphs]
+    # A NUMBERED LIST is the request's substance when the mail asks something (lead-4's blind test of the owner's approved answers,
+    # 26 Nov 2026: a request lists its conflicts as statements 1-8 and only its closing "Accordingly, COMPANY is requested to confirm
+    # ..." asks; every item was dropped, so the reply answered a vague question). Every paragraph holding an item is kept with it.
+    listed = [bool(_ITEM.search(p)) for p in paragraphs]
+    # the line that introduces the list ("We note the following conflicts:") says what the items are: kept with them
+    leads = [p.rstrip().endswith(":") and n + 1 < len(paragraphs) and listed[n + 1] for n, p in enumerate(paragraphs)]
     question = "\n\n".join(
-        p.strip() for p in paragraphs if any(_asks(line) for line in p.splitlines())
+        p.strip()
+        for p, a, n, lead in zip(paragraphs, asking, listed, leads, strict=True)
+        if a or ((n or lead) and any(asking))
     ).strip()
+    if any(asking) and any(listed):  # a list of requests: never dropped for its length; cut with a visible mark (rule: no silent cut)
+        return question if len(question) <= LIST_CAP else question[:LIST_CAP].rstrip() + LIST_CUT
     if (
         len(question) > QUESTION_CAP
     ):  # a long block is not a question: only its asking lines, and none when even those are long

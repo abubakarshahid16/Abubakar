@@ -344,6 +344,13 @@ def transcript(turns: list[dict]) -> str:
 
 # ---------------------------------------------------------------- generate
 
+def _query_reply_sizes() -> dict | None:
+    """A technical query's draft reply gets a larger local window and output cap (answer.query_reply_sizes); None for Chat."""
+    from . import answer
+
+    return answer.query_reply_sizes()
+
+
 def generate(system: str, prompt: str, *, temperature: float, preference: str | None = None,
              timeout: float = 180.0) -> dict:
     """One answer, from whichever engine this chat uses.
@@ -387,8 +394,8 @@ def generate(system: str, prompt: str, *, temperature: float, preference: str | 
             "temperature": temperature,
             # The local cap, not the chat cap: this engine's window must hold
             # the evidence as well (context_budget subtracts this number).
-            "num_predict": settings.max_output_tokens,
-            "num_ctx": settings.num_ctx,
+            "num_predict": (_query_reply_sizes() or {}).get("num_predict", settings.max_output_tokens),
+            "num_ctx": (_query_reply_sizes() or {}).get("num_ctx", settings.num_ctx),
             "num_thread": settings.num_thread,
             "num_batch": settings.num_batch,
         },
