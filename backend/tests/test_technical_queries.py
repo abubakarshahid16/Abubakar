@@ -58,6 +58,9 @@ def temp_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(
         settings, "technical_queries_enabled", True
     )  # the feature is switched off by default
+    # these tests run a job themselves (`run_job`); the background worker must not race them for it (PR #1926's CI: the worker
+    # claimed the job between the queue call and the assertion, "running" instead of "queued", once the papers' reading had finished)
+    monkeypatch.setattr("app.technical_query_jobs.AUTO_START", False)
     db.reset_connection()
     db.init_db()
     with db.connect() as conn:
