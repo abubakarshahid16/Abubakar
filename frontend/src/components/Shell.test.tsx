@@ -133,7 +133,7 @@ describe("connection state", () => {
     // /api/health is unauthenticated and the exact name and version is
     // fingerprinting material. The name is on the Dashboard, from the scoped
     // metrics route.
-    expect(await screen.findByText(/answer model configured/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The AI that answers is ready/i)).toBeInTheDocument();
     expect(screen.queryByText("qwen3.5:4b")).toBeNull();
 
     online = false;
@@ -187,7 +187,7 @@ describe("connection stability", () => {
       return polls === failOn ? Promise.reject(new TypeError("blip")) : json(healthOnline);
     });
     render(<App />);
-    expect(await screen.findByText(/answer model configured/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The AI that answers is ready/i)).toBeInTheDocument();
 
     failOn = polls + 1;
     // Wait until the poll AFTER the failed one has been sent: with a single
@@ -211,7 +211,7 @@ describe("connection stability", () => {
         : json(healthOnline);
     });
     render(<App />);
-    expect(await screen.findByText(/answer model configured/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The AI that answers is ready/i)).toBeInTheDocument();
 
     failing = true;
     const from = polls;
@@ -225,6 +225,6 @@ describe("answer model badge (#656)", () => {
   it("says no answer model is configured when the health field is false", async () => {
     mockFetch(() => json({ ...healthOnline, answer_model_configured: false }));
     render(<App />);
-    expect(await screen.findByText(/no answer model configured/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The AI that answers is not set up/i)).toBeInTheDocument();
   });
 });
