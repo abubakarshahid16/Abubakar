@@ -345,3 +345,17 @@ export function historyWords(decisions: Array<{ decision: string; comment?: stri
   if (!decisions?.length) return ["Nobody has approved this yet."];
   return decisions.map((d) => `${words[d.decision] ?? d.decision}${d.comment ? `: ${d.comment}` : ""}`);
 }
+
+/** A list row's second line in plain words (F's walk, 27 Nov 2026: "awaiting_review · unassigned" on every row): the contractor when set,
+ *  where the query stands, and who has it by name. A missing contractor is said once above the list, not on each row. */
+export function rowLine(item: { contractor_name?: string | null; status: string; assignee_user_id?: string | null },
+  people: Array<{ id: string; display_name: string }> = []): string {
+  const word: Record<string, string> = {
+    received: "In progress", triage: "In progress", drafting: "In progress", awaiting_review: "Waiting for approval",
+    changes_requested: "Being changed", approved: "Approved, not sent", send_pending: "Being sent", sent: "Sent",
+    awaiting_confirmation: "Sent, waiting for confirmation", resolved: "Closed", duplicate: "Closed as a duplicate", cancelled: "Cancelled",
+    failed: "Stopped by an error",
+  };
+  const who = item.assignee_user_id ? `with ${people.find((p) => p.id === item.assignee_user_id)?.display_name ?? "a person"}` : "nobody assigned";
+  return [item.contractor_name || "", word[item.status] ?? item.status.replaceAll("_", " "), who].filter(Boolean).join(" · ");
+}
