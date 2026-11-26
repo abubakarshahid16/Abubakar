@@ -270,3 +270,60 @@ def test_a_call_table_of_an_earlier_build_gets_the_piece_count():
     assert "book_text_unmatched" in {
         r[1] for r in conn.execute(f"PRAGMA table_info({roles.CALLS})")
     }
+
+
+def test_role_2_with_no_call_runs_by_code_and_counts_what_the_papers_project_holds(
+    aim_db, monkeypatch
+):
+    """SPEC A.3: project context that finds nothing to read RAN (by code, USD 0) and says what is not available. Invented project."""
+    from tests.test_aim_method_helpers import _doc
+
+    with aim_db:
+        aim_db.execute(
+            "UPDATE document_classification SET project = 'ZQ-PROJECT' WHERE document_id = ?",
+            (PAPER,),
+        )
+        _doc(
+            aim_db,
+            "doc_spec1",
+            "ZQ-SPEC.pdf",
+            "SPECIFICATION",
+            {1: "Invented specification page."},
+        )
+        _doc(
+            aim_db,
+            "doc_sheet2",
+            "ZQ-SHEET-2.pdf",
+            "CONTRACTOR_SUBMITTAL",
+            {1: "Invented related sheet."},
+        )
+        _doc(
+            aim_db,
+            "doc_rev0",
+            "ZQ-SHEET-1-rev0.pdf",
+            "CONTRACTOR_SUBMITTAL",
+            {1: "Invented earlier revision."},
+        )
+        aim_db.execute(
+            "UPDATE document_classification SET project = 'ZQ-PROJECT' WHERE document_id IN ('doc_spec1', 'doc_sheet2')"
+        )
+        aim_db.execute(
+            "UPDATE document_classification SET superseded_by = ? WHERE document_id = 'doc_rev0'",
+            (PAPER,),
+        )
+    assert roles.project_held(aim_db, PAPER) == {
+        "project_recorded": 1, "project_specifications_held": 1, "earlier_revisions_held": 1, "related_papers_held": 1,
+        "contract_documents_held": 0}  # fmt: skip
+    assert roles.project_held(aim_db, "doc_unknown") == {
+        "project_recorded": 0, "project_specifications_held": 0, "earlier_revisions_held": 0, "related_papers_held": 0,
+        "contract_documents_held": 0}  # fmt: skip
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    _run(aim_db)
+    row = next(r for r in _rows(aim_db, roles.ROLES) if r["role_no"] == 2)
+    assert (
+        row["state"] == "ran"
+        and row["engine"] == "code"
+        and row["calls"] == 0
+        and row["usd"] is None
+    )
+    assert json.loads(row["produced_json"])["calls_answered"] == 0

@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import threading
 import uuid
 from datetime import UTC, datetime
@@ -379,6 +380,39 @@ def wrap(model, run_id: str, paper_id: str) -> Recorded:
     return Recorded(model, run_id, paper_id)
 
 
+def project_held(conn, paper_id: str) -> dict[str, int]:
+    """Role 2 by code when it makes no call (SPEC A.3: "it RAN and its note lists what is not available"): what the library holds
+    of this paper's project, counts only. A project paper with no recorded project, or no paper id, holds nothing found."""
+    from app import claude_approved
+
+    from .references import PACKAGE_ROLE
+
+    try:
+        row = conn.execute(
+            "SELECT project FROM document_classification WHERE document_id = ?",
+            (paper_id,),
+        ).fetchone()
+        project = str(row[0] or "").strip() if row else ""
+        earlier = conn.execute(
+            "SELECT count(*) FROM document_classification WHERE superseded_by = ?",
+            (paper_id,),
+        ).fetchone()[0]
+        same = conn.execute("SELECT document_role, count(*) FROM document_classification WHERE project = ? AND document_id != ?"
+                            " GROUP BY document_role", (project, paper_id)).fetchall() if project else []  # fmt: skip
+    except sqlite3.Error:
+        return {"project_recorded": 0}
+    roles_held = {str(r[0] or ""): int(r[1]) for r in same}
+    return {
+        "project_recorded": int(bool(project)),
+        "project_specifications_held": roles_held.get(
+            claude_approved.SPECIFICATION_ROLE, 0
+        ),
+        "earlier_revisions_held": int(earlier),
+        "related_papers_held": roles_held.get("CONTRACTOR_SUBMITTAL", 0),
+        "contract_documents_held": roles_held.get(PACKAGE_ROLE, 0),
+    }
+
+
 def finish(run_id: str, result: dict) -> None:
     """Each role's row at the run's end, from its call rows and the run's stored calls and lines (counts only). A role with calls
     "ran", or "ran partly" when a call failed or was refused; a role with no call "not run" with the reason; the two code roles ran."""
@@ -399,7 +433,11 @@ def finish(run_id: str, result: dict) -> None:
             produced = _produced(
                 n, mine, [r for r in reads if r["role_no"] == n], lines
             )
-            if n in CODE_ROLES:
+            if n == 2:
+                produced |= project_held(conn, _paper_of(conn, str(run_id)))
+            if n in CODE_ROLES or (
+                n == 2 and not mine
+            ):  # role 2 with no call ran by code: what the project holds
                 state, why, engine, usd = "ran", None, "code", None
             elif not mine:
                 state, why, engine, usd = "not_run", NO_CALL, None, None
@@ -424,6 +462,16 @@ def finish(run_id: str, result: dict) -> None:
                 (state, why, engine, json.dumps(sorted({c["model"] for c in mine})), len(mine), usd, _now(),
                  json.dumps(produced, sort_keys=True), str(run_id), n),
             )  # fmt: skip
+
+
+def _paper_of(conn, run_id: str) -> str:
+    try:
+        row = conn.execute(
+            "SELECT paper_document_id FROM aim_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    except sqlite3.Error:
+        return ""
+    return str(row[0]) if row else ""
 
 
 def _produced(n: int, calls: list[dict], reads: list[dict], lines: list[dict]) -> dict:
