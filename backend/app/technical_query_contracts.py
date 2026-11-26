@@ -29,8 +29,9 @@ MAX_PASSAGES = 30
 #: right page was at rank 1 in 8 of 9 hits and rank 2 in the ninth; 30 was more to read than the hits need).
 LISTED = 12
 #: A passage scoring more than SCORE_FLOOR below the best (the reranker's own score) is not listed once MIN_LISTED are (lead-4's measure
-#: on evidence run 14: the right passage was rank 1 or 2 for every answerable question; 144 listed passages become 57, every hit kept).
-SCORE_FLOOR = 3.0
+#: on evidence run 14: the right passage was rank 1 or 2 for every answerable question; at 4 below, 144 listed passages become 70, every hit
+#: kept, with margin for an answer that ranks lower; lead-4's decision of 26 Nov 2026).
+SCORE_FLOOR = 4.0
 MIN_LISTED = 3
 ROLE = "CONTRACT_DOCUMENT"
 
