@@ -8,7 +8,7 @@ import type { AdminUser } from "../../types/admin";
 import { SELF_GRANT_WORDS, TechnicalQueryReviewersSection } from "./TechnicalQueryReviewersSection";
 
 const req = vi.hoisted(() => vi.fn());
-vi.mock("../../api/core", () => ({ request: (...a: unknown[]) => req(...a) }));
+vi.mock("../../api/core", async (importOriginal) => ({ ...(await importOriginal<object>()), request: (...a: unknown[]) => req(...a) }));
 
 const ok = (data: unknown) => ({ ok: true, data });
 const user = (id: string, email: string, is_admin = false): AdminUser =>
@@ -27,6 +27,16 @@ function serve(holders: string[]) {
 }
 
 describe("Technical query reviewers", () => {
+  it("an answer without its list is a failure in words, never a crash (the real shape check)", async () => {
+    const real = await vi.importActual<typeof import("../../api/core")>("../../api/core");
+    req.mockImplementation((path: string, init?: RequestInit, check?: (b: unknown) => boolean) => real.request(path, init, check));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } })));
+    render(<TechnicalQueryReviewersSection users={USERS} />);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByTestId("tq-reviewers-count")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => { req.mockReset(); }); // braces: a returned mock would be run as the test's clean-up
 
   it("says nobody holds the role, gives it to another user through the existing route, and can take it back", async () => {
@@ -35,10 +45,10 @@ describe("Technical query reviewers", () => {
     expect(await screen.findByTestId("tq-reviewers-count")).toHaveTextContent("Nobody holds the role yet.");
     const eng = screen.getAllByTestId("tq-reviewer-row").find((r) => r.textContent?.includes("eng@"))!;
     await userEvent.click(within(eng).getByRole("button", { name: "Give the role" }));
-    expect(req).toHaveBeenCalledWith("/technical-queries/reviewers/u-eng", { method: "PUT" });
+    expect(req).toHaveBeenCalledWith("/technical-queries/reviewers/u-eng", { method: "PUT" }, expect.any(Function));
     expect(await screen.findByTestId("tq-reviewers-count")).toHaveTextContent("1 of 2 active users hold the role.");
     await userEvent.click(within(eng).getByRole("button", { name: "Remove the role" }));
-    expect(req).toHaveBeenLastCalledWith("/technical-queries/reviewers/u-eng", { method: "DELETE" });
+    expect(req).toHaveBeenLastCalledWith("/technical-queries/reviewers/u-eng", { method: "DELETE" }, expect.any(Function));
   });
 
   it("the administrator's own row offers no grant and says why (the server's rule)", async () => {
