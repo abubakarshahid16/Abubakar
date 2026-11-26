@@ -50,4 +50,16 @@ describe("GeneralResults: points decided by code", () => {
     mount(review());
     expect(screen.getByTestId("general-counts")).not.toHaveTextContent("decided by code");
   });
+
+  it("lists a comment rejected before on its own team-only line with its note, and draws nothing when there is none", () => {
+    const note = "rejected before on 2026-11-20, reason: The datasheet answers it on page 3; not a finding.";
+    const moved = { n: 9, title: "Invented title", field: "Invented field", rejected_before: { note, day: "2026-11-20", reason: "x" } };
+    const { unmount } = mount(review({ rejected_before: [moved] as unknown as GeneralReview["rejected_before"] }));
+    expect(screen.getByTestId("general-rejected-before")).toHaveTextContent("Rejected before (1), team only");
+    expect(screen.getByTestId("general-rejected-before")).toHaveTextContent(note);
+    unmount();
+    mount(review());
+    expect(screen.queryByTestId("general-rejected-before")).toBeNull();
+  });
 });
+

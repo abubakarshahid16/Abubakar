@@ -134,6 +134,9 @@ export interface GeneralReview {
   comments: GeneralLine[];
   /** The confirmations not sent (absent on an older answer). */
   confirmations?: GeneralLine[];
+  /** Team only (the learner, switch off by default): comments an engineer rejected before on the same rule and kind of paper,
+   *  not raised again, each with its note. Never sent. */
+  rejected_before?: (GeneralLine & { rejected_before: { note: string; day: string; reason: string } })[];
   points: GeneralLine[];
   books: { id: string; title: string; why: string }[];
   books_not_readable?: number;
