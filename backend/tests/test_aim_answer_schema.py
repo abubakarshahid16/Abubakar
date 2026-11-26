@@ -52,13 +52,17 @@ def test_only_a_step_with_a_full_shape_is_forced_and_every_other_step_keeps_plai
     """26 Nov 2026: a schema naming only the answer keys let the 14B write the paper's identity as its kind alone (30 tokens
     against 741), so the review lost the equipment type and subject: such a step gets no schema."""
     forced = {s for s in P.ANSWER_KEYS if A.for_step(s)}
-    assert forced == {
-        "aim_judge",
-        "aim_second_read",
-        "aim_checklist",
-        "aim_checklist_retry",
-        "aim_checklist_knowledge",
-    }
+    assert (
+        forced
+        == {
+            "aim_judge",
+            "aim_second_read",
+            "aim_checklist",
+            "aim_checklist_retry",
+            "aim_checklist_knowledge",
+            "aim_attack_items",  # the local attack's short verdicts (lead-4, 26 Nov 2026: no answer cut)
+        }
+    )
     for step in forced:
         assert A.for_step(step)["type"] == "object" and set(
             A.for_step(step)["required"]
@@ -86,7 +90,9 @@ def test_the_judges_labels_are_the_methods_and_numbers_is_asked_on_every_item():
                                       "numbers": None, "comment": "Please state it.", "deferred": True, "ask": "confirm"}]}),
         ("aim_second_read", {"reads": [{"n": 3, "label": "Question", "page": 1, "quote": "q", "reason": "r"}]}),
         ("aim_checklist", {"items": [{"topic": "t", "what_to_check": "w", "applies_when": "always", "paper_fields": ["f"],
-                                      "kind": "limit", "paper_pages": [1], "book": "B1", "clause": "4.1", "page": 3}]}),
+                                      "kind": "limit", "paper_pages": [1], "book": "B1", "clause": "4.1", "page": 3,
+                                      "rule_quote": "invented rule words", "source": "held standard"}]}),
+        # rule_quote and source are required since F's 9B run 91f40e4f (left out, ~190 items had nothing to find)
     ],
 )  # fmt: skip
 def test_an_answer_of_the_methods_own_shape_passes_its_schema(step, answer):

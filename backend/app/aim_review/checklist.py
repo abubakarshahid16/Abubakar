@@ -19,7 +19,9 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
     BUILT_FROMS,  # noqa: F401
 )
 
+from . import attack_local as AL
 from . import book_names as BN
+from . import citing as CI
 from . import faults
 from . import library as L
 from . import prompts as P
@@ -493,30 +495,27 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
             RT.unique(_items_of(out))  # local: cut at a first repeat
         )  # a knowledge item another paper of the package carries: not checked here
         dropped += aside
-        bad = [
-            it
-            for it in got
-            if it["source"] == HELD and not check_rule_quote(text, it, alias_to_book)
-        ]
+
+        def kept(
+            it: dict, batch=batch
+        ) -> bool:  # local: its clause must resolve too (`citing.cited`)
+            return check_rule_quote(text, it, alias_to_book) and CI.cited(it, batch)
+
+        bad = [it for it in got if it["source"] == HELD and not kept(it)]
         if bad:  # one retry: ask for the exact words of those items only
             retried += len(bad)
             # on the local model: the cited clause's words by code, then ONE call of at most RETRY_LOCAL items (26 Nov 2026:
             # one answer for every such item ran past its 8,000 tokens; 18 calls ran past the swap rule); on Claude one call
             size = RETRY_LOCAL if is_local() else len(bad)
-            fixed, ask = (
-                RT.by_code(  # local: the cited clause's own stored words first, no call (F's run 09105c4b)
-                    bad, batch, lambda it: check_rule_quote(text, it, alias_to_book)
-                )
-            )
+            fixed, ask = RT.by_code(
+                bad, batch, kept
+            )  # local: stored words first, no call
+            why = lambda it: CI.cause(it, text, alias_to_book)  # noqa: E731 - the count's cause
             for k in range(
-                0, len(ask := RT.capped(ask, size)), size
+                0, len(ask := RT.capped(ask, size, why)), size
             ):  # local: one retry call per batch
                 fixed += RT.retried(model, ask[k : k + size], batch, carries, lead)
-            ok_fixed = [
-                it
-                for it in fixed
-                if it["source"] == HELD and check_rule_quote(text, it, alias_to_book)
-            ]
+            ok_fixed = [it for it in fixed if it["source"] == HELD and kept(it)]
             dropped += [
                 {"topic": it["topic"], "why": "rule quote not found on the book page"}
                 for it in bad
@@ -663,34 +662,29 @@ def s3_attack(
         }
         for it in made["items"]
     ]
-    # one call with all the material on Claude; on the local model one per material batch, the answers joined (26 Nov 2026)
-    out: dict = {"remove": [], "fix": [], "add": []}
-    for part in _batches(rows) if is_local() else [rows]:
-        try:
-            got = model.ask(
-                step="aim_attack",
-                model=strong,
-                system="",
-                cached=None,
-                prompt=_for_type(P.ATTACK_TASK)
-                % {
-                    "identity": _identity(ident),
-                    "kinds": _dumps(list(ITEM_KINDS)),
-                    "items": "\n".join(_dumps(s) for s in shown),
-                    "not_held": _not_held_line(sel) or "none",
-                    "books": _books_line(sel),
-                    "material": "\n".join(_material_line(r) for r in part),
-                },
-                carries=set(alias_to_book.values()),
-                max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
-            )
-        except StepFailed as exc:  # a cut answer is never used: on the local model that batch's attack is set aside
-            if not is_local() or "max_tokens" not in str(exc):
-                raise
-            faults.record("aim_attack_cut", "an attack batch", "answer cut")
-            continue
-        for k in out:
-            out[k] += (got.get(k) or []) if isinstance(got, dict) else []
+    if is_local():  # every item, one short verdict each, no answer cut (`attack_local`)
+        return AL.attack(model, ident, sel, made, rows, shown, strong)
+    got = model.ask(  # Claude: one call with all the material, as before
+        step="aim_attack",
+        model=strong,
+        system="",
+        cached=None,
+        prompt=_for_type(P.ATTACK_TASK)
+        % {
+            "identity": _identity(ident),
+            "kinds": _dumps(list(ITEM_KINDS)),
+            "items": "\n".join(_dumps(s) for s in shown),
+            "not_held": _not_held_line(sel) or "none",
+            "books": _books_line(sel),
+            "material": "\n".join(_material_line(r) for r in rows),
+        },
+        carries=set(alias_to_book.values()),
+        max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
+    )
+    out = {
+        k: (got.get(k) or []) if isinstance(got, dict) else []
+        for k in ("remove", "fix", "add")
+    }
     by_id = {it["id"]: it for it in made["items"]}
     log = {"removed": [], "fixed": [], "added": [], "rejected": []}
     for r in out.get("remove") or []:

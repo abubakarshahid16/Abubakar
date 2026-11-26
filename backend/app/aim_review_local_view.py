@@ -31,6 +31,7 @@ STEP_WORDS = {
     "aim_checklist_knowledge": "checklist",
     "aim_checklist_retry": "checklist",
     "aim_attack": "attack",
+    "aim_attack_items": "attack",
     "aim_judge": "judge",
     "aim_reference": "judge",
     "aim_answered": "whole-paper check",

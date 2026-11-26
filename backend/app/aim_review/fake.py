@@ -27,8 +27,13 @@ KNOWLEDGE_ITEM = {
 }
 
 
-def _fixed_answer(step: str) -> dict | None:
-    """The fixed answer of a step that reads no material (the knowledge step, the attack), else None."""
+def _fixed_answer(step: str, prompt: str = "") -> dict | None:
+    """The fixed answer of a step that reads no material (the knowledge step, the attack), else None; the local attack keeps
+    every item its prompt shows."""
+    if step == "aim_attack_items":
+        shown = prompt.split("THE ITEMS:")[-1].split("Books:")[0]
+        return {"verdicts": [{"id": i, "verdict": "keep", "why": "fake", "what_to_check": ""}
+                             for i in re.findall(r'"id": "(C[0-9]+)"', shown)]}  # fmt: skip
     if step == "aim_checklist_knowledge":
         return {"items": [dict(KNOWLEDGE_ITEM)]}
     if step == "aim_attack":
@@ -175,7 +180,7 @@ class FakeModel:
                 }
             )
             return {"items": items}
-        if (fixed := _fixed_answer(step)) is not None:
+        if (fixed := _fixed_answer(step, prompt)) is not None:
             return fixed
         if step == "aim_judge":
             ids = re.findall(r'"id": "([CG]\d+)"', prompt)
