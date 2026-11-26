@@ -43,7 +43,10 @@ export function SectionFold({ on, heading, children }: { on: boolean; heading: R
   if (!on) return <>{heading}{children}</>;
   return (
     <details className="look-details flex flex-col gap-2">
-      <summary className="cursor-pointer select-none">{heading}</summary>
+      <summary className="cursor-pointer select-none">
+        {heading}
+        <span className="ml-2 text-xs font-semibold text-signal-300 hover:underline">Show</span>
+      </summary>
       <div className="mt-2 flex flex-col gap-2">{children}</div>
     </details>
   );

@@ -619,7 +619,7 @@ export function IngestionView({
       {NEW_LOOK && (
         <p data-testid="ingestion-summary" className="mt-3 text-sm text-slateish-200">
           {/* every count states its boundary (CLAUDE.md rule 4): over the newest documents this screen read, when the list was cut */}
-          {`${finished.length} document${finished.length === 1 ? "" : "s"}${cutOff ? ` of the newest ${documents.length} you can open` : ""} read and searchable; ${activeWorker?.pending_count ?? 0} waiting${inProgress.length ? `; ${inProgress.length} being read now` : ""}.`}
+          {`${cutOff ? `Of the newest ${documents.length} documents you can open, ` : ""}${finished.length} ${cutOff ? (finished.length === 1 ? "is" : "are") : `document${finished.length === 1 ? " is" : "s are"}`} read and searchable; ${activeWorker?.pending_count ?? 0} waiting${inProgress.length ? `; ${inProgress.length} being read now` : ""}.`}
         </p>
       )}
 

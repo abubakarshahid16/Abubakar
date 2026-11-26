@@ -465,7 +465,7 @@ export function AdminView(props: AdminViewProps) {
           aria-label="Access problems"
           className="rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4 text-sm"
         >
-          <p className="font-medium text-warn-500">This system is seeded but not usable</p>
+          <p className="font-medium text-warn-500">Some people will find nothing yet</p>
           <p className="mt-1 text-slateish-300">{summary.join(" ")}</p>
           <p className="mt-2 text-slateish-400">
             Each of these looks like broken search to the person it affects: they sign in
