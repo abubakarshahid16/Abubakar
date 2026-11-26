@@ -393,6 +393,10 @@ EGRESS_SAFE: dict[str, object] = {
     "standard_editions_enabled": False,
     # --- local only, no model or socket: L3 routing by document family (off by default, update 12 review B1)
     "kind_family_route_enabled": False,
+    # --- order 14 builder H: lane 1 of the cross-document check is code only (no model, no socket); lane 2 asks the LOCAL
+    # model through model_transport only. All off by default.
+    "cross_doc_facts_enabled": False,
+    "cross_doc_meaning_enabled": False,
     "owner_approved_rules_decide_enabled": False,
     "engineer_approved_rules_decide_enabled": False,
     "presence_not_pass_enabled": False,

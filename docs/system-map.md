@@ -283,6 +283,8 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `crs_ai_cell` | Order 233: the internal CRS copy's AI Review Comments cell is never blank; says why when the AI wording is missing (internal copy only) |
 | `run_finishing` | Order 236: a run whose job is still writing the AI comments, numbers and wording reads as running, not completed |
 | `tag_cross` | The cross-document check by equipment tag: a tag index over the held papers and, for a review, Questions where another readable paper naming the same tag states a different value (code only; order 14 builder C) |
+| `cross_doc` | The cross-document check, lane 1 (switch CROSS_DOC_FACTS_ENABLED, off): exact facts by code across the papers of one package (number plus unit for one tag, standard plus edition), a Question with both quotes found on their pages (order 14 builder H) |
+| `cross_doc_meaning` | The cross-document check, lane 2 (switch CROSS_DOC_MEANING_ENABLED, off): meaning mismatches the local model finds, a Question to the engineer only, never sent, both quotes found by code (order 14 builder H) |
 | `table_cells` | Order 271.4: a standards-table cell as requirement fields, a number, a number with a unit or a range (moved out of `standards`) or, behind a switch, a text cell with no value |
 | `model_metrics` | #503: per-model latency and error counts of the local model calls a review run makes, stored per run and model with the date (counts and seconds only) |
 | `checklist_scope` | Order 235.2: whether a review checklist REPLACES its standards' library requirements (the valve one does; the pump one, which only asks that fields are stated, does not) |
