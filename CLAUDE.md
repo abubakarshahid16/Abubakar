@@ -64,7 +64,7 @@ contractor copy issued only after that sign-off. Until then every file is the te
    comes from."): the evidence search (local only, nothing sent) now searches the held standards the caller may read
    (a company standard by role, or an unroled public standard; never a contract or a submittal) together with the
    readable contracts, and a form's own cited standard is looked up by name first. Every passage shown names its
-   source (contract document / company standard / document, with its title or number). The Claude DRAFT lane above is
+   source (contract document / company standard / standard, an unroled public one / document, with its title or number). The Claude DRAFT lane above is
    UNCHANGED: a draft still reads only the contract documents the engineer chooses; a non-contract document is refused
    ("not a contract: not sent"). Widening the draft lane to standard text would need its own owner line here.
    THE RULE APPROVAL LANE (owner, 25 Nov 2026, #1584 comment 7169525003; `rule_second_approval.py`,
