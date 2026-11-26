@@ -49,56 +49,132 @@ LABELS = {
 
 
 #: A Word (.docx) part that carries active or hidden content: macros, ActiveX controls, embedded objects (an OLE object can run).
-DOCX_ACTIVE_PARTS = ("word/vbaProject.bin", "word/activeX/", "word/embeddings/")
-#: A relationship that fetches something from outside the file when it opens (a remote template, frame, sub-document or object).
-DOCX_EXTERNAL_TYPES = ("attachedTemplate", "oleObject", "frame", "subDocument")
+#: Relationship TYPES (the last part of the type address, any letter case) that bring active or outside content, whatever their
+#: target mode or quoting: macros, embedded objects and packages, controls, a template, frame, sub-document or alternative chunk.
+DOCX_ACTIVE_TYPES = frozenset(
+    t.casefold()
+    for t in (
+        "vbaProject", "wordVbaData", "oleObject", "package", "control", "activeXControl", "activeXControlBinary",
+        "attachedTemplate", "frame", "subDocument", "aFChunk", "keyMapCustomizations",
+    )
+)  # fmt: skip
+#: Content types that name active content.
+DOCX_ACTIVE_CONTENT_TYPES = ("vbaproject", "activex", "oleobject", "macroenabled")
+#: Field codes that fetch from outside or run something when the document is opened or updated.
+DOCX_FETCHING_FIELDS = (
+    "DDEAUTO",
+    "DDE ",
+    "INCLUDETEXT",
+    "INCLUDEPICTURE",
+    "IMPORT ",
+    "LINK ",
+)
 MAX_DOCX_ENTRIES = 5_000
+#: Unpacked size limits: a part or a whole file above them is "could not be checked" (a zip bomb is never read whole).
+MAX_DOCX_XML_BYTES = 20 * 1024 * 1024
+MAX_DOCX_UNPACKED_BYTES = 300 * 1024 * 1024
 _ZIP = b"PK\x03\x04"
 
 
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _xml(package, name: str):
+    """One XML part parsed safely (defusedxml: no entities, no DTD); a part too large or not well-formed raises (-> not checked)."""
+    from defusedxml import ElementTree as SafeXML
+
+    if package.getinfo(name).file_size > MAX_DOCX_XML_BYTES:
+        raise ValueError("part too large")
+    return SafeXML.fromstring(package.read(name))
+
+
+def _field_code(element) -> str:
+    """The code of a Word field: the text of an instrText element or the instr attribute of a simple field ("" for anything else)."""
+    if _local(element.tag) == "instrText":
+        return element.text or ""
+    if _local(element.tag) == "fldSimple":
+        return next((v for k, v in element.attrib.items() if _local(k) == "instr"), "")
+    return ""
+
+
+def _docx_findings(package) -> set[str] | str:
+    """The findings of an open Word package, or the reason it cannot be checked."""
+    infos = package.infolist()
+    names = {
+        i.filename.casefold(): i.filename for i in infos
+    }  # package part names are not case-sensitive
+    if "word/document.xml" not in names:
+        return "not_a_word_document"
+    if (
+        len(infos) > MAX_DOCX_ENTRIES
+        or sum(i.file_size for i in infos) > MAX_DOCX_UNPACKED_BYTES
+    ):
+        return "too_large"  # only part would be looked at: never "clean"
+    if "[content_types].xml" not in names:
+        return "no_content_types"
+    findings: set[str] = set()
+    for name in names:
+        if name.endswith(
+            ".bin"
+        ):  # a binary part (macros, an OLE object, ActiveX data): never in a plain document
+            findings.add(
+                "macro"
+                if name.rsplit("/", 1)[-1] == "vbaproject.bin"
+                else "binary_part"
+            )
+        if "/activex/" in f"/{name}":
+            findings.add("activex")
+        if "/embeddings/" in f"/{name}":
+            findings.add("embedded_object")
+    for element in _xml(package, names["[content_types].xml"]).iter():
+        kind = (element.get("ContentType") or "").casefold()
+        findings.update(
+            f"content_type_{t}" for t in DOCX_ACTIVE_CONTENT_TYPES if t in kind
+        )
+    for name in (n for n in names if n.endswith(".rels")):
+        for rel in _xml(package, names[name]).iter():
+            if _local(rel.tag) != "Relationship":
+                continue
+            kind = (rel.get("Type") or "").rstrip("/").rsplit("/", 1)[-1].casefold()
+            if kind in DOCX_ACTIVE_TYPES:
+                findings.add(f"relationship_{kind}")
+            elif (
+                rel.get("TargetMode") or ""
+            ).casefold() == "external" and kind != "hyperlink":
+                findings.add(
+                    "external_link"
+                )  # anything fetched from outside on opening: a remote picture, template, data
+    instr = " ".join(
+        _field_code(e) for e in _xml(package, names["word/document.xml"]).iter()
+    ).upper()
+    findings.update(
+        "fetching_field"
+        for f in DOCX_FETCHING_FIELDS
+        if f.strip() and f in f" {instr} "
+    )
+    return findings
+
+
 def check_docx(data: bytes) -> dict[str, Any]:
-    """The static check of a Word (.docx) file: flagged when it carries macros, ActiveX, an embedded object, a macro content type or a
-    relationship that loads from outside; "could not be checked" when it is not a readable Word file. NOT an antivirus scan."""
+    """The static check of a Word (.docx) file, by an XML parser over its parts: flagged for macros, binary parts, ActiveX, embedded
+    objects or packages, an active content type, an active relationship type (whatever its target mode or quoting), any relationship
+    to the outside except a hyperlink, or a field that fetches; "could not be checked" when a part cannot be parsed or the file is not
+    a readable Word file or is too large. NOT an antivirus scan."""
     import io
-    import re
     import zipfile
 
-    findings: set[str] = set()
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as package:
-            names = package.namelist()
-            if "word/document.xml" not in names:
-                return {"status": UNREADABLE, "findings": ["not_a_word_document"]}
-            if (
-                len(names) > MAX_DOCX_ENTRIES
-            ):  # only part would be looked at: "could not be checked", never "clean"
-                return {"status": UNREADABLE, "findings": ["too_many_parts"]}
-            for name in names:
-                findings.update(
-                    part.rstrip("/")
-                    for part in DOCX_ACTIVE_PARTS
-                    if name == part or name.startswith(part)
-                )
-            if (
-                "macroenabled"
-                in package.read("[Content_Types].xml")
-                .decode("utf-8", "replace")
-                .lower()
-            ):
-                findings.add("macro_content_type")
-            for name in (n for n in names if n.endswith(".rels")):
-                rels = package.read(name).decode("utf-8", "replace")
-                for rel in re.findall(r"<Relationship\b[^>]*>", rels):
-                    if 'TargetMode="External"' in rel and any(
-                        f'/{t}"' in rel for t in DOCX_EXTERNAL_TYPES
-                    ):
-                        findings.add("external_link")
-    except Exception as exc:  # noqa: BLE001 - not a zip, encrypted (an encrypted Word file is not a zip), damaged
+            found = _docx_findings(package)
+    except Exception as exc:  # noqa: BLE001 - not a zip, encrypted, damaged, a part not parsable: logged by class, never "clean"
         log.info(
             "attachment check: Word file could not be checked (%s)", type(exc).__name__
         )
         return {"status": UNREADABLE, "findings": []}
-    return {"status": FLAGGED if findings else CLEAN, "findings": sorted(findings)}
+    if isinstance(found, str):
+        return {"status": UNREADABLE, "findings": [found]}
+    return {"status": FLAGGED if found else CLEAN, "findings": sorted(found)}
 
 
 def check_before_library(source) -> dict[str, Any]:

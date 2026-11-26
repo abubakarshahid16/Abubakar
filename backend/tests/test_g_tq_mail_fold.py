@@ -18,15 +18,25 @@ def test_the_message_itself_is_cut_at_its_signoff_and_the_rest_is_kept():
     assert main == QUESTION and rest.startswith("Best regards") and NOTICE in rest
 
 
-def test_quoted_earlier_mail_and_a_notice_paragraph_start_the_rest():
-    quoted = f"{QUESTION}\nOn Mon, 1 Jan 2026 at 10:00, Invented Sender <a@example.test> wrote:\n> older text"
-    assert split_body(quoted)[0] == QUESTION
-    header = (
-        f"{QUESTION}\nFrom: Invented Sender\nSent: Monday\nTo: someone\nSubject: older"
+def test_quoted_and_forwarded_mail_stays_a_notice_paragraph_goes_and_the_finder_drops_only_header_lines():
+    # review of update 12, N5: a forward's question sits below its forwarded-message header; it must stay
+    forward = f"FYI\n\n-----Original Message-----\nFrom: Invented Sender\nSent: Monday\nTo: someone\nSubject: older\n\n{QUESTION}\n\n{SIGNED.split(QUESTION, 1)[1]}"
+    main, rest = split_body(forward)
+    assert QUESTION in main and NOTICE in rest and "Best regards" in rest
+    finder = message_itself(forward)
+    assert (
+        QUESTION in finder
+        and "From:" not in finder
+        and "Original Message" not in finder
+        and "DISCLAIMER" not in finder
     )
-    assert split_body(header)[0] == QUESTION
     notice = f"{QUESTION}\nThis message is confidential and intended only for the invented addressee."
     assert split_body(notice)[0] == QUESTION
+
+
+def test_a_rule_line_above_the_question_does_not_hide_it():
+    ruled = f"Dear all,\n______________________________\n{QUESTION}\n\nKind regards,\nInvented Person"
+    assert QUESTION in split_body(ruled)[0] and QUESTION in message_itself(ruled)
 
 
 def test_nothing_is_cut_when_there_is_no_marker_or_the_mail_would_be_folded_away_whole():

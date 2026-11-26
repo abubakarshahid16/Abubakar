@@ -97,18 +97,20 @@ def test_the_import_reads_the_real_shapes(imported):
             "SELECT ref_type, ref_number, needs_person FROM technical_queries ORDER BY ref_number"
         ).fetchall()
     assert (
-        job["total"] == 7
+        job["total"] == 9
         and job["failed"] == 0
         and job["skipped"] == {technical_query_replies.ATTACHED: 1}
     )
     assert (
-        job["queries"] == 5 and job["imported"] == 6
+        job["queries"] == 7 and job["imported"] == 8
     )  # 6 messages in 5 queries: the forward of a forward joins TQ-11; ours too
     assert {tuple(q) for q in queries} == {
         (None, None, 1),
         ("CFC", "4", 0),
         ("TQ", "11", 0),
         ("TQ", "12", 0),
+        ("TQ", "14", 0),
+        ("TQ", "15", 0),
         ("TQ", "13", 0),
     }
     tq = _query("11")
@@ -214,13 +216,13 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
         AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
     )
     box = next(b for b in got["mailboxes"] if b["mailbox"] == "mb")
-    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (7, 1, 5)
+    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (9, 1, 7)
     assert (
         box["tq"],
         box["cfc"],
         box["needs_a_person"],
         box["signature_pictures"],
-    ) == (3, 1, 1, 7)
+    ) == (5, 1, 1, 7)
     assert box["attachments_read"] == 2 and box["attachments_not_read"] == {
         "PDF": 1,
         "active content found": 1,
@@ -232,5 +234,25 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
             conn.execute(
                 "SELECT COUNT(DISTINCT query_id) FROM query_evidence_jobs"
             ).fetchone()[0]
-            == 5
+            == 7
         )
+
+
+@pytest.mark.parametrize(
+    "ref, question", [("14", T.FORWARDED_QUESTION), ("15", T.RULED_QUESTION)]
+)
+def test_a_forwarded_query_and_a_ruled_query_still_give_their_question(
+    imported, monkeypatch, ref, question
+):
+    # review of update 12, N5: the question sits below a forwarded-message header, or below a rule line
+    monkeypatch.setattr("app.technical_query_questions._ask", lambda page_text: [])
+    monkeypatch.setattr("app.search.search", lambda q, **k: {"hits": []})
+    tq = _query(ref)
+    prepared = prepare_evidence(tq["id"], frozenset({CONTRACT}), "u1", True, True, "u1")
+    assert question in (prepared["extracted_question"] or "") and question in (
+        prepared["proposed_question"] or ""
+    )
+    assert (
+        "DISCLAIMER" not in prepared["extracted_question"]
+        and "Original Message" not in prepared["extracted_question"]
+    )

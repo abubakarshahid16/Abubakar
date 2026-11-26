@@ -29,7 +29,7 @@ def test_a_plain_word_file_is_clean():
 
 def test_macros_activex_embedded_objects_and_macro_types_are_flagged():
     assert S.check_before_library(docx({"word/vbaProject.bin": "x"}))["findings"] == [
-        "word/vbaProject.bin"
+        "macro"
     ]
     assert (
         S.check_before_library(docx({"word/activeX/activeX1.xml": "x"}))["status"]
@@ -43,7 +43,7 @@ def test_macros_activex_embedded_objects_and_macro_types_are_flagged():
         "application/xml", "application/vnd.ms-word.document.macroEnabled.main+xml"
     )
     assert (
-        "macro_content_type"
+        "content_type_macroenabled"
         in S.check_before_library(docx(types=macro_types))["findings"]
     )
 
@@ -53,7 +53,7 @@ def test_a_relationship_that_loads_from_outside_is_flagged():
             ' Target="http://invented.example/t.dotm" TargetMode="External"/></Relationships>')  # fmt: skip
     assert S.check_before_library(docx({"word/_rels/settings.xml.rels": rels}))[
         "findings"
-    ] == ["external_link"]
+    ] == ["relationship_attachedtemplate"]
     link = rels.replace(
         "attachedTemplate", "hyperlink"
     )  # an ordinary web link in the text is not active content
@@ -136,3 +136,94 @@ def test_the_mailbox_import_reads_a_word_attachment_but_not_a_picture(monkeypatc
         "answer.docx"
     ]  # the picture is never handed over; the Word file is, after the check
     assert checked == [b"PK"]
+
+
+# ---- review of update 12, B2: each evasion below was reported "clean" by the first check (baf5aef5); every one is flagged now
+TEMPLATE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate"
+
+
+def test_a_remote_template_with_single_quoted_attributes_is_flagged():
+    rels = f"<Relationships><Relationship Id='r1' Type='{TEMPLATE}' Target='http://invented.example/t.dotm' TargetMode='External'/></Relationships>"
+    assert (
+        S.check_before_library(docx({"word/_rels/settings.xml.rels": rels}))["status"]
+        == S.FLAGGED
+    )
+
+
+def test_a_utf16_relationships_part_and_a_utf16_content_types_part_are_read_not_skipped():
+    rels = (f'<?xml version="1.0" encoding="UTF-16"?><Relationships><Relationship Id="r1" Type="{TEMPLATE}" Target="http://invented.example/t.dotm"'
+            ' TargetMode="External"/></Relationships>').encode("utf-16")  # fmt: skip
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("[Content_Types].xml", TYPES)
+        z.writestr("word/document.xml", DOC)
+        z.writestr("word/_rels/settings.xml.rels", rels)
+    assert S.check_before_library(out.getvalue())["status"] == S.FLAGGED
+    macro = TYPES.replace(
+        "application/xml", "application/vnd.ms-word.document.macroEnabled.main+xml"
+    ).replace('encoding="UTF-8"', "")
+    out2 = io.BytesIO()
+    with zipfile.ZipFile(out2, "w") as z:
+        z.writestr(
+            "[Content_Types].xml",
+            (
+                '<?xml version="1.0" encoding="UTF-16"?>' + macro.split("?>", 1)[1]
+            ).encode("utf-16"),
+        )
+        z.writestr("word/document.xml", DOC)
+    assert S.check_before_library(out2.getvalue())["status"] == S.FLAGGED
+
+
+def test_a_macro_part_in_another_letter_case_is_flagged():
+    assert (
+        "macro"
+        in S.check_before_library(docx({"word/VBAProject.bin": "x"}))["findings"]
+    )
+
+
+def test_an_ole_object_outside_the_embeddings_folder_is_flagged():
+    rels = ('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="r9" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject" Target="media/thing.dat"/></Relationships>')  # fmt: skip
+    got = S.check_before_library(
+        docx({"word/media/thing.dat": "x", "word/_rels/document.xml.rels": rels})
+    )
+    assert got["status"] == S.FLAGGED and "relationship_oleobject" in got["findings"]
+
+
+def test_an_external_picture_is_flagged_and_a_hyperlink_is_not():
+    image = ('<Relationships><Relationship Id="r2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+             'Target="http://invented.example/p.png" TargetMode="External"/></Relationships>')  # fmt: skip
+    assert S.check_before_library(docx({"word/_rels/document.xml.rels": image}))[
+        "findings"
+    ] == ["external_link"]
+    link = image.replace("/image", "/hyperlink")
+    assert (
+        S.check_before_library(docx({"word/_rels/document.xml.rels": link}))["status"]
+        == S.CLEAN
+    )
+
+
+def test_a_part_the_parser_cannot_read_or_an_entity_trick_is_not_checked_never_clean():
+    assert (
+        S.check_before_library(
+            docx({"word/_rels/document.xml.rels": "<Relationships><broken"})
+        )["status"]
+        == S.UNREADABLE
+    )
+    bomb = '<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "aaaa">]><Relationships>&a;</Relationships>'
+    assert (
+        S.check_before_library(docx({"word/_rels/document.xml.rels": bomb}))["status"]
+        == S.UNREADABLE
+    )
+
+
+def test_a_field_that_fetches_from_outside_is_flagged():
+    fetch = DOC.replace(
+        "<w:t>Invented answer.</w:t>",
+        '<w:instrText> INCLUDEPICTURE "http://invented.example/p.png" </w:instrText>',
+    )
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("[Content_Types].xml", TYPES)
+        z.writestr("word/document.xml", fetch)
+    assert S.check_before_library(out.getvalue())["findings"] == ["fetching_field"]

@@ -2178,9 +2178,9 @@ def _answer_from_documents(
         return {
             **base,
             "answer_type": "insufficient_evidence",
-            # An EMPTY reply is a model that did not answer, not a report that
-            # the sources lack it (absence.py): only the second is an absence.
+            # An EMPTY reply is no answer; only "not in the sources" is an absence. The model that said so is named.
             "absence_kind": "not_found" if text else None,
+            "model": raw.get("model"),
             "answer": None,
             "reason": ("the model reported the sources do not contain the answer"
                        if text else "the answer model returned no text"),

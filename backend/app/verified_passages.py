@@ -106,8 +106,6 @@ def answer(question: str, *, evidence: list[dict], **kwargs) -> dict:
     may read). A model that finds the answer is not in them gives a draft that says so ("Not found in the chosen papers. Searched: ..."),
     with no citation, the model's reason as an open point, and the model that was asked."""
     from . import answer as answer_mod
-    from . import chat_model, reasoning_provider
-    from .config import settings
     from .db import connect
 
     allowed = kwargs.get("allowed_document_ids") or frozenset()
@@ -117,17 +115,20 @@ def answer(question: str, *, evidence: list[dict], **kwargs) -> dict:
         )
     with given(hits):
         result = answer_mod.answer(question, **kwargs)
+    # "not found" only when the MODEL read the passages and said so; a refusal made before any model was asked (the front-matter
+    # gate) stays a refusal with its own words (review of update 12, N4)
+    answered = "generation_ms" in (result.get("timings") or {})
     if (
         result.get("answer_type") == "insufficient_evidence"
         and result.get("absence_kind") == "not_found"
+        and answered
     ):
-        asked = chat_model.provider(kwargs.get("model"))
-        claude = isinstance(asked, reasoning_provider.ClaudeProvider)
         reason = (
             result.get("reason")
             or "the model reported the passages do not contain the answer"
         )
+        # the model that answered, as it reported itself (never the configured name): a Claude draft that fell back to the local
+        # model keeps its "Claude did not write this draft" note (review of update 12, N3)
         return {**result, "answer_type": "generated", "answer": f"{NOT_FOUND}. Searched: {searched_words(hits)}.", "cited": [],
-                "passages": [], "not_found": True, "reason": reason,
-                "model": settings.claude_reasoning_model if claude else settings.answer_model}  # fmt: skip
+                "passages": [], "not_found": True, "reason": reason, "model": result.get("model") or "not reported"}  # fmt: skip
     return result
