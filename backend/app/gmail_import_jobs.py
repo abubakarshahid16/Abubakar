@@ -531,8 +531,29 @@ def start() -> None:
         if _thread is not None and _thread.is_alive():
             return
         _stop.clear()
-        _thread = threading.Thread(target=_loop, daemon=True, name="gmail-import")
+        _thread = threading.Thread(target=_run, daemon=True, name="gmail-import")
         _thread.start()
+
+
+def mark_inline_pictures_everywhere() -> int:
+    """Once per server start, in the import thread (never delays the start): every mailbox's stored mails get their pictures INSIDE
+    the body marked (`mark_stored_inline_pictures`), and mails stored with no mailbox too. Before this ran only inside an import, so
+    on a server where no import had run since the rule shipped, 193 signature pictures stayed counted as attachments ("N of M
+    attachments read"; lead-4, 26 Nov 2026). Idempotent; a fault is logged and never stops the thread."""
+    try:
+        with connect() as conn:
+            boxes = [str(r[0]) for r in conn.execute("SELECT id FROM gmail_mailboxes")]
+        return sum(mark_stored_inline_pictures(b) for b in [*boxes, ""])
+    except Exception as exc:  # noqa: BLE001 - the backfill is a correction: the import thread goes on without it
+        log.warning("inline pictures at start not marked (%s)", type(exc).__name__)
+        return 0
+
+
+def _run() -> None:
+    marked = mark_inline_pictures_everywhere()
+    if marked:
+        log.info("inline pictures marked at start: %d", marked)
+    _loop()
 
 
 def stop() -> None:
