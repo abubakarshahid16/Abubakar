@@ -1,3 +1,4 @@
+import { NEW_LOOK } from "../look";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -410,14 +411,16 @@ describe("Technical Queries screen", () => {
 
   it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
     render(<TechnicalQueriesView />);
-    const question = await screen.findByRole("heading", { name: "Question for the draft" });
+    const question = await screen.findByRole("heading", { name: /^(Question for the draft|The contractor asks)$/ }); // the new look names it as the spec does
     const response = screen.getByRole("heading", { name: /^Proposed response/ });
     const generate = screen.getByRole("button", { name: "Generate draft" });
     const email = screen.getByTestId("tq-folded-email-question");
     const mail = screen.getByTestId("tq-folded-mail");
     const evidence = screen.getByTestId("tq-folded-evidence");
     const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    expect([before(question, response), before(response, generate), before(generate, email), before(email, mail), before(mail, evidence)]).toEqual([true, true, true, true, true]);
+    // the new look puts "where the answer comes from" right after the decisions (the spec's order); the classic look keeps it last
+    const order = NEW_LOOK ? [question, response, generate, evidence, email, mail] : [question, response, generate, email, mail, evidence];
+    expect(order.slice(1).map((part, i) => before(order[i], part))).toEqual([true, true, true, true, true]);
     for (const part of [email, mail, evidence]) {
       expect(part.tagName).toBe("DETAILS");
       expect((part as HTMLDetailsElement).open).toBe(false);  // folded on arrival
