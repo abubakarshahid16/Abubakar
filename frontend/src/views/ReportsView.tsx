@@ -18,6 +18,7 @@ import { useState } from "react";
 
 import { EmptyState, Spinner } from "../components/states";
 import type { ReportRecord, ReportVerification } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 const nf = new Intl.NumberFormat("en-GB");
 
@@ -55,7 +56,7 @@ export function ReportsView({
       <div aria-hidden className="aurora-a" />
       <div aria-hidden className="aurora-b" />
       <header>
-        <h1 className="text-xl font-semibold text-slateish-200">Reports</h1>
+        {NEW_LOOK ? <h2 className="text-xl font-semibold text-slateish-200">Answer reports</h2> : <h1 className="text-xl font-semibold text-slateish-200">Reports</h1>}
         <p className="mt-1 text-sm text-slateish-400">
           Every report is a single-answer evidence report: one question, its answer,
           the cited evidence, and the documents it came from, frozen when it was generated.
@@ -156,51 +157,16 @@ function ReportRow({
             {report.owner_username ?? "authentication disabled — no user recorded"}
           </p>
 
-          <div className="mt-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slateish-400">
-              Documents cited
-            </p>
-            {report.documents.length === 0 ? (
-              <p className="mt-1 text-xs text-slateish-400">None recorded.</p>
-            ) : (
-              <ul className="mt-1 space-y-0.5">
-                {report.documents.map((d) => (
-                  <li key={d.document_id} className="text-xs text-slateish-300">
-                    <span>{d.filename}</span>{" "}
-                    <span className="font-mono text-slateish-400">{d.sha256_prefix}</span>
-                    {d.revision && <span className="text-slateish-400"> · rev {d.revision}</span>}
-                    {d.approval_status && (
-                      <span className="text-slateish-400"> · {d.approval_status}</span>
-                    )}
-                    <span className="text-slateish-400">
-                      {" "}
-                      {d.passages_cited === 0
-                        // Said plainly: "0 passages" next to a cited document reads as a contradiction.
-                        ? "· on the document list; no part of it is quoted in this report"
-                        : `· ${nf.format(d.passages_cited)} quoted part${d.passages_cited === 1 ? "" : "s"}`}
-                    </span>
-                    {d.text_source && d.text_source !== "extracted" && (
-                      <span className="text-warn-500">
-                        {" "}
-                        · {d.text_source === "recognised" ? "OCR text" : "partly OCR text"}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {report.not_implemented_sections.length > 0 && (
-            <div className="mt-3 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900/60 px-3 py-2">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
-                Outside this report
-              </p>
-              <p className="mt-1 text-xs text-slateish-400">
-                This single-answer PDF does not include:{" "}
-                {report.not_implemented_sections.join(", ")}.
-              </p>
-            </div>
+          {NEW_LOOK ? (
+            // the new look (owner, E3): the report's title, date and its buttons first; its cited documents and what it leaves out folded
+            <details className="look-details mt-3 text-sm">
+              <summary className="cursor-pointer select-none text-xs font-semibold text-signal-300 hover:underline">
+                Documents cited ({report.documents.length})
+              </summary>
+              <CitedDetail report={report} />
+            </details>
+          ) : (
+            <CitedDetail report={report} />
           )}
         </div>
 
@@ -301,5 +267,59 @@ function Check({ ok, okText, badText }: { ok: boolean; okText: string; badText: 
       </span>
       <span>{ok ? okText : badText}</span>
     </li>
+  );
+}
+
+/** A report's cited documents and what it leaves out: the same words and marks in both looks (the new look folds them). */
+function CitedDetail({ report }: { report: ReportRecord }) {
+  return (
+    <>
+          <div className="mt-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slateish-400">
+              Documents cited
+            </p>
+            {report.documents.length === 0 ? (
+              <p className="mt-1 text-xs text-slateish-400">None recorded.</p>
+            ) : (
+              <ul className="mt-1 space-y-0.5">
+                {report.documents.map((d) => (
+                  <li key={d.document_id} className="text-xs text-slateish-300">
+                    <span>{d.filename}</span>{" "}
+                    <span className="font-mono text-slateish-400">{d.sha256_prefix}</span>
+                    {d.revision && <span className="text-slateish-400"> · rev {d.revision}</span>}
+                    {d.approval_status && (
+                      <span className="text-slateish-400"> · {d.approval_status}</span>
+                    )}
+                    <span className="text-slateish-400">
+                      {" "}
+                      {d.passages_cited === 0
+                        // Said plainly: "0 passages" next to a cited document reads as a contradiction.
+                        ? "· on the document list; no part of it is quoted in this report"
+                        : `· ${nf.format(d.passages_cited)} quoted part${d.passages_cited === 1 ? "" : "s"}`}
+                    </span>
+                    {d.text_source && d.text_source !== "extracted" && (
+                      <span className="text-warn-500">
+                        {" "}
+                        · {d.text_source === "recognised" ? "OCR text" : "partly OCR text"}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {report.not_implemented_sections.length > 0 && (
+            <div className="mt-3 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900/60 px-3 py-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
+                Outside this report
+              </p>
+              <p className="mt-1 text-xs text-slateish-400">
+                This single-answer PDF does not include:{" "}
+                {report.not_implemented_sections.join(", ")}.
+              </p>
+            </div>
+          )}
+    </>
   );
 }

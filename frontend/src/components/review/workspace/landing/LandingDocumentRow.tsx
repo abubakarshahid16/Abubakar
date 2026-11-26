@@ -18,6 +18,7 @@ import { ReviewAgainButton } from "../ReviewAgainButton";
 import { useStartFailure } from "../startFailures";
 import { dayTimeWords } from "./dateWords";
 import { type ChipTone, type LandingRow, NO_ROLE_LINE, countsLine, hasFinishedReview, rowChip } from "./landingRows";
+import { NEW_LOOK } from "../../../../look";
 
 const TONE: Record<ChipTone, string> = {
   attention: "border-warn-500/50 bg-warn-500/10 text-warn-500",
@@ -75,7 +76,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   const startedAt = dayTimeWords(row.latest?.created_at);
   const shownWhen = startedAt ? `Started ${startedAt}` : dayTimeWords(row.activityAt);
   return (
-    <li className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4" data-testid="landing-row">
+    <li className={NEW_LOOK ? "rounded-[var(--radius-md)] bg-ink-800 p-4 shadow-[var(--shadow-resting)]" : "rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4"} data-testid="landing-row">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold text-slateish-100">{row.filename}</p>

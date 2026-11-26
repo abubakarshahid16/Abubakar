@@ -12,6 +12,7 @@ import { reports as reportsApi, type DownloadFailure } from "../api/client";
 import type { ReportRecord, ReportVerification } from "../types/api";
 import { ReportsView } from "./ReportsView";
 import { ReviewCrsList } from "./ReviewCrsList";
+import { NEW_LOOK } from "../look";
 
 /** What the reader is told when a download does not produce a file.
  *
@@ -150,6 +151,7 @@ export function ReportsScreen() {
 
   return (
     <div className="space-y-4">
+      {NEW_LOOK && <h1 className="text-3xl font-semibold text-slateish-100">CRS &amp; Reports</h1>}
       {/* #725 F7: the review runs' CRSs, on the page named after them. */}
       <ReviewCrsList />
       {downloadState.state === "failed" && (

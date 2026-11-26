@@ -27,6 +27,9 @@ import { LIST_MAX, groupRunsByDocument, totalFromResponse } from "../components/
 import { anyMoving, inboxStateOf } from "../components/review/inbox/inboxState";
 import { type FailedResult, plainError } from "../components/review/workspace/plainError";
 import { latestGeneralRun } from "../components/review/v2/OlderFiles";
+import { NEW_LOOK } from "../look";
+import { InfoFold } from "../components/look/LookParts";
+import { REVIEW_EACH_LINE } from "../components/review/workspace/landing/WorkspaceLanding";
 
 /** Order 95 piece 3: while a review is queued or running, the list re-reads
  *  on this interval so its state moves without a refresh. */
@@ -52,6 +55,11 @@ interface BatchResult {
 /** Order 117 item 5 / #1114: the batch counts loader now lives with the
  *  landing pieces; re-exported here unchanged for the old screens and tests. */
 export { RUN_COUNTS_MAX_IDS, loadReadyCounts } from "../components/review/workspace/landing/readyCounts";
+
+/** The page's purpose, the same words in both looks (the new look folds it under the title). */
+const PURPOSE =
+  "Each review compares one contractor submittal against the standards that apply to it, and writes comments with the standard, " +
+  "clause, page and quote, which an engineer checks and signs before the contractor sees them.";
 
 export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin, openDocumentId = null }: {
   onOpenRun: (runId: string) => void;
@@ -186,6 +194,16 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
 
   return (
     <section className="mx-auto w-full max-w-7xl space-y-6" aria-labelledby="submittals-landing-title">
+      {NEW_LOOK ? (
+        // the new look (owner): the page title is the menu's name; the purpose is one fold away, the work comes first
+        <header>
+          <h1 id="submittals-landing-title" className="text-3xl font-semibold text-slateish-100">AI Submittal Review</h1>
+          <InfoFold title="What a review does" className="mt-2">
+            <p>{PURPOSE}</p>
+            <p className="mt-1">{REVIEW_EACH_LINE}</p>
+          </InfoFold>
+        </header>
+      ) : (
       <header>
         <p className="text-sm font-semibold uppercase tracking-[0.16em] text-signal-400">
           AI Submittal Review
@@ -199,6 +217,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
           and quote, which an engineer checks and signs before the contractor sees them.
         </p>
       </header>
+      )}
 
       {phase.kind === "loading" && <p className="text-slateish-300">Loading documents…</p>}
       {phase.kind === "error" && !workspace && (
