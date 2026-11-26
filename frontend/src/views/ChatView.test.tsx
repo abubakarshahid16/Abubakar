@@ -230,7 +230,7 @@ describe("structured workflow search", () => {
   it("renders workflow records separately from document evidence", async () => {
     const calls = mockApi({ structured: { results: [{ id: "d1", kind: "deliverable", label: "IFC drawing", wbs_code: "1.2", document_id: null }] } });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "IFC drawing");
+    await userEvent.type(await screen.findByLabelText("Your question"), "IFC drawing");
     await userEvent.click(screen.getByRole("button", { name: "More options" }));
     await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
@@ -242,7 +242,7 @@ describe("structured workflow search", () => {
   it("shows an API failure instead of leaving a silent blank panel", async () => {
     mockApi({ structuredFailure: true });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "schedule");
+    await userEvent.type(await screen.findByLabelText("Your question"), "schedule");
     await userEvent.click(screen.getByRole("button", { name: "More options" }));
     await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
@@ -252,7 +252,7 @@ describe("structured workflow search", () => {
   it("distinguishes a successful search with no matches", async () => {
     mockApi({ structured: { results: [] } });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "missing");
+    await userEvent.type(await screen.findByLabelText("Your question"), "missing");
     await userEvent.click(screen.getByRole("button", { name: "More options" }));
     await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
@@ -277,7 +277,7 @@ describe("chat navigation", () => {
     });
     await openChat();
     await screen.findByRole("combobox", { name: "Who answers" });
-    await userEvent.type(screen.getByLabelText("Your question"), "Explain the coating requirement");
+    await userEvent.type(await screen.findByLabelText("Your question"), "Explain the coating requirement");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
       question: "Explain the coating requirement", tier: "generated", model: "claude",
@@ -302,7 +302,7 @@ describe("chat navigation", () => {
     expect(option.title).toBe("no API key");
     // ... and the reason is on the screen in words, not only in the hover title
     expect(screen.getByTestId("model-unavailable-reason")).toHaveTextContent("no API key");
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(calls.find((c) => c.url.includes("/ask"))?.body).toMatchObject({
       tier: "extract", model: "local",
@@ -316,7 +316,7 @@ describe("chat navigation", () => {
   it("routes a critique through written explanation even when quotation mode is selected", async () => {
     const calls = mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "Do a criteque on material and document");
+    await userEvent.type(await screen.findByLabelText("Your question"), "Do a criteque on material and document");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await waitFor(() => expect(calls.find((c) => c.url.endsWith("/ask"))?.body).toMatchObject({
       question: "Do a criteque on material and document", tier: "generated",
@@ -338,7 +338,7 @@ describe("a quotation is never mistaken for generated prose", () => {
   it("labels a Tier 1 answer as the document's own words", async () => {
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
@@ -364,7 +364,7 @@ describe("a quotation is never mistaken for generated prose", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(
@@ -393,7 +393,7 @@ describe("a quotation is never mistaken for generated prose", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     await screen.findByText(/Read by OCR from a scanned page/i);
@@ -405,7 +405,7 @@ describe("a quotation is never mistaken for generated prose", () => {
     // stronger one.
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/Quoted verbatim from the document/i)).toBeInTheDocument();
@@ -460,7 +460,7 @@ describe("citations", () => {
   it("shows the document, page and clause beside a quoted answer", async () => {
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     // The citation is now set as a citation rather than a row of chips, so
@@ -492,7 +492,7 @@ describe("citations", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     const chip = await screen.findByRole("button", { name: "Show source 1" });
@@ -505,7 +505,7 @@ describe("citations", () => {
   it("opens the evidence panel with the passage and the rendered page", async () => {
     const calls = mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
 
@@ -550,7 +550,7 @@ describe("citations", () => {
 
   async function ask() {
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
   }
 
@@ -678,7 +678,7 @@ describe("citations", () => {
   it("warns that an extract report does not merge other matched passages into the answer", async () => {
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/Other matched passages stay in the evidence section/i)).toBeInTheDocument();
@@ -691,7 +691,7 @@ describe("explain", () => {
   it("warns how long it takes before it is pressed", async () => {
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(
@@ -704,7 +704,7 @@ describe("explain", () => {
   it("sends explain_of rather than re-asking the question", async () => {
     const calls = mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
 
@@ -762,7 +762,7 @@ describe("explain", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     await screen.findByText(/I cannot determine this from the available evidence/i);
@@ -791,7 +791,7 @@ describe("insufficient evidence", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
@@ -922,7 +922,7 @@ describe("follow-ups", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is its curing time");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is its curing time");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/Read as a follow-up/i)).toBeInTheDocument();
@@ -934,7 +934,7 @@ describe("follow-ups", () => {
   it("says nothing about follow-ups when nothing was carried", async () => {
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     await screen.findByText(/Quoted verbatim/i);
@@ -1060,7 +1060,7 @@ describe("inputs that are not document questions", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "hi");
+    await userEvent.type(await screen.findByLabelText("Your question"), "hi");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(await screen.findByText(/I answer questions about your documents/i)).toBeInTheDocument();
@@ -1083,7 +1083,7 @@ describe("inputs that are not document questions", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "hi");
+    await userEvent.type(await screen.findByLabelText("Your question"), "hi");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     // Fix 1 (2026-09-27): clickable chips (SuggestionChips), the document's
@@ -1116,7 +1116,7 @@ describe("refusal wording", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     const text = (await screen.findByText(/not a credible match/i)).textContent ?? "";
@@ -1142,7 +1142,7 @@ describe("refusal wording", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "q");
+    await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     const text = (await screen.findByText(/No indexed passage/i)).textContent ?? "";
@@ -1308,7 +1308,7 @@ describe("a response belongs to the request that asked for it", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^Coating systems/ }));
     await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
 
-    await userEvent.type(screen.getByLabelText("Your question"), "what preheat is required");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what preheat is required");
     expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
     // the typed question is kept, not lost, while it waits
     expect((screen.getByLabelText("Your question") as HTMLTextAreaElement).value).toBe("what preheat is required");
@@ -1442,7 +1442,7 @@ describe("a response belongs to the request that asked for it", () => {
     );
 
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     const form = screen.getByLabelText("Your question").closest("form")!;
     fireEvent.submit(form);
     fireEvent.submit(form);
@@ -1494,7 +1494,7 @@ describe("evidence dropped to fit the context window", () => {
       }),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "amplitude at t=4");
+    await userEvent.type(await screen.findByLabelText("Your question"), "amplitude at t=4");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(
@@ -1510,7 +1510,7 @@ describe("evidence dropped to fit the context window", () => {
   it("says nothing at all when every source fitted", async () => {
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await screen.findByText(A1.text);
     expect(screen.queryByText(/did not fit the model/i)).toBeNull();
@@ -1695,7 +1695,7 @@ describe("a refused plain-language upgrade", () => {
       })(),
     });
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await userEvent.click(await screen.findByRole("button", { name: /Explain in plain/i }));
 
@@ -1747,7 +1747,7 @@ describe("visual stability", () => {
   it("keeps the previous answer on screen while the next question is answered", async () => {
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT for coating system no. 1");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT for coating system no. 1");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     expect((await screen.findAllByText(/280 um/)).length).toBeGreaterThan(0);
 
@@ -1758,7 +1758,7 @@ describe("visual stability", () => {
       const url = typeof input === "string" ? input : input.toString();
       return url.endsWith("/ask") ? new Promise<Response>(() => {}) : base(input, init);
     });
-    await userEvent.type(screen.getByLabelText("Your question"), "and coating system no. 4?");
+    await userEvent.type(await screen.findByLabelText("Your question"), "and coating system no. 4?");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     // The stage list is the in-flight panel; its heading depends on progress.
     expect(await screen.findByText("Searching")).toBeInTheDocument();
@@ -1770,7 +1770,7 @@ describe("visual stability", () => {
     vi.stubEnv("VITE_HEALTH_POLL_MS", "400");
     mockApi();
     await openChat();
-    await userEvent.type(screen.getByLabelText("Your question"), "what is the NDFT for coating system no. 1");
+    await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT for coating system no. 1");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     expect((await screen.findAllByText(/280 um/)).length).toBeGreaterThan(0);
 

@@ -47,7 +47,7 @@ async function openChat() {
 }
 
 async function submit() {
-  const box = screen.getByLabelText("Your question") as HTMLTextAreaElement;
+  const box = (await screen.findByLabelText("Your question")) as HTMLTextAreaElement; // Chat loads when opened
   if (!box.value) await userEvent.type(box, "what is the NDFT");
   fireEvent.submit(box.closest("form")!);
 }
