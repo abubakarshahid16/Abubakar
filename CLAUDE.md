@@ -79,7 +79,7 @@ contractor copy issued only after that sign-off. Until then every file is the te
    CHAT DATABASE TOOLS (owner, 25 Nov 2026, #1584 comment 7171320073: "Yes, allow it"): Chat in Claude mode may call
    the database tools (`chat_db_tools.py`: documents by kind or role, a paper's latest review with its counts and top
    comments with page, the open items of a technical query) behind `CHAT_DATABASE_TOOLS_ENABLED`, **off by default**
-   (reverted 27 Nov 2026: update 14's fresh review found the block-list check does not cover a cross-referenced OTHER
+   (reverted 26 Nov 2026: update 14's fresh review found the block-list check does not cover a cross-referenced OTHER
    paper's name/value written into a comment by `tag_cross.py`, and `chat_records.py` answers carry no document id, so
    nothing is ever withheld from a later turn; turning this on by default waits for both gaps to be closed and a fresh
    review to confirm it). Their answers go to Claude only through `reader_transport.py` under the `claude_spend` caps,
