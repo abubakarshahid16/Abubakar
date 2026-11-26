@@ -479,7 +479,16 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "draft_note": None if busy else item.get("draft_note"),
         "marks": found_marks,
         "cited": cited_by_contractor(item),
+        "items": items_of_question(question),
     }
+
+
+def items_of_question(question: str) -> list[str]:
+    """The numbered items of the current wording (technical_query_items.items_of), [] for a single request: each evidence row's
+    `item_no` (1-based) names one of them, so the page can group the sources by request."""
+    from .technical_query_items import items_of
+
+    return items_of(question)
 
 
 def cited_by_contractor(item: dict[str, Any]) -> list[dict[str, Any]]:

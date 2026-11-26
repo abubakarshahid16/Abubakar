@@ -166,3 +166,10 @@ def test_a_query_draft_reads_more_passages_in_a_larger_window_and_chat_keeps_its
         sent[1]["num_ctx"] == A.QUERY_REPLY_NUM_CTX
         and sent[1]["num_predict"] == A.QUERY_REPLY_MAX_OUTPUT
     )
+
+
+def test_the_page_gets_the_items_to_group_the_sources_by():
+    q = email_question(LIST_MAIL)
+    assert auto.ready({"proposed_question": q, "evidence": [], "drafts": []})[
+        "items"
+    ] == items.items_of(q)
