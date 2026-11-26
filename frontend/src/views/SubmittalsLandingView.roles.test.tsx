@@ -19,6 +19,7 @@ vi.mock("../components/review/workspace/NewReviewDropZone", () => ({ NewReviewDr
 vi.mock("../api/roleSuggestion", () => ({ roleSuggestionSwitch: () => Promise.resolve(sw) }));
 
 import { SubmittalsLandingView } from "./SubmittalsLandingView";
+import { NEW_LOOK } from "../look";
 
 beforeEach(() => {
   documents.mockReset().mockResolvedValue({ ok: true, data: [] });
@@ -57,7 +58,9 @@ describe("G3: Review all is not offered while the general review is on", () => {
     sw = { enabled: true, review_roles: ["CONTRACTOR_SUBMITTAL"], exclude_roles: ["COMPANY_STANDARD", "CRS_TEMPLATE"] } as typeof sw;
     documents.mockResolvedValue({ ok: true, data: [paper] });
     render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
-    expect(await screen.findByTestId("review-each-line")).toHaveTextContent("Each paper is reviewed on its own with the Review button.");
+    // classic: a line under the list; the new look: the same sentence in the page's "What a review does" fold
+    if (NEW_LOOK) expect(await screen.findByText("Each paper is reviewed on its own with the Review button.")).toBeInTheDocument();
+    else expect(await screen.findByTestId("review-each-line")).toHaveTextContent("Each paper is reviewed on its own with the Review button.");
     expect(screen.queryByRole("button", { name: /Review all not reviewed/ })).toBeNull();
   });
   it("earlier engine (no exclusion): the button is as before", async () => {
