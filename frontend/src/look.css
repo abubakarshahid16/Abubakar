@@ -57,7 +57,7 @@
   --color-slateish-500: #4b5563;
 
   --color-signal-500: #0b7a75; /* the one action colour */
-  --color-signal-400: #0b6e69;
+  --color-signal-400: #0a6460; /* was #0b6e69: 4.29 : 1 on its own pale tint (Standards "Active"); now 4.9 (owner's live walk, 27 Nov 2026) */
   --color-signal-300: #0b5f5b; /* link text */
 
   --color-warn-500: #5c3700;
@@ -244,3 +244,18 @@
   letter-spacing: normal;
   font-weight: 600;
 }
+
+/* OWNER'S LIVE WALK, 27 Nov 2026 (the look check now counts disabled controls and reads every colour format):
+   - a DISABLED control kept its coloured fill at half opacity, down to 1.1 : 1 ("Run analysis"): it is now a plain, readable grey
+     button (no fade, no fill), still visibly off by its grey and its cursor;
+   - teal words on a pale teal tint ("Create user") read 4.49 : 1 in light: the darker teal there. */
+:root[data-look="new"] main button:disabled,
+:root[data-look="new"] main button[aria-disabled="true"] {
+  opacity: 1;
+  background-color: var(--color-ink-800);
+  border-color: var(--color-ink-600);
+  color: var(--color-slateish-400);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+:root[data-look="new"]:not([data-theme="dark"]) main .text-signal-500 { color: #0a6460; }

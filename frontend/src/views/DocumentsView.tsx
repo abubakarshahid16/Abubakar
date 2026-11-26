@@ -753,7 +753,7 @@ export function DocumentsView({
                         aria-label={`${awaiting.name}, ${awaiting.documents.length} document(s)`}
                       >
                         {awaiting.name}
-                        <span className="font-mono text-warn-500/70">
+                        <span className="font-mono text-warn-500">
                           {awaiting.documents.length}
                         </span>
                       </h3>
@@ -895,7 +895,7 @@ function FilterChip({
             ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
             : "border-signal-500/40 bg-signal-500/10 text-signal-400"
           : amber
-            ? "border-warn-500/30 bg-ink-800 text-warn-500/80 hover:bg-warn-500/10"
+            ? "border-warn-500/30 bg-ink-800 text-warn-500 hover:bg-warn-500/10"
             : "border-ink-600 bg-ink-800 text-slateish-300 hover:bg-ink-700",
       ].join(" ")}
     >
