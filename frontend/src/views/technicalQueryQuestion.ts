@@ -346,18 +346,84 @@ export function historyWords(decisions: Array<{ decision: string; comment?: stri
   return decisions.map((d) => `${words[d.decision] ?? d.decision}${d.comment ? `: ${d.comment}` : ""}`);
 }
 
-/** A list row's second line in plain words (F's walk, 27 Nov 2026: "awaiting_review · unassigned" on every row): the contractor when set,
- *  where the query stands, and who has it by name. A missing contractor is said once above the list, not on each row. */
-export function rowLine(item: { contractor_name?: string | null; status: string; assignee_user_id?: string | null },
-  people: Array<{ id: string; display_name: string }> = []): string {
-  const word: Record<string, string> = {
-    received: "In progress", triage: "In progress", drafting: "In progress", awaiting_review: "Waiting for approval",
-    changes_requested: "Being changed", approved: "Approved, not sent", send_pending: "Being sent", sent: "Sent",
-    awaiting_confirmation: "Sent, waiting for confirmation", resolved: "Closed", duplicate: "Closed as a duplicate", cancelled: "Cancelled",
-    failed: "Stopped by an error",
-  };
-  const who = item.assignee_user_id ? `with ${people.find((p) => p.id === item.assignee_user_id)?.display_name ?? "a person"}` : "nobody assigned";
-  return [item.contractor_name || "", word[item.status] ?? item.status.replaceAll("_", " "), who].filter(Boolean).join(" · ");
+// ------------------------------------------------------------------ the list page (owner, 27 Nov 2026: "the same pattern as a tidy list")
+
+/** The short tag a query is known by ("CFC-7"), from the number read in its subject, exactly as written there (review of #1938: leading
+ *  zeros are kept, so CFC-7 and CFC-007 never look like one query); null when the subject carries none. */
+export function queryTag(q: { ref_type?: string | null; ref_number?: string | null }): string | null {
+  if (!q.ref_type || !q.ref_number) return null;
+  return `${q.ref_type}-${q.ref_number}`;
+}
+
+/** One status chip per row, in four plain words (and the closed ones), with its tone. */
+export type ChipTone = "neutral" | "wait" | "done" | "problem";
+export function statusChip(status: string): { words: string; tone: ChipTone } {
+  if (status === "awaiting_review") return { words: "Waiting for approval", tone: "wait" };
+  if (["approved", "send_pending", "sent", "awaiting_confirmation"].includes(status)) return { words: status === "approved" ? "Approved" : "Sent", tone: "done" };
+  if (["resolved", "duplicate", "cancelled"].includes(status)) return { words: status === "resolved" ? "Closed" : status === "duplicate" ? "Duplicate" : "Cancelled", tone: "neutral" };
+  if (status === "failed") return { words: "Stopped by an error", tone: "problem" };
+  return { words: "In progress", tone: "neutral" };
+}
+
+/** The short amber chips of a row; the full sentence goes on hover (and inside the query). */
+export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null }): Array<{ words: string; why: string }> {
+  const out: Array<{ words: string; why: string }> = [];
+  if (q.needs_person || !q.ref_type) out.push({ words: "No query number", why: "The subject has no full TQ or CFC number, so a person must check which query this is." });
+  if (!q.contractor_name) out.push({ words: "No contractor", why: "No contractor yet: add its code once under “Rules for who it goes to” (in More) and every query with that code fills itself." });
+  return out;
+}
+
+/** "4 min ago", "3 h ago", "on 25 Nov"; null when never checked. */
+export function agoWords(iso: string | null | undefined, now = Date.now()): string | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const min = Math.max(0, Math.round((now - t) / 60000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  if (min < 24 * 60) return `${Math.round(min / 60)} h ago`;
+  return `on ${new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
+}
+
+/** The mailbox in one small chip: connected (with when it was last checked), importing, waiting for a label, not connected, or a problem. */
+export function mailboxChip(
+  mailboxes: Array<{ connection_state: string; last_checked_at?: string | null; import_job?: { state: string; kind: string; done: number; total: number; error?: string | null } | null }>,
+  canManage: boolean, now = Date.now(),
+): { words: string; tone: "ok" | "wait" | "problem" } | null {
+  if (mailboxes.some((m) => m.connection_state === "error" || m.connection_state === "revoked")) return { words: "Mailbox problem", tone: "problem" };
+  const active = mailboxes.find((m) => m.connection_state === "active");
+  if (active) {
+    const job = active.import_job;
+    if (job && (job.state === "failed" || (job.state === "queued" && job.error))) return { words: "Mailbox problem", tone: "problem" };
+    if (job && job.state === "running" && job.kind === "import") return { words: `Mailbox: importing, ${job.done} of ${job.total} read`, tone: "wait" };
+    const ago = agoWords(active.last_checked_at, now);
+    return { words: ago ? `Mailbox connected · checked ${ago}` : "Mailbox connected · not checked yet", tone: "ok" };
+  }
+  if (mailboxes.length) return { words: "Mailbox needs a label", tone: "wait" };
+  return canManage ? { words: "No mailbox connected", tone: "wait" } : null;
+}
+
+/** The count line, which is also a filter: only the states that exist right now, each with its number. */
+export type QuickView = "waiting" | "progress" | "person" | "approved" | "sent" | "closed";
+/** Each bucket holds exactly the rows whose status chip says its word (review of #1938: "2 approved" must never show a row chipped "Sent"). */
+const BUCKET_WORDS: Record<Exclude<QuickView, "person">, string[]> = {
+  waiting: ["Waiting for approval"], progress: ["In progress"], approved: ["Approved"], sent: ["Sent"], closed: ["Closed", "Duplicate", "Cancelled"],
+};
+export function quickMatch(view: QuickView, q: { status: string; needs_person?: number | null; ref_type?: string | null }): boolean {
+  if (view === "person") return Boolean(q.needs_person) || !q.ref_type;
+  return BUCKET_WORDS[view].includes(statusChip(q.status).words);
+}
+export function countLine(items: Array<{ status: string; needs_person?: number | null; ref_type?: string | null }>): { total: number; parts: Array<{ view: QuickView; n: number; words: string }> } {
+  const n = (v: QuickView) => items.filter((q) => quickMatch(v, q)).length;
+  const parts: Array<{ view: QuickView; n: number; words: string }> = [
+    { view: "waiting", n: n("waiting"), words: "waiting for approval" },
+    { view: "progress", n: n("progress"), words: "in progress" },
+    { view: "approved", n: n("approved"), words: "approved" },
+    { view: "sent", n: n("sent"), words: "sent" },
+    { view: "closed", n: n("closed"), words: "closed" },
+    { view: "person", n: n("person"), words: n("person") === 1 ? "needs a person" : "need a person" },
+  ];
+  return { total: items.length, parts: parts.filter((p) => p.n > 0) };
 }
 
 /** A passage's match in plain words (owner's live walk, 27 Nov 2026 01:15: "8 of 22 key words" reads as machine talk); the counts stay

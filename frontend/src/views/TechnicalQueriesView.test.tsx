@@ -222,7 +222,7 @@ describe("Technical Queries screen", () => {
   it("creates a query by hand with its papers, with no mailbox", async () => {
     api.createByHand.mockResolvedValue({ ok: true, data: { item: { ...query, id: "q2", subject: "By hand" }, uploaded: 1 } });
     render(<TechnicalQueriesView />);
-    fireEvent.click(await screen.findByText("New query by hand / upload"));
+    fireEvent.click(await screen.findByText("New query")); // the toolbar (owner, 27 Nov 2026)
     fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "By hand" } });
     fireEvent.change(screen.getByLabelText("The question, as asked"), { target: { value: "Is it allowed?" } });
     fireEvent.click(screen.getByText("Create query"));
@@ -241,6 +241,7 @@ describe("Technical Queries screen", () => {
       import_job: { id: "j1", kind: "import", state: "running", total: 35, done: 12, failed: 1, error: null, failures: [{ subject: "Invented subject one", reason: "the message could not be imported (ValueError)" }] } };
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [running] } });
     render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     fireEvent.click(await screen.findByText("Choose label"));
     fireEvent.click(await screen.findByText("Activate selected label"));
     expect(api.activateGmailLabel).not.toHaveBeenCalled(); // an in-page question first, never the browser's box
@@ -256,6 +257,7 @@ describe("Technical Queries screen", () => {
       skipped: { "our replies, added to their query (sent by us)": 3, "sent from this mailbox, with no query of its thread or number yet": 1 } };
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: job }] } });
     render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     expect((await screen.findByTestId("import-done")).textContent).toBe(
       "Import finished: 7 messages in 2 queries: 3 imported, 3 our replies, added to their query (sent by us), 1 sent from this mailbox, with no query of its thread or number yet.",
     );
@@ -265,6 +267,7 @@ describe("Technical Queries screen", () => {
     const old = { id: "j", kind: "import", state: "done", total: 77, done: 77, failed: 0, error: null, failures: [], imported: 77, skipped: {}, queries: 33, messages: 36, reasons_recorded: false };
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: old }] } });
     render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     const said = (await screen.findByTestId("import-done")).textContent;
     expect(said).toBe("Import finished: processed 77 messages; 36 stored as messages of 33 queries; the reason the other 41 were not stored was not recorded for this import (it ran before this was counted).");
     expect(said).not.toMatch(/imported 77/);
@@ -276,6 +279,7 @@ describe("Technical Queries screen", () => {
     window.history.replaceState(null, "", "/technicalQueries/gmail-return?code=one-time&state=abc");
     render(<TechnicalQueriesView queryId="gmail-return" />);
     await waitFor(() => expect(api.completeGmail).toHaveBeenCalled());
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     await screen.findByTestId("mailbox-status");
     expect(screen.queryByText("Gmail is connected. Choose the label to import below.")).toBeNull();
   });
@@ -370,6 +374,7 @@ describe("Technical Queries screen", () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });
     api.importAgain.mockResolvedValue({ ok: true, data: { import_job: "j2" } });
     render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     fireEvent.click(await screen.findByText("Import the label again"));
     expect(api.importAgain).not.toHaveBeenCalled();
     expect(screen.getByTestId("confirm-import-again").textContent).toContain("reads all 77 messages of the label again and adds only what is not stored yet");
@@ -381,7 +386,9 @@ describe("Technical Queries screen", () => {
     api.routingRules.mockResolvedValue({ ok: true, data: { items: [] } });
     api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "Unmapped", contractor_name: null }] } });
     render(<TechnicalQueriesView />);
-    expect(await screen.findByText(/have no contractor yet: add its code once under .Rules for who it goes to./)).toBeTruthy(); // said once above the list (F, 27 Nov 2026)
+    // a short chip on the row, the full sentence on hover (owner, 27 Nov 2026)
+    const noContractor = (await screen.findAllByTestId("problem-chip")).find((c) => c.getAttribute("data-words") === "No contractor")!;
+    expect(noContractor.getAttribute("title")).toMatch(/add its code once under .Rules for who it goes to./);
     expect(screen.queryByText(/Unknown contractor/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     const options = Array.from((screen.getByLabelText("Rule type") as HTMLSelectElement).options).map((o) => o.textContent);
@@ -394,7 +401,7 @@ describe("Technical Queries screen", () => {
     api.prepareAllPlan.mockResolvedValue({ ok: true, data: { unprepared: 33, minutes_each: 5, waiting_or_running: 0 } });
     api.prepareAllStart.mockResolvedValue({ ok: true, data: { unprepared: 0, minutes_each: 5, waiting_or_running: 33, queued_now: 33 } });
     render(<TechnicalQueriesView />);
-    fireEvent.click(await screen.findByText("Prepare evidence for all unprepared queries"));
+    fireEvent.click(await screen.findByText("Find the sources for every query not prepared yet")); // in More (owner, 27 Nov 2026)
     expect((await screen.findByTestId("confirm-prepare-all")).textContent).toContain(
       "33 queries are not prepared yet, or were prepared by older question rules with no confirmed question (their question is proposed again from the attached form): about 5 min each (measured on the last prepared queries), one at a time in the background. Prepared queries and confirmed questions are kept.",
     );
@@ -408,6 +415,7 @@ describe("Technical Queries screen", () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });
     api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j2" } });
     render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     expect((await screen.findByTestId("import-done")).textContent).toBe("Import finished: 3 messages: 3 imported.");
     fireEvent.click(await screen.findByText("Check now"));
     await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
@@ -419,6 +427,7 @@ describe("Technical Queries screen", () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [waiting] } });
     api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j" } });
     render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     expect((await screen.findByRole("alert")).textContent).toContain("try again by itself");
     expect(screen.queryByTestId("import-progress")).toBeNull();
     fireEvent.click(await screen.findByText("Check now"));
@@ -430,6 +439,7 @@ describe("Technical Queries screen", () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [stopped] } });
     api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j" } });
     render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     expect((await screen.findByTestId("mailbox-stopped")).textContent).toContain("is not being checked. Gmail could not be read after several tries");
     fireEvent.click(await screen.findByText("Check now"));
     await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
@@ -441,8 +451,12 @@ describe("Technical Queries screen", () => {
     const noRef = { ...query, id: "q2", subject: "Please advise", needs_person: 1 };
     api.list.mockResolvedValue({ ok: true, data: { items: [withRef, noRef] } });
     render(<TechnicalQueriesView />);
-    expect(await screen.findByText("TQ-12 · PIPING · Coating question")).toBeTruthy();
-    expect((await screen.findByTestId("needs-person")).textContent).toContain("no full TQ or CFC number");
+    // the row's tag, discipline and short title; a subject with no number gets a short chip, the sentence on hover (owner, 27 Nov 2026)
+    expect((await screen.findAllByTestId("query-tag")).map((t) => t.textContent)).toEqual(["TQ-12"]);
+    expect(screen.getByText("PIPING")).toBeTruthy();
+    expect(within(screen.getByLabelText("Technical query list")).getByText("Coating question")).toBeTruthy();
+    const noNumber = screen.getAllByTestId("problem-chip").find((c) => c.getAttribute("data-words") === "No query number")!;
+    expect(noNumber.getAttribute("title")).toContain("no full TQ or CFC number");
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "CFC" } });
     fireEvent.change(screen.getByLabelText("Discipline code"), { target: { value: "civil" } });
@@ -466,6 +480,7 @@ describe("Technical Queries screen", () => {
     expect(screen.queryByLabelText("Contractor", { selector: "#query-contractor-filter" })).toBeNull();
     const toggle = screen.getByRole("button", { name: "Filters" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     const connect = await screen.findByText("Connect Gmail");
     const list = screen.getByLabelText("Technical query list");
     expect(connect.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // Connect Gmail comes before the list
