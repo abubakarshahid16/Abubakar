@@ -10,7 +10,7 @@ from .engine import StepFailed
 
 def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> list[dict]:
     """The retry's items for `bad` (one call). On the local model a cut answer is never used: the items are asked again in two
-    halves, and one item whose answer is still cut is dropped (its quote stays not found); on Claude a cut is raised, as before."""
+    halves, and one item whose answer is still cut is dropped (its quote stays not found; counted under "Steps that did not run"); on Claude a cut is raised, as before."""
     from .checklist import SPLIT_DEPTH, _dumps, _items_of, _material_line
 
     prompt = P.S3_RETRY % {
@@ -21,9 +21,17 @@ def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> lis
         fix = model.ask(step="aim_checklist_retry", model=lead, system="", cached=None, prompt=prompt, carries=carries,
                         max_tokens=8000)  # fmt: skip
     except StepFailed as exc:
-        if not is_local() or "max_tokens" not in str(exc) or depth >= SPLIT_DEPTH:
+        if not is_local() or "max_tokens" not in str(exc):
             raise
-        if len(bad) < 2:
+        if (
+            len(bad) < 2 or depth >= SPLIT_DEPTH
+        ):  # still cut: never stops the run; each item is counted as left out
+            from . import faults
+
+            for _ in bad:
+                faults.record(
+                    "aim_retry_dropped", "a checklist retry item", "answer cut"
+                )
             return []
         h = len(bad) // 2
         return retried(model, bad[:h], batch, carries, lead, depth + 1) + retried(
@@ -53,19 +61,19 @@ def _key(it: dict) -> tuple:
 
 
 def unique(items: list[dict]) -> list[dict]:
-    """On the local model, an answer that repeats an item is cut at the first repeat (logged "repeating answer cut"): only the
+    """On the local model, an answer that repeats an item is cut at the first repeat (counted under "Steps that did not run"): only the
     items before it are used (a looping answer's tail is the loop). On Claude, unchanged."""
-    import logging
-
     if not is_local():
         return items
     seen: set = set()
     for i, it in enumerate(items):
         if _key(it) in seen:
-            logging.getLogger(__name__).info(
-                "general review: repeating answer cut (%d items kept of %d)",
-                i,
-                len(items),
+            from . import faults
+
+            faults.record(
+                "aim_repeat_cut",
+                "a repeating checklist answer",
+                "the items before the repeat were used",
             )
             return items[:i]
         seen.add(_key(it))

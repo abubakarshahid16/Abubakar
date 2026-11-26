@@ -20,6 +20,7 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
 )
 
 from . import book_names as BN
+from . import faults
 from . import library as L
 from . import prompts as P
 from . import retry as RT
@@ -464,7 +465,7 @@ def _answers(
         if len(batch) < 2 or depth >= SPLIT_DEPTH:
             if not is_local():
                 raise
-            log.info("general review: a local checklist answer is still cut; no items")
+            faults.record("aim_checklist_cut", "a checklist batch", "answer cut")
             return []  # a cut answer is never used, and on the local model it never stops the run
         log.info(
             "general review: a checklist answer was cut; its batch is asked again in two halves"
@@ -679,9 +680,7 @@ def s3_attack(
         except StepFailed as exc:  # a cut answer is never used: on the local model that batch's attack is set aside
             if not is_local() or "max_tokens" not in str(exc):
                 raise
-            logging.getLogger(__name__).info(
-                "general review: a cut attack answer of one batch is not used"
-            )
+            faults.record("aim_attack_cut", "an attack batch", "answer cut")
             continue
         for k in out:
             out[k] += (got.get(k) or []) if isinstance(got, dict) else []

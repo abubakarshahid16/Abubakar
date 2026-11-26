@@ -93,8 +93,8 @@ def engine_of(conn, run: dict) -> dict:
     return {
         "local": True,
         "models": models,
-        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}. "
-        f"{aim_review_gate.LOCAL_TEST_NOTE}{paper}",
+        # the local model's measured note is in the score line (`measured`), which the page draws (review of update 9, M6)
+        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}.{paper}",
         "by_step": steps,
     }
 
@@ -105,7 +105,8 @@ def _blank(value):
 
 def measured(identity: dict | None, local: dict) -> dict | None:
     """The score line of the run: its kind's measured score (`aim_review_measured.for_run`), or for a local run the not-scored
-    words (`aim_review_measured.for_local_run`). None when a Claude run names no kind."""
+    words (`aim_review_measured.for_local_run`) followed by the local model's measured note (`aim_review_gate.LOCAL_TEST_NOTE`;
+    the page draws this line, review of update 9, M6). None when a Claude run names no kind."""
     identity = identity if isinstance(identity, dict) else {}
     if local.get("local"):
         out = aim_review_measured.for_local_run(
@@ -115,6 +116,7 @@ def measured(identity: dict | None, local: dict) -> dict | None:
         extra = [
             x
             for x in (
+                aim_review_gate.LOCAL_TEST_NOTE,
                 steps.get("sentence") and f"Model by step: {steps['sentence']}.",
                 steps.get("paper"),
             )

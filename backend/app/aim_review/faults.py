@@ -93,4 +93,23 @@ NOT_APPLIED_WORDS = {
     "aim_formula_checks": "The formula checks did not run in full on this sheet ({why}): a limit a held standard states may not "
     'have been checked by code, so do not read "no formula line" as "nothing found".',
     "aim_checklist_save": "The checklist was not saved for reuse ({why}); this sheet was judged on it all the same.",
+    # the local model's set-asides (review of update 9, M5): a cut answer is never used, and each one is counted here
+    "aim_checklist_cut": "{n} checklist batch{es} gave no items ({why}): the rules in {it} were not made checklist items.",
+    "aim_attack_cut": "{n} attack batch{es} {was} not used ({why}): the checklist was not attacked on those rules.",
+    "aim_retry_dropped": "{n} checklist item{s} {was} left out: {its} rule quote was not found on the book page, and the "
+    "answer when asked again for the rule's exact words was not used ({why}).",
+    "aim_repeat_cut": "{n} checklist answer{s} repeated {itself} and {was} cut at the first repeat ({why}).",
 }
+
+
+#: The count words of the local set-asides' sentences, as (one, more than one).
+_COUNT_WORDS = {"{es}": ("", "es"), "{s}": ("", "s"), "{was}": ("was", "were"), "{it}": ("it", "them"), "{its}": ("its", "their"),
+                "{itself}": ("itself", "themselves")}  # fmt: skip
+
+
+def counted(words: str, n: int) -> str:
+    """A NOT_APPLIED_WORDS sentence with its count `n`; the words of the other steps hold no count and are unchanged."""
+    words = words.replace("{n}", str(n))
+    for mark, (one, more) in _COUNT_WORDS.items():
+        words = words.replace(mark, one if n == 1 else more)
+    return words
