@@ -19,6 +19,7 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
     BUILT_FROMS,  # noqa: F401
 )
 
+from . import attack_local as AL
 from . import book_names as BN
 from . import citing as CI
 from . import faults
@@ -661,34 +662,29 @@ def s3_attack(
         }
         for it in made["items"]
     ]
-    # one call with all the material on Claude; on the local model one per material batch, the answers joined (26 Nov 2026)
-    out: dict = {"remove": [], "fix": [], "add": []}
-    for part in _batches(rows) if is_local() else [rows]:
-        try:
-            got = model.ask(
-                step="aim_attack",
-                model=strong,
-                system="",
-                cached=None,
-                prompt=_for_type(P.ATTACK_TASK)
-                % {
-                    "identity": _identity(ident),
-                    "kinds": _dumps(list(ITEM_KINDS)),
-                    "items": "\n".join(_dumps(s) for s in shown),
-                    "not_held": _not_held_line(sel) or "none",
-                    "books": _books_line(sel),
-                    "material": "\n".join(_material_line(r) for r in part),
-                },
-                carries=set(alias_to_book.values()),
-                max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
-            )
-        except StepFailed as exc:  # a cut answer is never used: on the local model that batch's attack is set aside
-            if not is_local() or "max_tokens" not in str(exc):
-                raise
-            faults.record("aim_attack_cut", "an attack batch", "answer cut")
-            continue
-        for k in out:
-            out[k] += (got.get(k) or []) if isinstance(got, dict) else []
+    if is_local():  # every item, one short verdict each, no answer cut (`attack_local`)
+        return AL.attack(model, ident, sel, made, rows, shown, strong)
+    got = model.ask(  # Claude: one call with all the material, as before
+        step="aim_attack",
+        model=strong,
+        system="",
+        cached=None,
+        prompt=_for_type(P.ATTACK_TASK)
+        % {
+            "identity": _identity(ident),
+            "kinds": _dumps(list(ITEM_KINDS)),
+            "items": "\n".join(_dumps(s) for s in shown),
+            "not_held": _not_held_line(sel) or "none",
+            "books": _books_line(sel),
+            "material": "\n".join(_material_line(r) for r in rows),
+        },
+        carries=set(alias_to_book.values()),
+        max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
+    )
+    out = {
+        k: (got.get(k) or []) if isinstance(got, dict) else []
+        for k in ("remove", "fix", "add")
+    }
     by_id = {it["id"]: it for it in made["items"]}
     log = {"removed": [], "fixed": [], "added": [], "rejected": []}
     for r in out.get("remove") or []:

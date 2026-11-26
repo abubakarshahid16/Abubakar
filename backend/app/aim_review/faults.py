@@ -100,6 +100,10 @@ NOT_APPLIED_WORDS = {
     "answer when asked again for the rule's exact words was not used ({why}).",
     "aim_retry_capped": "{n} checklist item{s} {was} left out without a second ask (the local model makes one retry call "
     "per batch): {why}.",
+    "aim_attack_item_cut": "{n} checklist item{s} {was} not attacked ({why}) and {was} kept as the first engineer wrote "
+    "{it}.",
+    "aim_attack_no_verdict": "{n} checklist item{s} got no attack verdict ({why}) and {was} kept as the first engineer "
+    "wrote {it}.",
     "aim_repeat_cut": "{n} checklist answer{s} repeated {itself} and {was} cut at the first repeat ({why}).",
 }
 

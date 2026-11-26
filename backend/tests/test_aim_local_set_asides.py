@@ -12,7 +12,7 @@ from app.aim_review import budget, faults
 from app.aim_review import checklist as CL
 from app.aim_review import retry as RT
 from app.aim_review.engine import StepFailed
-from tests.test_aim_local_fixes import _AttackCut, _Book, _Retry, _Runaway, _sel
+from tests.test_aim_local_fixes import _Book, _Retry, _Runaway, _sel
 
 IDENT = {
     "kind": "datasheet",
@@ -56,18 +56,27 @@ def test_cut_checklist_batches_are_counted_under_steps_that_did_not_run():
     )
 
 
-def test_a_cut_attack_batch_is_counted_once():
-    sel = _sel(120)
-    made = {"items": [{"id": f"C{k:03d}", "topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
-                       "rule_quote": "q", "applies_when": "always", "paper_fields": [], "kind": "limit",
-                       "source": "held standard"} for k in range(1, 9)]}  # fmt: skip
-    calls: list = []
-    with faults.recording(calls), budget.using(budget.LOCAL):
-        CL.s3_attack(_AttackCut(), IDENT, sel, made, None, "local")
-    said = _said(calls)["aim_attack_cut"]
-    assert said["count"] == 1
-    assert said["sentence"] == (
-        "1 attack batch was not used (answer cut): the checklist was not attacked on those rules."
+def test_an_attack_item_cut_or_given_no_verdict_is_counted_and_kept():
+    one = [
+        {
+            "step": "aim_attack_item_cut",
+            "ok": False,
+            "code": "an attack item not applied: answer cut",
+        }
+    ]
+    assert _said(one)["aim_attack_item_cut"]["sentence"] == (
+        "1 checklist item was not attacked (answer cut) and was kept as the first engineer wrote it."
+    )
+    two = [
+        {
+            "step": "aim_attack_no_verdict",
+            "ok": False,
+            "code": "an attack item not applied: no verdict in the answer",
+        }
+    ] * 2
+    assert _said(two)["aim_attack_no_verdict"]["sentence"] == (
+        "2 checklist items got no attack verdict (no verdict in the answer) and were kept as the first engineer "
+        "wrote them."
     )
 
 
@@ -426,3 +435,17 @@ def test_items_left_out_are_counted_by_cause_on_the_page_and_the_sheet():
     ) == len(items)
     assert any(x["sentence"].startswith("2 checklist items were left out") and x["sentence"].endswith("(paraphrased).")
                for x in said)  # fmt: skip
+
+
+def test_a_full_local_attack_answer_stays_under_the_answer_limit_even_at_one_token_per_character():
+    from app.aim_review import answer_schema as A
+    from app.aim_review import attack_local as AL
+
+    shape = A.for_step("aim_attack_items")["properties"]["verdicts"]
+    one = (
+        sum(v.get("maxLength", 6) for v in shape["items"]["properties"].values()) + 80
+    )  # keys, quotes, braces
+    assert (
+        shape["maxItems"] == AL.ATTACK_ITEMS
+        and AL.ATTACK_ITEMS * one + 40 < budget.LOCAL.max_tokens
+    )

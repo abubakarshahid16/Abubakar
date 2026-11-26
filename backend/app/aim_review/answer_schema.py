@@ -106,7 +106,26 @@ _ITEMS = {
     "required": ["items"],
 }
 
+#: The local attack's answer (`attack_local`): one short fixed verdict per item, each bounded.
+_VERDICT = {
+    "type": "object",
+    "properties": {
+        "id": _text(12),
+        "verdict": {"enum": ["keep", "remove", "fix"]},
+        "why": _text(160),
+        "what_to_check": _text(300),
+    },
+    "required": ["id", "verdict", "why", "what_to_check"],
+}
+
 SCHEMAS: dict[str, dict] = {
+    "aim_attack_items": {
+        "type": "object",
+        "properties": {
+            "verdicts": {"type": "array", "items": _VERDICT, "maxItems": 12}
+        },
+        "required": ["verdicts"],
+    },
     "aim_judge": {
         "type": "object",
         "properties": {

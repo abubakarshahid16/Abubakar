@@ -52,13 +52,17 @@ def test_only_a_step_with_a_full_shape_is_forced_and_every_other_step_keeps_plai
     """26 Nov 2026: a schema naming only the answer keys let the 14B write the paper's identity as its kind alone (30 tokens
     against 741), so the review lost the equipment type and subject: such a step gets no schema."""
     forced = {s for s in P.ANSWER_KEYS if A.for_step(s)}
-    assert forced == {
-        "aim_judge",
-        "aim_second_read",
-        "aim_checklist",
-        "aim_checklist_retry",
-        "aim_checklist_knowledge",
-    }
+    assert (
+        forced
+        == {
+            "aim_judge",
+            "aim_second_read",
+            "aim_checklist",
+            "aim_checklist_retry",
+            "aim_checklist_knowledge",
+            "aim_attack_items",  # the local attack's short verdicts (lead-4, 26 Nov 2026: no answer cut)
+        }
+    )
     for step in forced:
         assert A.for_step(step)["type"] == "object" and set(
             A.for_step(step)["required"]

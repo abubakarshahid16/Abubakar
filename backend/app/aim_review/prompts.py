@@ -142,6 +142,21 @@ Books: %(books)s
 THE CLAUSES:
 %(material)s"""
 
+#: The local model's attack (`attack_local`): one short fixed verdict per item, so no answer is cut (lead-4, 26 Nov 2026).
+ATTACK_LOCAL = """TASK - ATTACK THESE CHECKLIST ITEMS. You are a second, more senior engineer. The paper above was identified as:
+%(identity)s
+A first engineer wrote the checklist items below for it from the clauses listed after them. Give EVERY item one verdict:
+"keep" (the clause says it and it applies to this paper), "remove" (the clause does not say it, it checks the wrong thing, it is
+for other equipment or another kind of paper, or this paper cannot show it), or "fix" (the right subject but the wrong check:
+give the corrected what_to_check in one line). Reply with ONE JSON object only:
+{"verdicts": [{"id": "C..", "verdict": "keep" or "remove" or "fix", "why": "one sentence", "what_to_check": "the corrected
+line for a fix, else empty"}]}
+THE ITEMS:
+%(items)s
+Books: %(books)s
+THE CLAUSES:
+%(material)s"""
+
 S4_TASK = """TASK S4 - JUDGE THE PAPER ABOVE AGAINST THESE CHECKLIST ITEMS. For each item: read the clause (given), read the
 paper pages it names (and any other page where the thing is), and judge.
 Labels: "Met" (the paper states what the clause requires), "Not met" (the paper states something that breaks it), "Question"
@@ -270,6 +285,7 @@ ANSWER_KEYS: dict[str, frozenset[str]] = {
     "aim_checklist_retry": frozenset({"items"}),
     "aim_checklist_knowledge": frozenset({"items"}),
     "aim_attack": frozenset({"remove", "fix", "add"}),
+    "aim_attack_items": frozenset({"verdicts"}),
     "aim_judge": frozenset({"judgments"}),
     "aim_answered": frozenset({"verdicts"}),
     "aim_second_read": frozenset({"reads"}),
