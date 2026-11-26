@@ -32,7 +32,7 @@ describe("the WBS register", () => {
     });
     render(<DeliverablesView />);
     expect(await screen.findByText("the register broke")).toBeInTheDocument();
-    expect(screen.getByText(/The WBS register could not be loaded/)).toBeInTheDocument();
+    expect(screen.getByText(/The deliverables list could not be loaded/)).toBeInTheDocument(); // everyday words (was 'WBS register')
     expect(screen.queryByText("No deliverables have been registered yet.")).toBeNull();
   });
 
@@ -60,5 +60,27 @@ describe("V2: an inferred expectation is named by its source", () => {
     expect(await screen.findByText(/from spec-a\.pdf, page 7/)).toBeInTheDocument();
     expect(screen.getByText(/from spec-b\.pdf, page not recorded/)).toBeInTheDocument();
     expect(screen.queryByText(/\bnull\b/)).toBeNull();
+  });
+});
+
+describe("everyday words and the late count (lead-4, 26 Nov 2026)", () => {
+  const item = (status: string, due_date: string | null) => ({ status, due_date }) as never;
+  it("late is past the due date, over the open items with a due date; with none it is not counted", async () => {
+    const { deliverablesSummary } = await import("./DeliverablesView");
+    expect(deliverablesSummary([], [])).toBe("No deliverable is listed yet: add the first one below.");
+    expect(deliverablesSummary([item("submitted", null)], [])).toBe("1 deliverable listed; late: not counted, none open has a due date.");
+    // due today (days_overdue 0) is not late; an approved item is not in the boundary
+    expect(deliverablesSummary([item("submitted", "2026-11-20"), item("planned", "2026-11-26"), item("approved", "2026-01-01")],
+      [{ days_overdue: 6 }, { days_overdue: 0 }])).toBe("3 deliverables listed; 1 late, of 2 open with a due date.");
+  });
+  it("an AI-suggested title loses the word 'Inferred' on screen", async () => {
+    const { expectedTitle } = await import("./DeliverablesView");
+    expect(expectedTitle("Inferred drawing requirement")).toBe("Drawing requirement");
+    expect(expectedTitle("Pump datasheet")).toBe("Pump datasheet");
+  });
+  it("a replaced deliverable reads in everyday words; the stored value is unchanged", async () => {
+    const { statusWords } = await import("./DeliverablesView");
+    expect(statusWords("superseded")).toBe("replaced by a later revision");
+    expect(statusWords("under_review")).toBe("under review");
   });
 });

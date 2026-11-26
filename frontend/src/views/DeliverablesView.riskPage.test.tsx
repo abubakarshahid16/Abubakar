@@ -61,6 +61,6 @@ describe("the risk register is paged", () => {
       total: 1, limit: 50, offset: 0,
     }));
     render(<DeliverablesView />);
-    expect(await screen.findByText("AI suggested · 27 review findings on this document")).toBeInTheDocument();
+    expect(await screen.findByText("AI suggested · 27 review comments on this document")).toBeInTheDocument();
   });
 });

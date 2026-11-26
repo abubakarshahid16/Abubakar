@@ -42,7 +42,8 @@ const api = vi.hoisted(() => ({
   checkNow: vi.fn(), importAgain: vi.fn(), prepareAllPlan: vi.fn(), prepareAllStart: vi.fn(),
 }));
 
-vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
+const cls = vi.hoisted(() => ({ ofDocument: vi.fn(), confirm: vi.fn() }));
+vi.mock("../api/client", () => ({ technicalQueriesApi: api, classification: cls }));
 
 describe("Technical Queries screen", () => {
   beforeEach(() => {
@@ -502,5 +503,27 @@ describe("Technical Queries screen", () => {
     expect(await screen.findByText(`Received: ${formatWhen(at)}`)).toBeTruthy();
     expect(screen.getByText(new RegExp(`Confirmed by an engineer on ${formatWhen(at).replace(/[+]/g, "\\+")}`))).toBeTruthy();
     expect(screen.queryByText(new RegExp(at))).toBeNull();
+  });
+
+  it("an administrator confirms a source document in place: the same request as Save metadata, then the query is read again (F's click count)", async () => {
+    const unconfirmed = { ...query, evidence: [{ id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" }] };
+    const confirmed = { ...unconfirmed, evidence: [{ ...unconfirmed.evidence[0], supersession_state: "current" }] };
+    api.get.mockResolvedValueOnce({ ok: true, data: unconfirmed }).mockResolvedValue({ ok: true, data: confirmed });
+    cls.ofDocument.mockResolvedValue({ ok: true, data: { document_role: "CONTRACT_DOCUMENT", title: " Invented Schedule ", equipment_tags: ["P-1"], doc_type: null, discipline: null, doc_class: null, subjects: [] } });
+    cls.confirm.mockResolvedValue({ ok: true, data: {} });
+    render(<TechnicalQueriesView queryId="q1" isAdmin />);
+    fireEvent.click(await screen.findByTestId("confirm-source"));
+    await waitFor(() => expect(cls.confirm).toHaveBeenCalledTimes(1));
+    const [id, body] = cls.confirm.mock.calls[0];
+    expect(id).toBe("c1");
+    expect(body).toMatchObject({ document_role: "CONTRACT_DOCUMENT", title: "Invented Schedule", equipment_tags: ["P-1"], revision: null });
+    await waitFor(() => expect(screen.queryByTestId("evidence-needs-confirm")).toBeNull()); // read again: now counts for a draft
+  });
+
+  it("someone who may not confirm sees the way to do it, not a button", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, evidence: [{ id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" }] } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    expect((await screen.findByTestId("evidence-needs-confirm")).textContent).toContain("Documents, Details, Save metadata");
+    expect(screen.queryByTestId("confirm-source")).toBeNull();
   });
 });

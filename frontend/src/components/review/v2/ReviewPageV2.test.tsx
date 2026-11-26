@@ -915,6 +915,26 @@ function general(over: Partial<GeneralReview> = {}): GeneralReview {
   };
 }
 
+describe("the general review opened is the one drawn (lead-4, 26 Nov 2026)", () => {
+  it("draws the general run that was opened, not the paper's newer one, and names the newer one", async () => {
+    api.general.mockResolvedValue(ok(general({ run_id: "g-signed" })));
+    mount({ run: { ...(RUN as object), review_run_id: "g-signed", method: "general",
+      newer_note: "A newer review exists, not signed (Local model: rough draft)" } as never });
+    await screen.findByTestId("general-results");
+    expect(api.general).toHaveBeenCalledWith("doc1", "g-signed");
+    expect(api.general).not.toHaveBeenCalledWith("doc1");
+    expect(screen.getByTestId("v2-newer-note")).toHaveTextContent("A newer review exists, not signed (Local model: rough draft).");
+  });
+
+  it("an earlier-version run still asks for the paper's latest general review", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    mount();
+    await screen.findByTestId("general-results");
+    expect(api.general).toHaveBeenCalledWith("doc1");
+    expect(screen.queryByTestId("v2-newer-note")).toBeNull();
+  });
+});
+
 describe("12 the general review's results page (order 14)", () => {
   it("counts the confirmations apart and shows them only in a closed part, not among the comments (18 Nov 2026)", async () => {
     const g = general();

@@ -505,7 +505,9 @@ def review_run_detail(
 
     # Plan change 6 B: the pair for the one run a screen asked for; null with the switch off.
     pair = coverage_pair_mod.for_screen(connect(), review_run_id)
-    return {**main_mod._run_summary(run, scope), "coverage_pair": pair}
+    # a general run carries its row's own fields too (method, engine, face, newer note), so the page draws the review it opened
+    general = aim_review_runs_mod.face_fields(connect(), scope.allowed_document_ids, review_run_id) or {}
+    return {**main_mod._run_summary(run, scope), **general, "coverage_pair": pair}
 
 
 def crs_row_fields(rows: list[dict], findings: list[dict]) -> dict[str, dict]:

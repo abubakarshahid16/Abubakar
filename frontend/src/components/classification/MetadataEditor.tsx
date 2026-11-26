@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 
 import { classification } from "../../api/client";
 import type { DocumentClassification, DocumentRole } from "../../types/api";
+import { confirmBody, TEXT_FIELDS } from "./metadataBody";
 
 /** The five roles, with the words an engineer uses for them.
  *
@@ -33,19 +34,6 @@ export const ROLE_OPTIONS: ReadonlyArray<{ value: DocumentRole; label: string }>
   { value: "SUPPORTING_DOCUMENT", label: "Supporting document" },
   { value: "CRS_TEMPLATE", label: "CRS template" },
 ];
-
-/** The free-text fields, in the order an engineer reads them off a title block. */
-const TEXT_FIELDS = [
-  ["title", "Title"],
-  ["document_number", "Document number"],
-  ["revision", "Revision"],
-  ["effective_date", "Effective date"],
-  ["project", "Project"],
-  ["contractor_vendor", "Contractor or vendor"],
-  ["equipment_type", "Equipment type"],
-  ["service", "Service"],
-  ["transmittal_number", "Transmittal number"],
-] as const;
 
 type TextField = (typeof TEXT_FIELDS)[number][0];
 
@@ -89,20 +77,8 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
     setSaving(true);
     setError(null);
     setSaved(false);
-    // Blank means CLEARED, so an empty string is sent as null rather than as
-    // "". A "" in the column would be a value that renders as nothing and
-    // sorts as something - a third state nobody asked for.
-    const body: Record<string, unknown> = {
-      doc_type: record?.doc_type ?? null,
-      discipline: record?.discipline ?? null,
-      doc_class: record?.doc_class ?? null,
-      subject_ids: (record?.subjects ?? []).map((s) => s.id),
-      document_role: role === "" ? null : role,
-      equipment_tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-    };
-    for (const [field] of TEXT_FIELDS) {
-      body[field] = text[field]?.trim() ? text[field].trim() : null;
-    }
+    // one home of the request (metadataBody): blank is sent as null, never ""
+    const body = confirmBody(record, { role, text, tags });
     const result = await classification.confirm(documentId, body as never);
     setSaving(false);
     if (!result.ok) {
