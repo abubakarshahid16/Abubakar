@@ -18,6 +18,11 @@ pages whose exact text is in the request, found by code (`paper._marked` for the
 reference paper). So the record cannot name a document the gate was not told of, and the gate cannot be told of one the record
 leaves out. A request holding a page of the paper under review that does not declare the paper is REFUSED before it leaves.
 
+THE LEDGER. A call row's `request_sha256` is the digest of the request's parts (system, cached block, prompt). The money ledger
+keeps the digest of the whole request BODY, which only the Claude call builds, with the key in its request. So the two are matched
+by step and by the exact documents a call declared (`scripts/nine_record_check.py`, invariant 7): every ledger reservation of the
+run must match a record call.
+
 IDS, NUMBERS, CODES AND CHECKSUMS ONLY: never a title, a file name, any document text or any model output. Money: each step keeps
 its own ledger line (its USD 5 step cap) and the run its USD 15 cap, as today; this module changes neither (`claude_spend` untouched).
 """

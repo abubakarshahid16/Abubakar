@@ -10,7 +10,12 @@ Exit 0 when the record holds; exit 1 with one line per problem. A problem is any
   4. a document read by a Claude call that is not on the run's stored shown list (when the run has one; the paper is always
      allowed);
   5. calls of a step that differ from the run's own stored calls of that step (answered calls against the calls stored as ok);
-  6. a role's stored counts that differ from its rows (calls, calls answered, paper pages sent, page pictures sent).
+  6. a role's stored counts that differ from its rows (calls, calls answered, paper pages sent, page pictures sent);
+  7. with the money ledger (`--ledger`, or the data folder's claude_spend.jsonl): a ledger reservation of this run that no record
+     call matches by its step AND the exact documents it sent. Everything the ledger saw leave must be in the record. A record
+     call with no ledger line was answered from the stored answers (nothing sent): counted, not a problem. The ledger keeps the
+     request BODY's digest, which is built with the key, so the record keeps its parts' digest and the two match by step and
+     documents instead.
 """
 
 from __future__ import annotations
@@ -72,6 +77,50 @@ def _shown(conn, run_id: str, tables: set[str]) -> set[str] | None:
     except ValueError:
         return set()
     return {str(d) for d in got} if isinstance(got, list) else set()
+
+
+def ledger_problems(
+    conn, run_id: str, ledger_lines: list[dict]
+) -> tuple[list[str], int]:
+    """(problems, record calls the ledger has no line for): every reservation of this run must match one record call (not refused
+    before sending) with the same step and the same set of documents."""
+    calls = {c["call_id"]: c for c in (dict(r) for r in conn.execute(f"SELECT * FROM {CALLS} WHERE run_id = ?", (run_id,)))
+             if c["engine"] == "claude" and c["state"] in ("answered", "failed")}  # fmt: skip
+    docs: dict[str, set[str]] = {}
+    for r in conn.execute(
+        f"SELECT call_id, document_id FROM {READS} WHERE run_id = ?", (run_id,)
+    ):
+        docs.setdefault(r[0], set()).add(str(r[1]))
+    pool = Counter((c["step"], frozenset(docs.get(i, set()))) for i, c in calls.items())
+    problems = []
+    for line in ledger_lines:
+        if str(line.get("run") or "") != run_id or not line.get("reserved"):
+            continue
+        key = (
+            str(line.get("step") or ""),
+            frozenset(
+                str(d.get("document_id")) for d in line.get("sent_documents") or []
+            ),
+        )
+        if pool[key] > 0:
+            pool[key] -= 1
+        else:
+            problems.append(
+                f"ledger: a {key[0]} call sent {len(key[1])} document(s) that no record call of that step declares"
+            )
+    return problems, sum(pool.values())
+
+
+def read_ledger(path: Path) -> list[dict]:
+    out = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(line, dict):
+            out.append(line)
+    return out
 
 
 def check(conn, run_id: str) -> list[str]:
@@ -190,8 +239,14 @@ def main(argv=None) -> int:
         help="a data folder or its rag_intelligence.sqlite (opened read-only)",
     )
     ap.add_argument("--run", required=True, help="the general review run id")
+    ap.add_argument(
+        "--ledger",
+        help="the money ledger (claude_spend.jsonl); default: the data folder's own, when present",
+    )
     a = ap.parse_args(argv)
     conn = _open(a.db)
+    folder = Path(a.db) if Path(a.db).is_dir() else Path(a.db).parent
+    ledger = Path(a.ledger) if a.ledger else folder / "claude_spend.jsonl"
     if {ROLES, CALLS, READS} <= _tables(conn):
         for r in conn.execute(f"SELECT role_no, role, state, why, engine, calls, usd FROM {ROLES} WHERE run_id = ? ORDER BY role_no",
                               (a.run,)):  # fmt: skip
@@ -201,6 +256,12 @@ def main(argv=None) -> int:
                   f" reads {reads[0]:4} documents {reads[1]:3} usd {r['usd'] if r['usd'] is not None else '-'}"
                   f"{'  (' + r['why'] + ')' if r['why'] else ''}")  # fmt: skip
     problems = check(conn, a.run)
+    if ledger.is_file() and {CALLS, READS} <= _tables(conn):
+        more, unmatched = ledger_problems(conn, a.run, read_ledger(ledger))
+        problems += more
+        print(
+            f"ledger: {ledger.name}; record calls answered from the stored answers (no ledger line): {unmatched}"
+        )
     for p in problems:
         print("PROBLEM:", p)
     print("RECORD OK" if not problems else f"RECORD NOT OK: {len(problems)} problem(s)")

@@ -133,3 +133,53 @@ def test_a_database_with_no_record_says_so_and_the_script_exits_one(
         assert NRC.main(["--db", str(settings.db_path), "--run", "run_x"]) == 1
     finally:
         next(gen, None)
+
+
+def _ledger_from_record(conn) -> list[dict]:
+    """The ledger lines a real run of these calls would write: one reservation per Claude call, with the documents it carried."""
+    lines = []
+    for c in conn.execute(
+        f"SELECT call_id, step FROM {roles.CALLS} WHERE run_id = ? AND state = 'answered'",
+        (RUN,),
+    ).fetchall():
+        docs = [
+            r[0]
+            for r in conn.execute(
+                f"SELECT document_id FROM {roles.READS} WHERE call_id = ?", (c[0],)
+            )
+        ]
+        lines.append(
+            {
+                "run": RUN,
+                "step": c[1],
+                "reserved": True,
+                "sent_documents": [{"document_id": d} for d in docs],
+            }
+        )
+        lines.append({"run": RUN, "step": c[1], "settles": "r"})
+    return lines
+
+
+def test_every_ledger_reservation_must_match_a_record_call_by_step_and_documents(ran):
+    lines = _ledger_from_record(ran)
+    assert NRC.ledger_problems(ran, RUN, lines) == ([], 0)
+    # a call the record does not show: the ledger saw a book leave that no record call of that step declares
+    planted = [
+        *lines,
+        {
+            "run": RUN,
+            "step": "aim_judge",
+            "reserved": True,
+            "sent_documents": [{"document_id": "doc_not_declared"}],
+        },
+    ]
+    problems, _n = NRC.ledger_problems(ran, RUN, planted)
+    assert len(problems) == 1 and "aim_judge" in problems[0]
+    # a record call with no ledger line (answered from the stored answers): counted, not a problem
+    problems, n = NRC.ledger_problems(ran, RUN, lines[2:])
+    assert problems == [] and n == 1
+    # another run's lines are not this run's
+    assert NRC.ledger_problems(ran, RUN, [{**planted[-1], "run": "other"}]) == (
+        [],
+        len(lines) // 2,
+    )
