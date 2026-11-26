@@ -76,7 +76,7 @@ def with_unread(conn, paper_id: str, paper, _reload):
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
         from . import (
             drawing_pages,
-        )  # a paper recorded as a drawing: its pages' picture part (update 13); any other kind: nothing
+        )  # a paper an engineer confirmed as a drawing: its pages' picture part (update 13); any other paper: nothing
 
         paper.unread += drawing_pages.marks(
             conn, paper_id, paper, ref["path"], MIN_PAGE_CHARS

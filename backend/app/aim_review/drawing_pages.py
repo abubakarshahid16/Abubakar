@@ -1,19 +1,20 @@
 """WHAT OF A DRAWING WAS READ (update 13, lead-4, 26 Nov 2026; builder H). A drawing PDF exported from CAD usually carries a text layer: its
 title block, notes, tags and line numbers. The review reads that text; it does NOT read the drawing itself (lines, symbols, connections).
-So, page by page, for a paper the app recorded as a DRAWING before the review (`agent_review_kind.read_kind`: the engineer's confirmed
-kind, else the code's reading of the cover and title; never the AI's naming inside the review):
+So, page by page, for a paper an ENGINEER CONFIRMED as a drawing (`document_kinds`, state confirmed; never a suggestion, a guess made
+from page shapes, or the AI's naming inside the review):
 
   - a page with 20 to 49 characters of text is PICTURE ONLY: named as not read, waiting for the picture reading (J3, its switch off);
     (a page under 20 characters is named already by `unread`, as for every kind);
   - a page with 50 or more characters and a title block (3 or more title-block fields) or a drawn share of 25% or more of the page is
     reviewed on its text and title block and named "picture part not read".
 
-A paper whose kind the code does NOT know (unknown, or "other") is treated as a drawing when its pages pass the PAGE TEST (lead-4, 26 Nov:
-a real drawing set read "unknown"): more than half of its pages of 50+ characters hold a title block (3+ fields) AND are drawn over a
-quarter of the page. Page shapes only, never the AI's naming; it adds only the honest notes above. The same test, at upload, SUGGESTS
-"drawing" for an engineer to confirm (`doc_router`); it never confirms by itself.
+THE PAGE TEST (upload only: it SUGGESTS "drawing" for an engineer to confirm, `doc_router`; it marks nothing in a review; update 13
+review B2: a ruled table counts as drawn, so drawn share alone would call a form a drawing): a page is a DRAWING SHEET when its bottom
+quarter (the sheet's title-block band) holds 3+ title-block fields, one of them a drawing number, AND the page is drawn over a quarter
+of its area. A paper is suggested when more than half of its pages of 50+ characters are drawing sheets. A form's header sits at the
+top and its revision footer names no drawing number.
 
-Any other known kind is untouched (its unread list is exactly as before: the Claude review of the scored kinds stays byte-identical). The
+Any other paper is untouched (its unread list is exactly as before: the Claude review of the scored kinds stays byte-identical). The
 record is codes and page numbers only ("page 3: picture_part_not_read"), never text. Reads the stored file through pdf_guard; no model,
 no network.
 """
@@ -52,48 +53,66 @@ def title_fields(text: str) -> int:
     return sum(1 for rx in TITLE_FIELDS if re.search(rx, low))
 
 
-#: Kinds the code reads that say nothing of the paper's shape: such a paper is a drawing when its pages pass the page test.
-OPEN_KINDS = frozenset({"other"})
+#: The drawing number label of a title block (the field a form's revision footer does not carry).
+DRAWING_NUMBER = TITLE_FIELDS[1]
+SHEET_BAND = 0.25  # the bottom quarter of the page, as it is shown
 
 
 def is_drawing(conn, paper_id: str) -> bool:
-    """The kind the app recorded for the paper BEFORE the review: drawing, and known (never a guess made inside the review)."""
-    return _how(conn, paper_id) == "kind"
+    """An engineer confirmed the paper's kind as drawing (`document_kinds`, state confirmed). A suggestion never counts."""
+    held = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_kinds'"
+    ).fetchone()
+    if held is None:
+        return False
+    row = conn.execute(
+        "SELECT kind, state FROM document_kinds WHERE document_id = ?", (str(paper_id),)
+    ).fetchone()
+    return (
+        row is not None
+        and row[1] == "confirmed"
+        and str(row[0] or "").lower() == DRAWING_KIND
+    )
 
 
-def _how(conn, paper_id: str) -> str | None:
-    """'kind' (known drawing), 'shape' (unknown or an open kind: the page test decides) or None (another known kind: untouched)."""
-    from app import agent_review_kind
+def is_sheet(page) -> bool:
+    """A drawing sheet: the bottom quarter (as shown) holds 3+ title-block fields with a drawing number, and the page is drawn."""
+    import pymupdf
 
-    got = agent_review_kind.read_kind(conn, str(paper_id)) or {}
-    if got.get("known") and got.get("kind") == DRAWING_KIND:
-        return "kind"
-    if not got.get("known") or got.get("kind") in OPEN_KINDS:
-        return "shape"
-    return None
+    r = page.rect
+    band = pymupdf.Rect(r.x0, r.y1 - SHEET_BAND * r.height, r.x1, r.y1)
+    if page.rotation:
+        band = (
+            band * page.derotation_matrix
+        )  # the text sits in the page's own (unrotated) coordinates
+    low = str(page.get_text("text", clip=band) or "").lower()
+    if not re.search(DRAWING_NUMBER, low) or title_fields(low) < MIN_TITLE_FIELDS:
+        return False
+    return drawn_share(page) >= MIN_DRAWN_SHARE
 
 
 def page_test(pages: dict, path) -> tuple[int, int]:
-    """(pages that hold a title block AND are drawn over a quarter of the page, pages of 50+ characters). No file: no page is
-    measured as drawn, so none passes."""
-    texts = {n: str(pages.get(n) or "").strip() for n in sorted(pages)}
-    texts = {n: t for n, t in texts.items() if len(t) >= MIN_DRAWING_CHARS}
-    titled = [n for n, t in texts.items() if title_fields(t) >= MIN_TITLE_FIELDS]
-    if not titled or path is None:
+    """(drawing sheets, pages of 50+ characters). No file: no page is measured, so none passes."""
+    texts = [
+        n
+        for n in sorted(pages)
+        if len(str(pages.get(n) or "").strip()) >= MIN_DRAWING_CHARS
+    ]
+    if not texts or path is None:
         return 0, len(texts)
     from app import pdf_guard
 
     passed = 0
     with pdf_guard.opened(str(path)) as pdf:
-        for n in titled:
+        for n in texts:
             if 1 <= n <= pdf.page_count:
                 with pdf_guard.held():
-                    passed += drawn_share(pdf.load_page(n - 1)) >= MIN_DRAWN_SHARE
+                    passed += is_sheet(pdf.load_page(n - 1))
     return passed, len(texts)
 
 
 def looks_drawn(pages: dict, path) -> bool:
-    """The page test: more than half of the pages of 50+ characters pass."""
+    """The page test: more than half of the pages of 50+ characters are drawing sheets."""
     passed, of = page_test(pages, path)
     return of > 0 and 2 * passed > of
 
@@ -154,8 +173,7 @@ def drawn_share(page) -> float:
 
 def marks(conn, paper_id: str, paper, path, min_chars: int) -> list[dict]:
     """The drawing pages' entries for the unread list (pages of `min_chars` characters or more only; shorter ones are `unread`'s)."""
-    how = _how(conn, paper_id)
-    if how is None or (how == "shape" and not looks_drawn(paper.pages, path)):
+    if not is_drawing(conn, paper_id):
         return []
     import contextlib
 
