@@ -389,7 +389,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
               come first; the email, its attachments and the evidence are folded below. Reorder only: the same parts, words and actions. */}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question for the draft</h3>
           {selected.confirmed_question
-            ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${selected.confirmed_question_at}` : ""}. The draft answers exactly this wording.</p>
+            ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${formatWhen(selected.confirmed_question_at)}` : ""}. The draft answers exactly this wording.</p>
             : <p className="mt-1 text-xs text-warn-500">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
           {proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question)) && <p className="mt-1 text-xs text-warn-500" data-testid="proposal-note">{proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question))}</p>}
           {!selected.confirmed_question && selected.proposed_questions?.length ? <div className="mt-2 rounded border border-ink-700 p-2" aria-label="Questions found in the attachment">
@@ -458,7 +458,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {selected.messages?.map((message, index) => <article key={`${message.received_at}-${index}`} className="mt-3 rounded border border-ink-700 p-3 text-sm text-slateish-300">
               {(message.is_inbound === 0 || message.is_inbound === false) && <p className="mb-1 inline-block rounded border border-signal-500 px-1 text-xs text-signal-300" data-testid="sent-by-us">Sent by us</p>}
               <p>From: {message.from_address}</p>{(({ lines, folded }) => <>{lines.map((line) => <p key={line} data-testid="mail-people">{line}</p>)}{folded && <details className="text-xs text-slateish-500"><summary className="cursor-pointer">show everyone</summary><p className="whitespace-pre-wrap">{folded}</p></details>}</>)(peopleLine(message.to_addresses, message.cc_addresses))}
-              <p>Received: {message.received_at}</p>
+              <p>Received: {formatWhen(message.received_at)}</p>
               {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
               <p className="mt-2 whitespace-pre-wrap">{message.body_main ?? message.body}</p>
               <Folded text={message.body_folded} />
