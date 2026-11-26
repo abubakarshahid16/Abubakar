@@ -1,11 +1,15 @@
-"""A line never asks the contractor to state a value the paper states (planner, 26 Nov 2026; #1887 shape): when the judge flags a
-value as left open but the VERIFIED quote states it, code does not treat it as open. By the quote's structure only, never the AI's
-words. Invented values only."""
+"""A value the judge flags as left open is a Question, in every case (owner: a value left to the vendor is a Question, never Pass or
+Fail). Update 13's always-on stated-value rule was taken out after its third review round (lead-4, 26 Nov 2026, review of update 13
+B1); these guards hold main's behaviour. `blank_markers.states_value` stays only for the required-entries filter (switch off).
+Invented values only."""
 
 from __future__ import annotations
 
+import pytest
+
 from app import blank_markers as BM
 from app.aim_review import steps as S
+from tests.test_aim_local_fixes import ANSWER, ITEM, PAPER
 
 
 def test_a_quote_that_names_the_field_and_holds_a_value_states_it():
@@ -30,69 +34,68 @@ def test_a_blank_an_open_marker_or_a_quote_naming_another_field_states_nothing()
     )
 
 
-def test_a_value_the_judge_flagged_open_but_the_quote_states_is_not_left_open_and_says_so():
-    notes: list[str] = []
-    assert (
-        S._left_open(
-            {"deferred": True, "field": "Inlet size"}, "Inlet size: 4 in", 1, notes
-        )
-        is False
-    )
-    assert notes == [BM.STATED_NOT_OPEN]
-    assert (
-        S._ask({"deferred": True}, "Question", False, None, None) != S.ASK_OPEN
-    )  # so never "please state"
+NUMS = {"paper_value": "1.5", "paper_unit": "mm", "operator": ">=", "rule_value": "3", "rule_unit": "mm"}  # fmt: skip
+SHEET = "Invented sheet.\nCorrosion allowance (pressure parts): 1.5 mm\n"
 
 
-def test_a_value_really_left_open_stays_open_and_an_unverified_quote_is_not_trusted():
-    notes: list[str] = []
-    assert (
-        S._left_open(
-            {"deferred": True, "field": "Inlet size"}, "Inlet size: TBA", 1, notes
-        )
-        is True
-        and notes == []
-    )
-    assert (
-        S._left_open(
-            {"deferred": True, "field": "Inlet size"}, "Inlet size: 4 in", None, notes
-        )
-        is True
-    )  # no verified page
-    assert (
-        S._left_open(
-            {"deferred": False, "field": "Inlet size"}, "Inlet size: 4 in", 1, []
-        )
-        is False
-    )  # unchanged
-
-
-def test_a_value_flagged_open_that_the_quote_states_gets_no_verdict_from_code_on_either_route():
-    """Update 13 suite (integrator, 26 Nov 2026): the judge's "left open" against a quote that states the value is a disagreement an
-    engineer settles (a part of the form the quote does not show may still be blank): a Question, never "please state", and code
-    gives it no Pass or Fail, on the local route and on Claude. A value not flagged open is still compared by code (the control)."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        "1.5 mm",
+        "VENDOR",
+        "MFR STD",
+        "per vendor",
+        "see note 3",
+        "(Note 2)",
+        "pending",
+        "not specified",
+        "unknown",
+        "",
+        "By Vendor",
+    ],
+)
+@pytest.mark.parametrize("label", ["Question", "Met", "Not met"])
+@pytest.mark.parametrize("on_page", [True, False])
+def test_a_value_the_judge_flags_left_open_is_a_question_with_no_verdict_from_code_on_both_routes(
+    value, label, on_page
+):
+    """Every shape the review of update 13 found (a stated figure, who-supplies words, note pointers, "pending", "not specified",
+    "unknown", a blank field), with each judge label, the quote on its page or not: a Question to the vendor, no code verdict."""
     from app.aim_review import budget
-    from tests.test_aim_local_fixes import ANSWER, ITEM, PAPER
+    from app.aim_review.paper import Paper
 
-    nums = {
-        "paper_value": "1.5",
-        "paper_unit": "mm",
-        "operator": ">=",
-        "rule_value": "3",
-        "rule_unit": "mm",
+    quote = f"Corrosion allowance (pressure parts): {value}".strip()
+    paper = Paper(
+        paper_id="doc_inv_sheet",
+        pages={
+            2: f"Invented sheet.\n{quote}\nDesign pressure: 20 barg\n"
+            if on_page
+            else SHEET
+        },
+    )
+    answer = {
+        **ANSWER,
+        "label": label,
+        "quote": quote,
+        "deferred": True,
+        "numbers": NUMS,
     }
-    flagged = {**ANSWER, "deferred": True, "numbers": nums}
     with budget.using(budget.LOCAL):
-        local = S._decide(ITEM, dict(flagged), PAPER, {}, "")
-    on_claude = S._decide(ITEM, dict(flagged), PAPER, {}, "")
+        local = S._decide(ITEM, dict(answer), paper, {}, "")
+    on_claude = S._decide(ITEM, dict(answer), paper, {}, "")
     for line in (local, on_claude):
-        assert (
-            line["label"] == "Question"
-            and not line["code_compare"]
-            and line["ask"] != S.ASK_OPEN
-        )
-        assert BM.STATED_NOT_OPEN in (line["code"] or "")
+        assert line["label"] == "Question" and not line["code_compare"]
+        assert line["deferred"] is True and line["ask"] in (
+            S.ASK_OPEN,
+            S.ASK_CONCERN,
+        )  # never "confirm"
+
+
+def test_the_control_a_stated_value_not_flagged_open_is_still_compared_by_code():
     assert (
-        S._decide(ITEM, {**ANSWER, "numbers": nums}, PAPER, {}, "")["label"]
+        S._decide(ITEM, {**ANSWER, "numbers": NUMS}, PAPER, {}, "")["label"]
         == "Not met"
-    )  # the control: compared by code
+    )
+    assert not hasattr(BM, "stated_despite") and not hasattr(
+        BM, "STATED_NOT_OPEN"
+    )  # the always-on rule is out
