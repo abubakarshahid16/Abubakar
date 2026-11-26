@@ -173,3 +173,21 @@ def test_a_passage_far_below_the_best_is_not_listed_and_the_page_counts_it():
     assert not any(
         C.below_floor(low, n, h) for n, h in enumerate(low)
     )  # never fewer than MIN_LISTED
+
+
+def test_a_cut_quote_with_no_full_stop_near_starts_at_its_clause_or_is_dropped_on_a_negation():
+    from app.technical_query_match import whole_sentences
+
+    run = "be started before the invented grout has cured for seven days"
+    page = "x" * 700 + " the invented pump, after the invented check " + run
+    assert (
+        whole_sentences(page, run) == "after the invented check " + run
+    )  # widened to the last clause mark
+    far = (
+        "x" * 700
+        + " the invented pump shall not in any invented case whatsoever "
+        + run
+    )
+    assert (
+        whole_sentences(far, run) is None
+    )  # a negation more than four words back: no quote
