@@ -1726,8 +1726,12 @@ def decide(
         for row in current.get("evidence", []):
             # a passage the system found for an EARLIER wording, untouched by anyone, is not part of this answer: it is folded on the page
             # and needs no decision (builder C's walk, 26 Nov 2026); every passage found for the current wording still does (lead-4)
-            if row["evidence_state"] == "proposed" and row.get("found_for") and not row.get("for_current_question"):
-                continue  # known to be another wording's; a row with no record of its wording still needs a decision
+            # a row with no record of its wording, on a query prepared again since wordings are recorded (evidence_question set), was
+            # not found by the current search: every passage that search finds is stamped, old rows found again included (lead-4)
+            if row["evidence_state"] == "proposed" and not row.get("for_current_question") and (
+                row.get("found_for") or current.get("evidence_question")
+            ):
+                continue  # another wording's find; on a query never prepared again, a row with no record still needs a decision
             if row["evidence_state"] in UNRESOLVED_EVIDENCE_STATES:
                 raise ValueError(unresolved_evidence_message(row["evidence_state"], "approval"))
 
