@@ -524,3 +524,15 @@ def test_the_plan_sentence_of_local_only_says_rough_draft_and_keeps_the_models_n
         "Rough draft, not scored as reliable." in words
         and aim_review_gate.LOCAL_TEST_NOTE in words
     )
+
+
+def test_the_section_says_since_when_changes_are_kept(engine, world):
+    """Lead-4, 26 Nov 2026: an empty history says since when nothing was recorded (the history came with update 11)."""
+    got = review_model_setting.options()
+    assert got["history"] == []
+    assert (
+        got["history_since"]
+        == review_model_setting.HISTORY_SINCE
+        == "2026-11-26T10:34:00Z"
+    )
+    assert got["history_since_update"] == "update 11"

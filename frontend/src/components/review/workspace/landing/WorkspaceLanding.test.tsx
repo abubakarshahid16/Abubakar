@@ -7,6 +7,7 @@
  * starting, and "L1: Start review ALWAYS starts a fresh review" fails; drop
  * the `watchRun` call in `reviewAll` and "L7" fails.
  */
+import { zoneLabel } from "../../../../format/when";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -223,7 +224,8 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
   it("H8: the row shows the run's own start time, not the moment it finished", async () => {
     // the latest run of Pump started 08:00 and finished 09:30 (UTC); the row says the start, in the reader's own zone
     const start = new Date("2026-11-18T12:44:01Z");
-    const fmt = (d: Date) => `${d.getDate()} Nov 2026, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const fmt = (d: Date) => `${d.getDate()} Nov 2026, ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+      + (zoneLabel(d) ? ` ${zoneLabel(d)}` : ""); // the zone is named (lead-4, 26 Nov 2026)
     renderLanding({ runs: [run({ created_at: "2026-11-18T12:44:01Z", completed_at: "2026-11-18T12:53:29Z" })] });
     const text = within(rowOf("Pump")).getByTestId("row-date").textContent;
     expect(text).toBe(`Started ${fmt(start)}`);
@@ -499,9 +501,9 @@ describe("WorkspaceLanding v2.2: Simple | Detailed, Open CRS, counts, help", () 
   it("v2.2 round 2: rows and All reviews say dates one way: day month year, time", async () => {
     renderLanding();
     // H8: a reviewed file's date is the latest review's own start, said "Started ..."
-    const style = /^Started \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/;
+    const style = /^Started \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} (GMT[+-]\d{1,2}(:\d{2})?|UTC|GMT|[A-Z]{2,5})$/; // the zone is named (lead-4, 26 Nov 2026)
     expect(within(rowOf("Pump")).getByTestId("row-date").textContent).toMatch(style);
     await userEvent.click(screen.getByRole("button", { name: "All reviews you may open (4)" }));
-    expect(screen.getAllByText(/^Started \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/)).toHaveLength(4);
+    expect(screen.getAllByText(/^Started \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} (GMT[+-]\d{1,2}(:\d{2})?|UTC|GMT|[A-Z]{2,5})$/)).toHaveLength(4);
   });
 });

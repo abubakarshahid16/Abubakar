@@ -47,6 +47,10 @@ _HISTORY_SCHEMA = f"""CREATE TABLE IF NOT EXISTS {HISTORY} (
 )"""
 #: How many of the latest changes the Administration page's section is given.
 HISTORY_SHOWN = 10
+#: Since when changes are kept: the history came with update 11, live on 26 Nov 2026 at 15:34 PKT (10:34 UTC). An empty history
+#: says "No change recorded since <this> (update 11)"; an earlier save left no row.
+HISTORY_SINCE = "2026-11-26T10:34:00Z"
+HISTORY_SINCE_UPDATE = "update 11"
 
 NOT_INSTALLED = "not installed on this computer"
 TOO_LARGE = "too large for this computer (its file is over 15 GB)"
@@ -265,6 +269,8 @@ def options(conn=None) -> dict:
         "answer_model_why": in_use.why,
         "stored": stored(conn),
         "history": history(conn),
+        "history_since": HISTORY_SINCE,
+        "history_since_update": HISTORY_SINCE_UPDATE,
         "used_by": "Local only runs of the general review; Automatic and Claude never use a local model.",
     }
 
