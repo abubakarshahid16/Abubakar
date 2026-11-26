@@ -102,6 +102,14 @@ G2_MORE = (
     "Check EACH definition and EACH such interval the paper gives; each wrong one is its own finding, quoting the paper."
 )
 
+#: Update 14 (lead-4, 26 Nov 2026: the FOUND work list, items 1 and 4, past the pairs above). Kinds of disagreement, no field names.
+G2_COUNTS = (
+    "ALSO: a COUNT the paper states (a number of items, parts, points or entries) that disagrees with the items it lists, or with "
+    "another count of the same items; and, for ANY property (not only pressure, temperature and flow), a design or rated value "
+    "below the maximum the paper states for that same property. Quote one value and give the other as rule_value with its quote "
+    "and page; code compares them."
+)
+
 
 def form_context(identity: dict) -> tuple[str, str]:
     """(G2's pairs, G3's entries) from the app's OWN data for the paper's type, only with update 13 on (planner, 26 Nov 2026: the
@@ -135,6 +143,7 @@ def form_context(identity: dict) -> tuple[str, str]:
                 + pairs
                 if pairs
                 else "",
+                G2_COUNTS,
                 G2_MORE,
             )
             if x
