@@ -1089,7 +1089,8 @@ def test_a_chosen_document_that_is_not_a_contract_is_not_sent_and_no_consent_is_
             scope,
             api.GenerateDraftIn(engine="claude", document_ids=["d1", "datasheet-1"]),
         )
-    assert "not a contract: not sent (datasheet-1)" in str(refused.value.detail)
+    # a submittal is never sent: only contracts and held standards (owner, 26 Nov 2026 23:00 PKT)
+    assert "not a contract or a held standard: not sent (datasheet-1)" in str(refused.value.detail)
     from app import technical_query_claude as C
 
     with db.connect() as conn:
