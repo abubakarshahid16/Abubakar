@@ -112,7 +112,8 @@ export interface TechnicalQueryMailbox {
   import_job?: MailboxImportJob | null;
 }
 
-export interface RoutingRule { id: string; match_type: "address" | "domain"; match_value: string; contractor_name: string | null; department: string | null }
+export type RoutingRuleType = "contractor_code" | "discipline" | "domain" | "address";
+export interface RoutingRule { id: string; match_type: RoutingRuleType; match_value: string; contractor_name: string | null; department: string | null }
 export interface GmailLabel { id: string; name: string; type: string }
 export interface TechnicalQueryAssignee { id: string; display_name: string }
 

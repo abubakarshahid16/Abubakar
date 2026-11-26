@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
 import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy } from "../api/technicalQueries";
-import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
+import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
   try {
@@ -12,6 +12,14 @@ function draftCitations(raw: string | undefined): Array<{ label: string; documen
     return [];
   }
 }
+
+/** The routing rules, the codes in the document number first (lead-4, 26 Nov 2026); a domain or address is the fallback. */
+const RULE_WORDS: Record<RoutingRuleType, string> = {
+  contractor_code: "Contractor code in the number",
+  discipline: "Discipline code",
+  domain: "Company domain",
+  address: "Exact address",
+};
 
 const SCAN_LABELS: Record<string, string> = {
   static_check_clean: "static check found no active content (not an antivirus scan)",
@@ -47,7 +55,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [toFilter, setToFilter] = useState("");
   const [evidenceFilter, setEvidenceFilter] = useState("");
   const [rules, setRules] = useState<RoutingRule[] | null>(null);
-  const [ruleType, setRuleType] = useState<"address" | "domain">("domain");
+  const [ruleType, setRuleType] = useState<RoutingRuleType>("contractor_code");
   const [ruleValue, setRuleValue] = useState("");
   const [ruleContractor, setRuleContractor] = useState("");
   const [ruleDepartment, setRuleDepartment] = useState("");
@@ -327,16 +335,16 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
               {item.needs_person ? <span className="mt-1 inline-block rounded border border-warn-500 px-1 text-xs text-warn-500" data-testid="needs-person">Needs a person: no full TQ or CFC number in the subject</span> : null}
-              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "Unknown contractor"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
+              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "contractor not set: add its code under Routing rules"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
             </button>
           ))}
         </div>
           {rules !== null && <details className="mt-5 rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Routing rules ({rules.length})</summary>
-            <p className="mt-2 text-slateish-400">A match fills a blank contractor or department when an email arrives. A public mail domain cannot be routed; an exact address can.</p>
-            <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><button type="button" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })} className="rounded bg-ink-700 px-2 py-1">Remove</button></li>)}</ul>
+            <p className="mt-2 text-slateish-400">Set once: the contractor code inside the document number names the contractor; the discipline code after the number names the department; the sender's domain or exact address is used when the number carries no code. A rule fills only blank fields, now and for every query already held. A public mail domain cannot be routed; an exact address can.</p>
+            <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{RULE_WORDS[rule.match_type] ?? rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><button type="button" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })} className="rounded bg-ink-700 px-2 py-1">Remove</button></li>)}</ul>
             <div className="mt-2 space-y-1">
-              <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as "address" | "domain")} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5"><option value="domain">Company domain</option><option value="address">Exact address</option></select>
-              <input aria-label="Rule value" value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder={ruleType === "domain" ? "company.example" : "person@company.example"} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as RoutingRuleType)} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5">{(Object.keys(RULE_WORDS) as RoutingRuleType[]).map((type) => <option key={type} value={type}>{RULE_WORDS[type]}</option>)}</select>
+              <input aria-label="Rule value" value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder={{ contractor_code: "the contractor code in the number, e.g. ABC", discipline: "a discipline code, e.g. PRO", domain: "company.example", address: "person@company.example" }[ruleType]} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
               <input aria-label="Rule contractor" value={ruleContractor} onChange={(event) => setRuleContractor(event.target.value)} placeholder="Contractor" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
               <input aria-label="Rule department" value={ruleDepartment} onChange={(event) => setRuleDepartment(event.target.value)} placeholder="Department" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
               <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>

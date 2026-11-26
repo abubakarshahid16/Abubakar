@@ -564,8 +564,11 @@ def import_message(
             return get(
                 threaded["query_id"], actor_user_id, is_admin, unrestricted
             ) or {}, False
-        contractor, department, routed_by = _routed(
-            conn, data["from_address"], data.get("contractor_name"), data.get("department")
+        from . import technical_query_routing
+
+        # the codes in the number first (contractor, discipline), then the sender's address / domain rule
+        contractor, department, routed_by = technical_query_routing.routed(
+            conn, data, data.get("contractor_name"), data.get("department"), _routed
         )
         conn.execute(
             "INSERT INTO technical_queries(id,owner_user_id,contractor_name,department,routing_source,subject,extracted_question,status,priority,received_at,created_at,updated_at,ref_key,ref_type,ref_number,discipline_code,title_short,needs_person) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -1697,13 +1700,15 @@ def _routed(conn, from_address: str, contractor: str | None, department: str | N
 
 
 def list_routing_rules() -> list[dict[str, Any]]:
+    from . import technical_query_routing
+
     with connect() as conn:
         return [
             dict(row)
             for row in conn.execute(
                 "SELECT * FROM query_routing_rules ORDER BY match_type,match_value"
             )
-        ]
+        ] + technical_query_routing.rules(conn)
 
 
 def set_routing_rule(
@@ -1716,6 +1721,14 @@ def set_routing_rule(
 ) -> list[dict[str, Any]]:
     if not is_admin:
         raise PermissionError("an administrator is required to change routing rules")
+    from . import technical_query_routing
+
+    # a code in the document number: its own map
+    if match_type in technical_query_routing.KINDS:
+        rule = (match_type, match_value, contractor_name, department, actor_user_id)
+        with connect() as conn:
+            technical_query_routing.set_rule(conn, *rule)
+        return list_routing_rules()
     value = (match_value or "").strip().casefold().lstrip("@")
     if match_type not in {"address", "domain"} or not value:
         raise ValueError("a rule names an address or a domain")
@@ -1744,6 +1757,9 @@ def set_routing_rule(
 def delete_routing_rule(rule_id: str, is_admin: bool) -> list[dict[str, Any]]:
     if not is_admin:
         raise PermissionError("an administrator is required to change routing rules")
+    from . import technical_query_routing
+
     with connect() as conn:
         conn.execute("DELETE FROM query_routing_rules WHERE id=?", (rule_id,))
+        technical_query_routing.delete_rule(conn, rule_id)
     return list_routing_rules()

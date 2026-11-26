@@ -171,7 +171,7 @@ class DraftIn(BaseModel):
 
 
 class RoutingRuleIn(BaseModel):
-    match_type: Literal["address", "domain"]
+    match_type: Literal["address", "domain", "contractor_code", "discipline"]
     match_value: str = Field(min_length=3, max_length=320)
     contractor_name: str | None = Field(default=None, max_length=300)
     department: str | None = Field(default=None, max_length=300)
