@@ -114,10 +114,8 @@ export function rowChip(state: InboxState, run: ReviewRunSummary | null = null, 
       return { text: "Not reviewed", tone: "quiet" };
     case "queued":
       return { text: "Waiting to start", tone: "moving" };
-    case "running": {
-      const where = state.step !== null && state.of !== null ? ` (step ${state.step} of ${state.of})` : "";
-      return { text: `Running${where}`, tone: "moving" };
-    }
+    case "running":
+      return { text: state.words ? `Running: ${state.words}` : "Running", tone: "moving" };
     case "ready": {
       if (needsYouOf(counts) > 0) return { text: "Waiting for you", tone: "attention" };
       if (run?.engineer_final_code) return { text: "Final code recorded, not signed", tone: "ready" };

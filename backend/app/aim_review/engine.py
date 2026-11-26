@@ -459,6 +459,7 @@ def _steps(
     say(5, "name the paper")
     ident = S.s1_identify(mdl, paper, _known_keys(store), lead)
     state.identity = _identity_record(ident)
+    _store_identity(conn, state)
     if state.cited is None:
         state.cited = L.cited_company(conn, state.paper_id)
     state.key = L.cited_key(
@@ -611,6 +612,16 @@ def _lost_knowledge(checklist: dict, sel: dict, run_id: str) -> bool:
         run_id,
     )
     return True
+
+
+def _store_identity(conn, state) -> None:
+    """The named kind goes on the run row while it runs (the progress page's measured minutes read it). A failure here never stops a review."""
+    try:
+        from app import aim_review_store
+
+        aim_review_store.set_identity(conn, state.run_id, state.identity)
+    except Exception as exc:  # noqa: BLE001 - never stops a review; logged by its class only
+        log.info("run identity not stored early (%s)", type(exc).__name__)
 
 
 def _identity_record(ident: dict) -> dict:

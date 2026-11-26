@@ -213,8 +213,7 @@ describe("WorkspaceLanding: the rows (L2, L3, L4, L9)", () => {
     const { onReload } = renderLanding();
     expect(within(rowOf("Valve")).getByTestId("status-chip")).toHaveTextContent("Failed: The file could not be opened.");
     const running = rowOf("Motor");
-    expect(within(running).getByTestId("status-chip")).toHaveTextContent("Running (step 3 of 5)");
-    expect(within(running).getByTestId("row-step")).toHaveTextContent("Comparing with the standards");
+    expect(within(running).getByTestId("status-chip")).toHaveTextContent("Running: Step 3 of 5: Comparing with the standards");
     expect(within(running).queryByRole("button", { name: /New review/ })).toBeNull();
     await userEvent.click(within(running).getByRole("button", { name: "Cancel this review" }));
     expect(cancelJob).toHaveBeenCalledWith("job-3");

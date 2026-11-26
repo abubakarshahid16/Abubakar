@@ -10,6 +10,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { ReviewRunSummary } from "../../../types/api";
+import { shown } from "../progress/reviewProgress";
+import { progressLine } from "../reviewFormat";
 import { anyMoving, inFilter, inboxStateOf, stateLabel } from "./inboxState";
 
 function run(over: Partial<ReviewRunSummary> = {}): ReviewRunSummary {
@@ -62,7 +64,7 @@ describe("inboxStateOf", () => {
 
   it("a running job shows its step, one-based, with its name", () => {
     expect(stateLabel(inboxStateOf(run({ status: "running", job: job({}) }))))
-      .toBe("Running · step 2 of 3: selecting the applicable standards");
+      .toBe("Running: Step 2 of 3: selecting the applicable standards");
   });
 
   it("running with no step recorded says Running and nothing more - never step 0", () => {
@@ -89,7 +91,31 @@ describe("inboxStateOf", () => {
     const label = stateLabel(inboxStateOf(run({
       status: "running", job: job({ progress_done: 3, progress_total: 3, progress_label: "comparing" }),
     })));
-    expect(label).toBe("Running: comparing");
+    expect(label).toBe("Running: Step 3 of 3: comparing"); // the page's own words (it clamps at the last step)
+  });
+});
+
+describe("the list and the review's own page say the same step and clock (one source)", () => {
+  const detail = { steps_total: 4, step: 3, pages_done: null, pages_total: null, elapsed_seconds: 1508, idle_seconds: 5, substep_seconds: 5, stall_amber_seconds: 120, stale: false };
+
+  it("a running run whose job row still reads queued is Running with its step and elapsed time, not Waiting to start", () => {
+    const r = run({ status: "running", job: job({ state: "queued", progress_done: 2, progress_total: 5, progress_label: "checklist", progress_detail: detail }) });
+    const state = inboxStateOf(r);
+    expect(state.kind).toBe("running");
+    expect(stateLabel(state)).toBe("Running: Step 3 of 5: checklist · Elapsed 25:08");
+    // the page's own two lines, from the same job
+    const j = r.job!;
+    expect(stateLabel(state)).toBe(`Running: ${progressLine(j.progress_done, j.progress_total, j.progress_label)} · ${shown(j.progress_detail!).elapsed}`);
+  });
+
+  it("only the run's own status says Waiting to start", () => {
+    expect(inboxStateOf(run({ status: "queued", job: job({ state: "queued" }) })).kind).toBe("queued");
+    expect(inboxStateOf(run({ status: "running", job: job({ state: "queued" }) })).kind).toBe("running");
+  });
+
+  it("without a clock the step line stands alone", () => {
+    expect(stateLabel(inboxStateOf(run({ status: "running", job: job({ progress_done: 2, progress_total: 5, progress_label: "checklist" }) }))))
+      .toBe("Running: Step 3 of 5: checklist");
   });
 });
 

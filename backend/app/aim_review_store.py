@@ -209,6 +209,16 @@ def start_run(conn, run_id: str, paper_id: str, now: str) -> None:
     )
 
 
+def set_identity(conn, run_id: str, identity: dict) -> None:
+    """The kind the run has named so far, stored while it still runs (so its progress page can say which kind it measures its minutes by);
+    `finish_run` writes the final record over it. Only a run that has not ended; commits."""
+    with conn:
+        conn.execute(
+            f"UPDATE {RUNS} SET identity_json = ? WHERE run_id = ? AND status IN ('queued', 'running')",
+            (json.dumps(identity, ensure_ascii=False), run_id),
+        )
+
+
 # ---- the run and its lines -------------------------------------------------------------------------------------------------
 
 #: A run's stored status. `done` is the only one the page and the next plan treat as a finished review.
