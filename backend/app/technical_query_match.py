@@ -114,8 +114,41 @@ def _squash(text: str) -> str:
     return " ".join((text or "").split())
 
 
+#: A clause number standing ALONE on its line ("4.2.1", "4.", "Clause 7") whose title is the next line (a form found in the contract
+#: parts: the number in one column, the title in the next). A dotted number of two levels or more, or a number with its dot.
+_NUMBER_ALONE = re.compile(
+    rf"^\s*(?:{KEYWORD}\s+)?(?P<num>(?:\d+\.)+\d+\.?|\d+\.)\s*$", re.IGNORECASE
+)
+_TITLE_LINE = re.compile(r"^\s*[A-Z][^\n]{2,80}\s*$")
+
+
+def _headings(lines: list[str]) -> list[tuple[int, str]]:
+    """(line index, heading) of every clause heading of a page: one line ("6.1 Painting") or a number alone with its title on the next line."""
+    out = []
+    for i, line in enumerate(lines):
+        heading = _heading_of(line)
+        if (
+            heading is None
+            and (m := _NUMBER_ALONE.match(line))
+            and i + 1 < len(lines)
+            and _TITLE_LINE.match(lines[i + 1])
+        ):
+            kw = m.group("kw")
+            heading = f"{kw.capitalize() + ' ' if kw else ''}{m.group('num').rstrip('.')} {_squash(lines[i + 1])}"[
+                :100
+            ].strip()
+        if heading:
+            out.append((i, heading))
+    return out
+
+
+#: How far into a passage a heading may stand and still be its locator, when no heading stands above it on the page.
+HEADING_IN_PASSAGE = 300
+
+
 def heading_above(page_text: str, quote: str) -> str | None:
-    """The nearest clause heading above the quote on this page, or None (also None when the quote cannot be placed on the page)."""
+    """The nearest clause heading above the quote on this page (the line the quote starts on counts); when there is none above, the first
+    heading in the quote's own first lines. None when there is none, or the quote cannot be placed on the page."""
     lines = (page_text or "").splitlines()
     squashed, offsets = "", []
     for line in lines:
@@ -125,19 +158,18 @@ def heading_above(page_text: str, quote: str) -> str | None:
     at = squashed.find(anchor) if anchor else -1
     if at < 0:
         return None
-    found = None
-    for line, offset in zip(lines, offsets, strict=True):
-        if offset >= at:
-            break
-        found = _heading_of(line) or found
-    return found
+    above = [h for i, h in _headings(lines) if offsets[i] <= at]
+    if above:
+        return above[-1]
+    inside = [
+        h for i, h in _headings(lines) if at < offsets[i] < at + HEADING_IN_PASSAGE
+    ]
+    return inside[0] if inside else None
 
 
 def last_heading(page_text: str) -> str | None:
-    found = None
-    for line in (page_text or "").splitlines():
-        found = _heading_of(line) or found
-    return found
+    found = _headings((page_text or "").splitlines())
+    return found[-1][1] if found else None
 
 
 def locator_for(
