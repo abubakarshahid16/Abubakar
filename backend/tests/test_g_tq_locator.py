@@ -104,6 +104,32 @@ def test_a_numbered_list_item_is_an_item_with_the_clause_it_refers_to():
     )  # a title is still a clause heading
 
 
+def test_a_matched_sentence_across_a_heading_and_a_blank_line_is_located_at_that_heading():
+    page = "9.10.6 Invented Seals\nThe invented seal text ends here.\n\n10 INVENTED NEW CLAUSE\n \nThe invented answer words (1) follow."
+    sentence = "10 INVENTED NEW CLAUSE The invented answer words (1) follow."
+    assert heading_above(page, sentence) == "10 INVENTED NEW CLAUSE"
+
+
+def test_a_list_item_whose_reference_stands_on_the_line_after_its_text_is_an_item():
+    page = "24.\nInvented earlier item text (Ref. Invented, Sub-Clause 7.5.4)\n25.\nInvented spare parts for the invented start\n(Ref. Invented, Sub-Clause 7.1.15)\n26.\nNext."
+    assert (
+        heading_above(page, "Invented spare parts for the invented start")
+        == "Item 25 (refers to 7.1.15)"
+    )
+
+
+def test_a_dotted_number_before_a_long_sentence_is_a_wrapped_reference_not_a_heading():
+    page = (
+        "3.4.1.2\nInvented Seal Flush\nThe invented flush plan applies.\n3.4.1\n"
+        "And the invented requirements of the invented annex (42) shall also apply to every invented seal of the package\n"
+        "The invented seal answer sits here."
+    )
+    assert (
+        heading_above(page, "The invented seal answer sits here.")
+        == "3.4.1.2 Invented Seal Flush"
+    )
+
+
 def test_the_clause_holding_the_matched_words_wins_over_the_label_the_search_gave_the_passage_start(
     monkeypatch,
 ):

@@ -396,7 +396,65 @@ def _import_one(
         return False
 
 
+def mark_stored_inline_pictures(mailbox_id: str) -> int:
+    """Mark the pictures INSIDE a stored mail's body (a signature logo: an image part with a Content-ID, not sent as an attachment; the
+    same rule as `gmail_client.inline_picture`) on messages stored before that rule, read from the stored original email. Only pictures
+    never taken into the library are marked; returns how many (lead-4, 26 Nov 2026: 193 pictures of the first import were listed as
+    attachments)."""
+    import email
+    from email import policy
+    from pathlib import Path
+
+    from .config import settings
+
+    folder = (settings.data_dir / "technical_query_mail").resolve()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT m.id, m.raw_storage_ref FROM query_messages m JOIN query_attachments a ON a.message_id=m.id "
+            "WHERE COALESCE(m.mailbox_id,'')=? AND a.inline_picture=0 AND a.document_id IS NULL AND m.raw_storage_ref IS NOT NULL",
+            (mailbox_id,),
+        ).fetchall()
+    marked = 0
+    for message_id, ref in rows:
+        path = Path(ref).resolve()
+        if not path.is_relative_to(folder) or not path.is_file():
+            continue
+        try:
+            parts = email.message_from_bytes(
+                path.read_bytes(), policy=policy.default
+            ).walk()
+            names = {
+                part.get_filename()
+                for part in parts
+                if part.get_content_maintype() == "image"
+                and part.get("Content-ID")
+                and not str(part.get("Content-Disposition", ""))
+                .lower()
+                .startswith("attachment")
+                and part.get_filename()
+            }
+        except Exception as exc:  # noqa: BLE001 - one unreadable stored mail never stops the import
+            log.info(
+                "inline pictures: a stored mail could not be read (%s)",
+                type(exc).__name__,
+            )
+            continue
+        if names:
+            with connect() as conn:
+                marked += conn.execute(
+                    "UPDATE query_attachments SET inline_picture=1 WHERE message_id=? AND inline_picture=0 AND document_id IS NULL "
+                    f"AND filename IN ({','.join('?' * len(names))})",
+                    (message_id, *sorted(names)),
+                ).rowcount
+    return marked
+
+
 def _import(job_id, client, box, label_id, admin_role) -> None:
+    # pictures inside stored mail (marked by an older import as attachments) are marked from the stored original first
+    try:
+        log.info("inline pictures marked: %d", mark_stored_inline_pictures(box["id"]))
+    except Exception as exc:  # noqa: BLE001 - a tidy-up of stored rows: it never stops the import
+        log.info("inline pictures not marked (%s)", type(exc).__name__)
     ids = client.list_message_ids(label_id)
     # the reasons are counted from the start
     _set(job_id, total=len(ids), skipped_json="{}")

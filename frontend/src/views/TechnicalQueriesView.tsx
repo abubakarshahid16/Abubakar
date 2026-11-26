@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
-import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, prepareAllWords, type PrepareAll } from "../api/technicalQueries";
+import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, peopleLine, prepareAllWords, type PrepareAll } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
@@ -105,10 +105,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
 
   useEffect(() => {
     // With model proposals the text starts as the email's own question; the engineer ticks the proposals that are real.
-    const proposed = selected?.proposed_questions?.length ? selected?.extracted_question : selected?.proposed_question;
-    setQuestionDraft(selected?.confirmed_question || proposed || selected?.extracted_question || "");
+    const email = selected?.extracted_question_main ?? selected?.extracted_question; // the email's question by the current rules
+    const proposed = selected?.proposed_questions?.length ? email : selected?.proposed_question;
+    setQuestionDraft(selected?.confirmed_question || proposed || email || "");
     setTicked([]);
-  }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.proposed_questions, selected?.extracted_question]);
+  }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.proposed_questions, selected?.extracted_question, selected?.extracted_question_main]);
 
   const addTicked = () => {
     const picked = (selected?.proposed_questions ?? []).filter((_, index) => ticked.includes(index)).map((part) => part.question);
@@ -411,7 +412,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
           {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question in the email</h3>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{(selected.extracted_question_main ?? selected.extracted_question) || "Not stated in the email text."}</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{(selected.extracted_question_main ?? selected.extracted_question) || selected.email_question_note || "Not stated in the email text."}</p>
           <Folded text={selected.extracted_question_folded} />
           {selected.attachment_reading?.map((part) => <p key={part.filename} className="mt-6 text-xs text-slateish-400" data-testid="attachment-reading">{part.line}</p>)}
           {selected.attachment_text_hidden && <p className="mt-6 text-xs text-warn-500">The attachment text is hidden: you may not read that attachment.</p>}
@@ -443,8 +444,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           })()}
           {selected.messages?.map((message, index) => <article key={`${message.received_at}-${index}`} className="mt-3 rounded border border-ink-700 p-3 text-sm text-slateish-300">
             {(message.is_inbound === 0 || message.is_inbound === false) && <p className="mb-1 inline-block rounded border border-signal-500 px-1 text-xs text-signal-300" data-testid="sent-by-us">Sent by us</p>}
-            <p>From: {message.from_address}</p><p>To: {message.to_addresses.join(", ")}</p>
-            {message.cc_addresses.length > 0 && <p>CC: {message.cc_addresses.join(", ")}</p>}
+            <p>From: {message.from_address}</p>{(({ lines, folded }) => <>{lines.map((line) => <p key={line} data-testid="mail-people">{line}</p>)}{folded && <details className="text-xs text-slateish-500"><summary className="cursor-pointer">show everyone</summary><p className="whitespace-pre-wrap">{folded}</p></details>}</>)(peopleLine(message.to_addresses, message.cc_addresses))}
             <p>Received: {message.received_at}</p>
             {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
             <p className="mt-2 whitespace-pre-wrap">{message.body_main ?? message.body}</p>
