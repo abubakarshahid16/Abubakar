@@ -41,13 +41,15 @@ describe("at a glance", () => {
 
   it("the line never says 'nothing late' when nothing can be late", () => {
     const rows = [reviewsRow(review), queriesRow({ drafting: 33, total: 33, overdue: 0, open_with_due_date: 0 })!, deliverablesRow([{ status: "planned", due_date: null }] as Deliverable[], [])];
-    expect(glanceLine(rows)).toBe("Waiting: 5 document reviews, 33 queries and CFCs, 1 deliverable. Late: not counted for queries and CFCs or deliverables: none has a due date.");
+    expect(glanceLine(rows)).toBe("39 waiting, nothing has a due date.");
     const some = [reviewsRow(review), queriesRow({ drafting: 33, total: 33, overdue: 2, open_with_due_date: 4 })!];
-    expect(glanceLine(some)).toBe("Waiting: 5 document reviews, 33 queries and CFCs. Late: 2 queries and CFCs.");
+    expect(glanceLine(some)).toBe("38 waiting, 2 late.");
+    const clean = [queriesRow({ drafting: 3, total: 3, overdue: 0, open_with_due_date: 2 })!];
+    expect(glanceLine(clean)).toBe("3 waiting, none late."); // counted over 2 with a due date: a real 0
   });
 
   it("a figure that could not be loaded is unknown, never 0", () => {
     expect([reviewsRow(null).inCount, queriesRow(null)!.done, deliverablesRow(null, null).waiting]).toEqual([null, null, null]);
-    expect(glanceLine([reviewsRow(null)])).toBe("Waiting: document reviews: unknown. Late: unknown for document reviews.");
+    expect(glanceLine([reviewsRow(null), queriesRow({ drafting: 3, total: 3, overdue: 0, open_with_due_date: 0 })!])).toBe("3 waiting (some figures could not be loaded), late unknown.");
   });
 });
