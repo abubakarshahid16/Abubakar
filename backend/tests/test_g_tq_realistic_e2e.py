@@ -97,12 +97,12 @@ def test_the_import_reads_the_real_shapes(imported):
             "SELECT ref_type, ref_number, needs_person FROM technical_queries ORDER BY ref_number"
         ).fetchall()
     assert (
-        job["total"] == 9
+        job["total"] == 11
         and job["failed"] == 0
         and job["skipped"] == {technical_query_replies.ATTACHED: 1}
     )
     assert (
-        job["queries"] == 7 and job["imported"] == 8
+        job["queries"] == 9 and job["imported"] == 10
     )  # 6 messages in 5 queries: the forward of a forward joins TQ-11; ours too
     assert {tuple(q) for q in queries} == {
         (None, None, 1),
@@ -111,6 +111,8 @@ def test_the_import_reads_the_real_shapes(imported):
         ("TQ", "12", 0),
         ("TQ", "14", 0),
         ("TQ", "15", 0),
+        ("TQ", "16", 0),
+        ("TQ", "17", 0),
         ("TQ", "13", 0),
     }
     tq = _query("11")
@@ -216,16 +218,16 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
         AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
     )
     box = next(b for b in got["mailboxes"] if b["mailbox"] == "mb")
-    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (9, 1, 7)
+    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (11, 1, 9)
     assert (
         box["tq"],
         box["cfc"],
         box["needs_a_person"],
         box["signature_pictures"],
-    ) == (5, 1, 1, 7)
+    ) == (7, 1, 1, 7)
     assert box["attachments_read"] == 2 and box["attachments_not_read"] == {
         "PDF": 1,
-        "active content found": 1,
+        "active content found": 2,
     }
     with (
         db.connect() as conn
@@ -234,12 +236,17 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
             conn.execute(
                 "SELECT COUNT(DISTINCT query_id) FROM query_evidence_jobs"
             ).fetchone()[0]
-            == 7
+            == 9
         )
 
 
 @pytest.mark.parametrize(
-    "ref, question", [("14", T.FORWARDED_QUESTION), ("15", T.RULED_QUESTION)]
+    "ref, question",
+    [
+        ("14", T.FORWARDED_QUESTION),
+        ("15", T.RULED_QUESTION),
+        ("16", T.IMPORTANT_QUESTION),
+    ],
 )
 def test_a_forwarded_query_and_a_ruled_query_still_give_their_question(
     imported, monkeypatch, ref, question

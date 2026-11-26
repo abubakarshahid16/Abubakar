@@ -31,7 +31,7 @@ def test_each_contract_is_searched_with_a_wide_pool_and_the_cut_comes_after_the_
     for kw in calls:
         assert kw["candidates"] == TC.WIDE_CANDIDATES and kw["rerank_candidates"] == TC.WIDE_SHORTLIST
         assert kw["limit"] == TC.PER_CONTRACT == 8 and kw["rerank"] is True and kw["dense"] is True
-    assert len(got["hits"]) == 2 * TC.PER_CONTRACT  # 8 per contract, the best 20 overall are kept
+    assert len(got["hits"]) == 2 * TC.PER_PART_LISTED  # 8 searched per contract, a fair share of 3 per part listed
     assert "reach" not in got["coverage"]  # the three-ideas switch is gone
 
 

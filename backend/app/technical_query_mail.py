@@ -18,12 +18,34 @@ _SIGNOFF = re.compile(
     r"yours sincerely|yours faithfully|cheers|mit freundlichen gr(ue|ü)(ss|ß)en|cordialement|saludos|atentamente)\s*[,.!]?$",
     re.IGNORECASE,
 )
+#: A LEGAL NOTICE only (review of update 12, R4: "Important: please confirm ...?" is a question, not a notice): it starts as one, or it
+#: says the mail is confidential / meant for the addressee.
 _NOTICE = re.compile(
-    r"^(disclaimer|confidentiality( notice)?|important( notice)?|legal notice|privileged and confidential|haftungsausschluss|"
-    r"avis de confidentialit|aviso legal|aviso de confidencialidad)\b|"
-    r"\b(this (e-?mail|message|communication)\b.{0,80}\b(confidential|intended|privileged)|vertraulich|confidentiel|confidencial)\b",
+    r"^(disclaimer|confidentiality notice|legal notice|privileged and confidential|haftungsausschluss|avis de confidentialit|"
+    r"aviso legal|aviso de confidencialidad)\b|"
+    r"\bthis (e-?mail|message|communication)\b.{0,80}\b(confidential|intended (only )?for|privileged)\b|"
+    r"\b(diese (e-?mail|nachricht)\b.{0,60}\bvertraulich|ce (courriel|message)\b.{0,60}\bconfidentiel|"
+    r"este (correo|mensaje)\b.{0,60}\bconfidencial)",
     re.IGNORECASE,
 )
+#: A line that asks or requests something: a block holding one is never taken out, whatever it starts with. A notice's own requests
+#: ("please notify the sender and delete it") are not questions.
+_ASK_WORDS = re.compile(
+    r"\b(please|kindly|request|advise|confirm|clarify|could you|can you|would you)\b",
+    re.IGNORECASE,
+)
+_NOTICE_WORDS = re.compile(
+    r"\b(sender|delete|destroy|notify|recipient|addressee|unauthori[sz]ed|prohibited|virus|disclos)",
+    re.IGNORECASE,
+)
+
+
+def _asks(line: str) -> bool:
+    return "?" in line or bool(
+        _ASK_WORDS.search(line) and not _NOTICE_WORDS.search(line)
+    )
+
+
 _SENT_FROM = re.compile(r"^sent from my\b", re.IGNORECASE)
 #: Header lines of quoted or forwarded earlier mail: kept on the page, left out of what the question finder reads.
 _HEADER = re.compile(
@@ -34,22 +56,35 @@ _HEADER = re.compile(
 
 
 def _blocks(lines: list[str]) -> tuple[list[str], list[str]]:
-    """(kept lines, removed signature and notice lines)."""
-    kept, removed, skipping = [], [], False
+    """(kept lines, removed signature and notice lines). A block runs from its first line to the next blank line; it is taken out only
+    when nothing in it asks or requests something (a question is never dropped)."""
+    kept: list[str] = []
+    removed: list[str] = []
+    block: list[str] | None = None
+
+    def close() -> None:
+        if block is not None:
+            (kept if any(_asks(x) for x in block) else removed).extend(block)
+
     for line in lines:
         stripped = line.strip()
-        if (
+        starts = bool(
             _SIGNOFF.match(stripped)
             or _NOTICE.search(stripped)
             or _SENT_FROM.match(stripped)
-        ):
-            skipping = True
-        elif skipping and not stripped:  # a blank line ends the signature or the notice
-            skipping = False
-        if skipping:
-            removed.append(line)
+        )
+        if (
+            block is not None and not stripped
+        ):  # a blank line ends the signature or the notice
+            close()
+            block = None
+        if starts and block is None:
+            block = []
+        if block is not None:
+            block.append(line)
         else:
             kept.append(line)
+    close()
     return kept, removed
 
 

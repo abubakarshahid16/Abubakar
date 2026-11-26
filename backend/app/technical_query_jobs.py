@@ -160,18 +160,6 @@ def run_job(job_id: str, *, wait_for_review: bool = True) -> None:
     while wait_for_review and _review_running() and not _stop.is_set():
         _set(job_id, state="queued", label=WAITING_WORDS)
         _stop.wait(5)
-    # the query's own papers are read first (review of update 12, N10): a preparation started before them finds no question; at most
-    # READING_WAIT seconds, then it goes on and says what it could read
-    waited = 0
-    while (
-        wait_for_review
-        and waited < READING_WAIT
-        and _attachments_reading(row["query_id"])
-        and not _stop.is_set()
-    ):
-        _set(job_id, state="queued", label=READING_WORDS)
-        _stop.wait(5)
-        waited += 5
     _set(job_id, state="running", label="starting", started_at=technical_queries.now())
 
     def progress(done: int, total: int, label: str) -> None:
@@ -204,18 +192,37 @@ def run_job(job_id: str, *, wait_for_review: bool = True) -> None:
     _set(job_id, state="done", label="done")
 
 
+def next_ready(conn) -> str | None:
+    """The oldest queued job whose query's papers are read, or which has waited READING_WAIT for them; a job still waiting for its papers
+    is passed over (it says so) and taken again on a later turn, so it never holds back the queries behind it (recheck of update 12, R5)."""
+    from datetime import UTC, datetime, timedelta
+
+    create_table(conn)
+    cutoff = (datetime.now(UTC) - timedelta(seconds=READING_WAIT)).strftime(
+        "%Y-%m-%dT%H:%M:%S"
+    )
+    for row in conn.execute(
+        f"SELECT id, query_id, created_at FROM {TABLE} WHERE state='queued' ORDER BY created_at"
+    ).fetchall():
+        if (row["created_at"] or "") <= cutoff or not _attachments_reading(
+            row["query_id"]
+        ):
+            return row["id"]
+        _set(row["id"], label=READING_WORDS)
+    return None
+
+
 def _loop() -> None:
     while not _stop.is_set():
         with connect() as conn:
-            create_table(conn)
-            nxt = conn.execute(
-                f"SELECT id FROM {TABLE} WHERE state='queued' ORDER BY created_at LIMIT 1"
-            ).fetchone()
+            nxt = next_ready(conn)
         if nxt is None:
-            _wake.wait(30)
+            _wake.wait(
+                15
+            )  # nothing ready: a new job or a paper read in a moment wakes the turn again
             _wake.clear()
             continue
-        run_job(nxt["id"])
+        run_job(nxt)
 
 
 def start() -> None:

@@ -410,3 +410,48 @@ def test_a_preparation_waits_while_its_query_papers_are_being_read(monkeypatch, 
     with db.connect() as conn:
         conn.execute("UPDATE documents SET status='ready' WHERE id='d-w'")
     assert J._attachments_reading(item["id"]) is False
+
+
+def test_a_query_waiting_for_its_papers_never_holds_back_the_ones_behind_it(
+    monkeypatch, tq
+):
+    # recheck of update 12, R5
+    from app import technical_query_jobs as J
+
+    monkeypatch.setattr(J, "start", lambda: None)
+    waiting = J.enqueue("q-waiting", frozenset(), "u1", True, False)
+    ready = J.enqueue("q-ready", frozenset(), "u1", True, False)
+    monkeypatch.setattr(
+        J, "_attachments_reading", lambda query_id: query_id == "q-waiting"
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE query_evidence_jobs SET created_at='2026-11-26T10:00:00Z' WHERE id=?",
+            (waiting,),
+        )
+        conn.execute(
+            "UPDATE query_evidence_jobs SET created_at='2026-11-26T10:00:05Z' WHERE id=?",
+            (ready,),
+        )
+    from datetime import UTC, datetime
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 26, 10, 5, tzinfo=UTC)
+
+    monkeypatch.setattr("datetime.datetime", Clock)
+    with db.connect() as conn:
+        assert (
+            J.next_ready(conn) == ready
+        )  # the waiting one is passed over, not waited on
+        assert J.latest(conn, "q-waiting")["label"] == J.READING_WORDS
+        conn.execute("UPDATE query_evidence_jobs SET state='done' WHERE id=?", (ready,))
+        assert J.next_ready(conn) is None
+    Clock.now = classmethod(
+        lambda cls, tz=None: datetime(2026, 11, 26, 10, 31, tzinfo=UTC)
+    )
+    with db.connect() as conn:
+        assert (
+            J.next_ready(conn) == waiting
+        )  # after the wait it goes on with what it can read
