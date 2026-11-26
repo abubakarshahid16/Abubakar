@@ -5,6 +5,7 @@
  *   - CONTRAST: any visible text whose colour against its own background is under 4.5 : 1 (WCAG AA; the owner's readable minimum).
  *   - WRAPPING: a short label (a button, link, tab, chip or label of at most four words) that breaks onto a second line.
  *   - TITLE: the page's main heading differs from its name in the side menu.
+ *   - ALL CAPS: a label written in capitals by style (the spec: sentence case, bold).
  * It reads only what is on screen; it changes nothing. Run it against a practice copy, never the live app:
  *
  *   node frontend/scripts/look-check.mjs http://127.0.0.1:5191 out.json
@@ -89,8 +90,10 @@ function readPage() {
     const lines = new Set(rects.map((r) => Math.round(r.top))).size;
     if (lines > 1 || (tall && el.tagName !== "BUTTON")) wraps.push(text.slice(0, 40));
   }
+  // labels written in capitals by style (the spec: sentence case, bold)
+  const caps = [...document.querySelectorAll("main *")].filter((el) => getComputedStyle(el).textTransform === "uppercase" && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && shown(el)).map((el) => el.textContent.trim().slice(0, 30));
   const h1 = document.querySelector("main h1")?.textContent?.trim() ?? null;
-  return { low, wraps, h1, sizes };
+  return { low, wraps, h1, sizes, caps };
 }
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -107,22 +110,23 @@ for (const mode of ["light", "dark"]) {
     // every failure grouped by colour pair: one shared colour token usually explains many
     const pairs = {};
     for (const l of r.low) { const k = `${l.color} on ${l.background}`; pairs[k] = (pairs[k] ?? 0) + 1; }
-    report.push({ mode, path, menu, lowContrast: r.low.length, wraps: r.wraps, title: r.h1, titleMatchesMenu: titleOk, fontSizes: r.sizes, pairs, worst: r.low.sort((a, b) => a.ratio - b.ratio).slice(0, 8) });
+    report.push({ mode, path, menu, lowContrast: r.low.length, wraps: r.wraps, allCaps: r.caps, title: r.h1, titleMatchesMenu: titleOk, fontSizes: r.sizes, pairs, worst: r.low.sort((a, b) => a.ratio - b.ratio).slice(0, 8) });
   }
   await ctx.close();
 }
 await browser.close();
 
-const failing = report.filter((p) => p.lowContrast || p.wraps.length || !p.titleMatchesMenu);
+const failing = report.filter((p) => p.lowContrast || p.wraps.length || p.allCaps.length || !p.titleMatchesMenu);
 const sizes = [...new Set(report.flatMap((p) => Object.keys(p.fontSizes)))].sort((a, b) => parseFloat(a) - parseFloat(b));
 const summary = {
   pages: report.length, failingPages: failing.length,
   lowContrastTexts: report.reduce((n, p) => n + p.lowContrast, 0),
   wrappingLabels: report.reduce((n, p) => n + p.wraps.length, 0),
   titleMismatches: report.filter((p) => !p.titleMatchesMenu).length,
+  allCapsLabels: report.reduce((n, p) => n + p.allCaps.length, 0),
   fontSizesInUse: sizes,
 };
 console.log(JSON.stringify(summary));
-for (const p of report) console.log(`${p.mode.padEnd(5)} ${p.menu.padEnd(28)} low contrast ${String(p.lowContrast).padStart(3)} · wraps ${p.wraps.length} · title ${p.titleMatchesMenu ? "ok" : `"${p.title}"`}`);
+for (const p of report) console.log(`${p.mode.padEnd(5)} ${p.menu.padEnd(28)} low contrast ${String(p.lowContrast).padStart(3)} · wraps ${p.wraps.length} · all caps ${p.allCaps.length} · title ${p.titleMatchesMenu ? "ok" : `"${p.title}"`}`);
 if (OUT) writeFileSync(OUT, JSON.stringify({ summary, report }, null, 2));
 process.exit(failing.length ? 1 : 0);

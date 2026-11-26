@@ -236,3 +236,11 @@
 :root[data-look="new"] main .opacity-80 {
   opacity: 1;
 }
+
+/* NO ALL-CAPS LABELS (owner's design audit, 26 Nov 2026: Documents 5, Analysis Hub 2; spec: small labels bold, sentence case):
+   under the new look a label written in capitals by style reads in its own case, bold, without the wide letter spacing */
+:root[data-look="new"] main .uppercase {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 600;
+}
