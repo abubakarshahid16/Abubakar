@@ -83,8 +83,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1510", phase=1510, runner="vitest",
              description="the recent reviews table prints the raw database status",
              path=_PANEL,
-             anchor="{rowStatus(run)}</td>",
-             replacement="{run.status}</td>",
+             anchor=": rowStatus(run)}",
+             replacement=": run.status}",
              target=_T_PANEL, keyword="status in plain words",
              tags=("ui",)),
     Mutation(id="M1511", phase=1511, runner="vitest",
@@ -104,10 +104,10 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1513", phase=1513, runner="vitest",
              description="the corpus-wide banner claims the scope-limited review counts too",
              path=_DASH,
-             anchor="                them because you hold the admin capability. The AI Submittal\n"
-                    "                Review counts are not library-wide: they cover only the\n"
-                    "                documents you can open, and say so on their own block.",
-             replacement="                them because you hold the admin capability.",
+             anchor="              them because you hold the admin capability. The AI Submittal\n"
+                    "              Review counts are not library-wide: they cover only the\n"
+                    "              documents you can open, and say so on their own block.",
+             replacement="              them because you hold the admin capability.",
              target=_T_DASH, keyword="scope-limited review counts",
              tags=("honesty", "ui")),
     Mutation(id="M1514", phase=1514, runner="vitest",

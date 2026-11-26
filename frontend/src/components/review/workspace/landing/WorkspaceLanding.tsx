@@ -46,6 +46,7 @@ import { useAgentSwitch } from "../../agent/useAgentSwitch";
 import { StartReviewBar } from "./StartReviewBar";
 import { allRunsOf, landingRowsOf, matchesName } from "./landingRows";
 import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
+import { NEW_LOOK } from "../../../../look";
 
 export const LANDING_HELP_TEXT =
   "To check a new file, pick it and press Start review. To finish one, press Open, decide each comment, then sign.";
@@ -223,7 +224,7 @@ export function WorkspaceLanding({
         )}
       </section>
 
-      {mayStart && notReviewed.length > 0 && generalReviewOn && (
+      {mayStart && notReviewed.length > 0 && generalReviewOn && !NEW_LOOK && (
         <p className="text-sm text-slateish-300" data-testid="review-each-line">{REVIEW_EACH_LINE}</p>
       )}
       {mayStart && notReviewed.length > 0 && !generalReviewOn && (

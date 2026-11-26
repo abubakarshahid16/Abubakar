@@ -8,6 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, type Health } from "../api/client";
 import type { AuthStatus } from "../types/api";
+import { NEW_LOOK } from "../look";
+import { InfoFold, NavIcon } from "./look/LookParts";
 
 export type ViewId =
   | "documents"
@@ -367,7 +369,7 @@ export function Shell({
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex md:w-64 md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex ${NEW_LOOK ? "md:w-72" : "md:w-64"} md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
       >
         {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
             wrapped to two lines in a 256px rail, and with the tagline and a
@@ -388,12 +390,7 @@ export function Shell({
           <span className="mt-1 block text-xs leading-snug text-slateish-400">
             Cited answers from your own documents
           </span>
-          <p className="mt-3 border-l-2 border-signal-500/40 ps-2.5 text-xs leading-relaxed text-slateish-400">
-            <span className="font-medium text-slateish-300">Private by design.</span>{" "}
-            Your documents are stored on this machine, and every answer cites
-            its document and page. When Claude is switched on, the passages an
-            answer needs are sent to it.
-          </p>
+          {!NEW_LOOK && <PrivacyLine />}
         </div>
 
         {/* ADMINISTRATION IS A DIFFERENT KIND OF THING and is separated by a
@@ -420,14 +417,23 @@ export function Shell({
                     onNavigate(item.id);
                     setMenuOpen(false);
                   }}
+                  title={NEW_LOOK ? item.hint : undefined}
                   className={[
-                    "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm motion-safe:transition-colors",
+                    NEW_LOOK
+                      ? "relative flex min-h-11 w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-2 text-left text-[0.95rem] font-medium motion-safe:transition-colors"
+                      : "relative flex w-full items-center justify-between overflow-hidden rounded-[var(--radius-sm)] px-3 py-1.5 text-left text-sm motion-safe:transition-colors",
                     active
                       ? "bg-signal-500/10 text-slateish-100 shadow-[var(--shadow-resting)] before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-signal-500 before:content-['']"
                       : "text-slateish-300 hover:bg-ink-800",
                     item.built ? "" : "opacity-70",
                   ].join(" ")}
                 >
+                  {NEW_LOOK ? (
+                    <span className="flex min-w-0 items-center gap-3">
+                      <NavIcon id={item.id} />
+                      <span className="truncate leading-snug">{item.label}</span>
+                    </span>
+                  ) : (
                   <span className="min-w-0">
                     <span className="block leading-snug">{item.label}</span>
                     {/* The hint is orientation, not a label: it teaches the
@@ -439,6 +445,7 @@ export function Shell({
                       {item.hint}
                     </span>
                   </span>
+                  )}
                   {!item.built && (
                     <span className="ms-2 shrink-0 rounded-[var(--radius-full)] border border-ink-500 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300">
                       not built
@@ -501,6 +508,11 @@ export function Shell({
               <dd className="text-slateish-400">frozen PDF</dd>
             </div>
           </dl>
+          {NEW_LOOK && (
+            <InfoFold title="Private by design" className="mt-4 text-xs">
+              <PrivacyLine />
+            </InfoFold>
+          )}
         </div>
       </nav>
 
@@ -508,6 +520,18 @@ export function Shell({
         {children}
       </main>
     </div>
+  );
+}
+
+/** The privacy sentence: the product's single best argument, the same words in both looks (the new look folds it at the bottom). */
+function PrivacyLine() {
+  return (
+    <p className="mt-3 border-l-2 border-signal-500/40 ps-2.5 text-xs leading-relaxed text-slateish-400">
+      <span className="font-medium text-slateish-300">Private by design.</span>{" "}
+      Your documents are stored on this machine, and every answer cites
+      its document and page. When Claude is switched on, the passages an
+      answer needs are sent to it.
+    </p>
   );
 }
 
