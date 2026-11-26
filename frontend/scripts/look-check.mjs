@@ -30,9 +30,24 @@ export const PAGES = [
 ];
 export const MIN_CONTRAST = 4.5;
 const OPEN_FOLDS = process.env.LOOK_CHECK_FOLDS !== "closed";
+const EXEMPT_DISABLED = process.env.LOOK_CHECK_DISABLED === "exempt";
+/** A narrow window (a small laptop, or a split screen): no page may scroll sideways at this width (owner's live walk, 27 Nov 2026). */
+export const NARROW_WIDTH = 803;
+
+/** Runs in the page: how much wider than the window it is, and the widest elements that stick out (tag, classes, width). */
+function tooWide() {
+  const W = document.documentElement.clientWidth;
+  const over = document.documentElement.scrollWidth - W;
+  if (over <= 0) return { over: 0, culprits: [] };
+  const culprits = [...document.querySelectorAll("body *")].map((el) => ({ el, r: el.getBoundingClientRect() }))
+    .filter(({ r }) => r.right > W + 1 && r.width > 0)
+    .sort((a, b) => b.r.right - a.r.right).slice(0, 5)
+    .map(({ el, r }) => `${el.tagName.toLowerCase()}.${String(el.className).split(" ").slice(0, 4).join(".")} right=${Math.round(r.right)} w=${Math.round(r.width)}`);
+  return { over, culprits };
+}
 
 /** Runs in the page: every visible text with its contrast, the short labels that wrap, and the main heading. */
-function readPage() {
+function readPage(EXEMPT_DISABLED) {
   const parse = (c) => {
     const m = c.match(/rgba?\(([^)]+)\)/);
     if (!m) return null;
@@ -64,8 +79,9 @@ function readPage() {
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return false;
     const s = getComputedStyle(el);
-    // a disabled control is exempt from the contrast rule (WCAG 1.4.3: inactive parts of the interface)
-    return s.visibility !== "hidden" && s.display !== "none" && Number(s.opacity) > 0.05 && !el.closest("[aria-hidden=true], .sr-only, :disabled, [aria-disabled=true]");
+    // a disabled control is held to the same rule (owner's live walk, 27 Nov 2026: a disabled "Run analysis" at 1.1 : 1 is unreadable,
+    // whatever WCAG 1.4.3 exempts); LOOK_CHECK_DISABLED=exempt gives the WCAG reading
+    return s.visibility !== "hidden" && s.display !== "none" && Number(s.opacity) > 0.05 && !el.closest(EXEMPT_DISABLED ? "[aria-hidden=true], .sr-only, :disabled, [aria-disabled=true]" : "[aria-hidden=true], .sr-only");
   };
   const low = [];
   const sizes = {};
@@ -112,7 +128,7 @@ for (const mode of ["light", "dark"]) {
       for (let i = 0; i < 2; i++) await page.evaluate(() => document.querySelectorAll("details:not([open])").forEach((d) => { d.open = true; }));
       await page.waitForTimeout(300);
     }
-    const r = await page.evaluate(readPage);
+    const r = await page.evaluate(readPage, EXEMPT_DISABLED);
     const titleOk = r.h1 !== null && r.h1.toLowerCase().includes(menu.toLowerCase().replace(" & ", " ").split(" ")[0]);
     // every failure grouped by colour pair: one shared colour token usually explains many
     const pairs = {};
@@ -121,9 +137,23 @@ for (const mode of ["light", "dark"]) {
   }
   await ctx.close();
 }
+// THE NARROW WINDOW: every page at NARROW_WIDTH, once (width does not change with the theme)
+const wide = [];
+{
+  const ctx = await browser.newContext({ viewport: { width: NARROW_WIDTH, height: 800 } });
+  const page = await ctx.newPage();
+  for (const [path, menu] of PAGES) {
+    await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" }).catch(() => {});
+    await page.waitForTimeout(1500);
+    const w = await page.evaluate(tooWide);
+    if (w.over > 0) wide.push({ path, menu, overPx: w.over, culprits: w.culprits });
+  }
+  await ctx.close();
+}
 await browser.close();
 
 const failing = report.filter((p) => p.lowContrast || p.wraps.length || p.allCaps.length || !p.titleMatchesMenu);
+const failingCount = failing.length + wide.length;
 const sizes = [...new Set(report.flatMap((p) => Object.keys(p.fontSizes)))].sort((a, b) => parseFloat(a) - parseFloat(b));
 const summary = {
   pages: report.length, failingPages: failing.length,
@@ -133,8 +163,11 @@ const summary = {
   allCapsLabels: report.reduce((n, p) => n + p.allCaps.length, 0),
   fontSizesInUse: sizes,
   foldsOpened: OPEN_FOLDS,
+  disabledCounted: !EXEMPT_DISABLED,
+  tooWideAt803: wide.length,
 };
 console.log(JSON.stringify(summary));
 for (const p of report) console.log(`${p.mode.padEnd(5)} ${p.menu.padEnd(28)} low contrast ${String(p.lowContrast).padStart(3)} · wraps ${p.wraps.length} · all caps ${p.allCaps.length} · title ${p.titleMatchesMenu ? "ok" : `"${p.title}"`}`);
-if (OUT) writeFileSync(OUT, JSON.stringify({ summary, report }, null, 2));
-process.exit(failing.length ? 1 : 0);
+for (const w of wide) console.log(`narrow ${w.menu.padEnd(28)} ${w.overPx}px wider than a ${NARROW_WIDTH}px window: ${w.culprits[0] ?? ""}`);
+if (OUT) writeFileSync(OUT, JSON.stringify({ summary, report, wide }, null, 2));
+process.exit(failingCount ? 1 : 0);
