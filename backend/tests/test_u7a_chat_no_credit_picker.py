@@ -65,23 +65,26 @@ def test_a_later_success_clears_it_at_once(ledger, lane_open):
     assert _claude(chat_model.available_models())["available"] is True
 
 
+# Each case's lines are built WHEN THE TEST RUNS, not when the module is collected: "10 minutes ago" taken at collection time
+# is past the 15-minute mark by the time a long suite reaches this test (CI shard 3, update 12), and a refusal that should
+# count no longer does. The cases' meaning is unchanged.
 @pytest.mark.parametrize(
-    "lines, refused",
+    "make_lines, refused",
     [
         (
-            [{**REFUSED, "at": _at(chat_model.CREDIT_REFUSAL_MINUTES + 1)}],
+            lambda: [{**REFUSED, "at": _at(chat_model.CREDIT_REFUSAL_MINUTES + 1)}],
             False,
         ),  # older than the window: Claude offered again
         (
-            [{**REFUSED, "at": _at(10)}, {"cached": True, "at": _at(5)}],
+            lambda: [{**REFUSED, "at": _at(10)}, {"cached": True, "at": _at(5)}],
             True,
         ),  # a cache hit proves nothing about credit
         (
-            [{**REFUSED, "at": _at(10)}, {"reserves": "r3", "at": _at(5)}],
+            lambda: [{**REFUSED, "at": _at(10)}, {"reserves": "r3", "at": _at(5)}],
             True,
         ),  # a call only reserved proves nothing
         (
-            [
+            lambda: [
                 {**SUCCESS, "at": _at(10)},
                 {
                     **REFUSED,
@@ -93,11 +96,12 @@ def test_a_later_success_clears_it_at_once(ledger, lane_open):
             ],
             True,
         ),  # a charged failure for no credit counts too
-        ([], False),
+        (lambda: [], False),
     ],
+    ids=["older_than_window", "cache_hit", "only_reserved", "charged_failure", "empty"],
 )
-def test_the_rule_reads_the_latest_outcome_of_the_last_day(ledger, lines, refused):
-    ledger(*lines)
+def test_the_rule_reads_the_latest_outcome_of_the_last_day(ledger, make_lines, refused):
+    ledger(*make_lines())
     assert chat_model.credit_refused_now() is refused
 
 
