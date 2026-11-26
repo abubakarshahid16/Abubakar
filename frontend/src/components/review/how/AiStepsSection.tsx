@@ -111,7 +111,7 @@ function StepRow({ step }: { step: StepView }) {
           {" · which AI: "}{step.model ?? NOT_RECORDED}
         </span>
       </p>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="text-sm">
           <caption className="sr-only">
             {meta?.label ?? step.key} counts, from {step.countsSource}

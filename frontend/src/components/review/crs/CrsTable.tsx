@@ -83,7 +83,9 @@ export function CrsTable(props: CrsTableProps) {
         </p>
       </fieldset>
 
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
+      {/* `relative`: the table's hidden labels (`sr-only`, absolutely placed) are clipped by THIS box, so the wide table scrolls
+          inside it and never widens the page (G, 26 Nov 2026: the page scrolled sideways at 390 wide) */}
+      <div className="relative overflow-x-auto rounded-[var(--radius-md)] border border-ink-700" data-testid="crs-table-box">
         <table role="grid" className="w-full min-w-[64rem] border-collapse text-left" aria-label="Comment resolution sheet">
           <thead className="bg-ink-850 text-xs uppercase tracking-wide text-slateish-400">
             <tr>
