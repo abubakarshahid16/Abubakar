@@ -64,6 +64,14 @@ contractor copy issued only after that sign-off. Until then every file is the te
    the SAES, ISO, API, ASME and NACE families only, through `standards_lane` and `reader_transport.py` under the
    `claude_spend` caps; nothing else uses this lane; the first batch is 2,000 rules, and its error rate is reported before
    the rest is run.
+   PAGE PICTURES IN A REVIEW (owner, 26 Nov 2026 14:59 PKT, #1584 comment 7188761254, "Yes, allow it"): during a review,
+   the picture of a page may go to Claude only when that page belongs to a paper this review may already send as text (the
+   paper under review on the approved list; the held rule books on the run's stored list, `review_shown`), with the same
+   refusals, consent records (`review_claude_consent`, `contract_yes`) and register block as text, only through
+   `reader_transport.py` under the `claude_spend` caps, behind its own switch (off by default; on only after a scored run
+   of a planted copy whose mistake shows only on a drawing or sketch page, and the five scored kinds not down); the plan
+   screen lists the pages whose pictures leave. Figures of rule books read outside a review are not covered (asked
+   separately).
    The market search sends only the human-typed
    phrase, previewed and approved per query. Only six modules may open a
    socket, each behind a gate (the two Gmail modules, `gmail_auth.py` and `gmail_client.py`, read-only behind
