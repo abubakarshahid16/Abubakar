@@ -1,4 +1,4 @@
-import { LIST_FOUND, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, citedSplit, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { querySummary } from "./technicalQuerySummary";
@@ -145,6 +145,25 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     const prepared = await technicalQueriesApi.prepareEvidence(selected!.id);
     return prepared.ok ? prepared : confirmed;
   });
+  /** KEEP THE CITED, REJECT THE OTHERS (lead-4, 26 Nov 2026): the same calls as each source's own Keep and Reject, one per source, then
+   *  the query read again; what was done is said on the page and every source stays changeable before Approve. */
+  const [bulkNote, setBulkNote] = useState<{ queryId: string; kept: number; rejected: number } | null>(null);
+  const keepCited = () => {
+    const split = citedSplit(selected?.evidence, selected?.drafts?.at(-1)?.citations_json);
+    const id = selected!.id;
+    act(async () => {
+      for (const e of split.keep) {
+        const r = await technicalQueriesApi.classifyEvidence(id, e.id, "verified", e.supersession_state);
+        if (!r.ok) return r;
+      }
+      for (const e of split.reject) {
+        const r = await technicalQueriesApi.classifyEvidence(id, e.id, "rejected", e.supersession_state);
+        if (!r.ok) return r;
+      }
+      setBulkNote({ queryId: id, kept: split.keep.length, rejected: split.reject.length });
+      return technicalQueriesApi.get(id);
+    });
+  };
   /** Save the wording without confirming it: the sources and a draft follow by themselves (builder A's POST /question). */
   const saveQuestion = () => act(() => technicalQueriesApi.saveQuestion(selected!.id, questionDraft.trim()));
 
@@ -495,6 +514,15 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               {[...new Set((selected.evidence ?? []).filter((e) => e.evidence_state === "verified").map((e) => e.document_id))].map((documentId) => <label key={documentId} className="mr-4 inline-flex items-center gap-1"><input type="checkbox" checked={claudeDocs.includes(documentId)} onChange={(event) => setClaudeDocs((current) => event.target.checked ? [...current, documentId] : current.filter((d) => d !== documentId))} />{documentId}</label>)}
               <p className="mt-1 text-slateish-400">Only the ticked documents and this query's question are sent. Choose none and nothing is sent.</p></fieldset>}
             <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine, engine === "claude" ? claudeDocs : []))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
+            {(() => {
+              const split = citedSplit(selected.evidence, selected.drafts?.at(-1)?.citations_json);
+              const any = split.keep.length + split.reject.length > 0;
+              return selected.can_review && selected.drafts?.length && any ? <span className="flex w-full flex-wrap items-center gap-2" data-testid="keep-cited">
+                <button type="button" disabled={busy} onClick={keepCited} className="rounded border border-signal-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Keep the sources the draft cites, reject the others</button>
+                <span className="text-xs text-slateish-400">Keeps {split.keep.length} the draft cites and rejects the other {split.reject.length} found for this question. You can change any of them below before you approve.</span>
+              </span> : null;
+            })()}
+            {bulkNote && bulkNote.queryId === selected.id && <p role="status" data-testid="keep-cited-done" className="w-full text-xs text-slateish-300">Kept {bulkNote.kept} source{bulkNote.kept === 1 ? "" : "s"} the draft cites and rejected {bulkNote.rejected} other{bulkNote.rejected === 1 ? "" : "s"}. Each can still be changed below before you approve.</p>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
             {selected.status === "approved" && <span className="text-xs text-warn-500">Sending is not approved by the owner: download the Word response, send it yourself, then confirm it resolved.</span>}

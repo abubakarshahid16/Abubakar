@@ -342,12 +342,14 @@ def passage_standing(stored: str, source: str) -> str:
 
 def _source_supersession(conn, document_id: str) -> str:
     row = conn.execute(
-        "SELECT superseded_by,confirmed_by FROM document_classification WHERE document_id=?",
+        "SELECT superseded_by,confirmed_by,confirmed_at FROM document_classification WHERE document_id=?",
         (document_id,),
     ).fetchone()
     if row and row["superseded_by"]:
         return "superseded"
-    return "current" if row and row["confirmed_by"] else "unknown"
+    # confirmed by a person: `confirmed_at` is set by every human confirmation (classification.set_classification) and never by a
+    # suggestion; `confirmed_by` is empty when sign-in is off (builder C's walk, 26 Nov 2026: such a source could never become current)
+    return "current" if row and (row["confirmed_by"] or row["confirmed_at"]) else "unknown"
 
 
 def _static_check_for(conn, document_id: str) -> dict[str, Any]:
@@ -938,7 +940,7 @@ def get(
 
         now_key = _auto.key(_auto.working(result)[0])
         for row in result["evidence"]:  # found for the wording the system works from now (an older wording's finds fold away)
-            row["for_current_question"] = row.get("found_for") == now_key
+            row["for_current_question"] = now_key is not None and row.get("found_for") == now_key  # no wording: nothing is "for" it
         for draft in result["drafts"]:
             draft["system"] = bool(draft.get("model"))  # written by a model, not typed by an engineer
         result["decisions"] = [
@@ -1722,6 +1724,14 @@ def decide(
     current = get(query_id, user_id, is_admin, unrestricted)
     if decision == "approve" and current is not None:
         for row in current.get("evidence", []):
+            # a passage the system found for an EARLIER wording, untouched by anyone, is not part of this answer: it is folded on the page
+            # and needs no decision (builder C's walk, 26 Nov 2026); every passage found for the current wording still does (lead-4)
+            # a row with no record of its wording, on a query prepared again since wordings are recorded (evidence_question set), was
+            # not found by the current search: every passage that search finds is stamped, old rows found again included (lead-4)
+            if row["evidence_state"] == "proposed" and not row.get("for_current_question") and (
+                row.get("found_for") or current.get("evidence_question")
+            ):
+                continue  # another wording's find; on a query never prepared again, a row with no record still needs a decision
             if row["evidence_state"] in UNRESOLVED_EVIDENCE_STATES:
                 raise ValueError(unresolved_evidence_message(row["evidence_state"], "approval"))
 
