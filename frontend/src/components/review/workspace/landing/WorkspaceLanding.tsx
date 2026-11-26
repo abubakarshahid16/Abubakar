@@ -310,16 +310,9 @@ export function WorkspaceLanding({
                 aria-label="Search by file name"
                 className="min-w-[12rem] flex-1 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-1.5 text-sm text-slateish-100"
               />
-              <button
-                type="button"
-                aria-pressed={showAll}
-                onClick={() => setShowAll((was) => !was)}
-                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                  showAll ? "border-signal-500 bg-signal-500/15 text-signal-300" : "border-ink-600 text-slateish-300"
-                }`}
-              >
+              <Button size="sm" aria-pressed={showAll} onClick={() => setShowAll((was) => !was)}>
                 All reviews you may open ({allItems.length.toLocaleString("en-US")})
-              </button>
+              </Button>
             </div>
             {anyCountShown && (
               <p className="text-xs text-slateish-400" data-testid="landing-counts-note">{LANDING_COUNTS_NOTE}</p>

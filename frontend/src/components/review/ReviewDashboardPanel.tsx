@@ -23,7 +23,7 @@ import { NEW_LOOK } from "../../look";
 import { StatusChip, TileLine } from "../look/LookParts";
 import { reviewStatusTone } from "../look/lookTone";
 import {
-  LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
+  LIST_MAX, runStatusLabel, statusLabel, totalFromResponse,
   truncationNote,
 } from "./reviewFormat";
 import { Button } from "../kit/Kit";
@@ -343,7 +343,7 @@ export function ReviewDashboardPanel(
                       {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. A general review says its own comments. */}
                       {run.method === "general" ? generalFindings(run) : run.findings_total.toLocaleString()}
                       {run.method !== "general" && run.by_status.NON_COMPLIANT ? (
-                        <span className={`ml-1 rounded-full border px-1.5 ${statusTone("NON_COMPLIANT")}`}>
+                        <span className="kit-chip kit-chip--late">
                           {run.by_status.NON_COMPLIANT} {statusLabel("NON_COMPLIANT").toLowerCase()}
                         </span>
                       ) : null}
