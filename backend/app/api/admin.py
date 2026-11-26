@@ -18,6 +18,7 @@ from ..config import settings
 from ..db import connect
 from ..paging import limit_param, offset_param, page_body
 from . import ocr_boxes as ocr_boxes_api
+from . import review_model as review_model_api
 from . import rule_equipment as rule_equipment_api
 from . import rule_labels as rule_labels_api
 from . import rule_second as rule_second_api
@@ -27,6 +28,7 @@ router.include_router(rule_labels_api.router)  # rule-labels import
 router.include_router(rule_second_api.router)  # second-model approvals import
 router.include_router(rule_equipment_api.router)  # equipment-labels import
 router.include_router(ocr_boxes_api.router)  # OCR boxes import
+router.include_router(review_model_api.router)  # the Review model section (local default and per step)
 
 
 @router.post("/api/admin/document-kinds/route", response_model=schemas.DocumentKindRouted,

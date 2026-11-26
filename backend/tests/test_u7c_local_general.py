@@ -285,7 +285,12 @@ def _engine(
 ):
     def get_json(path, *, timeout, required=True):
         return {
-            "/api/tags": {"models": [{"name": n, "size": size} for n in installed]},
+            # the engine lists a digest for every model file it holds (a remote entry is tested on its own)
+            "/api/tags": {
+                "models": [
+                    {"name": n, "size": size, "digest": "invented"} for n in installed
+                ]
+            },
             "/api/ps": {"models": loaded},
         }[path]
 
@@ -595,7 +600,12 @@ def test_the_local_sizes_are_smaller_and_a_claude_run_keeps_the_methods_own_size
         budget.cap(material.BATCH_CHARS, "batch_chars") == material.BATCH_CHARS
     )  # no profile: unchanged
     rows = [
-        {"page_of": "B1", "book_id": "b", "page": n, "page_text": "x" * 9_000}
+        {
+            "page_of": "B1",
+            "book_id": "b",
+            "page": n,
+            "page_text": f"{n + 1}.1 Invented clause. " + "x" * 9_000,
+        }
         for n in range(12)
     ]
     claude_batches = material._batches(rows)

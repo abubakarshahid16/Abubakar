@@ -77,13 +77,17 @@ def test_retry_items_whose_answer_stays_cut_are_left_out_counted_and_never_stop_
         got = CL.s3_checklist(
             _RetryAlwaysCut(), IDENT, _books(_sel(3)), _Book(), "local"
         )
-    said = _said(calls)["aim_retry_dropped"]
-    # the 14 invented items all quote the rule wrongly and every retry answer is cut: none is kept, each is counted
-    assert said["count"] == 14 and not [
-        i for i in got["items"] if i["source"] == "held standard"
-    ]
+    said, capped = _said(calls)["aim_retry_dropped"], _said(calls)["aim_retry_capped"]
+    # the 14 invented items all quote the rule wrongly: the one retry call asks RETRY_LOCAL of them and every answer is cut;
+    # the rest are not asked (one retry call per batch). None is kept, each is counted once.
+    assert said["count"] == CL.RETRY_LOCAL and capped["count"] == 14 - CL.RETRY_LOCAL
+    assert not [i for i in got["items"] if i["source"] == "held standard"]
     assert said["sentence"].startswith(
-        "14 checklist items were left out: their rule quote was not found"
+        f"{CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found"
+    )
+    assert capped["sentence"] == (
+        f"{14 - CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found on the book page and were not "
+        "asked again (the local model makes one retry call per batch)."
     )
     with pytest.raises(StepFailed):  # Claude: a cut is raised, as before
         CL.s3_checklist(
@@ -133,8 +137,10 @@ def test_one_set_aside_is_said_in_the_singular_and_other_steps_keep_their_words(
 
 
 def test_the_run_page_score_line_of_a_local_run_holds_the_local_models_measured_note():
-    local = {"local": True, "models": ["invented-local:1b"], "by_step": {}}
-    line = aim_review_local_view.measured({"kind": "datasheet"}, local)["sentence"]
+    """The note is the run's OWN model's (review of update 10, M4): the 9B's numbers on a 9B run, "not yet scored" on any
+    other model, never another model's numbers."""
+    nine = {"local": True, "models": ["qwen3.5:9b-q4_K_M"], "by_step": {}}
+    line = aim_review_local_view.measured({"kind": "datasheet"}, nine)["sentence"]
     assert (
         aim_review_gate.LOCAL_NOT_SCORED in line
         and aim_review_gate.LOCAL_TEST_NOTE in line
@@ -142,6 +148,10 @@ def test_the_run_page_score_line_of_a_local_run_holds_the_local_models_measured_
     assert line.index(aim_review_gate.LOCAL_NOT_SCORED) < line.index(
         aim_review_gate.LOCAL_TEST_NOTE
     )
+    other = {"local": True, "models": ["invented-local:1b"], "by_step": {}}
+    line = aim_review_local_view.measured({"kind": "datasheet"}, other)["sentence"]
+    assert aim_review_gate.LOCAL_TEST_NOTE not in line
+    assert "Local model (invented-local:1b): not yet scored." in line
     claude = aim_review_local_view.measured({"kind": "datasheet"}, {"local": False})
     assert claude is None or aim_review_gate.LOCAL_TEST_NOTE not in (
         claude.get("sentence") or ""
@@ -218,3 +228,98 @@ def test_a_clause_that_names_no_rule_or_two_rules_is_still_asked_again():
         [],
         items,
     )  # Claude: nothing by code
+
+
+def _rule(rule, book, clause, page, text):
+    return {"rule": rule, "book": book, "clause": clause, "page": page, "text": text}
+
+
+BATCH = [
+    _rule(
+        "R0001",
+        "B1",
+        "5.2",
+        4,
+        "The invented gasket shall be rated for the flange class.",
+    ),
+    _rule(
+        "R0002",
+        "B1",
+        "5.2",
+        4,
+        "The invented bolting shall be coated against rust in salt air.",
+    ),
+    _rule(
+        "R0003",
+        "B1",
+        "5.2.1",
+        5,
+        "The invented bolting nuts shall carry the heat number stamp.",
+    ),
+    _rule(
+        "R0004",
+        "B2",
+        "7.3",
+        9,
+        "The invented coating of the gasket shall be applied for the flange in three coats.",
+    ),
+]
+
+
+def test_a_quote_with_a_wrong_page_takes_the_rule_of_its_own_book_and_clause_holding_most_of_its_words():
+    """F's 14B run e19e3d8a: 126 quotes not found and almost none fixed by code, as a clause often holds several stored rules."""
+    near = {
+        "book": "B1",
+        "clause": "5.2.1",
+        "page": 2,
+        "rule_quote": "invented bolting shall be coated against rust",
+    }
+    loose = {
+        "book": "B1",
+        "clause": "5.2",
+        "page": 4,
+        "rule_quote": "gaskets and bolts must suit the service conditions",
+    }
+    with budget.using(budget.LOCAL):
+        fixed, ask = RT.by_code([near, loose], BATCH, lambda it: True)
+    # the cited "5.2.1" is under "5.2": its parent's rule is taken, with the book unchanged
+    assert [(i["book"], i["clause"], i["page"], i["rule_quote"]) for i in fixed] == [
+        ("B1", "5.2", 4, BATCH[1]["text"])
+    ]
+    assert ask == [
+        loose
+    ]  # too few of its content words in any rule of its clause: asked again
+
+
+def test_a_rule_of_another_book_or_clause_is_never_taken():
+    """The update 10 reviewer's case: a coating item cited to book 1 clause 4.1 took a gasket rule of book 2 clause 7.3, and
+    code then compared the paper against that rule's limit."""
+    coating = {
+        "book": "B1",
+        "clause": "4.1",
+        "page": 3,
+        "rule_quote": "the invented coating of the gasket shall be applied for the flange",
+    }
+    other_clause = {
+        "book": "B1",
+        "clause": "6.1",
+        "page": 4,
+        "rule_quote": "invented bolting shall be coated against rust",
+    }
+    with budget.using(budget.LOCAL):
+        assert RT.by_code([coating, other_clause], BATCH, lambda it: True) == (
+            [],
+            [coating, other_clause],
+        )
+
+
+def test_grammar_words_alone_never_make_a_match():
+    words = {
+        "book": "B1",
+        "clause": "5.2",
+        "page": 4,
+        "rule_quote": "the shall be for the and with all of it",
+    }
+    with budget.using(budget.LOCAL):
+        assert RT.by_code([words], BATCH, lambda it: True) == ([], [words])
+    assert RT._words("The shall be for and of it") == set()

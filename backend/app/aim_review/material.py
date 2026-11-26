@@ -4,6 +4,7 @@ by page, or the pages of a book that holds no stored rules; budgeted, every cut 
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 
 from . import library as L
@@ -112,15 +113,118 @@ def _material_line(r: dict) -> str:
 
 
 def _batches(rows: list[dict]) -> list[list[dict]]:
-    out, cur, size = [], [], 0
+    """The calls the rule material is read in: whole rows up to the batch size. On the local model whole GROUPS (`_groups`: a
+    book's rules of one clause group, or all the pages of a book with no stored rules), so no clause group and no clause
+    running over a page break is ever split across two calls; one clause larger than the size goes whole in a call of its own."""
+    from .budget import is_local
+
     batch_chars = cap(BATCH_CHARS, "batch_chars")
-    for r in rows:
-        ln = len(_material_line(r))
+    units = _groups(rows, batch_chars) if is_local() else [[r] for r in rows]
+    out, cur, size = [], [], 0
+    for unit in units:
+        ln = sum(len(_material_line(r)) for r in unit)
         if cur and size + ln > batch_chars:
             out.append(cur)
             cur, size = [], 0
-        cur.append(r)
+        cur += unit
         size += ln
     if cur:
         out.append(cur)
     return out or [[]]
+
+
+def _groups(rows: list[dict], most: int | None = None) -> list[list[dict]]:
+    """The rows by book, then by the top level of their clause number ("6.2.1" -> "6"), in the order they first appear; the
+    pages of a book with no stored rules are one group (owner via the planner, 26 Nov 2026 05:20: one whole book or clause
+    group per call, never a clause split). A group larger than `most` characters is taken by its next clause level instead
+    ("6.2", "6.3", ...), down to one clause number, which then goes whole: a call stays near the size, no clause is split."""
+    out: list[list[dict]] = []
+    for group in _by_clause(rows, 1).values():
+        out += _deeper(group, 1, most)
+    return out
+
+
+def _clause_key(r: dict, level: int) -> tuple:
+    if "rule" not in r:
+        return ("pages", r.get("book_id"))
+    parts = [p.strip() for p in str(r.get("clause") or "").split(".") if p.strip()]
+    return ("rules", r.get("book_id"), tuple(parts[:level]) or ("-",))
+
+
+def _by_clause(rows: list[dict], level: int) -> dict[tuple, list[dict]]:
+    groups: dict[tuple, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(_clause_key(r, level), []).append(r)
+    return groups
+
+
+#: A page that BEGINS with a numbered clause heading ("6.2 Title"): the page break before it ends a clause.
+_CLAUSE_START = re.compile(r"^\s*\d+(?:\.\d+)*\.?\s+\S")
+
+
+def _pages(group: list[dict], most: int | None) -> list[list[dict]]:
+    """A no-rule book's pages: whole; over `most` characters, split only before a page that begins with a clause heading,
+    so no clause runs over a split (a run with no such page stays whole)."""
+    runs, cur, size = [], [], 0
+    for r in group:
+        ln = len(_material_line(r))
+        if (
+            cur
+            and most is not None
+            and size + ln > most
+            and _CLAUSE_START.match(str(r.get("page_text") or ""))
+        ):
+            runs.append(cur)
+            cur, size = [], 0
+        cur.append(r)
+        size += ln
+    return [*runs, cur] if cur else runs
+
+
+def _parts(r: dict) -> tuple[str, ...]:
+    return tuple(p.strip() for p in str(r.get("clause") or "").split(".") if p.strip())
+
+
+def _deeper(group: list[dict], level: int, most: int | None) -> list[list[dict]]:
+    """A group of one clause prefix: whole when within `most`; else taken by its next clause level, descending while one key
+    remains too (review of update 10, M2: 60 rules under "6.2.x" stayed one unit), down to a single clause number, which goes
+    whole (a clause is never split). Rules with no clause number are not clauses: they are split by rows."""
+    if group and "rule" not in group[0]:
+        return _pages(group, most)
+    size = sum(len(_material_line(r)) for r in group)
+    if most is None or size <= most:
+        return [group]
+    if not any(_parts(r) for r in group):
+        return _rows(group, most)
+    if all(len(_parts(r)) <= level for r in group):
+        return [group]  # one clause number: whole
+    return [
+        g
+        for sub in _by_clause(group, level + 1).values()
+        for g in _deeper(sub, level + 1, most)
+    ]
+
+
+def _rows(group: list[dict], most: int) -> list[list[dict]]:
+    out, cur, size = [], [], 0
+    for r in group:
+        ln = len(_material_line(r))
+        if cur and size + ln > most:
+            out.append(cur)
+            cur, size = [], 0
+        cur.append(r)
+        size += ln
+    return [*out, cur] if cur else out
+
+
+def halves(batch: list[dict]) -> tuple[list[dict], list[dict]]:
+    """A cut answer's batch asked again in two halves: on the local model at a group boundary when it holds two or more groups
+    (a group is never split there), else by whole rows; on Claude by rows, as before."""
+    from .budget import is_local
+
+    groups = _groups(batch) if is_local() else []
+    if len(groups) >= 2:
+        h = len(groups) // 2
+        return [r for g in groups[:h] for r in g], [r for g in groups[h:] for r in g]
+    h = len(batch) // 2
+    return batch[:h], batch[h:]

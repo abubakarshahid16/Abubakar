@@ -8,7 +8,7 @@ size in; the step's JSON answer out, or `StepFailed` with a code. Same steps, sa
     gate of the worker's lanes). Nothing here imports or calls `reader_transport`, `agent_claude` or `claude_spend`: nothing
     leaves this computer and nothing is paid (each call is recorded at USD 0). The run is also barred from Claude for its whole
     length (`review_engine.barring`), so a step that tried the Claude lane anyway would be refused there.
-  * THE MODEL OF EACH STEP is the setting (`settings.answer_model`, the one local default, ministral-3:14b; a step may name its own
+  * THE MODEL OF EACH STEP is the setting (`settings.answer_model`, the one local default, qwen3.5:9b-q4_K_M; a step may name its own
     in `general_review_local_step_models`, e.g. "judge=qwen3.5:9b"). ONE MODEL IN MEMORY AT A TIME: when the next step needs
     another model, the one loaded is unloaded first. Every call records the model the engine REPORTED, never the setting.
   * NO BLIND CHUNKING (owner's standing lesson, 25 Nov 2026 23:15): the window is sized per paper (`budget.for_paper`) so the
@@ -71,15 +71,18 @@ WINDOW_MARK = "THIS IS PART OF A LONGER PAPER"
 
 
 def model_name() -> str:
-    """The one local default (the setting `ANSWER_MODEL`; the run records what the engine answered)."""
+    """The local default: the administrator's saved Review model (`review_model_setting`), else `ANSWER_MODEL`; the run
+    records what the engine answered."""
+    from app import review_model_setting
     from app.config import settings
 
-    return str(settings.answer_model).strip()
+    return (review_model_setting.default_choice() or str(settings.answer_model)).strip()
 
 
 def step_models() -> dict[str, str]:
-    """{method step: local model} for the steps the setting names ("judge=qwen3.5:9b, editor=ministral-3:14b"); an unknown step
-    name or an empty model is ignored (the step keeps the default)."""
+    """{method step: local model} for the steps the administrator saved (`review_model_setting`) and, for a step not saved, the
+    env setting ("judge=qwen3.5:9b, editor=ministral-3:14b"); an unknown step name or an empty model is ignored (the step keeps
+    the default)."""
     from app.config import settings
 
     out: dict[str, str] = {}
@@ -89,6 +92,12 @@ def step_models() -> dict[str, str]:
         key, _, value = part.partition("=")
         group, value = " ".join(key.strip().lower().split()), value.strip()
         for step in STEP_GROUPS.get(group, ()) if value else ():
+            out[step] = value
+    from app import review_model_setting
+
+    # the saved choice wins over the env setting
+    for group, value in review_model_setting.step_choices().items():
+        for step in STEP_GROUPS.get(group, ()):
             out[step] = value
     return out
 
@@ -414,6 +423,29 @@ LOW_MEMORY = (
     "6 GB to spare, so the review did not start; close other work and start it again"
 )
 ENGINE_DOWN = "the local model engine is not answering on this computer, so the review did not start"
+NOT_LOCAL = (
+    "the model {name} is not a model file on this computer (the engine would pass the paper's text to another computer), "
+    "so the review did not start"
+)
+
+
+def is_cloud_name(name: str) -> bool:
+    """A name the engine uses for a model that runs elsewhere (":cloud", "-cloud")."""
+    low = str(name or "").lower()
+    return ":cloud" in low or "-cloud" in low
+
+
+def is_local_file(name: str, entry: dict) -> bool:
+    """True only when the engine's list entry is a model FILE on this computer (review of update 10, M3): not a cloud name, no
+    remote host or remote model field, a size above zero and a digest. Anything else may pass text to another computer
+    (rule 1), so it is never offered and never started."""
+    if is_cloud_name(name) or not isinstance(entry, dict):
+        return False
+    if entry.get("remote_host") or entry.get("remote_model"):
+        return False
+    return _count(entry.get("size")) > 0 and bool(
+        str(entry.get("digest") or "").strip()
+    )
 
 
 def need_bytes(name: str, file_bytes: int, num_ctx: int) -> int:
@@ -439,15 +471,19 @@ def readiness(names=None, num_ctx: int = LOCAL.num_ctx) -> str | None:
     except Exception as exc:  # noqa: BLE001 - an engine that cannot be asked is not ready
         log.info("local readiness: engine not asked (%s)", type(exc).__name__)
         return ENGINE_DOWN
-    installed = {
-        str(m.get("name") or m.get("model") or ""): _count(m.get("size"))
+    entries = {
+        str(m.get("name") or m.get("model") or ""): m
         for m in tags.get("models") or []
         if isinstance(m, dict)
     }
     for name in names:
-        if name not in installed:
+        if is_cloud_name(name):
+            return NOT_LOCAL.format(name=name)
+        if name not in entries:
             return NOT_INSTALLED.format(name=name)
-        if installed[name] > MAX_MODEL_BYTES:
+        if not is_local_file(name, entries[name]):
+            return NOT_LOCAL.format(name=name)
+        if _count(entries[name].get("size")) > MAX_MODEL_BYTES:
             return TOO_LARGE.format(name=name)
     in_memory = set()
     for m in loaded.get("models") or []:
@@ -462,7 +498,7 @@ def readiness(names=None, num_ctx: int = LOCAL.num_ctx) -> str | None:
     for name in names:
         if name in in_memory or free is None:
             continue  # already in memory, or free memory unknown (the swap rule still holds)
-        need = need_bytes(name, installed[name], num_ctx)
+        need = need_bytes(name, _count(entries[name].get("size")), num_ctx)
         if free < need + MEMORY_MARGIN_BYTES:
             return LOW_MEMORY.format(
                 free=round(free / 1e9, 1),

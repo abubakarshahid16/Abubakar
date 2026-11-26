@@ -230,10 +230,9 @@ def test_the_checklist_retry_asks_in_small_groups_on_the_local_model_and_once_on
     with budget.using(budget.LOCAL):
         CL.s3_checklist(local, ident, sel, _Book(), "local")
     retries = lambda m: [c for c in m.calls if c["step"] == "aim_checklist_retry"]  # noqa: E731
-    assert (
-        len(retries(claude)) == 1
-        and len(retries(local)) == -(-14 // CL.RETRY_LOCAL) > 1
-    )
+    # local: ONE retry call per batch since F's run 09105c4b (18 retry calls ran it past the swap rule); was one per group
+    assert len(retries(claude)) == 1 and len(retries(local)) == 1
+    assert retries(local)[0]["prompt"].count('"topic"') == CL.RETRY_LOCAL
 
 
 class _Knowledge:
@@ -340,9 +339,8 @@ def test_on_the_local_model_a_cut_retry_answer_is_never_used_its_group_is_asked_
         for c in local.calls
         if c["step"] == "aim_checklist_retry"
     ]
-    assert (
-        max(sizes) > 2 and sum(s for s in sizes if s <= 2) == 14
-    )  # every item asked once in an answer that was not cut
+    # every item of the one retry call (RETRY_LOCAL of the 14; the rest are counted, not asked) asked once in an uncut answer
+    assert max(sizes) > 2 and sum(s for s in sizes if s <= 2) == CL.RETRY_LOCAL
     with pytest.raises(StepFailed):
         CL.s3_checklist(_Cuts(), ident, sel, _Book(), "claude-sonnet-5-5")
 
@@ -468,3 +466,104 @@ def test_a_repeating_local_answer_is_cut_at_its_first_repeat():
         assert RT.unique(looping) == [a, b]
         assert RT.unique([a, b]) == [a, b]
     assert RT.unique(looping) == looping  # Claude: unchanged
+
+
+def _rules(book: str, clauses: list[str], chars: int = 600) -> list[dict]:
+    return [{"rule": f"R{book}{i}", "book": book.upper(), "book_id": book, "clause": c, "page": 1, "text": "x" * chars,
+             "req_id": f"r{book}{i}"} for i, c in enumerate(clauses)]  # fmt: skip
+
+
+def test_on_the_local_model_a_call_takes_whole_books_and_clause_groups_never_split():
+    """Owner via the planner (26 Nov 2026 05:20): one whole book or clause group per call, never a clause split; a group
+    larger than the size is taken by its next clause level; a book with no stored rules is read with all its pages together."""
+    rows = (_rules("b1", ["4.1", "4.2", "4.3", "5.1", "5.2"]) + _rules("b2", [f"6.{i}" for i in range(20)])
+            + [{"page_of": "B3", "book_id": "b3", "page": p, "page_text": "y" * 900} for p in (1, 2, 3)])  # fmt: skip
+    with budget.using(budget.LOCAL):
+        batches = MT._batches(rows)
+    where = {}
+    for i, b in enumerate(batches):
+        for r in b:
+            key = (r["book_id"], str(r.get("clause", "pages")))
+            where.setdefault(key, set()).add(i)
+    assert all(len(v) == 1 for v in where.values())  # every group in exactly one call
+    top = {}
+    for i, b in enumerate(batches):
+        for r in b:
+            top.setdefault(
+                (r["book_id"], str(r.get("clause", "pages")).split(".")[0]), set()
+            ).add(i)
+    assert (
+        len(top[("b1", "4")]) == len(top[("b1", "5")]) == len(top[("b3", "pages")]) == 1
+    )  # within the size: one call
+    assert (
+        len(top[("b2", "6")]) > 1
+    )  # a group over the size: taken by its next clause level, each clause whole
+    assert sum(len(b) for b in batches) == len(rows)  # nothing lost
+    on_claude = MT._batches(rows)
+    assert any(len({r["book_id"] for r in b}) > 1 for b in on_claude) or len(
+        on_claude
+    ) != len(batches)  # Claude packs rows
+
+
+def test_a_cut_answer_is_asked_again_in_halves_at_a_group_boundary_on_the_local_model():
+    rows = _rules("b1", ["4.1", "4.2", "5.1", "5.2", "5.3"])
+    with budget.using(budget.LOCAL):
+        one, two = MT.halves(rows)
+    assert {r["clause"].split(".")[0] for r in one} == {"4"} and {
+        r["clause"].split(".")[0] for r in two
+    } == {"5"}
+    assert MT.halves(rows) == (rows[:2], rows[2:])  # Claude: by rows, as before
+
+
+def test_one_clause_larger_than_the_size_goes_whole_in_a_call_of_its_own():
+    rows = _rules("b1", ["7.1"] * 3, chars=4_000) + _rules(
+        "b1", ["8.1"]
+    )  # one clause number, 12,000 characters
+    with budget.using(budget.LOCAL):
+        batches = MT._batches(rows)
+    assert [len(b) for b in batches] == [3, 1] and {
+        r["clause"] for r in batches[0]
+    } == {"7.1"}
+
+
+def test_a_no_rule_books_long_pages_split_only_where_a_page_begins_with_a_clause():
+    pages = [{"page_of": "B1", "book_id": "b", "page": n, "page_text": ("4.1 Invented clause. " if n == 2 else "") + "z" * 4_000}
+             for n in range(4)]  # fmt: skip
+    with budget.using(budget.LOCAL):
+        batches = MT._batches(pages)
+    assert [[r["page"] for r in b] for b in batches] == [
+        [0, 1],
+        [2, 3],
+    ]  # only before the page that opens clause 4.1
+
+
+def test_a_group_whose_next_level_has_one_key_keeps_descending_to_single_clauses_and_nothing_is_lost():
+    """Review of update 10, M2: 60 rules under "6.2.x" came back as one unit against the size, as "6" -> "6.2" has one key."""
+    rows = _rules("b1", [f"6.2.{i}" for i in range(60)], chars=300)
+    with budget.using(budget.LOCAL):
+        batches = MT._batches(rows)
+    limit = budget.LOCAL.batch_chars
+    assert len(batches) > 1 and all(
+        sum(len(MT._material_line(r)) for r in b) <= limit for b in batches
+    )
+    where = {}
+    for i, b in enumerate(batches):
+        for r in b:
+            where.setdefault(r["clause"], set()).add(i)
+    assert all(len(v) == 1 for v in where.values())  # each clause in one call
+    assert sum(len(b) for b in batches) == len(rows) and {
+        r["rule"] for b in batches for r in b
+    } == {r["rule"] for r in rows}
+
+
+def test_rules_with_no_clause_number_are_split_by_rows_and_all_sent():
+    rows = _rules("b1", [""] * 40, chars=600)
+    with budget.using(budget.LOCAL):
+        batches = MT._batches(rows)
+    limit = budget.LOCAL.batch_chars
+    assert len(batches) > 1 and all(
+        sum(len(MT._material_line(r)) for r in b) <= limit for b in batches
+    )
+    assert [r["rule"] for b in batches for r in b] == [
+        r["rule"] for r in rows
+    ]  # rules in = rules sent, in order

@@ -220,6 +220,7 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView />);
     expect(await screen.findByText("TQ-12 · PIPING · Coating question")).toBeTruthy();
     expect((await screen.findByTestId("needs-person")).textContent).toContain("no full TQ or CFC number");
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "CFC" } });
     fireEvent.change(screen.getByLabelText("Discipline code"), { target: { value: "civil" } });
     fireEvent.change(screen.getByLabelText("Running number"), { target: { value: "7" } });
@@ -227,5 +228,29 @@ describe("Technical Queries screen", () => {
     api.list.mockClear();
     fireEvent.click(screen.getByText("Refresh and apply filters"));
     await waitFor(() => expect(api.list).toHaveBeenCalledWith(expect.objectContaining({ ref_type: "CFC", discipline: "civil", number: "7", needs_person: true })));
+    expect(screen.getByRole("button", { name: "Filters (4 active)" })).toBeTruthy();
+  });
+
+  it("folds the filters behind one button, closed on arrival, with no send-only status, and puts the mailbox and the list first", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "First query" }] } });
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [] } });
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText("First query")).toBeTruthy();
+    expect(scroll).toHaveBeenCalled(); // the page opens at its top
+    expect(screen.queryByLabelText("Status")).toBeNull(); // folded: none of the fields shows
+    expect(screen.queryByLabelText("Contractor", { selector: "#query-contractor-filter" })).toBeNull();
+    const toggle = screen.getByRole("button", { name: "Filters" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    const connect = await screen.findByText("Connect Gmail");
+    const list = screen.getByLabelText("Technical query queue");
+    expect(connect.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // Connect Gmail comes before the list
+    expect(toggle.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const options = Array.from((screen.getByLabelText("Status") as HTMLSelectElement).options).map((option) => option.textContent);
+    expect(options).toContain("Awaiting review");
+    expect(options).not.toContain("Sent");
   });
 });

@@ -416,14 +416,15 @@ class Settings(SettingsExt, BaseSettings):
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
     #: ONE local default (owner, 25 Nov 2026 23:25: "let us not use the 35 billion parameter model, it crashes memory"): the
-    #: 14B-class model for Chat's local answers, technical-query drafts and the general review on Local only. The 35B stays
-    #: installed and is loaded only when the owner asks (set ANSWER_MODEL to it).
-    answer_model: str = "ministral-3:14b"
+    #: 9B model for Chat's local answers, technical-query drafts and the general review on Local only (lead-4, 26 Nov 2026: the
+    #: 14B did not finish a valve review on this Mac, 3 of 3 runs stopped by the swap rule; the 9B finished in 32.5 minutes
+    #: with no swap rise). The 14B and the 35B stay installed and are loaded only when chosen (ANSWER_MODEL or Review model).
+    answer_model: str = "qwen3.5:9b-q4_K_M"
     answer_prompt_variant: str = "default"
-    #: Resident size of the answer model: the 14B MEASURED at 11.10 GB in the engine with a 28,672-token window (25 Nov
-    #: 2026; Chat's 8,192-token window needs less); the 35B was about 24 GB. Warns BEFORE Explain is pressed. Set it with
-    #: ANSWER_MODEL when pinning another model.
-    answer_model_ram_bytes: int = 11_100_000_000
+    #: Resident size of the answer model: the 9B MEASURED at 5.35 GB in the engine with a 28,672-token window (26 Nov 2026
+    #: 07:33 PKT, /api/ps; Chat's 8,192-token window needs less); the 14B was 11.10 GB, the 35B about 24 GB. Warns BEFORE
+    #: Explain is pressed. Set it with ANSWER_MODEL when pinning another model.
+    answer_model_ram_bytes: int = 5_350_000_000
 
     # ---------------------------------------------------------- AI task runner
     # (#644). Small strict model tasks run from a background queue by

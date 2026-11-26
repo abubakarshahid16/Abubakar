@@ -17,11 +17,11 @@ from tests.test_metrics_host_telemetry import (  # noqa: F401
     temp_storage,
 )
 
-THE_14B = "ministral-3:14b"  # the owner, 25 Nov 2026 23:25: "let us not use the 35 billion parameter model"
+THE_9B = "qwen3.5:9b-q4_K_M"  # lead-4, 26 Nov 2026: the 14B did not finish a valve review on this Mac; the 9B did
 
 
-def test_the_default_answer_model_is_the_14b():
-    assert Settings.model_fields["answer_model"].default == THE_14B
+def test_the_default_answer_model_is_the_9b():
+    assert Settings.model_fields["answer_model"].default == THE_9B
 
 
 def test_the_default_small_task_model_stays_small():
@@ -29,9 +29,11 @@ def test_the_default_small_task_model_stays_small():
     assert Settings.model_fields["ai_task_model"].default == "qwen3.5:2b"
 
 
-def test_the_memory_the_default_asks_for_is_about_11_gb():
+def test_the_memory_the_default_asks_for_is_about_5_gb():
     need = Settings.model_fields["answer_model_ram_bytes"].default
-    assert need == 11_100_000_000  # measured: the 14B resident at a 28,672-token window
+    assert (
+        need == 5_350_000_000
+    )  # measured: the 9B resident at a 28,672-token window (26 Nov 2026, /api/ps)
 
 
 def _models(**more):
@@ -106,17 +108,15 @@ def test_the_dashboard_payload_carries_it_and_only_the_operator_sees_the_model_n
     assert settings.answer_model not in engineer[0]["message"]
 
 
-@pytest.mark.parametrize(
-    "free_gb, warned", [(25.5, False), (12.0, False), (10.0, True)]
-)
-def test_the_low_memory_warning_clears_with_the_14b(
+@pytest.mark.parametrize("free_gb, warned", [(25.5, False), (6.0, False), (5.0, True)])
+def test_the_low_memory_warning_clears_with_the_9b(
     corpus_and_identities,  # noqa: F811
     monkeypatch,
     free_gb,
     warned,
 ):
-    """Owner, 25 Nov 2026 23:25: with the 14B as the default, the dashboard's low-memory warning clears whenever the machine
-    has the 14B's measured 11.1 GB free (it asked 24 GB for the 35B, so it showed almost always)."""
+    """With the 9B as the default (lead-4, 26 Nov 2026), the dashboard's low-memory warning clears whenever the machine has the
+    9B's measured 5.35 GB free (it asked 24 GB for the 35B, so it showed almost always)."""
     import psutil
 
     class Free:
@@ -125,7 +125,7 @@ def test_the_low_memory_warning_clears_with_the_14b(
         percent = 50.0
 
     monkeypatch.setattr(psutil, "virtual_memory", lambda: Free)
-    monkeypatch.setattr(settings, "answer_model", THE_14B)
+    monkeypatch.setattr(settings, "answer_model", THE_9B)
     monkeypatch.setattr(
         settings,
         "answer_model_ram_bytes",

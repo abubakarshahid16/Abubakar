@@ -3,9 +3,14 @@ module stays under its size limit."""
 
 from __future__ import annotations
 
+import logging
+import re
+
 from . import prompts as P
 from .budget import is_local
 from .engine import StepFailed
+
+log = logging.getLogger(__name__)
 
 
 def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> list[dict]:
@@ -43,32 +48,105 @@ def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> lis
 _CUT = " [CUT: rule text longer than shown]"
 
 
+#: The share of a quote's content words a stored rule must hold to be taken as the rule the quote means (F's 14B run e19e3d8a: a
+#: clause often holds several stored rules, and the model's page was off, so "one rule per clause" fixed almost none).
+COVER = 0.6
+#: Words that say nothing about what a rule is about: they never count towards COVER (review of update 10, M1: "the", "shall"
+#: and "for" made a coating quote match a gasket rule). Plain English grammar words only.
+_GRAMMAR = (
+    "the and for are was were shall should must may can will with without from into onto upon this that these those such "
+    "than then any all each every other its their his her our your not nor but per via has have had been being where when "
+    "which who whom what how also only both either neither more most less least same very"
+)
+_STOP = frozenset(re.findall(r"[a-z]+", _GRAMMAR))
+
+
+def _words(s) -> set[str]:
+    """The content words of `s`: words of 3 letters or more that are not grammar words, and numbers."""
+    found = re.findall(r"[a-z0-9]+", str(s or "").lower())
+    return {w for w in found if w.isdigit() or (len(w) >= 3 and w not in _STOP)}
+
+
+def _clause_parts(c) -> tuple[str, ...]:
+    return tuple(p for p in str(c or "").strip().rstrip(".").split(".") if p.strip())
+
+
+def _in_cited(rule_clause, cited) -> bool:
+    """The rule's clause is the cited clause, one under it ("4.1" -> "4.1.2"), or the cited clause's parent ("4.1.2" -> "4.1")."""
+    r, c = _clause_parts(rule_clause), _clause_parts(cited)
+    return bool(r and c) and (r[: len(c)] == c or r == c[:-1])
+
+
+def _rule_for(it: dict, rules: list[dict]) -> dict | None:
+    """The rule the item's quote means, looked for ONLY in the item's own book and within its cited clause (`_in_cited`):
+    the one holding the largest share (at least COVER) of the quote's content words, its exact clause first on a tie. With a
+    quote of under 4 content words, the one rule of its book and exact clause, if there is exactly one. A rule of another
+    book or clause is never taken (review of update 10, M1: code compared the paper against the wrong rule's limit)."""
+    mine = [
+        r
+        for r in rules
+        if r["book"] == it.get("book") and _in_cited(r["clause"], it.get("clause"))
+    ]
+    q = _words(it.get("rule_quote"))
+    if len(q) >= 4:
+
+        def score(i: int, r: dict) -> tuple:
+            return (
+                len(q & _words(r["text"])) / len(q),
+                _same(r["clause"], it.get("clause")),
+                -i,
+            )
+
+        i, r = max(enumerate(mine), key=lambda x: score(*x), default=(0, None))
+        return r if r is not None and score(i, r)[0] >= COVER else None
+    same = [r for r in mine if _same(r["clause"], it.get("clause"))]
+    return same[0] if len(same) == 1 else None
+
+
 def by_code(bad: list[dict], batch, found) -> tuple[list[dict], list[dict]]:
-    """(fixed, still to ask). On the local model, an item whose quote was not found and whose book and clause name exactly ONE
-    rule of its batch takes that rule's stored words (as shown, without the cut mark) and page; it is kept only if `found`
-    then finds the quote on the book page. No call is made for it (F's 14B run 09105c4b, 26 Nov 2026: 18 retry calls of about
-    20 s each ran the run past the swap rule). The others are asked again as before. On Claude: nothing fixed by code."""
+    """(fixed, still to ask). On the local model, an item whose quote was not found takes the stored words (as shown, without
+    the cut mark), clause and page of the rule of its own book and cited clause its quote means (`_rule_for`), and is kept only if `found` then
+    finds those words on the book page. No call is made for it (F's 14B runs 09105c4b and e19e3d8a, 26 Nov 2026: the retry
+    calls ran the review past the swap rule). The others are asked again as before. On Claude: nothing fixed by code."""
     if not is_local():
         return [], bad
+    rules = [r for r in batch if "rule" in r]
     fixed, ask = [], []
     for it in bad:
-        rules = [
-            r
-            for r in batch
-            if "rule" in r
-            and r["book"] == it.get("book")
-            and _same(r["clause"], it.get("clause"))
-        ]
-        if len(rules) == 1:
+        r = _rule_for(it, rules)
+        if r is not None:
             got = it | {
-                "rule_quote": rules[0]["text"].removesuffix(_CUT).strip(),
-                "page": rules[0]["page"],
+                "rule_quote": r["text"].removesuffix(_CUT).strip(),
+                "clause": r["clause"],
+                "page": r["page"],
             }
             if found(got):
                 fixed.append(got)
                 continue
         ask.append(it)
+    log.info(
+        "general review: %d of %d rule quotes taken from the stored rule by code",
+        len(fixed),
+        len(bad),
+    )
     return fixed, ask
+
+
+def capped(ask: list[dict], size: int) -> list[dict]:
+    """On the local model at most ONE retry call per batch (its first `size` items; lead-4, 26 Nov 2026, after F's run
+    09105c4b): the other items keep their quote not found, are left out like any such item, and are counted under "Steps that
+    did not run". On Claude: every item, as before."""
+    if not is_local() or len(ask) <= size:
+        return ask
+    from . import faults
+
+    for _ in ask[size:]:
+        faults.record(
+            "aim_retry_capped",
+            "a checklist retry item",
+            "the local model makes one retry call per batch",
+        )
+    return ask[:size]
 
 
 def _same(a, b) -> bool:
