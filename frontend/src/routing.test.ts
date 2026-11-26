@@ -67,6 +67,14 @@ describe("application routes", () => {
   });
 });
 
+describe("the Technical Queries and CFCs page (owner, 26 Nov 2026: the name must cover CFCs)", () => {
+  it("has one name in the menu and the browser title, at the same address as before", () => {
+    expect(NAV.find((item) => item.id === "technicalQueries")?.label).toBe("Technical Queries and CFCs");
+    expect(titleForView("technicalQueries")).toBe("Technical Queries and CFCs · RAG Intelligence System");
+    expect(pathForView("technicalQueries")).toBe("/technicalQueries"); // the route (and the Gmail return address under it) stays
+  });
+});
+
 describe("every navigation entry survives a refresh", () => {
   it("parses every NAV entry and the admin entry back to its own view", () => {
     for (const item of [...NAV, ADMIN_NAV]) {

@@ -48,19 +48,19 @@ describe("the Technical Queries menu entry", () => {
   it("is in the menu right after a sign-in when the server has the feature on", async () => {
     mockApi(true);
     await signIn();
-    expect(screen.getAllByText("Technical Queries").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Technical Queries and CFCs").length).toBeGreaterThan(0);
   });
 
   it("is not in the menu when the feature is off", async () => {
     mockApi(false);
     await signIn();
-    expect(screen.queryByText("Technical Queries")).toBeNull();
+    expect(screen.queryByText("Technical Queries and CFCs")).toBeNull();
   });
 
   it("is in the menu after a reload (the /me answer carries it)", async () => {
     mockApi(true, true);
     render(<App initialView="documents" />);
     await screen.findByText("Eng", { exact: false });
-    expect(screen.getAllByText("Technical Queries").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Technical Queries and CFCs").length).toBeGreaterThan(0);
   });
 });

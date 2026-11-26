@@ -101,7 +101,7 @@ const titles: Record<ViewId, string> = {
   admin: "Administration",
   standards: "Standards Library",
   review: "AI Submittal Review",
-  technicalQueries: "Technical Queries",
+  technicalQueries: "Technical Queries and CFCs",
 };
 
 /** Every view the app can open, derived from `titles` - a `Record<ViewId, ...>`,
