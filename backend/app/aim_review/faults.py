@@ -103,6 +103,7 @@ NOT_APPLIED_WORDS = {
     "aim_retry_not_found": "{n} checklist item{s} {was} left out after a second ask: {why}.",
     "aim_attack_not_shown": "{n} checklist item{s} {was} not attacked ({why}) and {was} kept as the first engineer wrote "
     "{it}.",
+    "aim_attack_knowledge": "{n} knowledge item{s} {was} not attacked ({why}).",
     "aim_attack_item_cut": "{n} checklist item{s} {was} not attacked ({why}) and {was} kept as the first engineer wrote "
     "{it}.",
     "aim_attack_no_verdict": "{n} checklist item{s} got no attack verdict ({why}) and {was} kept as the first engineer "

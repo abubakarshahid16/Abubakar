@@ -31,15 +31,19 @@ def cited(
     if not rules:
         return True  # a book read by its pages: the page and quote are the citation
     q = str(it.get("rule_quote") or "")
-    holds = {  # a rule with no clause number never resolves a citation (review of update 11, N2)
-        _clause(r["clause"])
-        for r in rules
-        if _clause(r["clause"]) and quote_in(q, r["text"].removesuffix(_CUT))
-    }
+    holding = [r for r in rules if quote_in(q, r["text"].removesuffix(_CUT))]
+    holds = {
+        _clause(r["clause"]) for r in holding if _clause(r["clause"])
+    }  # NUMBERED rules holding the quote
     if _clause(it.get("clause")) in holds:
         return True
     if len(holds) == 1:
         it["clause"] = next(iter(holds))
+        return True
+    if not holds and any(not _clause(r["clause"]) for r in holding):
+        # only a rule with no clause number holds it (review of update 11, B2: most stored rules have none): cited by PAGE, like
+        # a book read by pages; never re-cited to a numbered clause, and a clause number it gave that holds nothing is dropped
+        it["clause"] = ""
         return True
     return False
 
