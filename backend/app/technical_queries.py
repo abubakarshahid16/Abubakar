@@ -898,6 +898,13 @@ def get(
                 (query_id,),
             )
         ]
+        from . import technical_query_contracts as _tqc
+
+        # which source each passage comes from (owner, 26 Nov 2026)
+        for row in result["evidence"]:
+            row["source_kind"], row["source_name"] = _tqc.source_of(
+                conn, row["document_id"]
+            )
         # the standing follows the source document, read now
         for row in result["evidence"]:
             row["supersession_state"] = passage_standing(
@@ -1374,8 +1381,10 @@ def prepare_evidence(
         attachment_documents = query_attachment_document_ids(conn)
     allowed = frozenset(allowed_document_ids) - attachment_documents
     cut = question[:MAX_PROPOSED_QUESTION]
+    # the form's own citations (its reference lines: part and clause) are looked up first (owner's fault 4)
+    form_texts = [c["text"] for c in context]
     field = (
-        technical_query_contracts.search_all(cut, allowed, progress)
+        technical_query_contracts.search_all(cut, allowed, progress, form_texts)
         if question
         else {"coverage": {"line": NOT_SEARCHED}}
     )
@@ -1400,9 +1409,8 @@ def prepare_evidence(
             ),
         )
         listed = 0  # the best LISTED passages that stand on their pages are listed (from the fair-share pool of MAX_PASSAGES)
-        for passage in hits[: technical_query_contracts.MAX_PASSAGES]:
-            floor = technical_query_contracts.below_floor(hits, listed, passage)
-            if listed >= technical_query_contracts.LISTED or floor:
+        for passage in hits:  # the cited clauses first (never held back), then the fair-share pool of MAX_PASSAGES
+            if technical_query_contracts.held_back(hits, listed, passage):
                 break
             quote = (passage.get("text") or "").strip()
             if not quote:
@@ -1434,8 +1442,8 @@ def prepare_evidence(
             sc = technical_query_match.score(terms, quote)
             scores.append(sc)
             # the clause holding the matched words wins over the clause the search named for the passage's start (review of evidence run 5: Q1)
-            locator = (
-                _matched_clause(conn, passage, quote, terms)
+            locator = (  # a cited clause's passage is located at the cited clause
+                (passage.get("cited") and passage.get("locator")) or _matched_clause(conn, passage, quote, terms)
                 or passage.get("locator")
                 or _locator_of(conn, passage, quote, terms)
             )

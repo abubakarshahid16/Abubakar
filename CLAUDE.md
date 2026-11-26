@@ -59,6 +59,14 @@ contractor copy issued only after that sign-off. Until then every file is the te
    the engineer chooses for that one query, and the query's own text, to Claude through `reader_transport.py` under the
    `claude_spend` caps (per-request consent for those files only, its own lane, not chat's); sending mail stays off
    (`gmail.send` is not asked for) until the owner writes "sending approved".
+   TQ EVIDENCE SEARCH COVERS HELD STANDARDS TOO (owner, 26 Nov 2026, #1584: "Technical query evidence search must
+   include company standards and the standards we hold, as well as contract documents. Show which source each passage
+   comes from."): the evidence search (local only, nothing sent) now searches the held standards the caller may read
+   (a company standard by role, or an unroled public standard; never a contract or a submittal) together with the
+   readable contracts, and a form's own cited standard is looked up by name first. Every passage shown names its
+   source (contract document / company standard / standard, an unroled public one / document, with its title or number). The Claude DRAFT lane above is
+   UNCHANGED: a draft still reads only the contract documents the engineer chooses; a non-contract document is refused
+   ("not a contract: not sent"). Widening the draft lane to standard text would need its own owner line here.
    THE RULE APPROVAL LANE (owner, 25 Nov 2026, #1584 comment 7169525003; `rule_second_approval.py`,
    `scripts/run_rule_second.py`): the second-model rule approval step and its blind sample judge send rule-book text of
    the SAES, ISO, API, ASME and NACE families only, through `standards_lane` and `reader_transport.py` under the
