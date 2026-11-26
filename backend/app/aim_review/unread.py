@@ -30,6 +30,8 @@ NO_TEXT, WAITING, FAILED, NO_TEXT_AFTER = (
 PICTURE_NOT_READ, PICTURE_FAILED = "picture_not_read", "picture_reading_failed"
 #: A page Claude's picture reading was not given: past the per-review limit, or refused (a cap, the lane, the approval).
 CAPPED, REFUSED = "picture_reading_capped", "picture_reading_refused"
+#: A page the upload's picture stage was reading while the review started (`picture_stage.reading_now`; lead-4, 26 Nov 2026).
+BEING_READ = "picture_being_read_at_upload"
 
 #: The plain words of each code (the same on the page and in the file).
 WHY_WORDS = {
@@ -41,6 +43,7 @@ WHY_WORDS = {
     PICTURE_FAILED: "its picture reading failed",
     CAPPED: "it is past the limit of pages Claude reads as pictures in one review",
     REFUSED: "Claude's picture reading of it was refused (a spending cap, the lane or the approval)",
+    BEING_READ: "it is being read at upload, not read in this review",
 }
 
 STEP = "aim_unread_pages"
@@ -121,11 +124,14 @@ def _pdf_unread(conn, paper_id: str, paper, total: int) -> list[dict]:
     looked_at = picture_stage.recorded(
         conn, paper_id
     )  # the upload's own picture reading (never run inside a review)
+    busy = picture_stage.reading_now(paper_id)  # the upload is reading it now
     out = []
     for n in range(1, last + 1):
         if len(str(paper.pages.get(n) or "").strip()) >= MIN_PAGE_CHARS:
             continue
-        if n in looked_at and looked_at[n] != picture_stage.READ:
+        if busy and n not in looked_at:
+            why = BEING_READ
+        elif n in looked_at and looked_at[n] != picture_stage.READ:
             why = {
                 picture_stage.FAILED: PICTURE_FAILED,
                 picture_stage.REFUSED: REFUSED,

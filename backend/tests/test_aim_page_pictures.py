@@ -137,3 +137,50 @@ def test_local_only_and_claude_not_available_send_no_picture(
     )
     assert pictures.read(aim_db, PAPER, Meter(cap=5.0)) is None
     assert wired.packets == []
+
+
+def test_a_paper_the_upload_is_reading_now_is_not_read_again_in_the_review_and_its_pages_are_named(
+    aim_db, wired, monkeypatch
+):
+    """Lead-4, 26 Nov 2026 (the 7a M2 concern): one reading lane per file. While the upload's picture stage reads the paper, the
+    review sends no picture of it and names the pages "being read at upload, not read in this review"."""
+    from app.aim_review import unread
+    from app.aim_review.paper import load_paper
+
+    monkeypatch.setattr(settings, "aim_page_pictures_enabled", True)
+    with picture_stage._READING_LOCK:
+        picture_stage._READING.add(PAPER)
+    try:
+        assert picture_stage.reading_now(PAPER)
+        assert (
+            pictures.read(aim_db, PAPER, Meter(cap=5.0)) is None and wired.packets == []
+        )
+        rows = unread._pdf_unread(
+            aim_db, PAPER, load_paper(aim_db, PAPER), 3
+        )  # the PDF branch of `with_unread`
+        named = [u for u in rows if u["where"] == f"page {PICTURE_PAGE}"]
+        assert [u["why"] for u in named] == [unread.BEING_READ]
+        assert (
+            unread.WHY_WORDS[unread.BEING_READ]
+            == "it is being read at upload, not read in this review"
+        )
+    finally:
+        with picture_stage._READING_LOCK:
+            picture_stage._READING.discard(PAPER)
+    assert not picture_stage.reading_now(PAPER)
+    assert (
+        pictures.read(aim_db, PAPER, Meter(cap=5.0))[picture_stage.READ] == 1
+    )  # once the upload is done, a review reads it
+
+
+def test_the_upload_stage_marks_the_paper_as_being_read_for_the_length_of_its_pass(
+    monkeypatch,
+):
+    seen = []
+    monkeypatch.setattr(
+        picture_stage,
+        "_run",
+        lambda d, p, pages: seen.append(picture_stage.reading_now(d)) or {},
+    )
+    picture_stage.run("doc_invented")
+    assert seen == [True] and not picture_stage.reading_now("doc_invented")

@@ -110,6 +110,10 @@ def read(conn, paper_id: str, meter) -> dict | None:
         return None
     from app import picture_stage
 
+    # the upload is reading this file now: never twice at once; the unread list names the pages
+    if picture_stage.reading_now(paper_id):
+        log.info("page pictures: the upload is reading this paper; not in this review")
+        return None
     try:
         pages = todo(conn, paper_id)
         if not pages:

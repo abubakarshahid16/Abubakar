@@ -23,6 +23,7 @@ so a failed reading is said ("its picture reading failed") and is never counted 
 from __future__ import annotations
 
 import logging
+import threading
 
 from .config import settings
 from .db import connect
@@ -170,7 +171,29 @@ def _mark(conn, document_id: str, page_no: int, state: str, reason: str) -> None
     )
 
 
+#: The documents this process's stage is reading right now: a review never reads the same file at the same time (lead-4, 26 Nov
+#: 2026, the 7a M2 concern: one reading lane per file); it names those pages instead (`aim_review.pictures`, `unread.BEING_READ`).
+_READING: set[str] = set()
+_READING_LOCK = threading.Lock()
+
+
+def reading_now(document_id: str) -> bool:
+    with _READING_LOCK:
+        return str(document_id) in _READING
+
+
 def run(document_id: str, provider=None, pages: list[int] | None = None) -> dict:
+    """Read the document's unread pages as pictures (see `_run`), marked as being read for the length of the pass."""
+    with _READING_LOCK:
+        _READING.add(str(document_id))
+    try:
+        return _run(document_id, provider, pages)
+    finally:
+        with _READING_LOCK:
+            _READING.discard(str(document_id))
+
+
+def _run(document_id: str, provider=None, pages: list[int] | None = None) -> dict:
     """Read the document's unread pages as pictures (`pages`: these pages instead of `targets`, for a review's own reading,
     `aim_review.pictures`). Returns the counts `{read, no_text, failed, refused, capped}`. Never raises: a break is recorded per page
     ("failed") and logged by type."""
