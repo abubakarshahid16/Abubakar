@@ -36,15 +36,15 @@ def test_the_queries_waiting_for_evidence_are_counted_through_their_own_visibili
             f"UPDATE {technical_query_jobs.TABLE} SET state='done' WHERE query_id=?",
             (c,),
         )
-    mine = R.queries_waiting("u1", False)
+    mine, _named = R.queries_waiting("u1", False)
     assert mine.startswith(
         "2 of 3 technical queries are waiting for their evidence (1 queued, 1 being prepared)"
     )
     assert R.TQ_BOUNDARY in mine and mine.count("\n- ") == 2
-    assert R.queries_waiting("someone-else", False).startswith(
+    assert R.queries_waiting("someone-else", False)[0].startswith(
         "0 of 0 technical queries"
     )  # sees none of them
-    assert R.queries_waiting("someone-else", True).startswith(
+    assert R.queries_waiting("someone-else", True)[0].startswith(
         "3 of 4 technical queries"
     )  # an administrator sees all
 
@@ -57,9 +57,11 @@ def test_a_query_whose_evidence_failed_is_said_apart():
             f"UPDATE {technical_query_jobs.TABLE} SET state='failed' WHERE query_id=?",
             (q,),
         )
-    assert "The evidence of 1 could not be prepared." in R.queries_waiting("u1", False)
+    assert (
+        "The evidence of 1 could not be prepared." in R.queries_waiting("u1", False)[0]
+    )
 
 
 def test_with_technical_queries_switched_off_it_says_it_cannot_answer(monkeypatch):
     monkeypatch.setattr(settings, "technical_queries_enabled", False)
-    assert R.queries_waiting("u1", True).startswith(R.CANNOT)
+    assert R.queries_waiting("u1", True)[0].startswith(R.CANNOT)

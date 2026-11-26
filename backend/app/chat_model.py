@@ -293,6 +293,8 @@ def history(conversation_id: str, *, allowed_document_ids: frozenset[str],
             continue
         if (message.get("payload") or {}).get("withheld"):
             continue
+        if (message.get("payload") or {}).get("input_kind") == "records_question":
+            continue  # a records answer (`chat_records`, code's words) never reaches a model, not even as history
         text = _turn_text(message)
         if text:
             turns.append({"role": message["role"], "text": text})
