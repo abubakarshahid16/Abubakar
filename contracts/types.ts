@@ -2319,6 +2319,10 @@ export interface CorpusMetrics {
   chunks_excluded: number;
   chunks_indexed_keyword: number;
   chunks_embedded: number;
+  /** Update 12: technical-query attachments nobody filed into the library, counted APART from every number above (corpus-wide views
+   * only; null for a scoped view, which never holds them). */
+  technical_query_attachments?: number | null;
+  technical_query_attachment_passages?: number | null;
 }
 
 export interface StageThroughput {

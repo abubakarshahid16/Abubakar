@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
@@ -70,10 +71,26 @@ def _where(allowed: Allowed, column: str = "document_id") -> tuple[str, list[str
     day someone adds one.
     """
     if allowed is None:
-        return "", []
+        # corpus-wide (an admin, or sign-in off): every document EXCEPT the technical-query attachments nobody filed into the library;
+        # they are counted apart (`corpus.technical_query_attachments`), never inside the library's numbers (update 12)
+        apart = attachments_apart()
+        if not apart:
+            return "", []
+        return f" WHERE {column} NOT IN ({','.join('?' * len(apart))})", sorted(apart)
     if not allowed:
         return " WHERE 1 = 0", []
     return f" WHERE {column} IN ({','.join('?' * len(allowed))})", list(allowed)
+
+
+def attachments_apart() -> frozenset[str]:
+    """The technical-query attachments nobody has filed into the library (`technical_queries.unfiled_attachment_ids`): kept out of the
+    library's counts; none when the feature never ran (no table)."""
+    from . import technical_queries
+
+    try:
+        return technical_queries.unfiled_attachment_ids(connect())
+    except sqlite3.Error:
+        return frozenset()
 
 
 def corpus(allowed: Allowed = None) -> dict:
@@ -115,7 +132,24 @@ def corpus(allowed: Allowed = None) -> dict:
         "chunks_excluded": max(0, chunks_rows - docs["chunks_retrievable"]),
         "chunks_indexed_keyword": indexed,
         "chunks_embedded": vectors,
+        # counted APART, corpus-wide only (a scoped view never holds them): the attachments of technical queries, not in the numbers above
+        **_attachments_counted_apart(conn, allowed),
     }
+
+
+def _attachments_counted_apart(conn, allowed: Allowed) -> dict:
+    keys = ("technical_query_attachments", "technical_query_attachment_passages")
+    if allowed is not None:
+        return dict.fromkeys(keys)
+    apart = sorted(attachments_apart())
+    if not apart:
+        return dict.fromkeys(keys, 0)
+    marks = ",".join("?" * len(apart))
+    passages = conn.execute(
+        f"SELECT COALESCE(SUM(chunk_count), 0) FROM documents WHERE id IN ({marks})",
+        apart,
+    ).fetchone()[0]
+    return dict(zip(keys, (len(apart), passages), strict=True))
 
 
 def exclusions(allowed: Allowed = None) -> list[dict]:

@@ -3827,6 +3827,10 @@ class CorpusMetrics(BaseModel):
     chunks_excluded: int
     chunks_indexed_keyword: int
     chunks_embedded: int
+    #: Update 12: technical-query attachments nobody filed into the library, counted APART from every number above (corpus-wide views
+    #: only; null for a scoped view, which never holds them).
+    technical_query_attachments: int | None = None
+    technical_query_attachment_passages: int | None = None
 
 
 class StageThroughput(BaseModel):
