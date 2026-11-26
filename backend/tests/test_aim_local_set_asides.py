@@ -595,3 +595,14 @@ def test_an_old_local_review_says_its_one_fixed_reason_once():
     assert _said(old)["aim_retry_capped"]["sentence"] == (
         "3 checklist items were left out without a second ask (the local model makes one retry call per batch)."
     )
+
+
+def test_an_item_with_no_clause_from_a_book_read_by_its_pages_is_shown_its_page():
+    """Recheck of update 11, R2-1: such an item had no own rows (the no-clause branch returned before the page branch), so it was
+    never attacked; it is shown its page and the pages beside it, like any item of that book."""
+    from app.aim_review import attack_local as AL
+
+    rows = [{"page_of": "B7", "book_id": "b7", "page": p, "page_text": f"Invented page {p} of a book read by its pages."}
+            for p in (1, 2, 3, 9)]  # fmt: skip
+    item = {"book": "B7", "clause": "", "page": 2, "rule_quote": "Invented page 2"}
+    assert [r["page"] for r in AL._own_rows(item, rows)] == [1, 2, 3]
