@@ -34,6 +34,12 @@ def signed(temp_db):
     return c, [key_of(cm) for cm in page["comments"]]
 
 
+def _contractor(c):
+    r = c.get(f"{BASE}/sheet", params={"run_id": RUN, "copy": "contractor"})
+    assert r.status_code == 200
+    return r.content
+
+
 def _a_later_update_that_joins_two_comments(monkeypatch):
     """Today's grouping joins the first two comments into one (as an update that merges more would)."""
     real = aim_review_view.comments_and_confirmations
@@ -63,6 +69,7 @@ def test_a_signed_review_keeps_its_signed_comments_after_a_regrouping(
 ):
     c, signed_keys = signed
     assert len(signed_keys) >= 2
+    issued = _contractor(c)
     _a_later_update_that_joins_two_comments(monkeypatch)
     page = c.get(f"{BASE}?run_id={RUN}").json()
     assert [
@@ -75,6 +82,7 @@ def test_a_signed_review_keeps_its_signed_comments_after_a_regrouping(
     assert (
         c.get(f"{BASE}/sheet", params={"run_id": RUN}).status_code == 200
     )  # the team file is still complete
+    assert _contractor(c) == issued  # the contractor copy, byte for byte
 
 
 def test_an_unsigned_review_takes_todays_grouping(signed, monkeypatch):
