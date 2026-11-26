@@ -145,3 +145,49 @@ def test_pictures_inside_stored_mail_are_marked_from_the_stored_original():
         "site-photo.gif": 0,
     }  # a picture sent as an attachment stays an attachment
     assert gmail_import_jobs.mark_stored_inline_pictures("mb") == 0  # safe to run again
+
+
+def test_the_form_question_section_and_why_nothing_was_proposed(monkeypatch):
+    # lead-4, 26 Nov 2026 (live shapes, invented words): a "Question" heading, a references block, requests with no question mark
+    from app import technical_query_questions as Q
+
+    page = (
+        "Technical Query\nRev. 01\nQuestion\nReferences:\n1.\nInvented spec XS-100 clause 4.2\n\n"
+        "The invented guard is shown in invented steel.\nConfirm that invented aluminium may be used.\n\nApproved\nName: Invented"
+    )
+    got = Q.form_question([{"text": page, "filename": "f.docx", "page": 1}])
+    assert (
+        got
+        == "The invented guard is shown in invented steel. Confirm that invented aluminium may be used."
+    )
+    cfc = "Comment For Clarification (CFC)\nRev. 01\nDate:\nContractor Clarification Request Invented\nInvented point to clarify.\nApproved"
+    assert Q.form_question([{"text": cfc}]) == "Invented point to clarify."
+    assert (
+        Q.form_question([{"text": "Technical Query\nInvented title only\nApproved"}])
+        == ""
+    )  # a title is not a question field
+    monkeypatch.setattr(Q, "_ask", lambda text: [])
+    assert Q.from_pages([{"text": page}]) == ([], Q.NONE_FOUND)
+    monkeypatch.setattr(Q, "_ask", lambda text: ["A question the page does not hold?"])
+    assert Q.from_pages([{"text": page}]) == ([], Q.NOT_ON_PAGE)
+
+
+def test_a_line_every_mail_carries_and_a_link_s_question_mark_ask_nothing():
+    from app import technical_query_mail as M
+
+    footer = (
+        "Please be aware that this invented mailbox is watched by the invented team."
+    )
+    bodies = tuple(f"Invented message {n}.\n\n{footer}" for n in range(6))
+    common = M._repeated(bodies)
+    assert M._norm(footer) in common
+    mail = f"Dear All,\n\nPlease, find attached our TQ: TQ-00099 - Invented title\n\n<https://invented.example/?a=1>\n\n{footer}"
+    assert M.email_question(mail, common) == ""
+    assert (
+        M._repeated(bodies[:4]) == frozenset()
+    )  # too few messages to call anything boilerplate
+    real = f"Dear All,\nPlease confirm the invented flange rating.\nInvented Name\n+00 000 000\n\n{footer}"
+    assert (
+        M.email_question(real, common)
+        == "Please confirm the invented flange rating.\nInvented Name\n+00 000 000"
+    )
