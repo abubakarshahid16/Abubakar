@@ -4,6 +4,8 @@ words. Invented values only."""
 
 from __future__ import annotations
 
+import pytest
+
 from app import blank_markers as BM
 from app.aim_review import steps as S
 
@@ -96,3 +98,49 @@ def test_a_value_flagged_open_that_the_quote_states_gets_no_verdict_from_code_on
         S._decide(ITEM, {**ANSWER, "numbers": nums}, PAPER, {}, "")["label"]
         == "Not met"
     )  # the control: compared by code
+
+
+@pytest.mark.parametrize(
+    "quote, deferred",
+    [
+        (
+            "Corrosion allowance (pressure parts): By Vendor",
+            True,
+        ),  # a vendor marker, flagged open
+        (
+            "Corrosion allowance (pressure parts): By Vendor",
+            False,
+        ),  # a vendor marker, not flagged: code reads it as open
+        ("Corrosion allowance: 1.0 mm", True),  # a quote not on its page (unverified)
+        ("Corrosion allowance: 1.0 mm", False),
+        ("", True),  # no quote
+        ("", False),
+    ],
+)
+def test_an_open_marker_an_unverified_quote_or_no_quote_stays_a_question_with_no_verdict_from_code(
+    quote, deferred
+):
+    """Lead-4, 26 Nov 2026: the stated-value path fires ONLY for a quote verified on its page that states a value code does not read
+    as open. A value left to the vendor, an unverified quote or no quote stays a Question, never Pass or Fail, on both routes."""
+    from app.aim_review import budget
+    from app.aim_review.paper import Paper
+    from tests.test_aim_local_fixes import ANSWER, ITEM
+
+    paper = Paper(
+        paper_id="doc_inv_sheet",
+        pages={2: "Invented sheet.\nCorrosion allowance (pressure parts): By Vendor\n"},
+    )
+    nums = {
+        "paper_value": "1.0",
+        "paper_unit": "mm",
+        "operator": ">=",
+        "rule_value": "3",
+        "rule_unit": "mm",
+    }
+    answer = {**ANSWER, "quote": quote, "deferred": deferred, "numbers": nums}
+    with budget.using(budget.LOCAL):
+        local = S._decide(ITEM, dict(answer), paper, {}, "")
+    on_claude = S._decide(ITEM, dict(answer), paper, {}, "")
+    for line in (local, on_claude):
+        assert line["label"] == "Question" and not line["code_compare"]
+        assert BM.STATED_NOT_OPEN not in (line["code"] or "")
