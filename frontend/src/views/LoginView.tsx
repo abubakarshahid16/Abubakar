@@ -311,7 +311,7 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
     // screen reader heard it interrupt them.
     return (
       <span className="text-xs text-slateish-500">
-        Authentication disabled — no user identity
+        Sign-in is off on this computer: everyone sees every document
       </span>
     );
   }

@@ -125,7 +125,7 @@ describe("RoleBadge", () => {
     // this label never changes. As a status it also collided with the real
     // status messages on the Dashboard, so a screen reader heard it cut in.
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByText(/Authentication disabled/)).toBeInTheDocument();
+    expect(screen.getByText(/Sign-in is off on this computer/)).toBeInTheDocument(); // everyday words (owner, 26 Nov 2026, G9)
     expect(container.textContent).not.toMatch(/admin|administrator|guest|anonymous/i);
     expect(screen.queryByRole("button")).toBeNull();
   });
@@ -135,6 +135,6 @@ describe("RoleBadge", () => {
     render(<RoleBadge me={me} onLogout={vi.fn()} />);
     expect(screen.getByText("Ali Z")).toBeInTheDocument();
     expect(screen.getByText("engineer")).toBeInTheDocument();
-    expect(screen.queryByText(/Authentication disabled/)).toBeNull();
+    expect(screen.queryByText(/Sign-in is off on this computer/)).toBeNull();
   });
 });
