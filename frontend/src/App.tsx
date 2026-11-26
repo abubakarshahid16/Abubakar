@@ -40,6 +40,8 @@ const DeliverablesView = lazy(() => import("./views/DeliverablesView").then((m) 
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
+/** The way-back switch of the new look (owner, 26 Nov 2026): off unless the web page is started with VITE_UI_NEW_LOOK=true. */
+const NEW_LOOK = import.meta.env.VITE_UI_NEW_LOOK === "true";
 const THEME_KEY = "rag-intelligence-theme";
 
 /** Whether this deployment wants a sign-in, and who is signed in.
@@ -389,6 +391,9 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    // THE LOOK (owner, 26 Nov 2026): the new style applies when the way-back switch VITE_UI_NEW_LOOK is "true" (off by default, off on
+    // live). The same pages, menu and routes either way: only colours, type, spacing and shapes change.
+    document.documentElement.setAttribute("data-look", NEW_LOOK ? "new" : "classic");
     // A forgotten preference is a nuisance; a crash on a blocked storage API
     // is a broken app. The theme still applies for this session either way.
     try {
