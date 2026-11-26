@@ -56,6 +56,8 @@ def title_fields(text: str) -> int:
 #: The drawing number label of a title block (the field a form's revision footer does not carry).
 DRAWING_NUMBER = TITLE_FIELDS[1]
 SHEET_BAND = 0.25  # the bottom quarter of the page, as it is shown
+LABEL_RIGHT = 0.5  # the drawing-number label sits in the right half of that band (the title-block corner)
+MAX_GRID = 8.0  # body segments per position above which the body is a cell-by-cell table (real sheets 1.8-4.2; ruled forms ~15)
 
 
 def is_drawing(conn, paper_id: str) -> bool:
@@ -76,19 +78,64 @@ def is_drawing(conn, paper_id: str) -> bool:
 
 
 def is_sheet(page) -> bool:
-    """A drawing sheet: the bottom quarter (as shown) holds 3+ title-block fields with a drawing number, and the page is drawn."""
+    """A drawing sheet: the bottom quarter (as shown) holds 3+ title-block fields, its drawing-number label sits in the RIGHT half (the
+    sheet's title-block corner; update 14 R3: a form's footer label sits anywhere), the page is drawn, and its body is not a regular
+    cell-by-cell table (`grid_regularity`)."""
     import pymupdf
 
     r = page.rect
-    band = pymupdf.Rect(r.x0, r.y1 - SHEET_BAND * r.height, r.x1, r.y1)
-    if page.rotation:
-        band = (
-            band * page.derotation_matrix
-        )  # the text sits in the page's own (unrotated) coordinates
+
+    def shown(
+        rect,
+    ):  # a band of the page as it is shown, in the page's own (unrotated) coordinates
+        return rect * page.derotation_matrix if page.rotation else rect
+
+    band = shown(pymupdf.Rect(r.x0, r.y1 - SHEET_BAND * r.height, r.x1, r.y1))
     low = str(page.get_text("text", clip=band) or "").lower()
     if not re.search(DRAWING_NUMBER, low) or title_fields(low) < MIN_TITLE_FIELDS:
         return False
-    return drawn_share(page) >= MIN_DRAWN_SHARE
+    corner = shown(
+        pymupdf.Rect(
+            r.x0 + LABEL_RIGHT * r.width, r.y1 - SHEET_BAND * r.height, r.x1, r.y1
+        )
+    )
+    if not re.search(
+        DRAWING_NUMBER, str(page.get_text("text", clip=corner) or "").lower()
+    ):
+        return False
+    return drawn_share(page) >= MIN_DRAWN_SHARE and grid_regularity(page) <= MAX_GRID
+
+
+def grid_regularity(page) -> float:
+    """Axis-aligned segments (lines and rectangle edges) of the page's BODY (15% to 75% of its height) per distinct position they sit
+    on (2 pt). A table ruled cell by cell puts many segments on few row and column positions (about 15); a drawing's lines sit at
+    many positions (1.8 to 4.2 on the real set measured). 0 when the body holds no segment."""
+    m = page.rotation_matrix if page.rotation else None
+    r = page.rect
+    y0, y1 = r.y0 + 0.15 * r.height, r.y1 - SHEET_BAND * r.height
+    segs = []
+    for path in page.get_drawings():
+        for it in path.get("items", []):
+            if it[0] == "l":
+                segs.append((it[1], it[2]))
+            elif it[0] == "re":
+                q = it[1]
+                a, b, c, d = q.tl, q.tr, q.br, q.bl
+                segs += [(a, b), (b, c), (c, d), (d, a)]
+    pos: set[tuple[str, int]] = set()
+    n = 0
+    for a, b in segs:
+        if m is not None:
+            a, b = a * m, b * m
+        if not y0 <= (a.y + b.y) / 2 <= y1:
+            continue
+        if abs(a.y - b.y) < 0.5 and abs(a.x - b.x) > 1:
+            pos.add(("h", round(a.y / 2)))
+            n += 1
+        elif abs(a.x - b.x) < 0.5 and abs(a.y - b.y) > 1:
+            pos.add(("v", round(a.x / 2)))
+            n += 1
+    return n / len(pos) if pos else 0.0
 
 
 def page_test(pages: dict, path) -> tuple[int, int]:

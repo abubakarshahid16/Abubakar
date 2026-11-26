@@ -189,7 +189,9 @@ def _titled_drawn(path, n):
     doc = pymupdf.open()
     for _ in range(n):
         page = doc.new_page()
-        page.insert_text((40, 700), TITLE, fontsize=9)
+        page.insert_text(
+            (330, 700), TITLE, fontsize=9
+        )  # the title block in the sheet's bottom-right corner
         _lines(page)
     doc.save(path)
     doc.close()
@@ -278,13 +280,71 @@ def test_a_rotated_sheet_is_read_by_its_bottom_band_as_shown(tmp_path):
     page = doc.new_page()
     page.set_rotation(90)
     shown = pymupdf.Point(
-        40, page.rect.height - 120
-    )  # the bottom quarter of the page as it is shown
+        0.55 * page.rect.width, page.rect.height - 120
+    )  # the bottom-right corner of the page as it is shown
     page.insert_text(shown * page.derotation_matrix, TITLE, fontsize=9, rotate=90)
     _lines(page)
     doc.save(path)
     doc.close()
     assert DP.is_sheet(pymupdf.open(path)[0]) is True
+
+
+# ---- update 14, R3 (lead-4, 26 Nov): a ruled form whose FOOTER carries a "Drawing No" label. The sheet's drawing-number label must sit
+# in the right half of the bottom band (the title-block corner), and a body ruled cell by cell (many segments on few positions) is a
+# table, not a drawing. Measured: the owner's real set stays suggested (9 of 11 sheets; its title fields are spread across the bottom
+# band, so "3+ fields in the corner" or "scale required" would have dropped it: it has no scale field).
+
+DWG_FOOTER = "REV 0  DATE 2026-11-26  CHECKED AB  APPROVED CD"
+
+
+def _footer_form(path, label_x, ruled_by):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((45, 165), ROWS, fontsize=8)
+    if ruled_by == "cells":
+        _ruled(page)
+    else:  # a form ruled with full-width row lines and a few column lines, drawn like a sheet
+        for i in range(26):
+            page.draw_line((40, 150 + i * 24), (555, 150 + i * 24))
+        _lines(page, 30)
+    page.insert_text((40, 790), DWG_FOOTER, fontsize=8)
+    page.insert_text((label_x, 810), "DRAWING NO. ZZ-FORM-01", fontsize=8)
+    doc.save(path)
+    doc.close()
+    return pymupdf.open(path)[0]
+
+
+def test_a_footer_form_whose_drawing_number_label_sits_on_the_left_is_not_a_sheet(
+    tmp_path,
+):
+    page = _footer_form(tmp_path / "left.pdf", 40, "lines")
+    assert (
+        DP.drawn_share(page) >= DP.MIN_DRAWN_SHARE
+    )  # drawn, with a title block in its footer
+    assert (
+        DP.is_sheet(page) is False
+    )  # but its drawing-number label is not in the corner
+
+
+def test_a_footer_form_ruled_cell_by_cell_is_a_table_not_a_sheet(tmp_path):
+    page = _footer_form(tmp_path / "cells.pdf", 400, "cells")
+    assert DP.grid_regularity(page) > DP.MAX_GRID
+    assert DP.is_sheet(page) is False
+    sheet = (
+        pymupdf.open(tmp_path / "s.pdf")
+        if _titled_drawn(tmp_path / "s.pdf", 1)
+        else None
+    )
+    assert DP.grid_regularity(sheet[0]) <= DP.MAX_GRID and DP.is_sheet(sheet[0]) is True
+
+
+def test_the_known_residual_a_line_ruled_form_with_a_corner_drawing_number_is_still_a_guess(
+    tmp_path,
+):
+    """Said plainly: a form ruled with plain lines whose drawing-number label sits in the right corner still passes the page test. It is
+    the upload's GUESS only: the engineer confirms or corrects it, and a review marks nothing until a confirmed kind (B2)."""
+    page = _footer_form(tmp_path / "resid.pdf", 400, "lines")
+    assert DP.is_sheet(page) is True
 
 
 @pytest.mark.parametrize("kind", [None, "other", "datasheet"])
