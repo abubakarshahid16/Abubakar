@@ -300,3 +300,24 @@ def test_the_queries_not_ready_are_queued_at_start_with_their_owners_scope(
     )  # one at a time on the app's one thread; a query with no owner waits for the button
     with db.connect() as conn:
         assert set(auto.backlog(conn)) == {item["id"], ownerless["id"]}
+
+
+def test_a_query_with_no_wording_has_no_evidence_for_it_even_with_older_finds(query):
+    """Measured on a copy (26 Nov 2026): a query with no question showed 'evidence ready, 20 found for this wording' because the old
+    rows' empty fingerprint matched the empty wording."""
+    item, _scope, _asked = query
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET proposed_question=NULL WHERE id=?",
+            (item["id"],),
+        )
+        conn.execute(
+            "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,evidence_state,"
+            "supersession_state,created_at) VALUES ('old',?,'d1',3,3,?,'h','proposed','unknown','x')",
+            (item["id"], QUOTE),
+        )
+    got = tq.get(item["id"], "u1", False, False)
+    assert (
+        got["ready"]["question_source"] == "none" and got["ready"]["evidence"] == "none"
+    )
+    assert [e["for_current_question"] for e in got["evidence"]] == [False]

@@ -938,7 +938,7 @@ def get(
 
         now_key = _auto.key(_auto.working(result)[0])
         for row in result["evidence"]:  # found for the wording the system works from now (an older wording's finds fold away)
-            row["for_current_question"] = row.get("found_for") == now_key
+            row["for_current_question"] = now_key is not None and row.get("found_for") == now_key  # no wording: nothing is "for" it
         for draft in result["drafts"]:
             draft["system"] = bool(draft.get("model"))  # written by a model, not typed by an engineer
         result["decisions"] = [
