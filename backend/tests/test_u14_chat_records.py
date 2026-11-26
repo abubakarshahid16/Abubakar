@@ -108,15 +108,18 @@ def test_which_questions_are_records_questions(records, question, kind):
     assert R.kind_of(question) == kind
 
 
-def test_with_the_switch_off_only_the_list_by_kind_answers(monkeypatch):
+def test_with_the_switch_off_no_records_question_is_answered_not_even_the_list_by_kind(monkeypatch):
+    """Review of #1926: off, Chat goes on exactly as before for EVERY records question, the list by kind included (it had no
+    document id to withhold and took over questions about picked papers)."""
     monkeypatch.setattr(settings, "chat_database_tools_enabled", False)
     for q in (
         "which reviews are signed",
         "how many comments on the valve review",
         "list the queries waiting for evidence",
+        "list the datasheets",
+        "what do the procedures say about hydrotest pressure",
     ):
-        assert R.kind_of(q) is None  # Chat goes on exactly as before
-    assert R.kind_of("list the datasheets") == R.LIST_KIND
+        assert R.kind_of(q) is None, q  # Chat goes on exactly as before
 
 
 def test_signed_reviews_are_counted_with_their_boundary_and_only_readable_papers(
