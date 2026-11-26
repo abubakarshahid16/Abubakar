@@ -410,6 +410,7 @@ def test_each_step_may_name_its_own_local_model_and_one_model_is_in_memory_at_a_
         "aim_judge": "invented-small:9b",
         "aim_reference": "invented-small:9b",
         "aim_answered": "invented-small:9b",
+        "aim_checklist_missed": "invented-small:9b",  # nine roles 5-6: the ask-again after the judge runs on the judge's model
     }
     asked = []
     monkeypatch.setattr(
