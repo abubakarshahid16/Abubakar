@@ -40,6 +40,11 @@ _ASK_WORDS = re.compile(
     r"\b(please|kindly|request|advise|confirm|clarify|could you|can you|would you)\b",
     re.IGNORECASE,
 )
+#: A request inside a line beyond a pointer's own "please": a question mark or a verb that asks something of the engineer.
+_REQUEST_IN = re.compile(
+    r"\?|\b(request|advise|confirm|clarify|approve|could you|can you|would you|let us know whether)\b",
+    re.IGNORECASE,
+)
 _NOTICE_WORDS = re.compile(
     r"\b(sender|delete|destroy|notify|recipient|addressee|unauthori[sz]ed|prohibited|virus|disclos)",
     re.IGNORECASE,
@@ -124,8 +129,16 @@ _LIST_HEADER = re.compile(r"^(to|cc|bcc|an|para)\s*:", re.IGNORECASE)
 
 
 def _address_list(line: str) -> bool:
-    """A line that is a list of people: two or more addresses, or names joined by semicolons."""
-    return line.count("@") >= 2 or line.count(";") >= 2 or ("@" in line and ";" in line)
+    """A line that is a list of people: two or more addresses, an address with a semicolon, or short NAMES joined by semicolons - never a
+    line that asks something ("Please confirm: (a) size; (b) rating; (c) material?" is a question; review of update 14, R2)."""
+    if line.count("@") >= 2 or ("@" in line and ";" in line):
+        return True
+    parts = [p for p in line.split(";") if p.strip()]
+    return (
+        len(parts) >= 3
+        and not _REQUEST_IN.search(line)
+        and all(len(p.split()) <= 4 for p in parts)
+    )
 
 
 def _without_headers(lines: list[str]) -> list[str]:
@@ -175,7 +188,10 @@ def _question_line(line: str) -> bool:
     """A line that can be question text: not a greeting, and not a line that only points to the attachment or is a courtesy."""
     stripped = line.strip()
     pointer = _COVER.search(stripped) or _COURTESY.search(stripped)
-    return not _GREETING.match(stripped) and not (pointer and "?" not in stripped)
+    # a pointer line that also asks for something ("We submit the attached TQ; confirm the rating") is question text (R2)
+    return not _GREETING.match(stripped) and not (
+        pointer and not _REQUEST_IN.search(stripped)
+    )
 
 
 #: A line that names the question ("Question: ...", "Query - ..."): the question starts there.

@@ -214,3 +214,16 @@ def test_a_numbered_table_passage_is_located_at_the_row_holding_the_matched_word
     article = "| 19. | Invented grout curing record (Ref. Invented, Art 30) | 60 |\n| 20. | Invented other | 90 |"
     assert table_item(terms, article) == "Item 19 (refers to Art 30)"
     assert table_item(key_terms("What colour is the roof?"), passage) is None
+
+
+def test_a_bare_clause_number_takes_its_title_from_the_page():
+    from app.technical_query_match import titled
+
+    page = "7.4 Invented Painting\nInvented words.\n7.5 Invented Coating\nThe invented coating words."
+    assert titled("7.5", page) == "7.5 Invented Coating"
+    assert titled("9.9", page) is None
+
+
+def test_several_lone_decimal_values_between_text_rows_are_not_headings():
+    page = "4.1 Invented Data\nInvented pressure\n1.5\nBar Gauge Reading\nInvented temperature\n2.0\nDegrees Reading\nThe invented answer."
+    assert heading_above(page, "The invented answer.") == "4.1 Invented Data"
