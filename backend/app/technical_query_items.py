@@ -22,9 +22,10 @@ ITEM_CAP = 2000
 ITEM_CUT = " [cut here: the rest of this item is in the request]"
 #: The version of the evidence SEARCH, stamped on each preparation (technical_queries.evidence_search_version), like a draft's
 #: prompt version: 1 = one search for the whole request; 2 = each numbered item searched on its own (o14 update 21); 3 = each item
-#: searched with its request's lead line. Evidence from an older search is marked out of date, the page offers "Find the sources
-#: again", and the next server start searches it again by itself (lead-4, 27 Nov 2026).
-SEARCH_VERSION = 3
+#: searched with its request's lead line; 4 = the whole request's own best passages always listed too (never crowded out by the
+#: items'). Evidence from an older search is marked out of date, the page offers "Find the sources again", and the next server start
+#: searches it again by itself (lead-4, 27 Nov 2026).
+SEARCH_VERSION = 4
 #: The whole request's own best passages, always listed (before the items'), whatever the number of items.
 WHOLE_BEST = 3
 #: Per item, its best passages listed before the rest.
