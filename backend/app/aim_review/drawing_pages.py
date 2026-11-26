@@ -8,8 +8,14 @@ kind, else the code's reading of the cover and title; never the AI's naming insi
   - a page with 50 or more characters and a title block (3 or more title-block fields) or a drawn share of 25% or more of the page is
     reviewed on its text and title block and named "picture part not read".
 
-Any other kind is untouched (its unread list is exactly as before: the Claude review of the scored kinds stays byte-identical). The record is
-codes and page numbers only ("page 3: picture_part_not_read"), never text. Reads the stored file through pdf_guard; no model, no network.
+A paper whose kind the code does NOT know (unknown, or "other") is treated as a drawing when its pages pass the PAGE TEST (lead-4, 26 Nov:
+a real drawing set read "unknown"): more than half of its pages of 50+ characters hold a title block (3+ fields) AND are drawn over a
+quarter of the page. Page shapes only, never the AI's naming; it adds only the honest notes above. The same test, at upload, SUGGESTS
+"drawing" for an engineer to confirm (`doc_router`); it never confirms by itself.
+
+Any other known kind is untouched (its unread list is exactly as before: the Claude review of the scored kinds stays byte-identical). The
+record is codes and page numbers only ("page 3: picture_part_not_read"), never text. Reads the stored file through pdf_guard; no model,
+no network.
 """
 
 from __future__ import annotations
@@ -46,12 +52,50 @@ def title_fields(text: str) -> int:
     return sum(1 for rx in TITLE_FIELDS if re.search(rx, low))
 
 
+#: Kinds the code reads that say nothing of the paper's shape: such a paper is a drawing when its pages pass the page test.
+OPEN_KINDS = frozenset({"other"})
+
+
 def is_drawing(conn, paper_id: str) -> bool:
     """The kind the app recorded for the paper BEFORE the review: drawing, and known (never a guess made inside the review)."""
+    return _how(conn, paper_id) == "kind"
+
+
+def _how(conn, paper_id: str) -> str | None:
+    """'kind' (known drawing), 'shape' (unknown or an open kind: the page test decides) or None (another known kind: untouched)."""
     from app import agent_review_kind
 
     got = agent_review_kind.read_kind(conn, str(paper_id)) or {}
-    return bool(got.get("known")) and got.get("kind") == DRAWING_KIND
+    if got.get("known") and got.get("kind") == DRAWING_KIND:
+        return "kind"
+    if not got.get("known") or got.get("kind") in OPEN_KINDS:
+        return "shape"
+    return None
+
+
+def page_test(pages: dict, path) -> tuple[int, int]:
+    """(pages that hold a title block AND are drawn over a quarter of the page, pages of 50+ characters). No file: no page is
+    measured as drawn, so none passes."""
+    texts = {n: str(pages.get(n) or "").strip() for n in sorted(pages)}
+    texts = {n: t for n, t in texts.items() if len(t) >= MIN_DRAWING_CHARS}
+    titled = [n for n, t in texts.items() if title_fields(t) >= MIN_TITLE_FIELDS]
+    if not titled or path is None:
+        return 0, len(texts)
+    from app import pdf_guard
+
+    passed = 0
+    with pdf_guard.opened(str(path)) as pdf:
+        for n in titled:
+            if 1 <= n <= pdf.page_count:
+                with pdf_guard.held():
+                    passed += drawn_share(pdf.load_page(n - 1)) >= MIN_DRAWN_SHARE
+    return passed, len(texts)
+
+
+def looks_drawn(pages: dict, path) -> bool:
+    """The page test: more than half of the pages of 50+ characters pass."""
+    passed, of = page_test(pages, path)
+    return of > 0 and 2 * passed > of
 
 
 def drawn_share(page) -> float:
@@ -110,7 +154,8 @@ def drawn_share(page) -> float:
 
 def marks(conn, paper_id: str, paper, path, min_chars: int) -> list[dict]:
     """The drawing pages' entries for the unread list (pages of `min_chars` characters or more only; shorter ones are `unread`'s)."""
-    if not is_drawing(conn, paper_id):
+    how = _how(conn, paper_id)
+    if how is None or (how == "shape" and not looks_drawn(paper.pages, path)):
         return []
     import contextlib
 
