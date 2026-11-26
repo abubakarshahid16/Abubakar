@@ -77,3 +77,14 @@ describe("the server's composed ask (builder A: the one home)", () => {
     expect(startingText({ ready: { question: text }, proposed_questions: [{ question: "zzz", filename: null, page: null }] })).toBe(text);
   });
 });
+
+describe("only the current wording's sources count", () => {
+  it("sources found for an earlier wording never make the 'whole mail' or 'weak' marks", () => {
+    const q = { evidence: [
+      { evidence_state: "proposed", match_count: 4, match_terms: 5, for_current_question: true },
+      { evidence_state: "proposed", match_count: 9, match_terms: QUESTION_KEY_WORDS_MAX + 100, for_current_question: false },
+    ] };
+    expect(staleSources(q)).toBe(false);
+    expect(honestMarks(q, "").evidence).toEqual([]);
+  });
+});

@@ -8,7 +8,7 @@ export interface QueryForSummary {
   confirmed_question?: string | null;
   proposed_question?: string | null;
   drafts?: unknown[] | null;
-  evidence?: { evidence_state?: string | null }[] | null;
+  evidence?: { evidence_state?: string | null; for_current_question?: boolean | null }[] | null;
   due_at?: string | null;
 }
 
@@ -33,8 +33,10 @@ const CLOSED = new Set(["resolved", "duplicate", "cancelled"]);
 export function querySummary(q: QueryForSummary, today: string = new Date().toISOString().slice(0, 10)): string {
   const parts = [STAGE[q.status] ?? q.status.replaceAll("_", " ")];
   if (!CLOSED.has(q.status)) {
-    const kept = (q.evidence ?? []).filter((e) => e.evidence_state === "verified").length;
-    const found = (q.evidence ?? []).length;
+    // the sources for the current wording only (ones found for an earlier wording are folded apart: builder A)
+    const current = (q.evidence ?? []).filter((e) => e.for_current_question !== false);
+    const kept = current.filter((e) => e.evidence_state === "verified").length;
+    const found = current.length;
     if (!q.confirmed_question) parts.push(q.proposed_question ? "the question is proposed, not confirmed yet" : "no question yet");
     parts.push(found ? `${kept} of ${found} quote${found === 1 ? "" : "s"} found kept as evidence` : "no evidence found yet");
     parts.push(q.drafts?.length ? "an answer is written" : "no answer written yet");
