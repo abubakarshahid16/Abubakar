@@ -16,7 +16,13 @@ export const STARTERS: readonly { ask: string; kind: string }[] = [
 ];
 
 export function ChatEmptyHeading() {
-  return <h1 className="mb-6 text-center font-serif text-3xl text-slateish-100">What can I help with?</h1>;
+  // the page title is the menu's name (owner's design audit, 26 Nov 2026 23:05, H); the greeting stays, below it
+  return (
+    <>
+      <h1 className="mb-1 text-center text-xl font-semibold text-slateish-100">Chat</h1>
+      <p className="mb-6 text-center font-serif text-3xl text-slateish-100">What can I help with?</p>
+    </>
+  );
 }
 
 /** The ways in, under the box: starter questions and "Continue:". */

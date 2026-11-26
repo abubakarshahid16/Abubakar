@@ -257,18 +257,18 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
             : "new documents will be processed as they arrive",
     },
     {
-      label: "Market data",
+      label: NEW_LOOK ? "Prices" : "Market data",
       ok: true,
-      detail: "illustrative sample only - no live market source is connected",
+      detail: NEW_LOOK ? "examples only: no live price source is connected" : "illustrative sample only - no live market source is connected",
       tone: "warn" as const,
     },
     {
-      label: "PDF reports",
+      label: NEW_LOOK ? "Reports" : "PDF reports",
       ok: false,
       // "not yet available" is a banned phrase here - it was true of OCR once,
       // and of the summary once, and each time it stayed on screen after the
       // thing arrived. Say what exists, not what does not.
-      detail: "one PDF per answer, with its evidence frozen in - reports cover single answers, not a whole analysis",
+      detail: NEW_LOOK ? "one PDF per answer, with its sources kept as they were" : "one PDF per answer, with its evidence frozen in - reports cover single answers, not a whole analysis",
       tone: "warn" as const,
     },
   ];
