@@ -10,8 +10,16 @@ from __future__ import annotations
 import re
 from typing import Any
 
-#: A line that starts a numbered or lettered item: "1.", "2)", "(3)", "a.", "(b)".
-_ITEM_START = re.compile(r"^\s*\(?(\d{1,2}|[a-hA-H])[.)]\s+(?=\S)")
+#: The ONE item marker of a request's list, shared with the question extractor (technical_query_mail._ITEM) so the two never disagree
+#: (fresh review of PR #1936: the extractor kept "i) ii) iii)" items that this splitter did not split): a number ("1.", "2)", "(3)"),
+#: a letter a-h, a roman numeral i-xii in either case, or a bullet ("-", "*", the bullet sign).
+ITEM_MARK = (
+    r"(?:\(?(?:\d{1,2}|[a-hA-H]|(?i:ix|iv|v?i{1,3}|v|x|xi{1,2}))[.)]|[-\u2022*])"
+)
+_ITEM_START = re.compile(rf"^\s*{ITEM_MARK}\s+(?=\S)")
+#: An item's own text, wrapped lines included, is cut past this with a visible mark (never silently).
+ITEM_CAP = 2000
+ITEM_CUT = " [cut here: the rest of this item is in the request]"
 #: Per item, its best passages listed before the rest.
 PER_ITEM = 3
 #: At most this many items are searched one by one (a longer list: the rest are covered by the whole-question search, and counted).
@@ -28,8 +36,13 @@ def items_of(question: str) -> list[str]:
             open_item = True
         elif not line.strip():
             open_item = False
-        elif open_item and len(items[-1]) < 2000:
-            items[-1] = f"{items[-1]} {line.strip()}"
+        elif open_item and not items[-1].endswith(ITEM_CUT):
+            joined = f"{items[-1]} {line.strip()}"
+            items[-1] = (
+                joined
+                if len(joined) <= ITEM_CAP
+                else joined[:ITEM_CAP].rstrip() + ITEM_CUT
+            )
     return items if len(items) >= 2 else []
 
 

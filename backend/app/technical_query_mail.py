@@ -15,6 +15,8 @@ import re
 from collections import Counter
 from functools import lru_cache
 
+from .technical_query_items import ITEM_MARK
+
 _SIGNOFF = re.compile(
     r"^(--|(best|kind|warm|many|with)?\s*(regards|wishes|thanks)|thanks|thank you|(thanks|thank you|many thanks)\s*(and|&|,)\s*"
     r"((best|kind|warm)\s+)?regards|rgds|regards|sincerely|"
@@ -196,7 +198,9 @@ _ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
 #: The longest text shown as the question in the mail: a question is a sentence or a short block, not a third of the mail.
 QUESTION_CAP = 600
 #: A line that starts a numbered or lettered item ("1.", "2)", "(3)", "a.", "(b)", "i)") or a bullet: an item of the request's list.
-_ITEM = re.compile(r"(?m)^\s*(\(?(\d{1,2}|[a-hA-H]|i{1,3}|iv|v|vi{0,3})[.)]|[-\u2022*])\s+\S")
+_ITEM = re.compile(
+    rf"(?m)^\s*{ITEM_MARK}\s+\S"
+)  # the same marker the item splitter uses (technical_query_items.ITEM_MARK)
 #: A request that is a LIST of items may be longer than one question: up to this, then cut with a visible mark.
 LIST_CAP = 6000
 LIST_CUT = " [cut here: the rest of the list is in the mail]"
@@ -264,14 +268,23 @@ def email_question(text: str | None, common: frozenset[str] = frozenset()) -> st
     # ..." asks; every item was dropped, so the reply answered a vague question). Every paragraph holding an item is kept with it.
     listed = [bool(_ITEM.search(p)) for p in paragraphs]
     # the line that introduces the list ("We note the following conflicts:") says what the items are: kept with them
-    leads = [p.rstrip().endswith(":") and n + 1 < len(paragraphs) and listed[n + 1] for n, p in enumerate(paragraphs)]
+    leads = [
+        p.rstrip().endswith(":") and n + 1 < len(paragraphs) and listed[n + 1]
+        for n, p in enumerate(paragraphs)
+    ]
     question = "\n\n".join(
         p.strip()
         for p, a, n, lead in zip(paragraphs, asking, listed, leads, strict=True)
         if a or ((n or lead) and any(asking))
     ).strip()
-    if any(asking) and any(listed):  # a list of requests: never dropped for its length; cut with a visible mark (rule: no silent cut)
-        return question if len(question) <= LIST_CAP else question[:LIST_CAP].rstrip() + LIST_CUT
+    if (
+        any(asking) and any(listed)
+    ):  # a list of requests: never dropped for its length; cut with a visible mark (rule: no silent cut)
+        return (
+            question
+            if len(question) <= LIST_CAP
+            else question[:LIST_CAP].rstrip() + LIST_CUT
+        )
     if (
         len(question) > QUESTION_CAP
     ):  # a long block is not a question: only its asking lines, and none when even those are long
