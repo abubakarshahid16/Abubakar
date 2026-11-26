@@ -167,3 +167,63 @@ def test_a_review_signed_before_the_rule_keeps_its_old_wording(every_value_unsho
     assert after and not any(card_mod.VALUE_NOT_SHOWN in a for a in after)
     page = c.get(f"{BASE}?run_id={RUN}").json()
     assert page["signoff"]["state"] == "signed"
+
+
+def _contractor_cells(c) -> dict:
+    """Every cell of the contractor copy's comment sheets (its first sheet also prints the signing time, which a re-sign renews)."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    r = c.get(f"{BASE}/sheet", params={"run_id": RUN, "copy": "contractor"})
+    assert r.status_code == 200
+    wb = load_workbook(BytesIO(r.content), read_only=True)
+    keep = (aim_review_contractor.COMMENTS, aim_review_contractor.CONFIRM)
+    return {
+        n: [list(x) for x in wb[n].iter_rows(values_only=True)]
+        for n in wb.sheetnames
+        if n in keep
+    }
+
+
+def test_a_re_sign_of_a_review_signed_before_the_rule_keeps_its_old_wording(
+    every_value_unshown, monkeypatch
+):
+    """Review of update 13, R1: a re-sign records the rules the signed VIEW was built with (the earlier sign-off's), never the
+    rules in force now, so the page and the contractor copy keep the wording the engineer read."""
+    import json
+
+    from app import aim_review_signoff, aim_review_store, db
+
+    c = every_value_unshown
+    with (
+        monkeypatch.context() as before_the_rule
+    ):  # signed while the rule did not exist yet
+        before_the_rule.setattr(card_mod, "CARD_RULES", ())
+        _sign(c)
+        old_asks, old_cells = _asks(c), _contractor_cells(c)
+    assert old_asks and not any(card_mod.VALUE_NOT_SHOWN in a for a in old_asks)
+    assert (
+        _asks(c) == old_asks
+    )  # the rule now exists: the signed review keeps its wording
+    _sign(c)  # the re-sign
+    with db.connect() as conn:
+        assert (
+            len(
+                conn.execute(
+                    f"SELECT id FROM {aim_review_store.SIGNOFFS} WHERE run_id = ?",
+                    (RUN,),
+                ).fetchall()
+            )
+            == 2
+        )
+        assert (
+            json.loads(aim_review_signoff.latest(conn, RUN)["counts_json"])[
+                "card_rules"
+            ]
+            == []
+        )
+    assert _asks(c) == old_asks  # the page keeps the wording it was signed with
+    assert (
+        _contractor_cells(c) == old_cells
+    )  # and so does the contractor copy, cell for cell
