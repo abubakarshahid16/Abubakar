@@ -40,6 +40,41 @@ def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> lis
     return _items_of(fix)
 
 
+_CUT = " [CUT: rule text longer than shown]"
+
+
+def by_code(bad: list[dict], batch, found) -> tuple[list[dict], list[dict]]:
+    """(fixed, still to ask). On the local model, an item whose quote was not found and whose book and clause name exactly ONE
+    rule of its batch takes that rule's stored words (as shown, without the cut mark) and page; it is kept only if `found`
+    then finds the quote on the book page. No call is made for it (F's 14B run 09105c4b, 26 Nov 2026: 18 retry calls of about
+    20 s each ran the run past the swap rule). The others are asked again as before. On Claude: nothing fixed by code."""
+    if not is_local():
+        return [], bad
+    fixed, ask = [], []
+    for it in bad:
+        rules = [
+            r
+            for r in batch
+            if "rule" in r
+            and r["book"] == it.get("book")
+            and _same(r["clause"], it.get("clause"))
+        ]
+        if len(rules) == 1:
+            got = it | {
+                "rule_quote": rules[0]["text"].removesuffix(_CUT).strip(),
+                "page": rules[0]["page"],
+            }
+            if found(got):
+                fixed.append(got)
+                continue
+        ask.append(it)
+    return fixed, ask
+
+
+def _same(a, b) -> bool:
+    return str(a or "").strip().rstrip(".") == str(b or "").strip().rstrip(".") != ""
+
+
 #: Items one local checklist call may give per rule part of its batch, and the answer tokens allowed per item (plus a base).
 ITEMS_PER_RULE, TOKENS_PER_ITEM, BASE_TOKENS = 2, 320, 500
 
