@@ -1751,6 +1751,10 @@ def decide(
             raise ValueError("the decision must name the latest draft")
         if decision == "approve":
             _require_cited(current)
+            from .technical_query_auto import FALSE_QUOTE_MARK, stored_unsupported
+
+            if stored_unsupported(latest, current):  # never approve a reply that credits a source with words it does not contain
+                raise ValueError(f"{FALSE_QUOTE_MARK} Generate the draft again or correct it before approval.")
     target = {
         "request_changes": "changes_requested",
         "approve": "approved",

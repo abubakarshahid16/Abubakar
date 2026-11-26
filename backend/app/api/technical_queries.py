@@ -1034,6 +1034,8 @@ def generate_query_draft(
             409,
             "the generated answer cited passages outside the query's verified evidence",
         )
+    if technical_query_auto.unsupported_quotes(result["answer"], technical_query_auto.seen_sources(result), question):
+        raise _refuse(409, technical_query_auto.FALSE_QUOTE)  # a false quote is never kept as a proposed reply
     unresolved = [result.get("reason")] if result.get("reason") else []
     unresolved += technical_query_auto.marks(current, {c["evidence_id"] for c in citations})
     if engine == "claude" and not str(result.get("model") or "").lower().startswith("claude"):

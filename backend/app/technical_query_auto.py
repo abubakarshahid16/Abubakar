@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from typing import Any
 
 from .db import connect
@@ -141,6 +142,84 @@ def citations_of(
     return out
 
 
+#: A phrase the draft puts in quotation marks (straight or curly double quotes), at least this many characters.
+_QUOTED = re.compile(r'["\u201c]([^"\u201c\u201d\n]{4,}?)["\u201d]')
+_LABEL = re.compile(r"\[S(\d+)")
+FALSE_QUOTE = (
+    "the draft put quotation marks round words that its cited source does not contain, so it is not shown: "
+    "press Generate draft to try again, or write the reply yourself"
+)
+FALSE_QUOTE_MARK = "A quote in this draft is not in its cited source."
+
+
+def _found_in(quote: str, source: str, *, exact: bool = True) -> bool:
+    """The quoted words are in `source`: the answer lane's own claim check for three words or more (word boundaries, the closed
+    normalisation list); for a shorter quote, the same normalisation and whole words."""
+    from .model_evidence import MIN_CLAIM_QUOTE_WORDS, _collapse, claim_quote_verified
+
+    if exact and len(quote.split()) >= MIN_CLAIM_QUOTE_WORDS:
+        return claim_quote_verified(quote, source)
+    needle = re.escape(_collapse(quote).casefold())
+    return (
+        bool(needle)
+        and re.search(rf"(?<!\w){needle}(?!\w)", _collapse(source).casefold())
+        is not None
+    )
+
+
+def unsupported_quotes(answer: str, sources: dict[int, str], question: str = "") -> int:
+    """How many quoted phrases of a draft are NOT in the passage they are credited to (owner, 26 Nov 2026, on a live draft: "it must
+    check a quoted phrase against the cited SOURCE passage, not against anything on the page"). A line that cites [Sn] is checked
+    against exactly those passages; a line that cites none may quote only the contractor's own question (or a cited passage)."""
+    bad = 0
+    for line in (answer or "").splitlines():
+        quotes = [q.strip() for q in _QUOTED.findall(line) if q.strip()]
+        if not quotes:
+            continue
+        labels = [int(n) for n in _LABEL.findall(line)]
+        if (
+            labels
+        ):  # credited: exactly in the cited passages (the answer lane's own claim rule)
+            ok = [any(_found_in(q, sources.get(n, "")) for n in labels) for q in quotes]
+        else:  # not credited: a cited passage, or the contractor's own words (any case: the model re-types them)
+            ok = [any(_found_in(q, t) for t in sources.values() if t) or (bool(question) and _found_in(q, question, exact=False))
+                  for q in quotes]  # fmt: skip
+        bad += ok.count(False)
+    return bad
+
+
+def seen_sources(result: dict[str, Any]) -> dict[int, str]:
+    """The passages the model was given, by their [Sn] number: what a quote must be in."""
+    return {
+        n: (p.get("text") or "") for n, p in enumerate(result.get("passages") or [], 1)
+    }
+
+
+def stored_unsupported(
+    draft: dict[str, Any], _item: dict[str, Any] | None = None
+) -> int:
+    """The same check on a stored draft: its citations' passages, by label (S1 -> the cited evidence row's text)."""
+    try:
+        cited = json.loads(draft.get("citations_json") or "[]")
+    except ValueError:
+        cited = []
+    sources = {}
+    for c in cited:
+        if (
+            isinstance(c, dict)
+            and str(c.get("label") or "").startswith("S")
+            and str(c["label"])[1:].isdigit()
+        ):
+            sources[int(str(c["label"])[1:])] = c.get("exact_quote") or ""
+    return (
+        unsupported_quotes(
+            draft.get("answer") or "", sources, draft.get("question") or ""
+        )
+        if draft.get("model")
+        else 0
+    )
+
+
 def marks(item: dict[str, Any], cited_ids=None) -> list[str]:
     """Honest one-line marks instead of gates (owner 21:36, item 5): where the system is unsure, it says so on the item."""
     _question, source = working(item)
@@ -226,6 +305,11 @@ def write_draft(
     if citations is None:
         _note(query_id, OUTSIDE)
         return OUTSIDE
+    if unsupported_quotes(
+        result["answer"], seen_sources(result), question
+    ):  # a false quote is never shown as a proposed reply
+        _note(query_id, FALSE_QUOTE)
+        return FALSE_QUOTE
     unresolved = ([result["reason"]] if result.get("reason") else []) + marks(
         item, {c["evidence_id"] for c in citations}
     )
@@ -350,6 +434,11 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         }
     except ValueError:
         cited = set()
+    found_marks = marks(item, cited if latest else None)
+    if latest and stored_unsupported(
+        latest, item
+    ):  # an older draft (written before this check) with a false quote says so
+        found_marks.append(FALSE_QUOTE_MARK)
     return {
         "question": question,
         "question_source": source,
@@ -371,7 +460,7 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         else "none",
         "draft_fresh": bool(latest) and (latest.get("question") or "") == question,
         "draft_note": None if busy else item.get("draft_note"),
-        "marks": marks(item, cited if latest else None),
+        "marks": found_marks,
     }
 
 
