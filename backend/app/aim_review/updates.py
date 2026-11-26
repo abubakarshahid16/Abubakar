@@ -64,11 +64,16 @@ def second_sql(conn, held, labels):
 
 
 def formula_lines(conn, paper, state) -> None:
-    """The formula checks' lines after every AI stage (`formulas.add_lines`), only while their switch is on."""
+    """The code-made lines after the AI stages: the formula checks (`formulas.add_lines`) while their switch is on; and, with update
+    14's method part on (`u13`), the design code division check (`division_cites`, code only, a Question per other division)."""
     if formula_checks():
         from .formulas import add_lines
 
         add_lines(conn, paper, state)
+    if u13():
+        from .division_cites import add_lines as division_lines
+
+        division_lines(paper, state)
 
 
 def checklist_method() -> str:
