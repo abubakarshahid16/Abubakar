@@ -15,7 +15,7 @@ and the run says so. Claude is not wired here: that would be a new step on the C
 WHAT IS SHOWN. A pair the model calls a conflict becomes a Question to the ENGINEER: on "All points" only, never sent to the
 contractor (`aim_review.ENGINEER_QUESTION`), never Pass or Fail. Both quotes are found by code on their own pages before the
 question is written; a pair whose quote code cannot find is not asked. The comment holds only the two papers' own words, pages
-and a plain question; the model's reason and its name are in the team-only note ("AI, to be checked"). A pair the model calls
+and a plain question; the model's reason and its name are in the team-only note (the AI mark, `aim_review_gate.AI_MARK`). A pair the model calls
 the same, or cannot tell, is no line. When the model did not answer, ONE line on "All points" says the check was not run and why
 (`aim_review.NOT_JUDGED`): a failed AI step is shown, never silent. Rule 5 as lane 1: the other paper's name and words are hidden
 from a viewer who may not open it.
@@ -27,12 +27,13 @@ import json
 import logging
 
 from . import cross_doc, tag_cross
+from .aim_review_gate import AI_MARK
 
 log = logging.getLogger(__name__)
 
 ITEM_ID = "X3"
 TOPIC = "cross-document check: meaning"
-SOURCE = "the papers of one package against each other (AI, to be checked)"
+SOURCE = f"the papers of one package against each other ({AI_MARK})"
 NOTE_MEANING = f"{tag_cross.NOTE}: meaning"
 NOTE_NOT_RUN = f"{tag_cross.NOTE}: meaning not run"
 STEP = "cross-doc-meaning"
@@ -229,7 +230,7 @@ def lines(
                     f'For {a.tag}, this paper states "{a.quote}" (page {a.page}), and {name} states "{b.quote}" '
                     f"(page {b.page}). Engineer to check: do the two papers describe the same {a.field}?"
                 )
-                note = f"{NOTE_MEANING} {a.tag}; {aim_review.ENGINEER_QUESTION}: AI, to be checked ({model}): {why}"
+                note = f"{NOTE_MEANING} {a.tag}; {aim_review.ENGINEER_QUESTION}: {AI_MARK} ({model}): {why}"
                 out.append(
                     _row(
                         len(out) + 1,

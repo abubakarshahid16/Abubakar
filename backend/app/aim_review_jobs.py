@@ -497,7 +497,9 @@ def _cross_document(
         with faults.recording(calls if calls is not None else []):
             faults.record("aim_cross_document", "the cross-document check by tag", exc)
         return []
-    if cross_doc_meaning.lane_on():  # lane 2 (switch CROSS_DOC_MEANING_ENABLED): questions to the engineer only
+    if (
+        cross_doc_meaning.lane_on()
+    ):  # lane 2 (switch CROSS_DOC_MEANING_ENABLED): questions to the engineer only
         try:
             out += cross_doc_meaning.lines(
                 conn, paper_id, frozenset(scope), start + len(out)
