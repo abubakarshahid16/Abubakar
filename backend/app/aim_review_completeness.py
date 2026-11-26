@@ -193,6 +193,10 @@ def _sentence(rep: dict) -> str:
         f"and {rep['comment_rows']} on the sheet {aim_review_sheet.COMMENTS} (the page has {rep['comments']} comments) and "
         f"{rep['confirmation_rows']} on the sheet {aim_review_sheet.CONFIRMATIONS} (the page has {rep['confirmations']})."
     ]
+    if rep.get("rejected_before") or rep.get("rejected_before_rows"):
+        parts.append(
+            f"The sheet {aim_review_sheet.REJECTED_BEFORE} has {rep['rejected_before_rows']} rows (the page has {rep['rejected_before']})."
+        )
     if rep["missing"]:
         shown = "; ".join(rep["missing"][:LIST_AT_MOST])
         more = (
@@ -213,15 +217,21 @@ def checked(conn, run: dict, view: dict) -> tuple[bytes, dict]:
     points_rows = _table(wb, aim_review_sheet.ALL_POINTS)
     comments_rows = _table(wb, aim_review_sheet.COMMENTS)
     confirmation_rows = _table(wb, aim_review_sheet.CONFIRMATIONS)
+    # the learner's team-only sheet (absent with its switch off): its comments still cover their lines, once each
+    before_rows = _table(wb, aim_review_sheet.REJECTED_BEFORE)
     db_lines = _database_lines(conn, run["run_id"])
     in_file = {r[0] for r in points_rows if isinstance(r[0], int)}
     marked, cut_problems = _cut_check(comments_rows, view)
     marked_c, cut_problems_c = _cut_check(confirmation_rows, view, "confirmations")
+    marked_b, cut_problems_b = _cut_check(before_rows, view, "rejected_before")
     problems = [
         *cut_problems,
         *cut_problems_c,
-        *_lines_check([*comments_rows, *confirmation_rows], view),
-        *_row_problems(view, wb, [*comments_rows, *confirmation_rows], points_rows),
+        *cut_problems_b,
+        *_lines_check([*comments_rows, *confirmation_rows, *before_rows], view),
+        *_row_problems(
+            view, wb, [*comments_rows, *confirmation_rows, *before_rows], points_rows
+        ),
     ]
     rep = {
         "run_id": run["run_id"],
@@ -233,7 +243,9 @@ def checked(conn, run: dict, view: dict) -> tuple[bytes, dict]:
         "confirmations": view["counts"].get("confirmations") or 0,
         "confirmation_rows": len(confirmation_rows),
         "missing": [_named(ln) for ln in db_lines if ln["n"] not in in_file],
-        "cut_cells_marked": marked + marked_c,
+        "rejected_before": len(view.get("rejected_before") or []),
+        "rejected_before_rows": len(before_rows),
+        "cut_cells_marked": marked + marked_c + marked_b,
         "problems": problems,
         "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
@@ -241,6 +253,7 @@ def checked(conn, run: dict, view: dict) -> tuple[bytes, dict]:
         rep["page"] == rep["database"] == rep["file_rows"]
         and rep["comments"] == rep["comment_rows"]
         and rep["confirmations"] == rep["confirmation_rows"]
+        and rep["rejected_before"] == rep["rejected_before_rows"]
     )
     rep["ok"] = same and not problems
     rep["sentence"] = None if rep["ok"] else _sentence(rep)

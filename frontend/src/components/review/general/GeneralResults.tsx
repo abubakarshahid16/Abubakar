@@ -180,6 +180,16 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
             <CommentCards review={review} mark={mark} onDecided={() => void refreshSignoff()} onViewPage={onViewPage}
               renderPlain={(l) => <Row key={`p-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />} />
           )}
+          {(review.rejected_before ?? []).length > 0 && (
+            <section data-testid="general-rejected-before" aria-label="Rejected before" className="space-y-1 rounded-[var(--radius-sm)] border border-ink-600 p-3">
+              <h3 className="text-sm font-semibold text-slateish-200">Rejected before ({review.rejected_before!.length}), team only: not raised again, never sent</h3>
+              <ul className="space-y-1 text-sm text-slateish-300">
+                {review.rejected_before!.map((c) => (
+                  <li key={`rb-${c.n}`}><span className="text-slateish-100">{c.title ?? c.field}</span>: {c.rejected_before.note}</li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       )}
 
