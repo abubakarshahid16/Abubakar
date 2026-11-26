@@ -28,7 +28,10 @@ _NOTICE = re.compile(
     r"aviso legal|aviso de confidencialidad)\b|"
     r"\bthis (e-?mail|message|communication)\b.{0,80}\b(confidential|intended (only )?for|privileged)\b|"
     r"\b(diese (e-?mail|nachricht)\b.{0,60}\bvertraulich|ce (courriel|message)\b.{0,60}\bconfidentiel|"
-    r"este (correo|mensaje)\b.{0,60}\bconfidencial)",
+    r"este (correo|mensaje)\b.{0,60}\bconfidencial)|"
+    # the other common notice shape (lead-4, 26 Nov 2026: 54 stored notices said neither "this e-mail" nor "disclaimer"): it names
+    # the intended recipient AND says confidential, in one line
+    r"^(?=.*\bconfidential)(?=.*\bintended (recipient|addressee|solely|only)\b)",
     re.IGNORECASE,
 )
 #: A line that asks or requests something: a block holding one is never taken out, whatever it starts with. A notice's own requests
@@ -349,3 +352,35 @@ def page_body(text: str | None) -> tuple[str, str]:
     close()
     extra = "\n\n".join("\n".join(b) for b in held)
     return "\n".join(out), "\n\n".join(part for part in (folded, extra) if part)
+
+
+#: A paragraph at least this long that an EARLIER mail on the same query page already shows is folded in the later mail.
+REPEAT_CHARS = 80
+
+
+def _key(paragraph: str) -> str:
+    """A paragraph as compared across mails: quote marks ("> ") and spacing do not count."""
+    return re.sub(r"\s+", " ", re.sub(r"(?m)^\s*(>\s*)+", "", paragraph)).strip().lower()
+
+
+def page_bodies(texts: list[str | None]) -> list[tuple[str, str]]:
+    """`page_body` for every mail of one query page, oldest first, with the earlier mail a reply quotes shown once (lead-4, 26 Nov 2026:
+    a reply quoting the thread showed the same paragraphs and notices up to five times on one page). A paragraph of REPEAT_CHARS or
+    more that an earlier mail on the page already shows moves to the later mail's folded part, and the later mail says so in one line;
+    nothing is cut without that mark, the full text is behind "show", and the stored text is never changed."""
+    shown: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for text in texts:
+        main, folded = page_body(text)
+        kept: list[str] = []
+        moved: list[str] = []
+        for paragraph in re.split(r"\n\s*\n", main):
+            key = _key(paragraph)
+            (moved if len(key) >= REPEAT_CHARS and key in shown else kept).append(paragraph)
+        if moved:
+            mark = f"({len(moved)} paragraph{'s' if len(moved) != 1 else ''} of earlier mail already shown above on this page: under show)"
+            main = "\n\n".join([*kept, mark])
+            folded = "\n\n".join(part for part in ("\n\n".join(moved), folded) if part)
+        shown.update(k for k in (_key(p) for p in re.split(r"\n\s*\n", main)) if len(k) >= REPEAT_CHARS)
+        out.append((main, folded))
+    return out

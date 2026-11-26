@@ -849,11 +849,11 @@ def get(
                 (query_id,),
             )
         ]
-        from .technical_query_mail import page_body, shown_question
+        from .technical_query_mail import page_bodies, shown_question
 
-        for message in result["messages"]:
-            # the message itself and, folded on the page, its signature, notices and quoted mail (the stored body is unchanged)
-            main, folded = page_body(message.get("body"))
+        bodies = page_bodies([m.get("body") for m in result["messages"]])
+        for message, (main, folded) in zip(result["messages"], bodies, strict=True):
+            # the message itself and, folded on the page, its signature, notices and the earlier mail already shown above (stored body unchanged)
             message["body_main"], message["body_folded"] = main, folded
             message["to_addresses"], message["cc_addresses"] = (
                 json.loads(message["to_addresses"] or "[]"),
