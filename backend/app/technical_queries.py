@@ -1082,8 +1082,10 @@ def update_evidence(
 
 _ATTACHMENT_MARK = "\n\n[Attachment "
 MAX_PROPOSED_QUESTION = 12_000
-#: Only this many pages of each attachment are read for questions; the screen says which pages were not read (completeness rule).
-ATTACHMENT_PAGES_READ = 5
+#: Pages of each attachment read for questions: every page up to this many (lead-4, 26 Nov 2026: 5 left 36 of 72 pages of the found-
+#: question attachments unread; the longest held is 41 pages). Past it the screen says which pages were not read and why (completeness).
+ATTACHMENT_PAGES_READ = 60
+NOT_READ_WHY = "the reading stops at {n} pages per attachment"
 CUT_MARK = " [cut here: the wording was longer than the limit; the rest is on the attachment pages]"
 MAX_CONFIRMED_QUESTION = 5_000
 
@@ -1321,7 +1323,11 @@ def prepare_evidence(
                     "page_count": total_pages or None,
                     "line": f"{attachment['filename']}: pages 1 to {read_to}"
                     + (f" of {total_pages} read" if total_pages else " read")
-                    + (f"; pages {read_to + 1} to {total_pages} were not read" if total_pages > read_to else "")
+                    + (
+                        f"; pages {read_to + 1} to {total_pages} were not read: " + NOT_READ_WHY.format(n=ATTACHMENT_PAGES_READ)
+                        if total_pages > read_to
+                        else ""
+                    )
                     + ".",
                 }
             )

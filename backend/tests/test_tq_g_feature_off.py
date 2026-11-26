@@ -1261,12 +1261,12 @@ def test_the_pages_not_read_and_a_cut_wording_are_said_on_the_query(monkeypatch)
         monkeypatch, "Q1 What is the minimum coating thickness for the tank?"
     )
     with db.connect() as conn:
-        conn.execute("UPDATE documents SET page_count=12 WHERE id='att'")
+        conn.execute("UPDATE documents SET page_count=75 WHERE id='att'")  # past the 60-page read (was 12 past 5; lead-4 26 Nov)
     monkeypatch.setattr("app.technical_query_questions._ask", lambda text: [])
     got = tq.prepare_evidence(item["id"], frozenset({"att"}), "u1", True, False, "u1")
     assert (
         got["attachment_reading"][0]["line"]
-        == "query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read."
+        == "query.pdf: pages 1 to 60 of 75 read; pages 61 to 75 were not read: the reading stops at 60 pages per attachment."
     )
     long_text = tq.propose_question("x" * (tq.MAX_PROPOSED_QUESTION + 50))
     assert long_text.endswith(tq.CUT_MARK) and "cut here" in long_text
