@@ -326,14 +326,11 @@ def is_provisional_figure(quote: str | None) -> bool:
     return names_who_supplies(quote) and not value_left_open(quote)
 
 
-#: The team note of a line the judge marked left open whose verified quote states the value (`states_value`, #1887).
-STATED_NOT_OPEN = "the paper states this value, though it was read as left open: an engineer checks it; code does not compare it"
-
-
 def states_value(quote: str | None, field: str | None) -> bool:
     """The quote STATES the field's value: it names the field (each word of 3 or more letters of the field's own label stands in it)
     and holds other words or numbers than the label, and `value_left_open` does not read it as open. By the quote's structure only,
-    never the AI's wording (planner, 26 Nov 2026: a line never asks the contractor to state a value the paper states, #1887). Pure."""
+    never the AI's wording. Used only by update 13's required-entries filter (`asks.entry_filled`, switch off); too loose for any
+other use (review of update 13, B1/N7: a who-supplies word or a note pointer passes): to be rebuilt before that switch goes on. Pure."""
     text, label = " ".join(str(quote or "").split()), str(field or "")
     words = re.findall(r"[a-z]{3,}", label.lower())
     if (
@@ -353,11 +350,6 @@ def states_value(quote: str | None, field: str | None) -> bool:
     ]
     # a value is a number, or a word that is not a unit: "Set pressure barg" (a label and its unit) states nothing
     return any(re.search(r"\d", w) or (len(w) >= 2 and not is_unit(w)) for w in rest)
-
-
-def stated_despite(judged: dict, quote: str | None) -> bool:
-    """The judge flagged the value left open (its "deferred"), yet the verified quote states it (`states_value`)."""
-    return bool(judged.get("deferred")) and states_value(quote, judged.get("field"))
 
 
 def value_left_open(quote: str | None) -> bool:
