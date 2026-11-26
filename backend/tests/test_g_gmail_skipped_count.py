@@ -226,3 +226,47 @@ def test_a_poll_keeps_our_reply_with_its_query_at_once(tq):
         mailbox_address="box@example.test",
     )
     assert _counts()[:2] == (1, [("m1", 1), ("m2", 0)])
+
+
+def test_an_import_from_before_the_reasons_were_counted_says_so_and_counts_what_is_stored(
+    tq,
+):
+    from app import technical_queries
+
+    job_id = gmail_import_jobs.enqueue("mb", "import", "L1")
+    with (
+        db.connect() as conn
+    ):  # as the owner's first import was stored: done 3 of 3, no reasons column value
+        conn.execute(
+            "UPDATE gmail_import_jobs SET state='done', total=3, done=3, skipped_json=NULL WHERE id=?",
+            (job_id,),
+        )
+    technical_queries.import_message(
+        {"provider": "gmail", "mailbox_id": "mb", "provider_message_id": "m1", "provider_thread_id": "t1", "from_address": "a@vendor.example",
+         "to_addresses": [], "cc_addresses": [], "subject": "PRJ-INV-TQ-7 - Invented question", "body": "Invented.", "attachments": []},
+        "u1",
+    )  # fmt: skip
+    with db.connect() as conn:
+        job = gmail_import_jobs.latest(conn, "mb")
+    assert (
+        job["reasons_recorded"] is False
+        and job["messages"] == 1
+        and job["queries"] == 1
+    )
+
+
+def test_a_new_import_records_its_reasons_from_the_start(monkeypatch):
+    client = SimpleNamespace(
+        list_message_ids=lambda label: [], message=lambda mid: None
+    )
+    monkeypatch.setattr(gmail_import_jobs, "_checked", lambda mailbox_id: None)
+    job_id = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs._import(
+        job_id,
+        client,
+        {"id": "mb", "email": "box@example.test", "owner_user_id": "u1"},
+        "L1",
+        None,
+    )
+    with db.connect() as conn:
+        assert gmail_import_jobs.latest(conn, "mb")["reasons_recorded"] is True

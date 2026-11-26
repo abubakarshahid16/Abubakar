@@ -153,21 +153,24 @@ def latest(conn, mailbox_id: str) -> dict | None:
         stored = row["skipped_json"] if "skipped_json" in columns else None
         job["skipped"] = json.loads(stored or "{}")
     except ValueError:
-        job["skipped"] = {}
+        stored, job["skipped"] = None, {}
+    # an import that ran before the reasons were counted: its "done" is not "imported"; the page says what is stored instead
+    job["reasons_recorded"] = stored is not None
     # "imported" counts only messages imported (or already held): a listed message that is not one to import is said apart
     job["imported"] = max(0, (job["done"] or 0) - sum(job["skipped"].values()))
     # the queries this mailbox's messages are in now ("77 messages in 33 queries": replies and forwards join one query)
     held = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='query_messages'"
     ).fetchone()
-    job["queries"] = (
+    counted = (
         conn.execute(
-            "SELECT COUNT(DISTINCT query_id) FROM query_messages WHERE mailbox_id=?",
+            "SELECT COUNT(DISTINCT query_id), COUNT(*) FROM query_messages WHERE mailbox_id=?",
             (mailbox_id,),
-        ).fetchone()[0]
+        ).fetchone()
         if held
-        else None
+        else (None, None)
     )
+    job["queries"], job["messages"] = counted[0], counted[1]
     job["failures"] = [
         {"subject": r["subject"] or "(no subject)", "reason": r["reason"]}
         for r in conn.execute(
@@ -392,7 +395,7 @@ def _import_one(
 
 def _import(job_id, client, box, label_id, admin_role) -> None:
     ids = client.list_message_ids(label_id)
-    _set(job_id, total=len(ids))
+    _set(job_id, total=len(ids), skipped_json="{}")  # the reasons are counted from the start
     done = failed = 0
     skipped: dict[str, int] = {}
     # our own replies read before the message they answer: tried again at the end

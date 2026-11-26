@@ -190,6 +190,15 @@ describe("Technical Queries screen", () => {
     );
   });
 
+  it("never says 'imported 77 of 77' for an import that ran before the reasons were counted: it says what is stored", async () => {
+    const old = { id: "j", kind: "import", state: "done", total: 77, done: 77, failed: 0, error: null, failures: [], imported: 77, skipped: {}, queries: 33, messages: 36, reasons_recorded: false };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: old }] } });
+    render(<TechnicalQueriesView />);
+    const said = (await screen.findByTestId("import-done")).textContent;
+    expect(said).toBe("Import finished: processed 77 messages; 36 stored as messages of 33 queries; the reason the other 41 were not stored was not recorded for this import (it ran before this was counted).");
+    expect(said).not.toMatch(/imported 77/);
+  });
+
   it("hides 'Gmail is connected. Choose the label...' once a label is active (owner's screenshot during the import)", async () => {
     api.completeGmail.mockResolvedValue({ ok: true, data: { result: "connected", mailbox_id: "mb" } });
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: null }] } });

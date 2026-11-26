@@ -76,11 +76,23 @@ export interface MailboxImportJob {
   skipped?: Record<string, number>;
   /** The queries this mailbox's messages are in (replies and forwards with the same number join one query). */
   queries?: number | null;
+  /** The messages of this mailbox stored now (any import or poll). */
+  messages?: number | null;
+  /** False for an import that ran before skipped messages were counted by reason. */
+  reasons_recorded?: boolean;
 }
 
 /** The finished import in one sentence, every count with its boundary: "77 messages in 33 queries: 36 imported, 40 our replies, added to
  *  their query (sent by us), 1 failed." A listed message that was not imported is never called imported. */
 export function importDoneWords(job: MailboxImportJob): string {
+  if (job.reasons_recorded === false) {
+    // an import that ran before the reasons were counted: never "imported N of N"; what is stored is said, and that the rest is unknown
+    const stored = typeof job.messages === "number" ? job.messages : null;
+    const where = typeof job.queries === "number" ? ` of ${job.queries} ${job.queries === 1 ? "query" : "queries"}` : "";
+    const held = stored === null ? "" : `; ${stored} stored as messages${where}`;
+    const rest = stored === null ? job.total : Math.max(0, job.total - stored);
+    return `Import finished: processed ${job.total} messages${held}; the reason the other ${rest} were not stored was not recorded for this import (it ran before this was counted).`;
+  }
   const parts = [`${job.imported ?? job.done} imported`];
   for (const [why, n] of Object.entries(job.skipped ?? {})) if (n > 0) parts.push(`${n} ${why}`);
   if (job.failed) parts.push(`${job.failed} failed`);
