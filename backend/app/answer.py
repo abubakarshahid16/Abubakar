@@ -760,11 +760,21 @@ def _build_prompt(question: str, passages: list[dict], history: str = "") -> str
 _CHAT_LEAD = """- Lead with a short direct answer ("Yes.", "No.", "Partly."), then bullet
   points, then "What I'd do:" with the practical next step when there is one.
   Use markdown (**bold**, bullets). Never a dense wall of text."""
-_QUERY_REPLY_LEAD = """- This is the draft of a reply to a contractor's technical query. Do not open
-  with "Yes" or "No". Take the contractor's numbered requests in order: for each,
-  say what the sources require, with its citation. Where the sources do not cover
-  a request, write for it: "Not found in the documents searched." Then "What I'd
-  do:" with the practical next step when there is one.
+_QUERY_REPLY_LEAD = """- This is the draft of COMPANY's reply to a contractor's technical query or
+  clarification request. Write as COMPANY: formal, declarative, third person
+  ("COMPANY has reviewed ..."). Never write "I", never "What I'd do", and do not
+  open with "Yes" or "No".
+- Take the contractor's numbered requests in order. Requests the sources answer
+  the same way may be answered together, naming their numbers. For each, state
+  what the sources require, with its citation. Where the sources do not cover a
+  request, write for it: "Not found in the documents searched."
+- Where a source shows that a clause or reference the contractor cites is wrong,
+  say so and give the right one from the source.
+- Where a source points to another document or reference number for the answer,
+  name that reference instead of repeating its content.
+- State a position on cost or schedule impact only when a source supports it;
+  otherwise, if the contractor asks, write: "COMPANY to confirm the cost and
+  schedule position."
   Use markdown (**bold**, bullets). Never a dense wall of text."""
 _QUERY_REPLY: contextvars.ContextVar[bool] = contextvars.ContextVar("answer_query_reply", default=False)
 
