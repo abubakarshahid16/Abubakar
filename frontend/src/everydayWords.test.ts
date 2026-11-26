@@ -56,7 +56,7 @@ const NON_TEXT_ATTRS = new Set([
 const NOT_JUDGED = [
   /^components\/Shell\.tsx$/, /^components\/CommandPalette\.tsx$/, /^routing\.ts$/, /^App\.tsx$/, // G
   /^components\/chat\/(Answer|Evidence|Generated|LocalWork|Provenance|SourcePreview|UsedLine)/, // C, E5: the library's answer panel
-  /^components\/review\/(crs\/|v2\/PointsList|general\/GeneralResults)/, // C, E5: the review result panel
+  /^components\/review\/(crs\/|v2\/PointsList)/, // C, E5: the review result panel
   /^views\/(AdminScreen|AdminView)\.tsx$/, /^views\/admin\//, // ADVANCED: the Admin screen
   /DashboardTechnicalDetails|DocumentTechnicalDetails|ChunkInspector|FreeModelMemory/, // ADVANCED: folded technical details
 ];
