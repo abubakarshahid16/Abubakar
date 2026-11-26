@@ -16,6 +16,7 @@ import type { Metrics ,
   SystemMetrics,
   WorkerStatus,
 } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 const fullWorker: WorkerStatus = {
   alive: true,
@@ -377,7 +378,8 @@ describe("warnings", () => {
     await openDashboard();
     // the phrase also appears as a corpus hint, so assert on the warning row
     const warning = await screen.findByRole("status");
-    expect(warning).toHaveTextContent("no_searchable_content");
+    // the new look keeps the setting code off the first screen (owner's design audit, 26 Nov 2026 23:05); classic shows it
+    if (!NEW_LOOK) expect(warning).toHaveTextContent("no_searchable_content");
     expect(warning).toHaveTextContent(/scanned\.pdf finished processing/);
     expect(warning).toHaveTextContent(/search can see none of it/);
     // and the status chip appears rather than the document reading as ready
@@ -695,7 +697,7 @@ describe("audit 2026-09-30: every block's label is true of that block", () => {
     });
     await openDashboard();
     await userEvent.click(await screen.findByRole("button", { name: "Open deliverables" }));
-    expect(await screen.findByRole("heading", { name: /Deliverables & timeline/ }))
+    expect(await screen.findByRole("heading", { name: /^Deliverables$/ })) // the page title = the menu name (was "Deliverables & timeline")
       .toBeInTheDocument();
   });
 });
