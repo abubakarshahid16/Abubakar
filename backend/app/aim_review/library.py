@@ -22,7 +22,7 @@ from pathlib import Path
 
 # The six reasons a book is on the plan's list, and the list's size: one home, the package (`app.aim_review`).
 from . import MAX_BOOKS as MAX_CANDIDATES
-from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED
+from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED, faults
 from . import service_books as SB
 from .citations import (  # noqa: F401 - one home of citation matching: citations
     NUMBER_MIN,
@@ -303,10 +303,8 @@ def floor_for(kind: str | None) -> int:
     table_kind = str(kind or "").strip().lower().replace(" ", "_")
     try:
         long_kinds = kind_review_table.no_main_equipment_kinds()
-    except Exception as exc:  # noqa: BLE001 - an unreadable table gives no floor, never a stop
-        log.info(
-            "general review: kind table not read for the floor (%s)", type(exc).__name__
-        )
+    except Exception as exc:  # noqa: BLE001 - an unreadable table gives no floor, never a stop; the run says so (D2)
+        faults.record("aim_kind_table", "the kind table for the checklist's floor", exc)
         return 0
     return FLOOR_ITEMS if table_kind in long_kinds else 0
 
@@ -628,8 +626,8 @@ def stored_reading(
 
     try:
         got = agent_review_kind.read_kind(conn, str(paper_id))
-    except Exception as exc:  # noqa: BLE001 - an unreadable reading is an unknown kind, never a guess
-        log.info("general review plan: kind unreadable (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - an unreadable reading is an unknown kind, never a guess; a run says so (D2)
+        faults.record("aim_kind_reading", "the stored reading of the paper's kind", exc)
         return None, None, agent_review_kind.SOURCE_NONE
     if not (got.get("known") and got.get("kind")):
         return (
@@ -645,8 +643,10 @@ def stored_reading(
     )
     try:
         equipment, _where = agent_review_kind.read_equipment(str(paper_id), allowed)
-    except Exception as exc:  # noqa: BLE001 - an unreadable equipment reading is none
-        log.info("general review plan: equipment unreadable (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - an unreadable equipment reading is none; a run says so (D2)
+        faults.record(
+            "aim_equipment_reading", "the stored reading of the paper's equipment", exc
+        )
         equipment = None
     from .book_names import last_run_type
 
