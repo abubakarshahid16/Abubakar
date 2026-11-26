@@ -27,7 +27,8 @@ const root = join(process.cwd(), "dist", "assets");
 // Update 9 (26 Nov 2026): 335000 -> 336000 bytes: update 9: zone-named times, in-page questions, score banner, 26 Nov, lead decision (build 335038).
 // Update 10 (26 Nov 2026): 336000 -> 337000 bytes: update 10: Review model section, 26 Nov, lead decision (build 336107).
 // Update 12 (26 Nov 2026): 337000 -> 339000 bytes: update 12: technical queries pages, draft guard, Chat, 26 Nov, lead decision (build 338387).
-const max = 339000;
+// Update 13 (26 Nov 2026): 339000 -> 340000 bytes: update 13: technical queries evidence, 26 Nov, lead decision (build 339095).
+const max = 340000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
 for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;
