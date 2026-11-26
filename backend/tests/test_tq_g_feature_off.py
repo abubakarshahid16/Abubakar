@@ -552,6 +552,8 @@ def test_a_reviewer_enters_a_query_by_hand_with_no_mailbox(monkeypatch):
         tq.get(out["item"]["id"], "u1", False, True)["messages"][0]["provider"]
         == "manual"
     )
+    # it opens ready like an imported mail: its evidence and draft are queued at once (owner, 26 Nov 2026 21:36)
+    assert out["item"]["evidence_job"]["state"] == "queued"
 
 
 def test_nobody_else_enters_a_query_and_only_an_administrator_uploads_its_papers(

@@ -29,7 +29,7 @@ def test_chat_keeps_its_prompt_byte_for_byte_and_a_query_reply_never_leads_with_
         for system in (A._fit(A.SYSTEM_PROMPT), A._fit(A.SYSTEM_PROMPT_VERIFIED)):
             assert (
                 '"Yes.", "No.", "Partly."' not in system
-                and 'Do not open\n  with "Yes" or "No"' in system
+                and 'never with a bare "Yes." or "No."' in system and "Write as COMPANY" in system and 'then "What I\'d do:"' not in system
             )
             assert (
                 '"Not found in the documents searched."' in system
