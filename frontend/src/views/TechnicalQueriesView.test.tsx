@@ -556,4 +556,16 @@ describe("Technical Queries screen", () => {
     expect((earlier as HTMLDetailsElement).open).toBe(false);
     expect(screen.getByText("Invented current quote.").closest("[data-testid=evidence-earlier]")).toBeNull();
   });
+
+  it("a long ask from the server folds after six with 'N more requests', none dropped", async () => {
+    const asks = Array.from({ length: 9 }, (_, i) => `${i + 1}. Invented request ${i + 1}`).join("\n");
+    const ready = { question: `About Invented, the contractor asks for the following:\n${asks}`, question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "none", draft_fresh: true, draft_note: null, marks: [] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, ready } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    const readable = await screen.findByTestId("question-readable");
+    const more = within(readable).getByTestId("question-more");
+    expect(within(more).getByText("3 more requests")).toBeTruthy();
+    expect(within(readable).getAllByRole("listitem")).toHaveLength(9); // all on the page, the last three folded
+    expect((more as HTMLDetailsElement).open).toBe(false);
+  });
 });

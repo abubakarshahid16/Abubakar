@@ -70,3 +70,10 @@ describe("where the sources and the draft stand (builder A's ready)", () => {
     expect(startingText({ edited_question: "Invented edit.", proposed_questions: [{ question: "Invented request", filename: "f.pdf", page: 1 }] })).toBe("Invented edit.");
   });
 });
+
+describe("the server's composed ask (builder A: the one home)", () => {
+  it("is shown exactly, whatever the page's own rule would compose", () => {
+    const text = "About Invented, the contractor asks for the following:\n1. a\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h";
+    expect(startingText({ ready: { question: text }, proposed_questions: [{ question: "zzz", filename: null, page: null }] })).toBe(text);
+  });
+});

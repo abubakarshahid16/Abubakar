@@ -1,4 +1,4 @@
-import { draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { querySummary } from "./technicalQuerySummary";
@@ -449,7 +449,14 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                 const items = lines.filter((l) => l.kind === "item");
                 return <>
                   {lead.map((l, i) => <p key={`lead-${i}`} className="whitespace-pre-wrap">{l.text}</p>)}
-                  {items.length > 0 && <ol className="mt-2 space-y-1">{items.map((l) => <li key={`item-${l.n}-${l.text}`} className="flex gap-2"><span className="w-6 shrink-0 whitespace-nowrap text-right font-semibold">{l.n}.</span><span>{l.text}{l.source && <span className="block text-xs text-slateish-400">found in {l.source}</span>}</span></li>)}</ol>}
+                  {(() => {
+                    const row = (l: (typeof items)[number]) => <li key={`item-${l.n}-${l.text}`} className="flex gap-2"><span className="w-6 shrink-0 whitespace-nowrap text-right font-semibold">{l.n}.</span><span>{l.text}{l.source && <span className="block text-xs text-slateish-400">found in {l.source}</span>}</span></li>;
+                    // a long list folds after LIST_FOUND with its count in view: every request stays on the page, none is dropped
+                    return items.length > 0 && <>
+                      <ol className="mt-2 space-y-1">{items.slice(0, LIST_FOUND).map(row)}</ol>
+                      {items.length > LIST_FOUND && <details data-testid="question-more" className="mt-1"><summary className="cursor-pointer text-xs font-semibold text-signal-300">{items.length - LIST_FOUND} more request{items.length - LIST_FOUND === 1 ? "" : "s"}</summary><ol className="mt-1 space-y-1">{items.slice(LIST_FOUND).map(row)}</ol></details>}
+                    </>;
+                  })()}
                 </>;
               })()}
             </div>

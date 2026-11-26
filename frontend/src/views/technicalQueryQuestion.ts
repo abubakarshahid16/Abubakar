@@ -23,7 +23,8 @@ export interface QuestionSource {
   title_short?: string | null;
 }
 
-/** How many found requests start in the list; the rest wait, folded, to be added (builder H, 26 Nov 2026). */
+/** Without the server's composed ask: how many found requests start in the list (builder H). With it, every request is in the ask and
+ *  the page folds the list after this many ("N more requests"), hiding none. */
 export const LIST_FOUND = 6;
 
 const NUMBERED = /^\s*(\d{1,2})[.)]\s+(.*\S)\s*$/;
@@ -36,7 +37,10 @@ function plainSubject(q: QuestionSource): string {
 
 /** The text the question box starts with: the confirmed wording; else a lead-in and the found requests, numbered; else the form's own
  *  question section; else the email's question. */
-export function startingText(q: QuestionSource): string {
+export function startingText(q: QuestionSource & { ready?: { question?: string | null } | null }): string {
+  // THE SERVER IS THE ONE HOME (builder A, 26 Nov 2026): it composes the ask by the same rule, keeps EVERY found request, and finds the
+  // sources and writes the draft for exactly that text; the page shows it as it is. The rule below is only for a server without it.
+  if (q.ready && typeof q.ready.question === "string") return q.ready.question;
   if (q.confirmed_question) return q.confirmed_question;
   if (q.edited_question) return q.edited_question; // the engineer's own wording, saved, not confirmed (builder A)
   const email = (q.extracted_question_main ?? q.extracted_question ?? "").trim();
