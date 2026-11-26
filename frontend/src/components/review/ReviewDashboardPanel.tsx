@@ -18,6 +18,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api, reviews as reviewsApi } from "../../api/client";
 import type { DocumentRecord, ReviewDashboard } from "../../types/api";
 import { StartReviewStep } from "./panels/StartReviewStep";
+import { NEW_LOOK } from "../../look";
+import { StatusChip, TileLine } from "../look/LookParts";
+import { reviewStatusTone } from "../look/lookTone";
 import {
   LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
   truncationNote,
@@ -310,32 +313,35 @@ export function ReviewDashboardPanel(
             No reviews have been run yet.
           </p>
         ) : (
-          <div className="relative mt-2 overflow-x-auto rounded-[var(--radius-md)] border border-ink-700" data-testid="dashboard-runs-table-box">
-            {/* `relative`: the table's hidden header label (sr-only, absolutely placed) is clipped by THIS box, so the table scrolls inside it and never widens the page (the same fault as the CRS table, 26 Nov 2026) */}
-            <table className="w-full text-left text-xs">
-              <thead className="bg-ink-900 uppercase tracking-wide text-slateish-400">
+          <div className={NEW_LOOK ? "relative mt-3 overflow-x-auto rounded-[var(--radius-md)] bg-ink-800" : "relative mt-2 overflow-x-auto rounded-[var(--radius-md)] border border-ink-700"}
+            data-testid="dashboard-runs-table-box">
+            <table className={NEW_LOOK ? "w-full text-left text-sm" : "w-full text-left text-xs"}>
+              <thead className={NEW_LOOK ? "text-xs font-semibold text-slateish-400" : "bg-ink-900 uppercase tracking-wide text-slateish-400"}>
                 <tr>
-                  <th scope="col" className="px-3 py-2">Document</th>
-                  <th scope="col" className="px-3 py-2">Equipment</th>
-                  <th scope="col" className="px-3 py-2">Findings or comments</th>
-                  <th scope="col" className="px-3 py-2">Suggested code</th>
-                  <th scope="col" className="px-3 py-2">Status</th>
-                  <th scope="col" className="px-3 py-2"><span className="sr-only">Open</span></th>
+                  <th scope="col" className={HEAD}>Document</th>
+                  <th scope="col" className={HEAD}>Equipment</th>
+                  <th scope="col" className={HEAD}>Findings or comments</th>
+                  <th scope="col" className={HEAD}>Suggested code</th>
+                  <th scope="col" className={HEAD}>Status</th>
+                  <th scope="col" className={HEAD}><span className="sr-only">Open</span></th>
                 </tr>
               </thead>
               <tbody>
                 {data.recent.map((run) => (
-                  <tr key={run.review_run_id} className="border-t border-ink-800">
-                    <td className="px-3 py-2 text-slateish-200">
-                      {run.submittal_filename}
-                      <span className="block text-slateish-500">
+                  <tr key={run.review_run_id} className={NEW_LOOK ? "border-t border-ink-700/60" : "border-t border-ink-800"}>
+                    <td className={NEW_LOOK ? "whitespace-nowrap px-3 py-3.5 text-slateish-200" : "px-3 py-2 text-slateish-200"}>
+                      {NEW_LOOK ? (
+                        // one line (owner): a long name stops at a set width with a visible "…", whole on hover
+                        <span className="inline-block max-w-[12rem] truncate align-bottom" title={run.submittal_filename ?? undefined}>{run.submittal_filename}</span>
+                      ) : run.submittal_filename}
+                      <span className={NEW_LOOK ? "ms-2 whitespace-nowrap text-xs text-slateish-500" : "block text-slateish-500"}>
                         {formatWhen(run.created_at)}{run.method === "general" ? "" : " · earlier version"}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-slateish-300" title={run.equipment_tags.join(", ") || undefined}>
+                    <td className={CELL} title={run.equipment_tags.join(", ") || undefined}>
                       {equipmentLabel(run.equipment_tags)}
                     </td>
-                    <td className="px-3 py-2 text-slateish-300">
+                    <td className={NEW_LOOK ? `${CELL} min-w-[10.5rem]` : CELL}>
                       {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. A general review says its own comments. */}
                       {run.method === "general" ? generalFindings(run) : run.findings_total.toLocaleString()}
                       {run.method !== "general" && run.by_status.NON_COMPLIANT ? (
@@ -344,7 +350,7 @@ export function ReviewDashboardPanel(
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2 text-slateish-300">
+                    <td className={CELL}>
                       {/* order 14: one run never shows an approving code; the server's note stands in its place */}
                       {run.recommended_code ?? run.recommended_code_note}
                       {/* BOTH CODES, NEVER ONE. An engineer's decision does
@@ -355,11 +361,15 @@ export function ReviewDashboardPanel(
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slateish-300">{rowStatus(run)}</td>
-                    <td className="px-3 py-2">
+                    <td className={NEW_LOOK ? "whitespace-nowrap px-3 py-3.5" : "px-3 py-2 text-slateish-300"}>
+                      {NEW_LOOK ? <StatusChip tone={reviewStatusTone(rowStatus(run))}>{rowStatus(run)}</StatusChip> : rowStatus(run)}
+                    </td>
+                    <td className={NEW_LOOK ? "px-3 py-3.5 text-right" : "px-3 py-2"}>
                       <button
                         type="button" onClick={() => onOpenReview(run.review_run_id)}
-                        className="font-medium text-signal-400 hover:underline"
+                        className={NEW_LOOK
+                          ? "min-h-9 rounded-[var(--radius-sm)] border border-ink-500 bg-ink-800 px-4 py-1.5 text-sm font-semibold text-signal-300 hover:bg-ink-700"
+                          : "font-medium text-signal-400 hover:underline"}
                       >
                         Open
                       </button>
@@ -376,9 +386,25 @@ export function ReviewDashboardPanel(
   );
 }
 
+/** The table cells: the classic padding, or the new look's taller rows (owner: "more row height"). */
+const CELL = NEW_LOOK ? "px-3 py-3.5 text-slateish-300" : "px-3 py-2 text-slateish-300";
+const HEAD = NEW_LOOK ? "px-3 py-2.5" : "px-3 py-2";
+
 function Card({ label, value, detail, tone }: {
   label: string; value: number; detail: string; tone?: "warn";
 }) {
+  if (NEW_LOOK) {
+    // the new look (owner): one big number, a short label, at most one short line; a long line folds behind "Details", never dropped
+    return (
+      <div className="rounded-[var(--radius-md)] bg-ink-900 px-5 py-4">
+        <p className="text-sm font-semibold text-slateish-400">{label}</p>
+        <p className={`mt-1 font-[family-name:var(--font-heading)] text-[2.5rem] font-bold leading-none ${tone === "warn" ? "text-warn-500" : "text-slateish-100"}`}>
+          {value.toLocaleString()}
+        </p>
+        <TileLine text={detail} />
+      </div>
+    );
+  }
   return (
     <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-900 p-3">
       <p className="text-xs uppercase tracking-wide text-slateish-400">{label}</p>
