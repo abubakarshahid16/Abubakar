@@ -237,3 +237,29 @@ def test_a_draft_that_leaves_a_numbered_item_unanswered_says_so():
     assert (
         auto.unanswered_mark("anything", "Please confirm the coating.") is None
     )  # a single request: nothing to count
+
+
+def test_each_item_is_searched_with_its_lead_line_so_the_search_carries_the_subject(
+    monkeypatch,
+):
+    """Lead-4's re-score (27 Nov 2026): an option "Position 1: handled as ..." searched alone found a higher-scoring, unrelated contract
+    clause; the request's subject is in its lead line."""
+    from app import technical_query_contracts as tqc
+
+    asked = []
+    monkeypatch.setattr(
+        tqc,
+        "search_all",
+        lambda q, *a, **k: asked.append(q) or {"hits": [], "coverage": {}},
+    )
+    q = "Please confirm which of the following positions shall apply to the invented flare material:\n\n1) Position one\n2) Position two"
+    items.search(q, frozenset(), None, [])
+    lead = "Please confirm which of the following positions shall apply to the invented flare material:"
+    assert asked == [
+        q,
+        f"{lead} Position one",
+        f"{lead} Position two",
+    ]  # the whole request once, then each item with its lead
+    assert (
+        items.lead_of("1. a\n2. b") == ""
+    )  # no lead line: the item is searched on its own

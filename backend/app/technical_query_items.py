@@ -46,6 +46,25 @@ def items_of(question: str) -> list[str]:
     return items if len(items) >= 2 else []
 
 
+#: How much of the request's lead line goes with each item's search (search text only, never shown).
+LEAD_CHARS = 300
+
+
+def lead_of(question: str) -> str:
+    """The request's lead line: the paragraph just before its numbered list ("Please confirm which of the following positions shall
+    apply to <the subject>:"), at most LEAD_CHARS (cut at a word). It carries the SUBJECT an item's own words may lack (lead-4's
+    re-score, 27 Nov 2026: an option "Position 1: handled as ..." searched alone found a higher-scoring, unrelated contract clause)."""
+    lines = (question or "").splitlines()
+    first = next((n for n, line in enumerate(lines) if _ITEM_START.match(line)), None)
+    if not first:
+        return ""
+    paragraphs = [
+        p.strip() for p in "\n".join(lines[:first]).split("\n\n") if p.strip()
+    ]
+    lead = " ".join(paragraphs[-1].split()) if paragraphs else ""
+    return lead if len(lead) <= LEAD_CHARS else lead[:LEAD_CHARS].rsplit(" ", 1)[0]
+
+
 def search(
     question: str, allowed: frozenset[str], progress, form_texts: list[str]
 ) -> dict[str, Any]:
@@ -69,7 +88,13 @@ def search(
                 min(len(items), MAX_ITEMS),
                 f"searching item {n} of {min(len(items), MAX_ITEMS)}",
             )
-        found = tqc.search_all(item, allowed, None, None).get("hits") or []
+        # each item is searched WITH its lead line, so the search carries the request's subject
+        found = (
+            tqc.search_all(
+                f"{lead_of(question)} {item}".strip(), allowed, None, None
+            ).get("hits")
+            or []
+        )
         taken = 0
         for hit in found:
             if taken >= PER_ITEM:
