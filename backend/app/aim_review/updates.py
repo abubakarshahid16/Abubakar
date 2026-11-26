@@ -9,7 +9,8 @@ Code-only and screen-only parts stay on.
     (the editor's groups in the merge keys) and the upload-time picture stage.
   * AIM_U8_ENABLED: the second-model rule approvals in the rule pool, the cross-document check.
   * AIM_FORMULA_CHECKS_ENABLED (update 9, ON by default): the formula checks, out of AIM_U8_ENABLED.
-  * AIM_U13_ENABLED: the always-on items G2 and G3 read the app's own consistency pairs and form entries (planner, 26 Nov 2026)."""
+  * AIM_U13_ENABLED: the always-on items G2 and G3 read the app's own consistency pairs and form entries (planner, 26 Nov 2026).
+    With it on, also the nine-role read record (`roles`: what each role sent and produced; lead-4 26 Nov: no new switch)."""
 
 from __future__ import annotations
 
@@ -75,3 +76,44 @@ def checklist_method() -> str:
     from . import checklist
 
     return checklist.CHECKLIST_METHOD if u7b() else checklist.CHECKLIST_METHOD_MAIN
+
+
+def nine_roles() -> bool:
+    """The nine-role read record rides on update 13's switch (lead-4, 26 Nov 2026: no new switch)."""
+    return u13()
+
+
+def nine_wrap(model, run_id: str, paper_id: str):
+    """The run's model with the nine-role record around it (`roles.wrap`); off: the model as given, nothing imported."""
+    if not nine_roles():
+        return model
+    from . import roles
+
+    return roles.wrap(model, run_id, paper_id)
+
+
+def nine_end(run_id: str, result: dict) -> None:
+    """Each role's row at the run's end (`roles.finish`); off: nothing."""
+    if nine_roles():
+        from . import roles
+
+        roles.finish(run_id, result)
+
+
+def nine_missed(
+    model,
+    paper,
+    checklist: dict,
+    text,
+    items: list[dict],
+    lines: list[dict],
+    stop: str,
+    **judge,
+):
+    """Role 5 of the nine roles (`missed.ask_again`): after the judge, the items it left "not judged" are asked once more as the
+    checklist; off: `(lines, stop)` as given, nothing imported."""
+    if not nine_roles():
+        return lines, stop
+    from . import missed
+
+    return missed.ask_again(model, paper, checklist, text, items, lines, stop, **judge)

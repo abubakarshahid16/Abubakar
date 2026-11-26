@@ -235,6 +235,7 @@ def _store_end(
     body["stop_reason"] = body.get("stop_reason") or words
     body.setdefault("lines", [])
     aim_review_store.finish_run(conn, run_id, body, _now())
+    _roles_end(run_id, body)
 
 
 def _result_dict(result) -> dict:
@@ -291,8 +292,19 @@ def _cancelled(conn, job_id: str, run_id: str, result: dict | None = None) -> st
     return job_queue.CANCELLED
 
 
+def _roles_end(run_id: str, result: dict) -> None:
+    """The nine-role record's end rows (`aim_review.updates.nine_end`; off: nothing). A fault here never changes the run's end."""
+    from .aim_review.updates import nine_end
+
+    try:
+        nine_end(run_id, result)
+    except Exception:  # noqa: BLE001 - the record is the team's evidence, never the run's outcome
+        log.warning("general review %s: the role record's end rows failed", run_id)
+
+
 def _done(conn, job_id: str, run_id: str, result: dict) -> str:
     aim_review_store.finish_run(conn, run_id, result, _now())
+    _roles_end(run_id, result)
     aim_review_completeness.record_after_run(run_id)
     outcome = {
         "general_review": True,

@@ -58,16 +58,33 @@ class OverCap(Exception):
 class _Metered:
     """The page-picture reader for one run: Claude, each call checked against and charged to the run's meter."""
 
-    def __init__(self, meter, provider, model: str) -> None:
+    def __init__(self, meter, provider, model: str, record=None) -> None:
         self.meter, self.provider, self.requested_model = meter, provider, model
-        self.worst = _worst_usd(model)
+        self.worst, self.record = (
+            _worst_usd(model),
+            record,
+        )  # record: the nine-role record (`roles.Recorded`), when on
 
     def reason(self, packet):
         from .engine import CallRecord
 
+        call = (
+            self.record.picture_sent(packet, self.requested_model)
+            if self.record is not None
+            else None
+        )
         if self.meter.spent + self.meter.held + self.worst > self.meter.cap + 1e-9:
+            if call:
+                self.record.picture_end(call, "refused", "run_cap")
             raise OverCap("the review's money cap")
-        response = self.provider.reason(packet)
+        try:
+            response = self.provider.reason(packet)
+        except Exception as exc:
+            if call:
+                self.record.picture_end(call, "failed", type(exc).__name__[:60])
+            raise
+        if call:
+            self.record.picture_end(call, "answered", None)
         self.meter.charge(CallRecord(step=STEP, model=str(response.model_tag or self.requested_model),
                                      prompt_chars=len(packet.prompt), usd=float(response.cost_usd or 0.0),
                                      input_tokens=int(response.tokens_in or 0), output_tokens=int(response.tokens_out or 0),
@@ -103,7 +120,7 @@ def todo(conn, paper_id: str) -> list[int]:
     return sorted(set(picture_stage.targets(conn, paper_id)) | (set(again) & still))
 
 
-def read(conn, paper_id: str, meter) -> dict | None:
+def read(conn, paper_id: str, meter, record=None) -> dict | None:
     """Switch on, on Claude: the paper's pages with no text read as pictures, inside the run. The stage's counts, or None when nothing
     ran (switch off, Local only, no page to read, Claude not available: then the pages stay "not read" and are named so)."""
     if not on() or is_local():
@@ -127,7 +144,7 @@ def read(conn, paper_id: str, meter) -> dict | None:
         return None
     counts = picture_stage.run(
         paper_id,
-        provider=_Metered(meter, provider, settings.claude_reasoning_model),
+        provider=_Metered(meter, provider, settings.claude_reasoning_model, record),
         pages=pages,
     )
     log.info("page pictures: %s", counts)

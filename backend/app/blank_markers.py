@@ -326,30 +326,58 @@ def is_provisional_figure(quote: str | None) -> bool:
     return names_who_supplies(quote) and not value_left_open(quote)
 
 
-def states_value(quote: str | None, field: str | None) -> bool:
-    """The quote STATES the field's value: it names the field (each word of 3 or more letters of the field's own label stands in it)
-    and holds other words or numbers than the label, and `value_left_open` does not read it as open. By the quote's structure only,
-    never the AI's wording. Used only by update 13's required-entries filter (`asks.entry_filled`, switch off); too loose for any
-other use (review of update 13, B1/N7: a who-supplies word or a note pointer passes): to be rebuilt before that switch goes on. Pure."""
-    text, label = " ".join(str(quote or "").split()), str(field or "")
-    words = re.findall(r"[a-z]{3,}", label.lower())
-    if (
-        not text
-        or not words
-        or value_left_open(text)
-        or not all(w in text.lower() for w in words)
-    ):
-        return False
+#: Words that make the text after a label a pointer or a who-supplies note, never a value (paper text, read by code; a match only
+#: ever falls back to "left open", as main). Review of update 13, B1: "VENDOR", "MFR STD", "see note 3", "not specified" ...
+_NOT_A_VALUE = re.compile(
+    r"\b(?:notes?|see|refer\w*|per|attached|vendors?|suppliers?|manufacturers?|mfr|contractors?|others|pending|unknown|"
+    r"specified|tb[acd]|later|n/?a|std|standard)\b",
+    re.IGNORECASE,
+)
+_SEPARATORS = " :=-\u2013\u2014"
+#: A plain figure, optionally with a sign or bound and a percent sign: "1.5", ">=3", "50%". Not an identifier (a standard's number written with letters).
+_PLAIN_FIGURE = re.compile(r"^[<>=~\u00b1\u2264\u2265+-]{0,2}\d+(?:[.,]\d+)?%?$")
+
+
+def _figure_first(value: str) -> bool:
+    """The value begins with a plain figure (its bound may stand apart: ">= 3 mm"), and the word after it, if any, is a unit, "x",
+    "%" or another figure: never a word (a figure followed by a label is the next row's number, "57 Drip ...")."""
     from app.claims import is_unit
 
-    own = set(re.findall(r"\w+", label.lower()))
-    rest = [
-        w
-        for w in re.findall(r"\w+", re.sub(r"^\s*\d{1,3}\s+", "", text).lower())
-        if w not in own
-    ]
-    # a value is a number, or a word that is not a unit: "Set pressure barg" (a label and its unit) states nothing
-    return any(re.search(r"\d", w) or (len(w) >= 2 and not is_unit(w)) for w in rest)
+    words = value.split()
+    if words and re.fullmatch(r"[<>=~\u00b1\u2264\u2265]{1,2}", words[0]):
+        words = words[1:]
+    if not words or not _PLAIN_FIGURE.match(words[0]):
+        return False
+    nxt = words[1] if len(words) > 1 else ""
+    return (
+        not nxt
+        or nxt.lower() in ("x", "%")
+        or bool(_PLAIN_FIGURE.match(nxt))
+        or is_unit(nxt.strip(",;.()"))
+    )
+
+
+def states_value(quote: str | None, field: str | None) -> bool:
+    """The quote STATES the field's value, by its structure only (never the AI's wording): the field's own label stands in it, and
+    the text DIRECTLY after the label (separators skipped, and one bracketed qualifier that is no pointer) begins with a plain figure
+    and its unit (`_figure_first`),
+    holds no pointer or who-supplies word (`_NOT_A_VALUE`) and is not read as open (`value_left_open`). Strict on purpose (lead-4,
+    26 Nov 2026, after the review of update 13, B1): a text value with no figure, a blank field beside a neighbour's figure,
+    "VENDOR", "see note 3", "pending", "not specified" or "unknown" states nothing. A "no" only leaves a line as main has it. Pure."""
+    text, label = " ".join(str(quote or "").split()), " ".join(str(field or "").split())
+    at = text.lower().find(label.lower()) if label else -1
+    if at < 0:
+        return False
+    value = text[at + len(label) :].lstrip(_SEPARATORS)
+    qualifier = re.match(r"^\(([^()]{0,60})\)", value)
+    if qualifier and not _NOT_A_VALUE.search(qualifier.group(1)):
+        value = value[qualifier.end() :].lstrip(_SEPARATORS)
+    return bool(
+        _figure_first(value)
+        and not _NOT_A_VALUE.search(value)
+        and not value_left_open(value)
+        and not value_left_open(text)
+    )
 
 
 def value_left_open(quote: str | None) -> bool:
