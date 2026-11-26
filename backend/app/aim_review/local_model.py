@@ -8,7 +8,7 @@ size in; the step's JSON answer out, or `StepFailed` with a code. Same steps, sa
     gate of the worker's lanes). Nothing here imports or calls `reader_transport`, `agent_claude` or `claude_spend`: nothing
     leaves this computer and nothing is paid (each call is recorded at USD 0). The run is also barred from Claude for its whole
     length (`review_engine.barring`), so a step that tried the Claude lane anyway would be refused there.
-  * THE MODEL OF EACH STEP is the setting (`settings.answer_model`, the one local default, ministral-3:14b; a step may name its own
+  * THE MODEL OF EACH STEP is the setting (`settings.answer_model`, the one local default, qwen3.5:9b-q4_K_M; a step may name its own
     in `general_review_local_step_models`, e.g. "judge=qwen3.5:9b"). ONE MODEL IN MEMORY AT A TIME: when the next step needs
     another model, the one loaded is unloaded first. Every call records the model the engine REPORTED, never the setting.
   * NO BLIND CHUNKING (owner's standing lesson, 25 Nov 2026 23:15): the window is sized per paper (`budget.for_paper`) so the

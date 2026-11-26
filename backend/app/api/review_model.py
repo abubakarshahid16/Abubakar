@@ -31,6 +31,8 @@ class ModelRow(BaseModel):
     scored_kinds: list[str] | None = None
     bytes: int | None = None
     price_words: str | None = None
+    is_default: bool | None = None
+    measured: str | None = None
 
 
 class Stored(BaseModel):

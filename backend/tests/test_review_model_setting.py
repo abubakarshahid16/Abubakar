@@ -213,3 +213,36 @@ def test_the_routes_admin_reads_and_only_a_signed_in_admin_saves(engine, world):
     anonymous = client.put("/api/admin/review-model", json={"default": OTHER})
     assert anonymous.status_code in (403, 404)  # no identity never saves
     assert review_model_setting.stored()["default"] == SMALL
+
+
+def test_the_default_is_marked_and_the_14b_says_it_did_not_finish_a_valve_review(
+    monkeypatch, world
+):
+    monkeypatch.setattr(
+        model_transport,
+        "get_json",
+        lambda *a, **k: {
+            "models": [
+                {"name": "qwen3.5:9b-q4_K_M", "size": 6_500_000_000},
+                {"name": "ministral-3:14b", "size": 9_000_000_000},
+            ]
+        },
+    )
+    monkeypatch.setattr(settings, "answer_model", "qwen3.5:9b-q4_K_M")
+    rows = {m["name"]: m for m in review_model_setting.options()["local"]}
+    assert (
+        rows["qwen3.5:9b-q4_K_M"]["is_default"] is True
+        and rows["qwen3.5:9b-q4_K_M"]["measured"] is None
+    )
+    assert rows["ministral-3:14b"]["is_default"] is False
+    assert (
+        rows["ministral-3:14b"]["measured"]
+        == review_model_setting.MEASURED["ministral-3:14b"]
+    )
+    assert (
+        "did not finish a valve review on this Mac"
+        in rows["ministral-3:14b"]["measured"]
+    )
+    assert (
+        rows["ministral-3:14b"]["selectable"] is True
+    )  # still offered: its contract review finished

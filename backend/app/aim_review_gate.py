@@ -37,9 +37,10 @@ LOCAL_SWITCHED_OFF = (
     "The local model is switched off for the general review on this install, so with Local only nothing is sent and nothing "
     "is reviewed."
 )
-#: The one line the plan and the sheet show for the local model: its measured time and score (night test, 26 Nov 2026, on the
-#: 14B: valve copy A 20 minutes, 0 of 10 planted mistakes found; contract copy A 3 of 10). Change it with the next measured score.
-LOCAL_TEST_NOTE = "Local model: about 20 minutes; found 0 of 10 planted datasheet mistakes and 3 of 10 contract mistakes in our test."
+#: The one line the plan and the sheet show for the local model: its measured time and score (on the
+#: 9B qwen3.5:9b-q4_K_M, lead-4 26 Nov 2026: valve copy A 32.5 minutes, 2 of 10 planted mistakes found; contract copy A 5 of 10 with
+#: the lead's reading). Change it with the next measured score.
+LOCAL_TEST_NOTE = "Local model (9B): about 33 minutes; found 2 of 10 planted datasheet mistakes and 5 of 10 contract mistakes in our test."
 #: The score line of a review made on the local model (page and file), in place of the kind's score measured on Claude.
 LOCAL_NOT_SCORED = "local model, not yet scored"
 #: A model with no measured score of the general review (the Review model section of the Administration page).

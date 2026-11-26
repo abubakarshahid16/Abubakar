@@ -19,6 +19,8 @@ export interface ReviewModelOption {
   score_words: string;
   used_for?: string;
   price_words?: string;
+  is_default?: boolean | null;
+  measured?: string | null;
 }
 export interface ReviewModelOptions {
   claude: ReviewModelOption[];
@@ -104,7 +106,8 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
             <ul className="space-y-0.5 text-xs text-slateish-300">
               {options.local.map((m) => (
                 <li key={m.name} data-testid="review-model-local">
-                  <span className="font-mono">{m.name}</span>: {m.score_words}; {m.price_words}
+                  <span className="font-mono">{m.name}</span>{m.is_default ? " (default)" : ""}: {m.score_words}; {m.price_words}
+                  {m.measured ? `; ${m.measured}` : ""}
                   {m.selectable ? "" : `; cannot be chosen: ${m.why}`}
                 </li>
               ))}

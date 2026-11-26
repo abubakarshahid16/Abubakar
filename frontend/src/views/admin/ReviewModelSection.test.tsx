@@ -14,7 +14,7 @@ const OPTIONS: ReviewModelOptions = {
     score_words: "measured on 3 kinds", used_for: "every step but the attack" }],
   local: [
     { name: "invented-small:14b", engine: "local", selectable: true, why: null, score_words: "local model, not yet scored",
-      price_words: "USD 0 (runs on this computer)" },
+      price_words: "USD 0 (runs on this computer)", is_default: true, measured: "invented: did not finish a valve review" },
     { name: "invented-huge:35b", engine: "local", selectable: false, why: "too large for this computer (its file is over 15 GB)",
       score_words: "local model, not yet scored", price_words: "USD 0 (runs on this computer)" },
   ],
@@ -38,6 +38,9 @@ describe("ReviewModelSection", () => {
     expect(rows).toHaveLength(2);
     for (const row of rows) expect(row).toHaveTextContent("local model, not yet scored");
     expect(rows[1]).toHaveTextContent("cannot be chosen: too large for this computer");
+    expect(rows[0]).toHaveTextContent("(default)");
+    expect(rows[0]).toHaveTextContent("invented: did not finish a valve review");
+    expect(rows[1]).not.toHaveTextContent("(default)");
     const pickers = screen.getAllByRole("combobox");
     expect(pickers).toHaveLength(3); // the default and one per step; none for Claude
     expect(within(pickers[0]).queryByRole("option", { name: "invented-huge:35b" })).toBeNull();

@@ -39,6 +39,11 @@ TOO_LARGE = "too large for this computer (its file is over 15 GB)"
 ENGINE_DOWN = "the local engine did not answer, so the installed models are not known"
 CLAUDE_FIXED = "the method's own Claude model, as scored; Claude stays the main engine and this page does not change it"
 UNKNOWN_STEP = "no such step"
+#: What a local model did in our measured runs on this Mac, shown beside it (lead-4, 26 Nov 2026). It is still offered: a
+#: contract review on it finished.
+MEASURED = {
+    "ministral-3:14b": "did not finish a valve review on this Mac (3 of 3 runs stopped by the swap rule)",
+}
 
 
 def steps() -> tuple[str, ...]:
@@ -174,6 +179,7 @@ def options(conn=None) -> dict:
     from .config import settings
 
     models = installed()
+    default = stored(conn)["default"] or str(settings.answer_model)
     local = [
         {
             "name": m["name"],
@@ -185,6 +191,8 @@ def options(conn=None) -> dict:
             "score_words": aim_review_gate.LOCAL_NOT_SCORED,
             "selectable": _local_why(m["name"], models) is None,
             "why": _local_why(m["name"], models),
+            "is_default": m["name"] == default,
+            "measured": MEASURED.get(m["name"]),
         }
         for m in models or []
     ]
