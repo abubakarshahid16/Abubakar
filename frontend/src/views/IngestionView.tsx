@@ -17,6 +17,8 @@
  * Every rate obeys the same rule as the dashboard: a stage that has not been
  * timed measurably says so rather than showing a zero.
  */
+import { SectionFold } from "../components/look/LookParts";
+import { NEW_LOOK } from "../look";
 import { useCallback, useState } from "react";
 
 import { usePoll } from "../hooks/usePoll";
@@ -90,11 +92,24 @@ function Section({
   title,
   hint,
   children,
+  fold = false,
 }: {
   title: string;
   hint?: string;
   children: React.ReactNode;
+  /** Under the new look, a long or technical group is folded behind its own title (owner, 26 Nov 2026: detail folded). */
+  fold?: boolean;
 }) {
+  if (fold && NEW_LOOK) {
+    return (
+      <section className="mt-6">
+        <SectionFold on heading={<h2 className="inline text-sm font-semibold text-slateish-200">{title}</h2>}>
+          {hint && <p className="text-xs text-slateish-500">{hint}</p>}
+          <div>{children}</div>
+        </SectionFold>
+      </section>
+    );
+  }
   return (
     <section className="mt-6">
       <h2 className="text-sm font-semibold text-slateish-200">{title}</h2>
@@ -601,6 +616,13 @@ export function IngestionView({
         </p>
       </div>
 
+      {NEW_LOOK && (
+        <p data-testid="ingestion-summary" className="mt-3 text-sm text-slateish-200">
+          {/* every count states its boundary (CLAUDE.md rule 4): over the newest documents this screen read, when the list was cut */}
+          {`${finished.length} document${finished.length === 1 ? "" : "s"}${cutOff ? ` of the newest ${documents.length} you can open` : ""} read and searchable; ${activeWorker?.pending_count ?? 0} waiting${inProgress.length ? `; ${inProgress.length} being read now` : ""}.`}
+        </p>
+      )}
+
       <Section title="Right now">
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Tile
@@ -648,7 +670,7 @@ export function IngestionView({
       {inProgress.length > 0 && (
         <Section
           title="In progress"
-          hint="A document becomes answerable before it is fully indexed. Both moments are shown."
+          hint="A document can be searched before it is fully read. Both moments are shown."
         >
           <div className="space-y-2">
             {inProgress.map((d) => (
@@ -678,7 +700,8 @@ export function IngestionView({
       )}
 
       <Section
-        title="Throughput"
+        title="How fast documents are read"
+        fold
         hint="Median of timed runs on this machine. A step never timed long enough to measure reports nothing rather than zero."
       >
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -698,7 +721,7 @@ export function IngestionView({
       </Section>
 
       {finished.length > 0 && (
-        <Section title="Fully indexed" hint={`${finished.length} document${finished.length === 1 ? "" : "s"}${cutOff ? " among those counted above" : ""}.`}>
+        <Section title="Read and searchable" fold hint={`${finished.length} document${finished.length === 1 ? "" : "s"}${cutOff ? " among those counted above" : ""}.`}>
           <ul className="space-y-1">
             {finished.map((d) => (
               <li

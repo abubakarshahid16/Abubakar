@@ -57,7 +57,7 @@ describe("Ingestion document list", () => {
   it("states no cut when everything was read", async () => {
     stub(3, "3");
     mount();
-    await screen.findByText("Fully indexed");
+    await screen.findByText("Read and searchable"); // everyday words (owner, 26 Nov 2026)
     expect(screen.queryByTestId("ingestion-boundary")).toBeNull();
   });
 });
