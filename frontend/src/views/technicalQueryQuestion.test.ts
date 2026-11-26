@@ -1,7 +1,7 @@
 /** The query's ask as one readable list, and honest marks instead of gates (owner, 26 Nov 2026). Invented queries only. */
 import { describe, expect, it } from "vitest";
 
-import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, citedSplit, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 
 const found = (n: number) => Array.from({ length: n }, (_, i) => ({ question: `Invented request ${i + 1}`, filename: "Invented form.pdf", page: 1 }));
 
@@ -86,5 +86,21 @@ describe("only the current wording's sources count", () => {
     ] };
     expect(staleSources(q)).toBe(false);
     expect(honestMarks(q, "").evidence).toEqual([]);
+  });
+});
+
+describe("keep the cited, reject the others", () => {
+  it("touches only the current wording's undecided sources: never an earlier wording's, never a flagged or decided one", () => {
+    const rows = [
+      { id: "c1", evidence_state: "proposed", supersession_state: "current", for_current_question: true },
+      { id: "o1", evidence_state: "proposed", supersession_state: "current", for_current_question: true },
+      { id: "old", evidence_state: "proposed", supersession_state: "current", for_current_question: false },
+      { id: "flag", evidence_state: "needs_review", supersession_state: "current", for_current_question: true },
+      { id: "done", evidence_state: "rejected", supersession_state: "current", for_current_question: true },
+    ];
+    const split = citedSplit(rows, JSON.stringify([{ evidence_id: "c1" }, { evidence_id: "flag" }]));
+    expect(split.keep.map((e) => e.id)).toEqual(["c1"]);
+    expect(split.reject.map((e) => e.id)).toEqual(["o1"]);
+    expect(citedSplit(rows, "not json").keep).toEqual([]); // unreadable citations: nothing is kept by guess
   });
 });

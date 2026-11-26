@@ -174,3 +174,28 @@ export function draftAuthor(d: { system?: boolean | null; model?: string | null 
   if (/claude/i.test(d.model ?? "")) return "Written by Claude from the sources found (uses paid credit).";
   return `Written by ${d.model ? `${d.model}, the AI on this computer,` : "the AI on this computer"} from the sources found (no credit needed).`;
 }
+
+export interface SourceRow {
+  id: string;
+  evidence_state: string;
+  supersession_state: string;
+  for_current_question?: boolean | null;
+}
+
+/** THE ONE-CLICK SOURCE DECISION (lead-4, 26 Nov 2026, on the owner's "approve once"): which sources a press of "Keep the sources the
+ *  draft cites, reject the others" would keep and which it would reject. Only the CURRENT wording's sources the system found and nobody
+ *  has decided ("proposed"); never one found for an earlier wording, never one flagged for review (needs review, conflicting, ambiguous),
+ *  never one already decided. Each decision is the same call as its own Keep or Reject button, so every one stays changeable. */
+export function citedSplit(
+  evidence: SourceRow[] | null | undefined,
+  citationsJson: string | null | undefined,
+): { keep: SourceRow[]; reject: SourceRow[] } {
+  let cited: Set<string>;
+  try {
+    cited = new Set((JSON.parse(citationsJson || "[]") as { evidence_id?: string }[]).map((c) => c.evidence_id ?? "").filter(Boolean));
+  } catch {
+    cited = new Set();
+  }
+  const open = currentSources(evidence).filter((e) => e.evidence_state === "proposed");
+  return { keep: open.filter((e) => cited.has(e.id)), reject: open.filter((e) => !cited.has(e.id)) };
+}
