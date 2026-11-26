@@ -22,6 +22,7 @@
  * tab strip, because an empty tab reads as a broken feature rather than an
  * unbuilt one.
  */
+import { NEW_LOOK } from "../look";
 import { formatWhen } from "../format/when";
 import { useCallback, useEffect, useState } from "react";
 
@@ -88,7 +89,14 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-medium">Standards Library</h2>
+        <div>
+          <h2 className="text-lg font-medium">Standards Library</h2>
+          {NEW_LOOK && (
+            <p data-testid="standards-summary" className="mt-1 text-sm text-slateish-300">
+              The rule books the reviews check against. Search for one and open it to see its requirements.
+            </p>
+          )}
+        </div>
         <label className="flex items-center gap-2 text-xs">
           <input
             type="checkbox"
@@ -238,7 +246,7 @@ function StandardRow({
           : `${standard.requirement_count} requirement${standard.requirement_count === 1 ? "" : "s"}`}
         {standard.awaiting_verification > 0 && (
           <span className="text-warn-500">
-            {" "}· {standard.awaiting_verification} awaiting verification
+            {" "}· {standard.awaiting_verification} not yet confirmed by an engineer
           </span>
         )}
       </p>

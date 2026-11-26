@@ -12,6 +12,8 @@
  *  - Let a non-administrator decide. Accept and reject are admin actions on
  *    the server; the buttons are shown only to an administrator.
  */
+import { SectionFold } from "../look/LookParts";
+import { NEW_LOOK } from "../../look";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../api/client";
@@ -59,9 +61,11 @@ export function ClauseCheckDrafts({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <section aria-labelledby="clause-check-drafts" className="flex flex-col gap-2">
-      <h3 id="clause-check-drafts" className="text-sm font-medium">
-        Checks proposed by the AI, waiting for an engineer ({load.rows.length})
-      </h3>
+      <SectionFold on={NEW_LOOK} heading={
+        <h3 id="clause-check-drafts" className="text-sm font-medium">
+          Checks proposed by the AI, waiting for an engineer ({load.rows.length})
+        </h3>
+      }>
       <p className="text-xs opacity-70">
         For clause sentences the reviews could not decide. Code has checked each
         figure against the quoted words; no review uses a proposal until an
@@ -101,6 +105,7 @@ export function ClauseCheckDrafts({ isAdmin = false }: { isAdmin?: boolean }) {
           ))}
         </ul>
       )}
+      </SectionFold>
     </section>
   );
 }

@@ -91,7 +91,7 @@ describe("shell navigation", () => {
     // The screen it replaced said "Not built yet. This screen is a placeholder
     // so the navigation is honest about what exists." Honest, and no longer
     // necessary.
-    expect(await screen.findByText(/Throughput|Reading the queue/)).toBeInTheDocument();
+    expect(await screen.findByText(/How fast documents are read|Reading the queue/)).toBeInTheDocument(); // everyday words (owner, 26 Nov 2026)
     expect(screen.queryByText(/Not built yet/i)).toBeNull();
     expect(screen.queryByText(/placeholder/i)).toBeNull();
   });

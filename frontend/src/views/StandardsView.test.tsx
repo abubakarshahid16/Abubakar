@@ -136,7 +136,7 @@ describe("the library list", () => {
     mockApi({ standards: [{ ...base, requirement_count: 12, awaiting_verification: 3 }] });
     render(<StandardsView />);
     expect(await screen.findByText(/12 requirements/)).toBeTruthy();
-    expect(screen.getByText(/3 awaiting verification/)).toBeTruthy();
+    expect(screen.getByText(/3 not yet confirmed by an engineer/)).toBeTruthy(); // everyday words (owner, 26 Nov 2026)
   });
 
   it("labels a superseded standard and still lets it be opened", async () => {

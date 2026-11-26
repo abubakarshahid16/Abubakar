@@ -183,3 +183,17 @@
 :root[data-look="new"] details.look-details > summary::-webkit-details-marker {
   display: none;
 }
+
+/* TOGGLE BUTTONS (a role filter, a type filter: `aria-pressed`): the spec's secondary button, a visible outline on every ground; the
+   pressed one in the action colour (builder H's first-time-user pass, 26 Nov 2026: they read as plain text on the light ground). */
+:root[data-look="new"] main button[aria-pressed] {
+  border: 1px solid var(--color-ink-500);
+  background-color: var(--color-ink-800);
+  color: var(--color-slateish-200);
+}
+:root[data-look="new"] main button[aria-pressed="true"] {
+  border-color: var(--color-signal-500);
+  background-color: var(--color-signal-500);
+  color: #ffffff;
+  font-weight: 600;
+}
