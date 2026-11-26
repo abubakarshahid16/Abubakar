@@ -25,6 +25,9 @@ PER_CONTRACT = 8
 #: places): every searched part's best passage is listed, no part holds more than PER_PART_LISTED, and the list holds up to MAX_PASSAGES.
 PER_PART_LISTED = 3
 MAX_PASSAGES = 30
+#: How many passages the engineer sees: the best LISTED of the fair-share pool, in the reranker's order (lead-4's score of run 4: the
+#: right page was at rank 1 in 8 of 9 hits and rank 2 in the ninth; 30 was more to read than the hits need).
+LISTED = 12
 ROLE = "CONTRACT_DOCUMENT"
 
 

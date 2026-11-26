@@ -98,3 +98,43 @@ def test_a_passage_with_no_long_verbatim_run_is_not_quoted():
             )
             is None
         )
+
+
+def test_the_engineer_sees_the_best_listed_passages_of_the_fair_share_pool(monkeypatch):
+    from app.technical_queries import import_message, prepare_evidence
+
+    from .test_technical_queries import envelope, hold_contract
+
+    page = "Invented page text " + " ".join(
+        f"Invented passage number {n} words." for n in range(40)
+    )
+    with db.connect() as conn:
+        for n in range(20):
+            hold_contract(f"k{n}")
+            conn.execute(
+                "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,1,?,?,0,1)",
+                (f"k{n}", page, len(page)),
+            )
+    monkeypatch.setattr(
+        "app.search.search",
+        lambda q, **k: {
+            "hits": [
+                {
+                    "document_id": k["document_id"],
+                    "page_start": 1,
+                    "page_end": 1,
+                    "rerank_score": -float(n),
+                    "text": f"Invented passage number {n} words.",
+                }
+                for n in range(8)
+            ]
+        },  # fmt: skip
+    )
+    item, _ = import_message(envelope("listed-1"), "u1", False, False)
+    got = prepare_evidence(
+        item["id"], frozenset(f"k{n}" for n in range(20)), "u1", True, False, "u1"
+    )
+    assert len(got["evidence"]) == C.LISTED
+    assert (
+        len({e["document_id"] for e in got["evidence"]}) == C.LISTED
+    )  # 20 parts each scoring the same: one passage each, the best 12

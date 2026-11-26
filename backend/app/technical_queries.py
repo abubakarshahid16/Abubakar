@@ -1364,7 +1364,10 @@ def prepare_evidence(
                 query_id,
             ),
         )
+        listed = 0  # the best LISTED passages that stand on their pages are listed (from the fair-share pool of MAX_PASSAGES)
         for passage in hits[: technical_query_contracts.MAX_PASSAGES]:
+            if listed >= technical_query_contracts.LISTED:
+                break
             quote = (passage.get("text") or "").strip()
             if not quote:
                 continue
@@ -1389,6 +1392,7 @@ def prepare_evidence(
             )
             if not quote:
                 continue
+            listed += 1
             import hashlib
 
             sc = technical_query_match.score(terms, quote)
