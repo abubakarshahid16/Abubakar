@@ -1,5 +1,5 @@
 import { InfoFold } from "../components/look/LookParts";
-import { LIST_FOUND, matchWords, replyBeingRewritten, rowLine, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, groupByItem, matchWords, replyBeingRewritten, rowLine, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
@@ -356,7 +356,13 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             {honestMarks(selected, questionDraft).evidence.map((mark) => <p key={mark} data-testid="evidence-mark" className="mt-1 text-xs text-warn-500">{mark}</p>)}
             {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
             {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
-            {currentEvidence.length ? currentEvidence.map((evidence) => renderEvidence(evidence)) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
+            {/* BY REQUEST (builder A's search per numbered item, 27 Nov 2026): each request's sources under it, the rest "For the whole request" */}
+            {currentEvidence.length ? groupByItem(currentEvidence, selected.ready?.items).map((group) => group.title === null
+              ? group.rows.map((evidence) => renderEvidence(evidence))
+              : <section key={group.title} data-testid="evidence-group" className="mt-3">
+                  <h4 className="text-sm font-semibold text-slateish-200">{group.title} <span className="font-normal text-slateish-400">({group.rows.length} source{group.rows.length === 1 ? "" : "s"})</span></h4>
+                  {group.rows.length ? group.rows.map((evidence) => renderEvidence(evidence)) : <p className="mt-1 text-xs text-warn-500">No source found for this request yet.</p>}
+                </section>) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
             {earlierEvidence.length > 0 && <details data-testid="evidence-earlier" className="mt-2"><summary className="cursor-pointer text-xs text-slateish-400">{earlierEvidence.length} source{earlierEvidence.length === 1 ? "" : "s"} found for an earlier wording of the question</summary>{earlierEvidence.map((evidence) => renderEvidence(evidence))}</details>}
           </details>
     </>
