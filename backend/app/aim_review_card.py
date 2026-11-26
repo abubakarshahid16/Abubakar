@@ -31,6 +31,11 @@ MUST_FIX, CHECK, MISSING, CONFIRM = (
 )
 #: Most severe first: the order of the summary tiles and of a comment's points.
 SEVERITIES = (MUST_FIX, CHECK, MISSING, CONFIRM)
+#: G2 (lead-4, 26 Nov 2026): a Question that asks to confirm, or raises a concern about, a value the paper is said to state, with
+#: NO code-verified quote of it at any place, is never shown as if the paper stated it: it is open, "Missing information", and
+#: its ask starts with this sentence.
+VALUE_NOT_SHOWN = "The paper's value is not shown on any page; please state it."
+_ABOUT_A_STATED_VALUE = ("confirm", "concern")
 #: The shown labels of code's own verdict: the only ones that are "compared by code".
 BY_CODE = frozenset({FAIL_BY_CODE, PASS_BY_CODE})
 #: A card title has fewer than this many words.
@@ -209,20 +214,36 @@ def proven(members: list[dict]) -> str:
     )
 
 
+def value_not_shown(members: list[dict]) -> bool:
+    """True when a member asks to confirm, or raises a concern about, a stated value and NO member has a code-verified quote of
+    it (`place_text`): the claim that the paper states it is unproven (G2)."""
+    asks_about_value = any(
+        m.get("label") == "Question" and m.get("ask") in _ABOUT_A_STATED_VALUE
+        for m in members
+    )
+    return asks_about_value and not any(place_text(m) for m in members)
+
+
 def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict:
     """The card fields of one comment, from its member points (in line order)."""
     first = members[0]
+    unshown = not confirmation and value_not_shown(members)
     severity = (
         CONFIRM
         if confirmation
+        else MISSING
+        if unshown
         else min((point_severity(m) for m in members), key=SEVERITIES.index)
     )
+    ask = (first.get("comment") or "").replace(_steps.PAIRED_NOTE, "")
     return {
         "severity": severity,
         "title": title(first),
         "paper_says": paper_says(members) if members else comment.get("quote") or "",
         "rule_says": rule_says(first),
-        "we_ask": (first.get("comment") or "").replace(_steps.PAIRED_NOTE, ""),
+        "we_ask": f"{VALUE_NOT_SHOWN} {ask}".strip() if unshown else ask,
+        # G2: an unproven stated value is asked as open, on every comment (one place or many); the points keep their own ask
+        **({"ask": "open"} if unshown else {}),
         "applies_to": _places(members),
         "proven": proven(members),
         "readers": readers_of(members),

@@ -1122,9 +1122,10 @@ def test_a_merged_comment_carries_the_safe_state_never_its_first_members(world):
     rows = [
         _line(1, "Question", "Question", item_id="C01", page=1, ask="confirm", quote_unverified=""),
         _line(2, "Question", "Question", item_id="C01", page=2, ask="open", deferred=1),
+        # verified quotes, as on the confirm lines: the merge rule is under test here, not the proof of the value (G2)
         _line(3, "Question", "Question", item_id="C02", page=3, ask="confirm", numbers_json=json.dumps(nums),
-              code_compare_json=cmp_),
-        _line(4, "Question", "Question", item_id="C02", page=4, ask="concern", code_compare_json=cmp_),
+              code_compare_json=cmp_, quote_unverified=""),
+        _line(4, "Question", "Question", item_id="C02", page=4, ask="concern", code_compare_json=cmp_, quote_unverified=""),
         _line(5, "Question", "Question", item_id="C03", page=5, ask="confirm", quote_unverified=""),
         _line(6, "Question", "Question", item_id="C03", page=6, ask="confirm", quote_unverified=""),
         _line(7, "Question", "Question", item_id="C04", page=7, ask="confirm", quote_unverified=""),
