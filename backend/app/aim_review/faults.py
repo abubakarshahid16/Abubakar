@@ -90,5 +90,7 @@ NOT_APPLIED_WORDS = {
     "reason for says the reason was not recorded.",
     "aim_checklist_keys": "The list of saved checklists could not be read ({why}): the paper was named without the saved "
     "checklist types to choose from.",
+    "aim_formula_checks": "The formula checks did not run in full on this sheet ({why}): a limit a held standard states may not "
+    'have been checked by code, so do not read "no formula line" as "nothing found".',
     "aim_checklist_save": "The checklist was not saved for reuse ({why}); this sheet was judged on it all the same.",
 }

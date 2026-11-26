@@ -117,7 +117,7 @@ def _firm(page: int) -> dict:
             "code": "formula check invented: code compared",
             "numbers": {"paper_value": "150", "paper_unit": "psig", "rule_value": "10", "rule_unit": "barg"},
             "code_compare": {"result": "fail", "read_from": "verified quotes", "why": "invented"}, "deferred": False,
-            "ask": ""}  # fmt: skip
+            "ask": "", "read_keys": ["set_pressure", "mawp"]}  # fmt: skip
 
 
 def test_with_the_default_switch_formula_lines_appear_and_upgrade_and_off_none_is_added(
@@ -138,7 +138,7 @@ def test_with_the_default_switch_formula_lines_appear_and_upgrade_and_off_none_i
     monkeypatch.setattr(settings, FORMULAS, False)
     switched_off = _record(tmp_path / "off", monkeypatch, "datasheet")
     assert not any(ln["item_id"] == "F-invented" for ln in switched_off["lines"])
-    ai = {"item_id": "C001", "label": "AI opinion", "field": "Invented setting", "page": 1, "quote": "Invented setting 150 psig",
+    ai = {"item_id": "C001", "label": "AI opinion", "field": "Set pressure against the limit", "page": 1, "quote": "Set pressure 150 psig",
           "comment": "The AI's words.", "source": "held standard", "code_note": "", "deferred": False, "ask": "concern",
           "numbers": {"paper_value": "150", "paper_unit": "psig", "rule_value": "10", "rule_unit": "barg"}}  # fmt: skip
     state = SimpleNamespace(decided=[dict(ai)], books=set(), reference_ids=set())

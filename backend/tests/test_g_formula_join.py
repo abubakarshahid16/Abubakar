@@ -13,6 +13,7 @@ def firm(page=1, a=("200", "psig"), b=("10", "barg")):
         "book_document_id": "doc_x", "source": "held standard", "topic": "Relief set pressure against the limit", "code": "formula check set_pressure: code compared",
         "numbers": {"paper_value": a[0], "paper_unit": a[1], "rule_value": b[0], "rule_unit": b[1]},
         "code_compare": {"result": "fail", "read_from": "verified quotes", "why": "200 psig > 10 barg: false"}, "deferred": False, "ask": "",
+        "read_keys": ["set_pressure", "mawp"],
     }  # fmt: skip
 
 

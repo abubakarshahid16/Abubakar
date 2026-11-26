@@ -48,7 +48,7 @@ LABELS = {
     "max_operating_temperature": r"max(?:imum|\.)?\s+operating\s+temperature",
     "mawp": r"(?:max\.?|maximum)\s*allow(?:\.|able)?\s*working\s+pressure|mawp",
     "set_pressure": r"set\s+pressure",
-    "test_pressure": r"(?:hydro(?:static)?[\s-]*)?test\s+pressure",
+    "test_pressure": r"hydro(?:static)?[\s-]*test\s+pressure",  # only a label that says hydro: a seat, leak or pneumatic test is another test
 }
 _BARE = re.compile(r"-?\d+(?:\.\d+)?")
 _UNIT_CELL = re.compile(
@@ -130,7 +130,8 @@ def read_fields(pages: dict[int, str]) -> dict[int, dict[str, list[Field]]]:
                         _BARE.fullmatch(value)
                         and i + 2 < len(cells)
                         and _UNIT_CELL.fullmatch(cells[i + 2])
-                    ):
+                        and not any(_BARE.fullmatch(c) for c in cells[i + 3 :])
+                    ):  # a further number cell on the row (an item or note column): which cell is the value is a guess, so none is read
                         value = f"{value} {cells[i + 2]}"  # the value and its unit stand in two cells
                     if vals := parse_value(value):
                         found.setdefault(page, {}).setdefault(key, []).append(
@@ -227,6 +228,7 @@ def checks() -> tuple:
         return _checks(PATH.stat().st_mtime)
     except (OSError, ValueError, KeyError, IndexError, TypeError) as exc:
         log.info("formula checks not read (%s)", type(exc).__name__)
+        _fault("the table of checks could not be read (" + type(exc).__name__ + ")")
         return ()
 
 
@@ -249,6 +251,8 @@ def _operands(check: Check, fields: dict[str, list[Field]]):
         for key in keys:
             direct = _once(fields, key)
             if direct is not None:
+                if len(direct.vals) != 1 or direct.vals[0] is None:
+                    return None  # two values in one cell ("-20 / 200 C"), or a dash: which one is meant is a guess, so no line
                 return direct, direct.vals[0]
         for key in keys:
             shared = _once(fields, combo.get(key, ""))
@@ -345,20 +349,33 @@ def lines(conn, paper, book_ids) -> list[dict]:
         return []
     per_page = read_fields(paper.pages)
     out: list[dict] = []
+    failed = 0
     for check in checks():
         hit = find_clause(books, check.probe)
         if hit is None:
             continue  # the clause is not in a held book of this review: nothing is checked on its authority
         for page in sorted(per_page):
-            ops = _operands(check, per_page[page])
-            if ops is None or not _comparable(ops[1].unit, ops[3].unit):
-                continue
-            a, av, b, bv = ops
-            decided = _decide(check, av, bv, hit.factor)
-            if decided is None:
-                continue
-            out.append(_line(check, decided, a, av, b, bv, hit))
+            try:
+                ops = _operands(check, per_page[page])
+                if ops is None or not _comparable(ops[1].unit, ops[3].unit):
+                    continue
+                a, av, b, bv = ops
+                decided = _decide(check, av, bv, hit.factor)
+                if decided is None:
+                    continue
+                out.append(_line(check, decided, a, av, b, bv, hit))
+            except Exception:  # noqa: BLE001 - one unreadable row never stops the review; it is counted and said below
+                failed += 1
+    if failed:
+        _fault(f"{failed} row(s) of the paper could not be read for a check")
     return out
+
+
+def _fault(why: str) -> None:
+    """A formula stage that did not run in full is a step that did not run: on the run and on the sheet ("Steps that did not run")."""
+    from . import faults
+
+    faults.record("aim_formula_checks", "the formula checks", why)
 
 
 def _carried(conn, book_ids) -> dict[str, tuple[str, dict[int, str]]]:
@@ -425,6 +442,7 @@ def _line(check, decided, a: Field, av: Val, b: Field, bv: Val, hit: Hit) -> dic
         "code_compare": compare,
         "deferred": False,
         "ask": "",
+        "read_keys": [a.key, b.key],  # the label keys of the two rows read: `join_into` upgrades only a comment about one of them
     }
 
 
@@ -468,9 +486,23 @@ def _same_pair(a: list[tuple], b: list[tuple]) -> bool:
     )
 
 
+_COMBINED = {
+    "design_operating_pressure": ("design_pressure", "operating_pressure"),
+    "design_operating_temperature": ("design_temperature", "operating_temperature"),
+}
+
+
+def _about(target: dict, keys) -> bool:
+    """The comment is about one of the rows the formula read: its field or its verified quote carries that row's label."""
+    text = f"{target.get('field') or ''}  {target.get('quote') or ''}"
+    wanted = {k for key in keys or [] for k in (key, *_COMBINED.get(key, ()))}
+    return any(_LABEL_RX[k].search(text) for k in wanted if k in _LABEL_RX)
+
+
 def _existing(decided: list[dict], line: dict) -> dict | None:
-    """The first line already decided on the SAME page that makes the SAME comparison (the same two figures through the unit code) and
-    is only an AI opinion or a Question (never a line code or the judge already settled, never a value left open). None: no such line."""
+    """The first line already decided on the SAME page, about the SAME field (its field or quote carries the label of one of the two
+    rows the formula read), that makes the SAME comparison (the same two figures through the unit code) and is only an AI opinion or a
+    Question (never a line code or the judge already settled, never a value left open). None: no such line."""
     want = _quantities(line.get("numbers"))
     if want is None:
         return None
@@ -479,6 +511,7 @@ def _existing(decided: list[dict], line: dict) -> dict | None:
             d.get("page") != line.get("page")
             or d.get("label") not in ("AI opinion", "Question")
             or d.get("deferred")
+            or not _about(d, line.get("read_keys"))
         ):
             continue
         have = _quantities(d.get("numbers"))
@@ -487,10 +520,27 @@ def _existing(decided: list[dict], line: dict) -> dict | None:
     return None
 
 
+#: The note that keeps the words an upgrade replaced (completeness: no text is cut without a mark and the full text beside it).
+REPLACED = "the AI comment this line replaced read"
+_REPLACED = re.compile(re.escape(REPLACED) + r': ("(?:[^"\\]|\\.)*")')
+
+
+def replaced_of(code_note) -> list[dict]:
+    """Each AI comment an upgrade replaced, read back from the line's note: [{"kind": "replaced", "before": the full text}]. Team file only."""
+    out = []
+    for m in _REPLACED.finditer(str(code_note or "")):
+        try:
+            out.append({"kind": "replaced", "before": json.loads(m.group(1))})
+        except ValueError:
+            continue
+    return out
+
+
 def join_into(decided: list[dict], new: list[dict]) -> list[dict]:
-    """The formula lines to APPEND to `decided`. A firm Not met whose finding is already a comment on this paper (the same page, the same two
-    figures) does not become a second or third comment: it UPGRADES that line in place (AI opinion -> Not met, proven by code, the clause
-    and both quotes of the formula check) and is not appended. A Met line, or a Not met nobody has commented on, is appended as before. Pure."""
+    """The formula lines to APPEND to `decided`. A firm Not met whose finding is already a comment on this paper (the same page, the same field,
+    the same two figures) does not become a second or third comment: it UPGRADES that line in place (AI opinion -> Not met, proven by code,
+    the clause and both quotes of the formula check; the AI comment's own words are kept in the line's note, for the team file) and is not
+    appended. A Met line, or a Not met nobody has commented on, is appended as before. Pure."""
     appended = []
     for line in new:
         target = _existing(decided, line) if line.get("label") == "Not met" else None
@@ -498,18 +548,23 @@ def join_into(decided: list[dict], new: list[dict]) -> list[dict]:
             appended.append(line)
             continue
         key = "code" if "code" in target else "code_note"
+        before = str(target.get("comment") or "").strip()
         target.update(
             label="Not met", comment=line["comment"], standard=line["standard"], clause=line["clause"], source=line["source"],
             book_document_id=line.get("book_document_id"), numbers=line["numbers"], code_compare=line["code_compare"], deferred=False, ask="",
         )  # fmt: skip
-        target[key] = "; ".join(
-            [line.get("code") or line.get("code_note") or "", JOINED]
-        ).strip("; ")
+        notes = [line.get("code") or line.get("code_note") or "", JOINED]
+        if before:
+            notes.append(f"{REPLACED}: {json.dumps(before, ensure_ascii=False)}")
+        target[key] = "; ".join(notes).strip("; ")
     return appended
 
 
 def add_lines(conn, paper, state) -> None:
-    """Add the formula lines to the run (`state.decided`), from the rule books the run carried (`join_into`: a finding already commented on is upgraded, not repeated)."""
-    state.decided += join_into(
-        state.decided, lines(conn, paper, sorted(state.books - state.reference_ids))
-    )
+    """Add the formula lines to the run (`state.decided`), from the rule books the run carried (`join_into`: a finding already commented on is upgraded, not repeated).
+    A fault anywhere in this stage is a step that did not run: recorded on the run and shown on the sheet, and the review goes on."""
+    try:
+        new = lines(conn, paper, sorted(state.books - state.reference_ids))
+        state.decided += join_into(state.decided, new)
+    except Exception as exc:  # noqa: BLE001 - never stops a finished review
+        _fault(exc)
