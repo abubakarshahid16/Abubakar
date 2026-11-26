@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
-import { rowLine, askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
+import { matchWords, replyBeingRewritten, rowLine, askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
 
 const LONG = "The coating system shall have a minimum dry film thickness of 250 microns on every external surface of the vessel, measured "
   + "after curing, and the contractor shall record each reading in the inspection sheet together with the batch number and the date. "
@@ -193,5 +193,38 @@ describe("the list rows (F's walk, 27 Nov 2026)", () => {
     const list = screen.getByLabelText("Technical query list");
     expect(list.textContent).not.toContain("awaiting_review");
     expect(list.textContent).not.toContain("contractor not set");
+  });
+});
+
+describe("the owner's live walk (27 Nov 2026 01:15)", () => {
+  beforeEach(() => {
+    api.metrics.mockResolvedValue({ ok: true, data: { total: 1 } });
+    api.mailboxes.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.assignees.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.routingRules.mockResolvedValue({ ok: false, error: { message: "no" } });
+  });
+  const ready = { question: "1. What is the minimum coating thickness?", question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "ready", draft_fresh: true };
+  it("the old reply is greyed and said while the sources or the reply are prepared again, and shown normally after", async () => {
+    await open({ ready: { ...ready, evidence: "refreshing" } });
+    const old = screen.getByTestId("reply-being-rewritten");
+    expect(old.textContent).toContain("Old reply, being rewritten");
+    expect(old.textContent).toContain("250 microns");
+  });
+  it("is shown as the reply when nothing is being prepared", async () => {
+    await open({ ready });
+    expect(screen.queryByTestId("reply-being-rewritten")).toBeNull();
+    expect(screen.getByText("Yes. The minimum dry film thickness is 250 microns.")).toBeTruthy();
+  });
+  it("says when a reply is rewritten, from either half", () => {
+    expect(replyBeingRewritten({ evidence: "ready", draft: "refreshing" })).toBe(true);
+    expect(replyBeingRewritten({ evidence: "refreshing", draft: "ready" })).toBe(true);
+    expect(replyBeingRewritten({ evidence: "ready", draft: "ready" })).toBe(false);
+    expect(replyBeingRewritten(null)).toBe(false);
+  });
+  it("says a passage's match in plain words, the counts one hover away", () => {
+    expect(matchWords({ match_count: 8, match_terms: 22, match_ok: 0 })).toEqual({ words: "Weak match: this quote shares few words with the question", counts: "8 of 22 of the question's key words" });
+    expect(matchWords({ match_count: 4, match_terms: 6, match_ok: 1 })?.words).toBe("Shares many words with the question");
+    expect(matchWords({ match_count: 3, match_terms: 4 })?.words).toBe("Shares many words with the question");
+    expect(matchWords({})).toBeNull();
   });
 });
