@@ -36,35 +36,47 @@ PASSAGE_CHARS = 1500
 CITED_PART_HITS = 3
 
 
-def cited(texts: list[str]) -> list[tuple[tuple[str, str], str | None]]:
-    """(Schedule, clause or None) pairs the form names, in order of first mention, each once."""
+Part = tuple[
+    tuple[str, str], tuple[str, str] | None
+]  # (label, the higher part it belongs to), as `contract_checks.parts`
+
+
+def _line_parts(line: str) -> list[Part]:
+    """The deepest parts a line names. A lower part with no higher part of its own belongs to the nearest higher part named BEFORE it
+    on the line ("Schedule B - Attachment V" is Attachment V of Schedule B); a part that has a lower part of its own after it on the
+    line is not cited by itself."""
+    found = CC.parts(line)
+    out: list[Part] = []
+    for i, ((key, parent), _at) in enumerate(found):
+        depth = CC.DEPTH.get(key[0], 9)
+        if parent is None:
+            higher = [k for (k, _p), _a in found[:i] if CC.DEPTH.get(k[0], 9) < depth]
+            parent = higher[-1] if higher else None
+        out.append((key, parent))
+    parents = {p for _k, p in out if p}
+    return [(k, p) for k, p in out if k not in parents]
+
+
+def cited(texts: list[str]) -> list[tuple[Part, str | None]]:
+    """(part, clause or None) pairs the form names, in order of first mention, each once. A clause belongs to a part only when the
+    SAME line names that part and no standard: measured on the stored queries (26 Nov 2026), a form's clause numbers on other lines,
+    or beside a standard's name, were clauses of company standards or of another part, never of the form's."""
+    from .standard_ids import cited_standards
+
     pages = [(i + 1, str(t or "")) for i, t in enumerate(texts)]
-    pairs: list[tuple[tuple[str, str], str | None]] = []
-    schedules: list[tuple[str, str]] = []
-    alone: list[str] = []
+    pairs: list[tuple[Part, str | None]] = []
     for _p, line in CC.lines_of(pages):
-        keys = [
-            key
-            for (key, parent), _at in CC.parts(line)
-            if parent is None and CC.DEPTH.get(key[0]) == 0
-        ]
-        clauses = CLAUSE.findall(line)
-        for key in keys:
-            if key not in schedules:
-                schedules.append(key)
-            pairs += [(key, c) for c in clauses] or [(key, None)]
-        if not keys:
-            alone += clauses
-    if len(schedules) == 1:
-        pairs += [(schedules[0], c) for c in alone]
-    out: list[tuple[tuple[str, str], str | None]] = []
+        clauses = [] if cited_standards(line) else CLAUSE.findall(line)
+        for part in _line_parts(line):
+            pairs += [(part, c) for c in clauses] or [(part, None)]
+    out: list[tuple[Part, str | None]] = []
     for pair in pairs:
         if pair not in out:
             out.append(pair)
-    named = {k for k, c in out if c}
+    named = {p for p, c in out if c}
     return [
-        (k, c) for k, c in out if c or k not in named
-    ]  # a Schedule named with a clause needs no clause-less entry
+        (p, c) for p, c in out if c or p not in named
+    ]  # a part named with a clause needs no clause-less entry
 
 
 def _page_one(conn, document_id: str) -> str:
@@ -76,16 +88,17 @@ def _page_one(conn, document_id: str) -> str:
     return str(row[0] or "") if row else ""
 
 
-def which(contracts: list[str], key: tuple[str, str]) -> list[str]:
-    """The readable contracts whose own first heading lines say they ARE this Schedule."""
-    out = []
+def which(contracts: list[str], part: Part) -> list[str]:
+    """The readable contract that IS this part by its own page-1 heading (a part cited with no higher part matches it under any);
+    of several, the main one as a contract review chooses its reference papers (`references.pick`: the main schedule over its
+    attachments, then the highest recorded revision), else all."""
+    from .aim_review import references
+
+    key, parent = part
     with connect() as conn:
-        for doc in contracts:
-            if any(
-                k == key for k, _parent in CC.package_part([(1, _page_one(conn, doc))])
-            ):
-                out.append(doc)
-    return out
+        out = [d for d in contracts
+               if any(k == key and (parent is None or p == parent) for k, p in CC.package_part([(1, _page_one(conn, d))]))]  # fmt: skip
+        return references.pick(conn, out) if len(out) > 1 else out
 
 
 def clause_passage(pages: dict[int, str], clause: str) -> tuple[int, str] | None:
@@ -113,10 +126,10 @@ def lookup(
 
     hits: list[dict] = []
     said: list[str] = []
-    for key, clause in cited(texts):
-        name = CC._name((key, None))
+    for part, clause in cited(texts):
+        name = CC._name(part)
         where = f"{name} clause {clause}" if clause else name
-        docs = which(contracts, key)
+        docs = which(contracts, part)
         if not docs:
             said.append(f"{where}: not held among the contracts you may read")
             continue

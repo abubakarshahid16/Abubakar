@@ -38,22 +38,23 @@ def library(tmp_path, monkeypatch):
     next(gen, None)
 
 
-def test_the_form_names_its_schedule_and_clause_and_a_clause_on_its_own_line_joins_the_one_schedule():
+def test_the_form_names_its_schedule_and_clause_on_one_line_and_nothing_else_is_tied_to_it():
+    """Measured on the stored queries (26 Nov 2026): a form's clause numbers on other lines, or beside a standard's name, were
+    clauses of company standards or of another Schedule. So a clause belongs to a Schedule only on the Schedule's own line, with no
+    standard named there (the first rule, "a clause alone joins the one Schedule", was wrong on real forms and is gone)."""
     assert TC.cited(
         [
             "Subject: invented coating\nReference: Schedule C, Clause 4.2\nPlease confirm."
         ]
-    ) == [(("schedule", "C"), "4.2")]
+    ) == [((("schedule", "C"), None), "4.2")]
     assert TC.cited(
         ["Ref. Schedule C\nThe vendor asks about section 4.2 and article 7"]
-    ) == [
-        (("schedule", "C"), "4.2"),
-        (("schedule", "C"), "7"),
-    ]
-    two = TC.cited(
-        ["Schedule C and Schedule D apply", "clause 4.2"]
-    )  # two Schedules: a clause alone belongs to neither
-    assert two == [(("schedule", "C"), None), (("schedule", "D"), None)]
+    ) == [((("schedule", "C"), None), None)]
+    assert TC.cited(["Schedule C, see API 610 clause 6.1"]) == [
+        ((("schedule", "C"), None), None)
+    ]  # a standard's clause, not the Schedule's
+    two = TC.cited(["Schedule C and Schedule D apply", "clause 4.2"])
+    assert two == [((("schedule", "C"), None), None), ((("schedule", "D"), None), None)]
     assert TC.cited(["An invented question with no reference at all, 25 microns"]) == []
 
 
@@ -177,3 +178,48 @@ def test_search_all_lists_the_cited_passage_first_then_the_general_search_withou
         and "Looked up first" not in plain["coverage"]["line"]
     )
     assert plain["coverage"]["cited_first"] == []
+
+
+def test_of_two_contracts_that_are_the_same_schedule_the_higher_recorded_revision_is_chosen(
+    library,
+):
+    """As a contract review chooses its reference papers (`references.pick`): never a guess, the highest RECORDED revision."""
+    with library:
+        _doc(
+            library,
+            "doc_zq_sched_c_rev",
+            "ZQ-SCHEDULE-C-rev2.pdf",
+            "CONTRACT_DOCUMENT",
+            {1: "SCHEDULE C\nINVENTED REVISION", 3: CLAUSE_PAGE},
+        )
+        library.execute(
+            "UPDATE document_classification SET revision = '1' WHERE document_id = ?",
+            (SCHED_C,),
+        )
+        library.execute(
+            "UPDATE document_classification SET revision = '2' WHERE document_id = 'doc_zq_sched_c_rev'"
+        )
+    assert TC.which([SCHED_C, "doc_zq_sched_c_rev"], (("schedule", "C"), None)) == [
+        "doc_zq_sched_c_rev"
+    ]
+    hits, said = TC.lookup(
+        ["Schedule C, clause 4.2"], [SCHED_C, "doc_zq_sched_c_rev"], lambda doc: []
+    )
+    assert hits[0]["document_id"] == "doc_zq_sched_c_rev" and said == [
+        "Schedule C clause 4.2: found on page 3"
+    ]
+
+
+def test_an_attachment_named_after_its_schedule_on_the_line_is_that_schedules_attachment_and_its_section_is_found(
+    library,
+):
+    """The real forms' shape: "Schedule B - Attachment V, Rev 6, Section 7.2" (the part reader joins a higher part only when it
+    comes after); here invented as Attachment II of Schedule C."""
+    with library:
+        _doc(library, "doc_zq_c_att2", "ZQ-C-ATT-II.pdf", "CONTRACT_DOCUMENT",
+             {1: "SCHEDULE C\nATTACHMENT II\nINVENTED STUDY", 2: "3.1 Invented study basis\nThe invented basis is 12 bar."})  # fmt: skip
+    line = "REF.1 INVENTED SCOPE SCHEDULE C \u2013 ATTACHMENT II, Rev06, Section 3.1"
+    assert TC.cited([line]) == [((("attachment", "II"), ("schedule", "C")), "3.1")]
+    hits, said = TC.lookup([line], [SCHED_C, SCHED_D, "doc_zq_c_att2"], lambda doc: [])
+    assert [(h["document_id"], h["page_start"]) for h in hits] == [("doc_zq_c_att2", 2)]
+    assert said == ["Attachment II of Schedule C clause 3.1: found on page 2"]
