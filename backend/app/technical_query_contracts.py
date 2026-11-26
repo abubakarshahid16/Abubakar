@@ -50,6 +50,58 @@ def contract_ids(allowed: frozenset[str]) -> list[str]:
     return [r["document_id"] for r in rows]
 
 
+#: The held standards are searched TOGETHER (one search over all of them; the owner, 26 Nov 2026: technical-query evidence includes
+#: company standards and the standards we hold): at most this many of their passages join the fair-share pool.
+STANDARD_HITS = 12
+
+
+def standard_entries(allowed: frozenset[str]) -> list[dict]:
+    """The held standards among `allowed` (ids the caller may read): the general review's own definition of a rule book
+    (`aim_review.library.usable`: a company standard by its recorded role, or an unroled public standard), as library entries."""
+    from .aim_review import library as L
+
+    ids = frozenset(str(d) for d in allowed if d)
+    if not ids:
+        return []
+    with connect() as conn:
+        return sorted(
+            (e for e in L.library(conn, within=ids) if L.usable(e)),
+            key=lambda e: e["id"],
+        )
+
+
+def standards_line(of: int, hits_in: int, failed: bool) -> str:
+    if of == 0:
+        return " No held standard that you may read: none was searched."
+    if failed:
+        return f" The {of} held standards you may read could not be searched."
+    return (
+        f" Searched the {of} held standards you may read together, hits in {hits_in}."
+    )
+
+
+#: What a passage's source is, said on each evidence row (the owner, 26 Nov 2026: "Show which source each passage comes from").
+SOURCE_CONTRACT, SOURCE_COMPANY, SOURCE_STANDARD, SOURCE_OTHER = (
+    "contract document",
+    "company standard",
+    "standard",
+    "document",
+)
+
+
+def source_of(conn, document_id: str) -> tuple[str, str]:
+    """(kind, name) of an evidence row's document, by its recorded role and its own number or file name (read at display time; a
+    viewer sees only rows of documents they may read)."""
+    from .aim_review import library as L
+
+    entry = next(iter(L.library(conn, within=frozenset({str(document_id)}))), None)
+    if entry is None:
+        return SOURCE_OTHER, ""
+    role = str(entry.get("document_role") or "")
+    kind = SOURCE_CONTRACT if role == ROLE else SOURCE_COMPANY if role == "COMPANY_STANDARD" else SOURCE_STANDARD if L.usable(entry) else SOURCE_OTHER  # fmt: skip
+    return kind, str(entry.get("title") or L.identifier_of(entry) or "")
+
+
 def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     if of == 0:
         return "No contract document that you may read is held: nothing was searched."
@@ -57,6 +109,30 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     if failed:
         line += f" {failed} could not be searched."
     return line
+
+
+def _standard_parts(
+    question: str, standard_ids: list[str]
+) -> tuple[bool, list[list[dict]]]:
+    """(failed, the held standards' passages grouped by standard): ONE search over every held standard the caller may read."""
+    from . import search
+
+    if not standard_ids:
+        return False, []
+    try:
+        res = search.search(question, limit=STANDARD_HITS, rerank=True, dense=True, allowed_document_ids=frozenset(standard_ids),
+                            candidates=WIDE_CANDIDATES, rerank_candidates=WIDE_SHORTLIST)  # fmt: skip
+    except Exception as exc:  # noqa: BLE001 - said in the coverage line; the contracts' passages stand
+        log.warning(
+            "technical query: the held standards could not be searched (%s)",
+            type(exc).__name__,
+        )
+        return True, []
+    by_doc: dict[str, list[dict]] = {}
+    for h in res.get("hits") or []:
+        if (h.get("text") or "").strip() and h.get("document_id") in set(standard_ids):
+            by_doc.setdefault(h["document_id"], []).append(h)
+    return False, list(by_doc.values())
 
 
 def _one(question: str, document_id: str) -> list[dict]:
@@ -92,11 +168,16 @@ def search_all(
     from . import technical_query_cited
 
     contracts = contract_ids(allowed)
+    standards = standard_entries(frozenset(allowed) - frozenset(contracts))
     first: dict = {"hits": [], "said": [], "cited": []}
     if cited_from:
         try:
             first = technical_query_cited.cited_first(
-                cited_from, contracts, question, lambda doc: _one(question, doc)
+                cited_from,
+                contracts,
+                question,
+                lambda doc: _one(question, doc),
+                standards,
             )
         except Exception as exc:  # noqa: BLE001 - the form's citations are a first look; the general search still runs
             log.warning(
@@ -127,13 +208,17 @@ def search_all(
         searched += 1
         hits_in += 1 if found else 0
         per_part.append(found)
+    std_failed, std_parts = _standard_parts(question, [e["id"] for e in standards])
+    per_part += std_parts
     taken = {(h["document_id"], h["page_start"]) for h in first["hits"]}
     hits = first["hits"] + [
         h
         for h in fair_share(per_part)
         if (h.get("document_id"), h.get("page_start")) not in taken
     ]
-    line = coverage_line(searched, len(contracts), hits_in, failed)
+    line = coverage_line(searched, len(contracts), hits_in, failed) + standards_line(
+        len(standards), len(std_parts), std_failed
+    )
     said = first["said"]
     coverage = {
         "searched": searched,

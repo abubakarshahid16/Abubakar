@@ -89,6 +89,18 @@ describe("Technical Queries screen", () => {
     expect(container.textContent).not.toMatch(/not covered|weak match/i);
   });
 
+  it("says which source each passage comes from: the contract document or the standard, by name (owner, 26 Nov 2026)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query,
+      evidence: [
+        { id: "e1", document_id: "c1", page_start: 4, locator: "Schedule B, 4.2.1 Invented Lining", source_kind: "contract document", source_name: "ZQ-INVENTED-SCHEDULE-B", exact_quote: "x", evidence_state: "proposed", supersession_state: "current" },
+        { id: "e2", document_id: "s1", page_start: 9, locator: "6.1 Invented Coating", source_kind: "company standard", source_name: "ZQ-STD-001", exact_quote: "y", evidence_state: "proposed", supersession_state: "current" },
+      ] } });
+    render(<TechnicalQueriesView />);
+    const sources = (await screen.findAllByTestId("evidence-source")).map((node) => node.textContent);
+    expect(sources).toEqual(["ZQ-INVENTED-SCHEDULE-B (contract document) · ", "ZQ-STD-001 (company standard) · "]);
+    expect(screen.getByText(/Open source, 6\.1 Invented Coating, page 9/)).toBeTruthy();
+  });
+
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, status: "approved", confirmed_question: "What applies?", evidence: [{ id: "e1", document_id: "contract-1", page_start: 1, exact_quote: "x", evidence_state: "verified", supersession_state: "current" }] } });
     api.generateDraft.mockResolvedValue({ ok: true, data: query });

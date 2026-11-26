@@ -888,6 +888,13 @@ def get(
                 (query_id,),
             )
         ]
+        from . import technical_query_contracts as _tqc
+
+        # which source each passage comes from (owner, 26 Nov 2026)
+        for row in result["evidence"]:
+            row["source_kind"], row["source_name"] = _tqc.source_of(
+                conn, row["document_id"]
+            )
         result["decisions"] = [
             dict(r)
             for r in conn.execute(

@@ -131,6 +131,22 @@ def titles(texts: list[str]) -> dict[str, set[str]]:
     return out
 
 
+def cited_standard_refs(texts: list[str]) -> list[tuple[str, str | None]]:
+    """(standard as the form names it, clause or None) for each reference line that names exactly ONE standard (the owner, 26 Nov
+    2026: technical-query evidence includes the standards we hold). A clause on that line is the standard's."""
+    from .standard_ids import cited_standards
+
+    out: list[tuple[str, str | None]] = []
+    for line in reference_lines(texts):
+        names = cited_standards(line)
+        if len(names) != 1:
+            continue
+        for ref in [(names[0], c) for c in CLAUSE.findall(line)] or [(names[0], None)]:
+            if ref not in out:
+                out.append(ref)
+    return out[:MAX_CITED]
+
+
 # ------------------------------------------------------------------ 3 which contract (builder A)
 
 
@@ -315,14 +331,61 @@ def _every_part_line(c: dict, titled: bool = True) -> str:
 # ------------------------------------------------------------------ the step (builders A and C)
 
 
+def _standards_first(
+    texts: list[str], standards: list[dict], question: str, search_one
+) -> tuple[list[dict], list[str]]:
+    """The standards the form's reference lines cite, looked up in the held standards the caller may read (`standards`: library
+    entries; `applicability.find_standard`, the app's one lookup): the cited clause by its heading, else that standard searched first."""
+    from . import applicability
+
+    hits: list[dict] = []
+    said: list[str] = []
+    for name, clause in cited_standard_refs(texts):
+        where = f"{name} clause {clause}" if clause else name
+        entry = applicability.find_standard(standards, name)
+        if entry is None:
+            said.append(f"{where}: not held among the standards you may read")
+            continue
+        doc = entry["id"]
+        if not clause:
+            own = [
+                dict(h, cited=True)
+                for h in (search_one(doc) or [])[:CITED_PARTS_LISTED]
+                if (h.get("text") or "").strip()
+            ]
+            hits += own
+            said.append(
+                f"{where}: searched first ({len(own)} passage{'s' if len(own) != 1 else ''})"
+            )
+            continue
+        with connect() as conn:
+            found = find_clause(_part_pages(conn, doc), clause)
+        if found is None:
+            said.append(f"{where}: the clause was not found in that standard")
+            continue
+        hit = {"document_id": doc, "page_start": found["page"], "page_end": found["page"], "text": found["text"],
+               "locator": f"{name}, {found['heading']}", "cited": clause}  # fmt: skip
+        _scored(question, [hit])
+        hits.append(hit)
+        said.append(f"{where}: found on page {found['page']}")
+    return hits, said
+
+
 def cited_first(
-    texts: list[str], contracts: list[str], question: str, search_one
+    texts: list[str],
+    contracts: list[str],
+    question: str,
+    search_one,
+    standards: list[dict] | None = None,
 ) -> dict:
     """`{"hits": [...passages listed first...], "said": [...one plain line per citation...], "cited": [...counts...]}`.
-    `search_one(document_id)` is the general search of ONE contract, for a cited part with no clause."""
+    `search_one(document_id)` is the general search of ONE document, for a cited part or standard with no clause. `standards`: the
+    held standards the caller may read (library entries), for the standards the form cites."""
     hits: list[dict] = []
     said: list[str] = []
     counts: list[dict] = []
+    if standards:
+        hits, said = _standards_first(texts, standards, question, search_one)
     named_titles = titles(texts)
     for part, clause in cited(texts):
         if part is None:

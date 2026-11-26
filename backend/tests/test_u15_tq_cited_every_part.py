@@ -303,7 +303,9 @@ def test_the_search_lists_what_the_form_cites_first_and_once_and_no_form_is_as_b
         not [h for h in plain["hits"] if h.get("cited")]
         and plain["coverage"]["cited_first"] == []
     )
-    assert plain["coverage"]["line"] == C.coverage_line(2, 2, 2)
+    assert plain["coverage"]["line"] == C.coverage_line(2, 2, 2) + C.standards_line(
+        0, 0, False
+    )  # no held standard here: said
 
 
 def test_a_cited_passage_is_never_held_back_and_the_cut_counts_searched_passages_only():
@@ -398,3 +400,120 @@ def test_a_partless_clause_is_listed_only_under_its_own_title_and_never_without_
     assert got["hits"] == [] and got["said"] == [
         "clause 4.2.1 (no part named, no title): not looked up; it names no contract part"
     ]
+
+
+# ---- the owner's scope (26 Nov 2026): held standards are searched too, and every passage says its source
+
+
+def _hold_standard(doc, number, role, pages):
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES (?,?,?,?,?,?,?)",
+            (
+                doc,
+                f"{number}.pdf",
+                doc.encode().hex().ljust(64, "0")[:64],
+                1,
+                f"{number}.pdf",
+                "ready",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO document_classification(document_id,document_role,document_number,suggested_by) VALUES (?,?,?,?)",
+            (doc, role, number, "rules"),
+        )
+    for n, text in pages.items():
+        _page(doc, n, text)
+
+
+COATING = "6.1 Invented Coating\nThe invented coating shall be 250 invented microns.\nIt shall be applied in two invented coats.\n"
+
+
+def test_the_held_standards_are_the_rule_books_the_caller_may_read_never_a_contract(
+    monkeypatch,
+):
+    on(monkeypatch)
+    _hold("con-a", {2: CLAUSE})
+    _hold_standard("std-co", "ZQ-STD-001", "COMPANY_STANDARD", {1: COATING})
+    _hold_standard("std-pub", "API 9999", None, {1: COATING})
+    got = {
+        e["id"] for e in C.standard_entries(frozenset({"con-a", "std-co", "std-pub"}))
+    }
+    assert got == {"std-co", "std-pub"}
+    assert (
+        C.standard_entries(frozenset({"con-a"})) == []
+        and C.standard_entries(frozenset({"std-pub"}))[0]["id"] == "std-pub"
+    )
+
+
+def test_the_standards_are_searched_together_beside_each_contract_and_the_line_says_so(
+    monkeypatch,
+):
+    on(monkeypatch)
+    _hold("con-a", {2: CLAUSE})
+    _hold_standard("std-co", "ZQ-STD-001", "COMPANY_STANDARD", {1: COATING})
+    calls = []
+
+    def fake(question, **kw):
+        calls.append(kw.get("document_id") or sorted(kw["allowed_document_ids"]))
+        doc = kw.get("document_id") or "std-co"
+        return {
+            "hits": [
+                {
+                    "document_id": doc,
+                    "page_start": 1,
+                    "page_end": 1,
+                    "text": f"invented {doc}",
+                    "rerank_score": 1.0,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.search.search", fake)
+    got = C.search_all("What coating applies?", frozenset({"con-a", "std-co"}))
+    assert calls == [
+        "con-a",
+        ["std-co"],
+    ]  # each contract on its own, the standards together
+    assert {h["document_id"] for h in got["hits"]} == {"con-a", "std-co"}
+    assert (
+        got["coverage"]["line"]
+        == "Searched 1 of 1 contracts, hits in 1. Searched the 1 held standards you may read together, hits in 1."
+    )
+
+
+def test_a_standard_the_form_cites_is_looked_up_first_by_its_clause(monkeypatch):
+    on(monkeypatch)
+    _reranker(monkeypatch, 1.0)
+    _hold_standard("std-pub", "API 9999", None, {3: "Invented preface.\n" + COATING})
+    standards = C.standard_entries(frozenset({"std-pub"}))
+    got = CI.cited_first(
+        ["REF.1 API 9999 section 6.1 Invented Coating"],
+        [],
+        "q",
+        lambda doc: [],
+        standards,
+    )
+    assert [(h["document_id"], h["page_start"], h["locator"]) for h in got["hits"]] == [
+        ("std-pub", 3, "API 9999, 6.1 Invented Coating")
+    ]
+    assert got["said"] == ["API 9999 clause 6.1: found on page 3"]
+    got = CI.cited_first(
+        ["REF.1 API 8888 section 6.1"], [], "q", lambda doc: [], standards
+    )
+    assert got["hits"] == [] and got["said"] == [
+        "API 8888 clause 6.1: not held among the standards you may read"
+    ]
+
+
+def test_every_evidence_row_says_its_source_kind_and_name(monkeypatch):
+    on(monkeypatch)
+    _hold("con-a", {2: CLAUSE}, "invented-contract.pdf")
+    _hold_standard("std-co", "ZQ-STD-001", "COMPANY_STANDARD", {1: COATING})
+    _hold_standard("std-pub", "API 9999", None, {1: COATING})
+    with db.connect() as conn:
+        assert C.source_of(conn, "con-a")[0] == C.SOURCE_CONTRACT
+        assert C.source_of(conn, "std-co") == (C.SOURCE_COMPANY, "ZQ-STD-001")
+        assert C.source_of(conn, "std-pub") == (C.SOURCE_STANDARD, "API 9999")
+        assert C.source_of(conn, "doc-unknown") == (C.SOURCE_OTHER, "")
