@@ -20,8 +20,14 @@ _REF = re.compile(
 _DISCIPLINE = re.compile(r"^\s*[-–—]?\s*(?P<disc>[A-Za-z]{2,8})(?=[_\s]|$)")
 
 
+def parts_code(prefix: str) -> str | None:
+    """The contractor's code in a number's prefix "<project>-<contractor>-<company>-": the part before the company's, or None."""
+    parts = prefix.strip("-").split("-")
+    return parts[-2] if len(parts) >= 3 else None
+
+
 def parse(subject: str | None) -> dict | None:
-    """`{"reference", "type", "number", "discipline", "title"}` from a subject, or None when it carries no TQ/CFC reference.
+    """`{"reference", "type", "number", "discipline", "contractor_code", "title"}` from a subject, or None when it carries no TQ/CFC reference.
 
     `prefixed` is False for a bare number ("TQ-12"): two senders or projects can send the same bare number, so it never joins a query.
     `reference` is the identity: the part before the type (project, contractor, company), the type and the running number, upper case, with the
@@ -46,5 +52,8 @@ def parse(subject: str | None) -> dict | None:
         "type": kind,
         "number": number,
         "discipline": disc.group("disc").upper() if disc else None,
+        # the contractor's code: the part just before the company's in "<project>-<contractor>-<company>-<TYPE>-<n>" (None when the
+        # number does not carry all three)
+        "contractor_code": parts_code(prefix),
         "title": title or None,
     }

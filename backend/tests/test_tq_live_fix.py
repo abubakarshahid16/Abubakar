@@ -343,6 +343,7 @@ def test_the_subject_is_read_by_code_type_number_discipline_title():
         "type": "TQ",
         "number": "42",
         "discipline": "PIPING",
+        "contractor_code": "CON",  # the contractor's code in the number (lead-4, 26 Nov 2026: routing by code)
         "title": "Hydrotest of line L-1",
     }
     cfc = S.parse("FW: PRJ-CON-CO-CFC-7 - CIVIL_Conflict between two drawings")

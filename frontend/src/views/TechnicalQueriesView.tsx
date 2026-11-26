@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
-import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
+import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy } from "../api/technicalQueries";
+import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
   try {
@@ -12,6 +13,14 @@ function draftCitations(raw: string | undefined): Array<{ label: string; documen
   }
 }
 
+/** The routing rules, the codes in the document number first (lead-4, 26 Nov 2026); a domain or address is the fallback. */
+const RULE_WORDS: Record<RoutingRuleType, string> = {
+  contractor_code: "Contractor code in the number",
+  discipline: "Discipline code",
+  domain: "Company domain",
+  address: "Exact address",
+};
+
 const SCAN_LABELS: Record<string, string> = {
   static_check_clean: "static check found no active content (not an antivirus scan)",
   static_check_flagged: "static check found active content: its text is not used automatically",
@@ -19,6 +28,17 @@ const SCAN_LABELS: Record<string, string> = {
   not_scanned: "not checked",
   pending: "not checked yet",
 };
+
+/** A mail's signature, legal notices and quoted earlier mail, folded behind "show" (the server decides the cut; the full text stays stored). */
+function Folded({ text }: { text?: string | null }) {
+  if (!text) return null;
+  return (
+    <details className="mt-1 text-xs text-slateish-500" data-testid="mail-folded">
+      <summary className="cursor-pointer">show signature, notices and earlier mail</summary>
+      <p className="mt-1 whitespace-pre-wrap">{text}</p>
+    </details>
+  );
+}
 
 export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
@@ -35,7 +55,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [toFilter, setToFilter] = useState("");
   const [evidenceFilter, setEvidenceFilter] = useState("");
   const [rules, setRules] = useState<RoutingRule[] | null>(null);
-  const [ruleType, setRuleType] = useState<"address" | "domain">("domain");
+  const [ruleType, setRuleType] = useState<RoutingRuleType>("contractor_code");
   const [ruleValue, setRuleValue] = useState("");
   const [ruleContractor, setRuleContractor] = useState("");
   const [ruleDepartment, setRuleDepartment] = useState("");
@@ -55,7 +75,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [engine, setEngine] = useState<"local" | "claude">("local");
   const [fileRole, setFileRole] = useState("SUPPORTING_DOCUMENT");
   // IN-PAGE confirmation (house rule: never the browser's own confirm box)
-  const [confirming, setConfirming] = useState<null | { kind: "activate" } | { kind: "file"; attachmentId: string }>(null);
+  const [confirming, setConfirming] = useState<null | { kind: "activate" } | { kind: "file"; attachmentId: string } | { kind: "again"; mailboxId: string }>(null);
   const [typeFilter, setTypeFilter] = useState("");
   const [disciplineFilter, setDisciplineFilter] = useState("");
   const [numberFilter, setNumberFilter] = useState("");
@@ -71,6 +91,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [filtersOpen, setFiltersOpen] = useState(false); // the filters are folded by default: the mailbox and the list come first
   const activeFilters = [statusFilter, contractorFilter.trim(), departmentFilter.trim(), assigneeFilter, fromFilter, toFilter, evidenceFilter, typeFilter, disciplineFilter.trim(), numberFilter.trim()].filter(Boolean).length + (needsPersonFilter ? 1 : 0);
   const topRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLElement>(null);
+  // On a narrow window the detail sits below the list: a click on a query brings it into view (otherwise the click seems to do nothing).
+  const showDetail = () => {
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1023px)").matches) detailRef.current?.scrollIntoView?.({ block: "start" });
+  };
 
   useEffect(() => {
     // The page always opens at its top (the shared scroll area can arrive halfway down from the page before).
@@ -140,6 +165,10 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     });
   };
 
+  const refreshList = useRef(applyFilters);
+  refreshList.current = applyFilters;
+  const wasImporting = useRef(false);
+
   const act = (action: () => Promise<Result<TechnicalQuery>>) => {
     if (!selected) return;
     setBusy(true);
@@ -154,9 +183,16 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const importing = mailboxes.some((mailbox) => mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)));
   useEffect(() => {
     // The mailbox import is a background job: ask again every few seconds while it is queued or running ("imported N of M", "last checked at").
-    if (!importing) return;
+    // The list below fills as messages arrive (and once more when the import ends), with the filters chosen.
+    if (!importing) {
+      if (wasImporting.current) refreshList.current();
+      wasImporting.current = false;
+      return;
+    }
+    wasImporting.current = true;
     const timer = window.setInterval(() => {
       void technicalQueriesApi.mailboxes().then((result) => { if (result.ok) setMailboxes(result.data.items); });
+      refreshList.current();
     }, 3000);
     return () => window.clearInterval(timer);
   }, [importing]);
@@ -215,8 +251,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   }, [queryId]);
 
   return (
-    <div ref={topRef} className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_1fr]" aria-labelledby="technical-queries-title" role="region">
-      <section>
+    <div ref={topRef} className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
+      <section className="min-w-0 [overflow-wrap:anywhere]">
         <h1 id="technical-queries-title" className="text-xl font-semibold text-slateish-100">Technical Queries</h1>
         <p className="mt-1 text-sm text-slateish-400">Incoming questions, evidence and engineer decisions.</p>
         <p className="mt-2 text-xs text-slateish-400">{visibleTotal === null ? "Loading queries" : `${items.length} matching · ${visibleTotal} in selected contractor and department`}</p>
@@ -241,11 +277,18 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         </div>)}
         {mailboxes.filter((mailbox) => mailbox.connection_state === "active").map((mailbox) => <div key={mailbox.id} className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200" data-testid="mailbox-status">
           <p>Mailbox {mailbox.email} is active. {mailbox.last_checked_at ? <>Last checked at <span data-testid="last-checked">{formatWhen(mailbox.last_checked_at)}</span>.</> : "Not checked yet."}</p>
-          {mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)) && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: imported {mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}. You can leave this page; it carries on.</p>}
-          {mailbox.import_job?.state === "done" && mailbox.import_job.kind === "import" && <p data-testid="import-done">Import finished: imported {mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}.</p>}
+          {mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)) && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: read {mailbox.import_job.done} of {mailbox.import_job.total} messages, {mailbox.import_job.imported ?? mailbox.import_job.done} imported{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}. The list below fills as they arrive. You can leave this page; it carries on.</p>}
+          {mailbox.import_job?.state === "done" && mailbox.import_job.kind === "import" && <p data-testid="import-done">{importDoneWords(mailbox.import_job)}</p>}
           {(mailbox.import_job?.state === "failed" || (mailbox.import_job?.state === "queued" && mailbox.import_job.error)) && <p role="alert" className="text-warn-500">{mailbox.import_job?.error}</p>}
           {mailbox.import_job && mailbox.import_job.failures.length > 0 && <ul className="mt-1 list-disc pl-5 text-warn-500" data-testid="import-failures">{mailbox.import_job.failures.map((failure, index) => <li key={index}>{failure.subject}: {failure.reason}</li>)}</ul>}
           <button type="button" disabled={busy || importing} onClick={() => { setError(null); void technicalQueriesApi.checkNow(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }} className="mt-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Check now</button>
+
+          <button type="button" disabled={busy || importing} onClick={() => setConfirming({ kind: "again", mailboxId: mailbox.id })} className="mt-2 ml-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Import the label again</button>
+          {confirming?.kind === "again" && confirming.mailboxId === mailbox.id && <div role="alertdialog" aria-label="Confirm importing the label again" className="mt-2 rounded border border-warn-500 p-2" data-testid="confirm-import-again">
+            <p>This reads all {mailbox.import_job?.total ? `${mailbox.import_job.total} ` : ""}messages of the label again and adds only what is not stored yet: messages, our own replies (to their query) and attachments not yet read. Nothing already stored is changed, and no query is made twice.</p>
+            <button type="button" disabled={busy} onClick={() => { setConfirming(null); setError(null); void technicalQueriesApi.importAgain(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }} className="mt-1 mr-2 rounded bg-signal-500 px-2 py-1 text-white">Yes, read the label again</button>
+            <button type="button" onClick={() => setConfirming(null)} className="mt-1 rounded bg-ink-700 px-2 py-1 text-slateish-100">Cancel</button>
+          </div>}
         </div>)}
         <div className="mt-4">
           <button type="button" onClick={() => setHandOpen((open) => !open)} aria-expanded={handOpen} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">New query by hand / upload</button>
@@ -260,7 +303,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         </div>
         {gmailReturn === "admin_must_allow" && <p role="alert" className="mt-4 text-sm text-warn-500">Your company's Google admin must allow this app.</p>}
         {gmailReturn === "working" && <p role="status" className="mt-4 text-sm text-slateish-300">Finishing the Gmail connection.</p>}
-        {gmailReturn === "connected" && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
+        {gmailReturn === "connected" && !mailboxes.some((mailbox) => mailbox.connection_state === "active") && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-500">{error}</p>}
         <div className="mt-4">
           <button type="button" onClick={() => setFiltersOpen((open) => !open)} aria-expanded={filtersOpen} aria-controls="query-filters" className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">{activeFilters > 0 ? `Filters (${activeFilters} active)` : "Filters"}</button>
@@ -294,27 +337,28 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           )}
         </div>
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
-          {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}
+          {items.length === 0 && <p className="text-sm text-slateish-500">{importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</p>}
           {items.map((item) => (
-            <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
+            <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
               {item.needs_person ? <span className="mt-1 inline-block rounded border border-warn-500 px-1 text-xs text-warn-500" data-testid="needs-person">Needs a person: no full TQ or CFC number in the subject</span> : null}
-              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "Unknown contractor"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
+              <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "contractor not set: add its code under Routing rules"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
             </button>
           ))}
         </div>
           {rules !== null && <details className="mt-5 rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Routing rules ({rules.length})</summary>
-            <p className="mt-2 text-slateish-400">A match fills a blank contractor or department when an email arrives. A public mail domain cannot be routed; an exact address can.</p>
-            <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><button type="button" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })} className="rounded bg-ink-700 px-2 py-1">Remove</button></li>)}</ul>
+            <p className="mt-2 text-slateish-400">Set once: the contractor code inside the document number names the contractor; the discipline code after the number names the department; the sender's domain or exact address is used when the number carries no code. A rule fills only blank fields, now and for every query already held. A public mail domain cannot be routed; an exact address can.</p>
+            <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{RULE_WORDS[rule.match_type] ?? rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><button type="button" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })} className="rounded bg-ink-700 px-2 py-1">Remove</button></li>)}</ul>
             <div className="mt-2 space-y-1">
-              <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as "address" | "domain")} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5"><option value="domain">Company domain</option><option value="address">Exact address</option></select>
-              <input aria-label="Rule value" value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder={ruleType === "domain" ? "company.example" : "person@company.example"} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
+              <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as RoutingRuleType)} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5">{(Object.keys(RULE_WORDS) as RoutingRuleType[]).map((type) => <option key={type} value={type}>{RULE_WORDS[type]}</option>)}</select>
+              <input aria-label="Rule value" value={ruleValue} onChange={(event) => setRuleValue(event.target.value)} placeholder={{ contractor_code: "the contractor code in the number, e.g. ABC", discipline: "a discipline code, e.g. PRO", domain: "company.example", address: "person@company.example" }[ruleType]} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
               <input aria-label="Rule contractor" value={ruleContractor} onChange={(event) => setRuleContractor(event.target.value)} placeholder="Contractor" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
               <input aria-label="Rule department" value={ruleDepartment} onChange={(event) => setRuleDepartment(event.target.value)} placeholder="Department" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
               <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>
             </div></details>}
       </section>
-      <section className="rounded border border-ink-700 bg-ink-850 p-5">
+      {/* min-w-0 + wrapping anywhere: a long unbroken line in a mail (a link, a disclaimer) can never widen the page past the window */}
+      <section ref={detailRef} className="min-w-0 overflow-x-hidden rounded border border-ink-700 bg-ink-850 p-5 [overflow-wrap:anywhere]">
         {!selected ? <p className="text-sm text-slateish-500">Select a query to inspect its original message and review history.</p> : <>
           <h2 className="text-lg font-semibold text-slateish-100">{selected.subject}</h2>
           <p className="mt-1 text-xs uppercase tracking-wide text-slateish-500">{selected.status} · {selected.priority}</p>
@@ -347,7 +391,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
           {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question in the email</h3>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.extracted_question || "Not stated in the email text."}</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{(selected.extracted_question_main ?? selected.extracted_question) || "Not stated in the email text."}</p>
+          <Folded text={selected.extracted_question_folded} />
           {selected.attachment_reading?.map((part) => <p key={part.filename} className="mt-6 text-xs text-slateish-400" data-testid="attachment-reading">{part.line}</p>)}
           {selected.attachment_text_hidden && <p className="mt-6 text-xs text-warn-500">The attachment text is hidden: you may not read that attachment.</p>}
           {selected.attachment_context?.length ? <>
@@ -371,13 +416,20 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {!selected.can_review && <p className="mt-1 text-xs text-slateish-500">Only a qualified reviewer can confirm the question.</p>}
           </div>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Original email and attachments</h3>
+          {(() => {
+            const read = attachmentsRead(selected.messages);
+            return read && <div className="mt-2 text-xs text-slateish-300" data-testid="attachments-read"><p>{read.line}.</p>
+              {read.notRead.length > 0 && <ul className="mt-1 list-disc pl-5 text-warn-500">{read.notRead.map((item, index) => <li key={`${item.filename}-${index}`}>{item.filename}: {item.why}</li>)}</ul>}</div>;
+          })()}
           {selected.messages?.map((message, index) => <article key={`${message.received_at}-${index}`} className="mt-3 rounded border border-ink-700 p-3 text-sm text-slateish-300">
+            {(message.is_inbound === 0 || message.is_inbound === false) && <p className="mb-1 inline-block rounded border border-signal-500 px-1 text-xs text-signal-300" data-testid="sent-by-us">Sent by us</p>}
             <p>From: {message.from_address}</p><p>To: {message.to_addresses.join(", ")}</p>
             {message.cc_addresses.length > 0 && <p>CC: {message.cc_addresses.join(", ")}</p>}
             <p>Received: {message.received_at}</p>
             {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
-            <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
-            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/attachments/${encodeURIComponent(attachment.id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · {SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}
+            <p className="mt-2 whitespace-pre-wrap">{message.body_main ?? message.body}</p>
+            <Folded text={message.body_folded} />
+            {message.attachments.some((a) => !isInlinePicture(a)) && <ul className="mt-2 list-disc pl-5">{message.attachments.filter((a) => !isInlinePicture(a)).map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/attachments/${encodeURIComponent(attachment.id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · <span data-testid="attachment-state">{notReadWhy(attachment) ? `not read: ${notReadWhy(attachment)}` : `read · ${SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}`}</span>
               {attachment.document_id && !attachment.filed_at && <span data-testid="attachment-unfiled"> · kept out of the library: not found by search, Chat or the review list{selected.can_review ? <> <select aria-label="Role to file this attachment under" value={fileRole} onChange={(event) => setFileRole(event.target.value)} className="ml-1 rounded border border-ink-600 bg-ink-900 p-1 text-xs"><option value="SUPPORTING_DOCUMENT">Supporting document</option><option value="CONTRACTOR_SUBMITTAL">Contractor submittal</option><option value="SPECIFICATION">Specification</option><option value="CONTRACT_DOCUMENT">Contract document</option><option value="COMPANY_STANDARD">Company standard</option></select> <button type="button" disabled={busy} onClick={() => setConfirming({ kind: "file", attachmentId: attachment.id })} className="ml-1 rounded bg-ink-700 px-2 py-0.5 text-xs text-slateish-100 disabled:opacity-50">File into the library</button>{confirming?.kind === "file" && confirming.attachmentId === attachment.id && <span role="alertdialog" aria-label="Confirm filing" className="ml-2 rounded border border-warn-500 p-1" data-testid="confirm-file">File this attachment into the library? It then appears in search, Chat and the review list under the chosen role. <button type="button" disabled={busy} onClick={() => { setConfirming(null); act(() => technicalQueriesApi.fileIntoLibrary(selected.id, attachment.id, fileRole)); }} className="ml-1 rounded bg-signal-500 px-2 py-0.5 text-white">Yes, file it</button> <button type="button" onClick={() => setConfirming(null)} className="ml-1 rounded bg-ink-700 px-2 py-0.5 text-slateish-100">Cancel</button></span>}</> : null}</span>}
             </li>)}</ul>}
           </article>)}

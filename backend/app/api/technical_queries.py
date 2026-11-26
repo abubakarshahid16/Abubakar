@@ -20,7 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import (
     access,
-    answer,
     attachment_safety,
     chat_model,
     claude_approved,
@@ -33,6 +32,7 @@ from .. import (
     technical_query_contracts,
     technical_query_docx,
     technical_query_jobs,
+    verified_passages,
 )
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write, reject_unknown_params
@@ -171,7 +171,7 @@ class DraftIn(BaseModel):
 
 
 class RoutingRuleIn(BaseModel):
-    match_type: Literal["address", "domain"]
+    match_type: Literal["address", "domain", "contractor_code", "discipline"]
     match_value: str = Field(min_length=3, max_length=320)
     contractor_name: str | None = Field(default=None, max_length=300)
     department: str | None = Field(default=None, max_length=300)
@@ -473,6 +473,32 @@ def check_gmail_mailbox_now(mailbox_id: str, scope: access.AccessScope = Depends
     return {"import_job": gmail_import_jobs.check_now(mailbox_id)}
 
 
+@router.post(
+    "/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/import-again",
+    response_model=CheckNowOut,
+)
+def import_gmail_label_again(
+    mailbox_id: str, scope: access.AccessScope = Depends(access.current_scope)
+):
+    """ "Import the label again" (lead-4, 26 Nov 2026): reads every message of the label again and stores only what is missing (a message held
+    is counted "already stored", never a second query; our replies join their query; an attachment not yet taken in is taken in now)."""
+    _require_identity_to_write(scope)
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(status_code=403, detail="an administrator is required")
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT label_id FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='active'",
+            (mailbox_id, scope.user_id),
+        ).fetchone()
+    if mailbox is None or not mailbox["label_id"]:
+        raise HTTPException(status_code=404, detail="mailbox is not active")
+    return {
+        "import_job": gmail_import_jobs.enqueue(
+            mailbox_id, "import", mailbox["label_id"], run_now=True
+        )
+    }
+
+
 class OauthCompleteIn(BaseModel):
     code: str | None = Field(default=None, max_length=2000)
     state: str | None = Field(default=None, max_length=500)
@@ -520,6 +546,24 @@ def graph_webhook(_payload: dict):
 def gmail_webhook(_payload: dict):
     # Pub/Sub push authentication and durable queueing are prerequisites.
     raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
+
+
+class StatusCountsOut(BaseModel):
+    mailboxes: list[dict[str, Any]]
+    boundary: str
+
+
+@router.get("/api/technical-queries/status-counts", response_model=StatusCountsOut)
+def technical_query_status_counts(
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Technical queries by COUNTS ONLY, per mailbox id (no subject, name, address, file name or body text): the planner's view."""
+    if not scope.is_admin or not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    from .. import technical_query_status
+
+    with connect() as conn:
+        return technical_query_status.counts(conn)
 
 
 @router.get("/api/technical-queries/routing-rules", response_model=RowsOut)
@@ -881,8 +925,9 @@ def generate_query_draft(
             technical_query_claude.record(conn, query_id, chosen, scope.user_id)
     try:
         with claude_approved.technical_query_lane(chosen):
-            result = answer.answer(
+            result = verified_passages.answer(
                 question,
+                evidence=usable_evidence,
                 tier="generated",
                 allowed_document_ids=chosen if engine == "claude" else scope_ids,
                 model="local" if engine == "local" else chat_model.TQ_DRAFT,
@@ -933,7 +978,7 @@ def generate_query_draft(
                 "exact_quote": match["exact_quote"],
             }
         )
-    if not cited or len(citations) != len(cited):
+    if (not cited and not result.get("not_found")) or len(citations) != len(cited):
         raise _refuse(
             409,
             "the generated answer cited passages outside the query's verified evidence",

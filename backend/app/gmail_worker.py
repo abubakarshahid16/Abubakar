@@ -24,6 +24,9 @@ from .technical_queries import (
     now,
     unfiled_attachment_ids,
 )
+from .technical_query_replies import ALREADY, ATTACHED, NO_QUERY
+from .technical_query_replies import attach as attach_reply
+from .technical_query_replies import held as replies_held
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +48,45 @@ def _store_raw_email(raw: bytes) -> tuple[str, str]:
     return digest, str(path)
 
 
+#: Why a listed message is not imported (the import job counts each, so the screen never says "imported" of one that was not).
+OWN_MAIL = "sent from this mailbox (your own replies)"
+OTHER_LABEL = "not under the chosen label"
+
+
+def skip_reason(
+    message, label_id: str | None, mailbox_address: str | None
+) -> str | None:
+    """`OTHER_LABEL`, `OWN_MAIL`, or None for a message to import (the one rule `_process_message` and the import job's count share)."""
+    if label_id and label_id not in message.label_ids:
+        return OTHER_LABEL
+    if (
+        mailbox_address
+        and parseaddr(message.from_address)[1].casefold() == mailbox_address.casefold()
+    ):
+        return OWN_MAIL
+    return None
+
+
+def attach_own(
+    client, message_id: str, message, mailbox_id: str, actor_user_id: str | None
+) -> str:
+    """Our own reply attached to its query, marked sent by us (`technical_query_replies`): `ATTACHED`, or `NO_QUERY` when no query of
+    its number or thread is held yet (nothing stored; the import tries it again once the other messages are in)."""
+    data = {
+        "provider": "gmail", "mailbox_id": mailbox_id, "provider_message_id": message.provider_message_id,
+        "provider_thread_id": message.thread_id, "from_address": message.from_address, "to_addresses": message.to_addresses,
+        "cc_addresses": message.cc_addresses, "subject": message.subject, "body": message.body, "received_at": message.received_at,
+    }  # fmt: skip
+    if replies_held(data):  # read again: already stored with its query, nothing is added
+        return ALREADY
+    kept = attach_reply(
+        data,
+        actor_user_id,
+        raw=lambda: _store_raw_email(client.raw_message(message_id)),
+    )
+    return ATTACHED if kept else NO_QUERY
+
+
 def _process_message(
     client: GmailApiClient,
     message_id: str,
@@ -59,12 +101,18 @@ def _process_message(
     """Import one message with its PDF attachments. None when it is not one to import (another label, or the mailbox's own mail).
     `message` is the already fetched message (the import job fetches it first so a failure can be named by its subject)."""
     message = message or client.message(message_id)
-    if label_id and label_id not in message.label_ids:
-        return None
+    why = skip_reason(message, label_id, mailbox_address)
     if (
-        mailbox_address
-        and parseaddr(message.from_address)[1].casefold() == mailbox_address.casefold()
-    ):
+        why == OWN_MAIL
+    ):  # our own reply: kept with the query it answers, never a new query
+        return {
+            "message_id": message_id,
+            "duplicate": True,
+            "own_reply": attach_own(
+                client, message_id, message, mailbox_id, actor_user_id
+            ),
+        }
+    if why:
         return None
     raw_hash, raw_ref = _store_raw_email(client.raw_message(message_id))
     item, duplicate = import_message(
@@ -95,7 +143,12 @@ def _process_message(
     for source, stored in zip(
         message.attachments, stored_message["attachments"], strict=True
     ):
-        if stored["document_id"] or not source["filename"].lower().endswith(".pdf"):
+        # a PDF or a Word (.docx) attachment is read; a picture, a macro file or another format is not (the page names each one not read)
+        if (
+            stored["document_id"]
+            or source.get("inline_picture")
+            or not source["filename"].lower().endswith((".pdf", ".docx"))
+        ):
             continue
         if source.get("attachment_id"):
             content = client.attachment(
@@ -147,7 +200,9 @@ def _process_message(
             or item
         )
         if duplicate_of is not None and row["id"] not in flagged_before:
-            with connect() as conn:  # a paper the library already held is not hidden by being attached to a query
+            with (
+                connect() as conn
+            ):  # a paper the library already held is not hidden by being attached to a query
                 mark_filed(conn, row["id"], actor_user_id)
     return {"query_id": item.get("id"), "duplicate": duplicate}
 
@@ -159,7 +214,9 @@ def is_transient(exc: BaseException) -> bool:
     """A failure that says nothing about the message: the network, a Google 429 or a Google 5xx. Retried later (with a longer wait), never counted."""
     if isinstance(exc, httpx.TransportError):
         return True
-    return isinstance(exc, httpx.HTTPStatusError) and (exc.response.status_code == 429 or exc.response.status_code >= 500)
+    return isinstance(exc, httpx.HTTPStatusError) and (
+        exc.response.status_code == 429 or exc.response.status_code >= 500
+    )
 
 
 def _note_failure(mailbox_id: str, message_id: str, exc: Exception) -> int:
@@ -229,7 +286,19 @@ def process_history(
             continue
         if result is not None:
             results.append(result)
-    return results
+    # our own replies that came before the message they answer: tried once more now that the rest is in
+    for n, result in enumerate(results):
+        if result.get("own_reply") == NO_QUERY:
+            message = client.message(result["message_id"])
+            results[n] = {
+                **result,
+                "own_reply": attach_own(
+                    client, result["message_id"], message, mailbox_id, actor_user_id
+                ),
+            }
+    return [
+        r for r in results if r.get("own_reply") != NO_QUERY
+    ]  # a reply of ours with no query was not stored
 
 
 def poll_mailbox(

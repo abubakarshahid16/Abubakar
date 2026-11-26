@@ -36,7 +36,9 @@ export interface TechnicalQuery {
   priority: string;
   received_at: string;
   due_at: string | null;
-  messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
+  extracted_question_main?: string | null;
+  extracted_question_folded?: string | null;
+  messages?: Array<{ id: string; is_inbound?: number | boolean; body_main?: string; body_folded?: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; inline_picture?: number | boolean; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
@@ -70,6 +72,34 @@ export interface MailboxImportJob {
   failed: number;
   error: string | null;
   failures: Array<{ subject: string; reason: string }>;
+  /** Messages imported (or already held): `done` less the listed messages that were not ones to import. */
+  imported?: number;
+  /** {reason: count} of listed messages that were not imported (sent from this mailbox, not under the label). */
+  skipped?: Record<string, number>;
+  /** The queries this mailbox's messages are in (replies and forwards with the same number join one query). */
+  queries?: number | null;
+  /** The messages of this mailbox stored now (any import or poll). */
+  messages?: number | null;
+  /** False for an import that ran before skipped messages were counted by reason. */
+  reasons_recorded?: boolean;
+}
+
+/** The finished import in one sentence, every count with its boundary: "77 messages in 33 queries: 36 imported, 40 our replies, added to
+ *  their query (sent by us), 1 failed." A listed message that was not imported is never called imported. */
+export function importDoneWords(job: MailboxImportJob): string {
+  if (job.reasons_recorded === false) {
+    // an import that ran before the reasons were counted: never "imported N of N"; what is stored is said, and that the rest is unknown
+    const stored = typeof job.messages === "number" ? job.messages : null;
+    const where = typeof job.queries === "number" ? ` of ${job.queries} ${job.queries === 1 ? "query" : "queries"}` : "";
+    const held = stored === null ? "" : `; ${stored} stored as messages${where}`;
+    const rest = stored === null ? job.total : Math.max(0, job.total - stored);
+    return `Import finished: processed ${job.total} messages${held}; the reason the other ${rest} were not stored was not recorded for this import (it ran before this was counted).`;
+  }
+  const parts = [`${job.imported ?? job.done} imported`];
+  for (const [why, n] of Object.entries(job.skipped ?? {})) if (n > 0) parts.push(`${n} ${why}`);
+  if (job.failed) parts.push(`${job.failed} failed`);
+  const where = typeof job.queries === "number" ? ` in ${job.queries} ${job.queries === 1 ? "query" : "queries"}` : "";
+  return `Import finished: ${job.total} messages${where}: ${parts.join(", ")}.`;
 }
 
 export interface TechnicalQueryMailbox {
@@ -82,7 +112,8 @@ export interface TechnicalQueryMailbox {
   import_job?: MailboxImportJob | null;
 }
 
-export interface RoutingRule { id: string; match_type: "address" | "domain"; match_value: string; contractor_name: string | null; department: string | null }
+export type RoutingRuleType = "contractor_code" | "discipline" | "domain" | "address";
+export interface RoutingRule { id: string; match_type: RoutingRuleType; match_value: string; contractor_name: string | null; department: string | null }
 export interface GmailLabel { id: string; name: string; type: string }
 export interface TechnicalQueryAssignee { id: string; display_name: string }
 
@@ -107,6 +138,8 @@ export const technicalQueriesApi = {
   gmailLabels: (mailboxId: string): Promise<Result<{ items: GmailLabel[] }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/labels`, undefined, hasArrayField("items")),
   /** "Check now": queues one poll; answers at once. */
+  importAgain: (mailboxId: string): Promise<Result<{ import_job: string }>> =>
+    request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/import-again`, { method: "POST" }),
   checkNow: (mailboxId: string): Promise<Result<{ import_job: string }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/check-now`, { method: "POST" }),
   activateGmailLabel: (mailboxId: string, labelId: string): Promise<Result<{ imported: number; connection_state: string; import_job?: string | null }>> =>
@@ -142,3 +175,38 @@ export const technicalQueriesApi = {
   decide: (id: string, decision: string, draftId?: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, draft_id: draftId }) }),
   confirmResolution: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/confirm-resolution`, { method: "POST" }),
 };
+
+type QueryAttachment = { filename: string; media_type?: string | null; inline_picture?: number | boolean; document_id: string | null; parse_status: string; scan_status: string };
+
+/** A picture shown inside the mail body (a signature logo): counted apart, never an attachment to read. */
+export const isInlinePicture = (a: { inline_picture?: number | boolean }) => a.inline_picture === 1 || a.inline_picture === true;
+
+/** Why an attachment of a query was NOT read, in plain words, or null when it was read (its paper is in and ready). Nothing is silently
+ *  missing: a picture, a macro file, a Word file and an unread PDF are each named (lead-4, 26 Nov 2026). */
+export function notReadWhy(a: QueryAttachment): string | null {
+  const name = a.filename.toLowerCase();
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
+  if (a.document_id && a.parse_status === "ready") return null;
+  if (/^(xlsm|xltm|docm|dotm|pptm|potm|ppsm|xlam|ppam)$/.test(ext) || /macroenabled/i.test(a.media_type ?? "")) return "macro file, not opened";
+  if ((a.media_type ?? "").startsWith("image/") || /^(png|jpe?g|gif|bmp|tiff?|webp|heic)$/.test(ext)) return "picture, not read";
+  if (ext === "docx") {
+    if (a.scan_status === "static_check_flagged") return "Word with active content, its text is not used";
+    if (a.scan_status === "static_check_unreadable") return "Word, could not be checked";
+    return a.parse_status === "failed" ? "Word, could not be read" : "Word, not read yet";
+  }
+  if (/^(doc|dotx|rtf|odt)$/.test(ext)) return `older Word format (.${ext}), not read: save it as .docx`;
+  if (ext === "pdf") return a.parse_status === "failed" ? "PDF, could not be read" : a.scan_status === "static_check_flagged" ? "PDF with active content, its text is not used" : "PDF, not read yet";
+  return `${ext ? ext.toUpperCase() + " file" : "file"}, not read`;
+}
+
+/** "3 of 7 attachments read" over every message of the query (the boundary: this query's attachments), with each one not read and why. */
+export function attachmentsRead(messages: Array<{ attachments: QueryAttachment[] }> | undefined): { line: string; notRead: Array<{ filename: string; why: string }> } | null {
+  const every = (messages ?? []).flatMap((m) => m.attachments);
+  const all = every.filter((a) => !isInlinePicture(a));
+  const pictures = every.length - all.length;
+  if (!every.length) return null;
+  const notRead = all.flatMap((a) => { const why = notReadWhy(a); return why ? [{ filename: a.filename, why }] : []; });
+  const read = all.length ? `${all.length - notRead.length} of ${all.length} attachment${all.length === 1 ? "" : "s"} read` : "No attachments";
+  const signs = pictures ? `; ${pictures} signature picture${pictures === 1 ? "" : "s"}, not attachments` : "";
+  return { line: `${read}${signs}`, notRead };
+}
