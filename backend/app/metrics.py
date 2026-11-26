@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 
 import psutil
 
-from . import ai_task_runner, answer_model_notice, model_transport, states, telemetry
+from . import ai_task_runner, answer_model_choice, answer_model_notice, model_transport, states, telemetry
 from .config import settings
 from .db import connect
 
@@ -265,12 +265,14 @@ def models() -> dict:
         # which is stated rather than silent.
         "reranker_model": _reranker_name(),
         "reranker_present": reranker_mod.available(),
-        "answer_model": settings.answer_model,
         "answer_model_reachable": False,
         "answer_model_loaded": False,
         "ollama_error": None,
     }
     info.update(_ollama_state())
+    # after the probe, which shared its model list: the name in use costs no second engine call (#626)
+    in_use = answer_model_choice.resolve()
+    info.update({"answer_model": in_use.name, "answer_model_why": in_use.why})
     return info
 
 
@@ -294,7 +296,7 @@ def _ollama_state() -> dict:
     Keyed on the host and the model, so changing either asks again. A refused
     host is NEVER cached: it raises every time, in the operator's face.
     """
-    key = (model_transport.host_key(), settings.answer_model)
+    key = (model_transport.host_key(), str(settings.answer_model))
     now = time.monotonic()
     with _probe_lock:
         hit = _probe_cache.get("entry")
@@ -317,9 +319,10 @@ def _probe_ollama() -> dict:
         tags = model_transport.get_json("/api/tags", timeout=OLLAMA_TIMEOUT)
         available = [m.get("name", "") for m in (tags or {}).get("models", [])]
         info["answer_model_reachable"] = True
+        answer_model_choice.share_list(tags)  # one list read per probe (#626)
+        in_use = answer_model_choice.name()
         info["answer_model_installed"] = any(
-            n == settings.answer_model or n.startswith(settings.answer_model)
-            for n in available
+            n == in_use or n.startswith(in_use) for n in available
         )
         # `required=False`: a non-200 from /api/ps means Ollama is up and told
         # us nothing about loaded models, which is a different state from
@@ -329,8 +332,7 @@ def _probe_ollama() -> dict:
         if running is not None:
             loaded = [m.get("name", "") for m in running.get("models", [])]
             info["answer_model_loaded"] = any(
-                n == settings.answer_model or n.startswith(settings.answer_model)
-                for n in loaded
+                n == in_use or n.startswith(in_use) for n in loaded
             )
     except model_transport.ModelHostRefused:
         # NOT swallowed into `ollama_error`. Every other failure here is a
@@ -394,7 +396,7 @@ def warnings(allowed: Allowed = None, host: bool = True) -> list[dict]:
     # Free RAM against what the answer model needs. Measured before the model
     # is loaded, because that is when it is actionable.
     memory = psutil.virtual_memory()
-    needed = settings.answer_model_ram_bytes
+    needed = answer_model_choice.ram_bytes()
     models_info = models()
     if memory.available < needed and not models_info["answer_model_loaded"]:
         out.append({
@@ -414,7 +416,7 @@ def warnings(allowed: Allowed = None, host: bool = True) -> list[dict]:
             # hide a real condition from the person sitting in front of it.
             "message": (
                 f"{memory.available / 1e9:.1f} GB of RAM free and "
-                f"{settings.answer_model} needs about {needed / 1e9:.1f} GB. "
+                f"{answer_model_choice.name()} needs about {needed / 1e9:.1f} GB. "
                 f"Tier 2 (Explain) may swap hard or fail. Quoted answers are "
                 f"unaffected. Close other applications, or pre-warm the model "
                 f"before it is needed."

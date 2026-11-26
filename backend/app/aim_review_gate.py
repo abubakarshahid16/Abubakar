@@ -52,6 +52,34 @@ LOCAL_MEASURED = {
 LOCAL_NOT_SCORED = "local model, not yet scored"
 #: A model with no measured score of the general review (the Review model section of the Administration page).
 NOT_YET_SCORED = "not yet scored"
+#: THE LABEL OF EVERY LOCAL RUN (planner 26 Nov 2026 14:45, lane L2): wherever Local only is offered or shown (the plan, the run
+#: page, the file's score lines and every row's team note) it says this, with the model's own measured note beside it
+#: (`local_measured_note`). The same for every local model: none is scored as reliable yet (the 9B found 2 of 10).
+LOCAL_ROUGH_DRAFT = "rough draft, not scored as reliable"
+LOCAL_LABEL = f"local model, {LOCAL_ROUGH_DRAFT}"
+#: The same label as a sentence, where the line already names the local model (the run page, the file's score line, the plan).
+LOCAL_ROUGH_DRAFT_SENTENCE = f"{LOCAL_ROUGH_DRAFT[0].upper()}{LOCAL_ROUGH_DRAFT[1:]}."
+#: The team note every row of a local run's file carries first (team file only; never comment text, never the contractor copy).
+LOCAL_TEAM_NOTE = f"Local model: {LOCAL_ROUGH_DRAFT}."
+
+
+def local_score_words(models) -> str:
+    """The label of a local run, whatever model: `LOCAL_LABEL` (rough draft, not scored as reliable). The model's own numbers,
+    or "not yet scored", are in its note (`local_measured_note`), shown beside it."""
+    del models  # one label for every local model; the note is per model
+    return LOCAL_LABEL
+
+
+def local_plan_words(models) -> str:
+    """The Local only plan's sentence (the inline plan on the Review list and the start step): it names the model(s) and takes
+    the measured note from `LOCAL_MEASURED` like every other local label, so it never says "not measured" beside a measured
+    model nor shows another model's numbers."""
+    names = sorted({str(m).strip() for m in models or () if str(m).strip()})
+    return (
+        f"The general review runs on the local model ({', '.join(names) or 'the local default'}) on this computer. "
+        "Nothing leaves this computer and nothing is paid. It is slower than Claude (a large paper can take hours). "
+        f"{LOCAL_ROUGH_DRAFT_SENTENCE} " + local_measured_note(names)
+    )
 
 
 def local_measured_note(models) -> str:

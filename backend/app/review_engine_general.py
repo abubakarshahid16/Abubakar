@@ -267,18 +267,23 @@ def general_plan(
             plan.refused if plan.refused.endswith(".") else plan.refused + "."
         )
     elif plan.part(AI_REVIEW).engine == ON_LOCAL:
+        models = _local_models()
         out["sentence"] = (
-            f"{aim_review_gate.LOCAL_PLAN_WORDS} {aim_review_gate.AI_MARK}."
+            f"{aim_review_gate.local_plan_words(models)} {aim_review_gate.AI_MARK}."
         )
-        out["notes"] = [
-            *out["notes"],
-            *_review_model_lines(),
-        ]
+        out["notes"] = [*out["notes"], *_review_model_lines()]
     else:
         out["sentence"] = (
             f"The general review runs on Claude. {GENERAL_LEAVES} {aim_review_gate.AI_MARK}."
         )
     return out
+
+
+def _local_models() -> set[str]:
+    """Every local model a Local only run will use now: the default and each step's own (`local_model.step_models`)."""
+    from .aim_review import local_model
+
+    return {local_model.model_name(), *local_model.step_models().values()}
 
 
 def _review_model_lines() -> list[str]:

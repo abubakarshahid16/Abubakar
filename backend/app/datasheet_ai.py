@@ -213,7 +213,7 @@ def _ollama_call(packet_shape: dict | None = None):
         return errors.fell_back("datasheet_ai: the local engine is unavailable; no AI read", exc, (None, f"ollama engine unavailable ({type(exc).__name__})"))
     # Owner order 2026-10-11: the local model is slow - every call has its
     # own timeout (DATASHEET_AI_TIMEOUT_SECONDS), not the provider's 15 min.
-    model = settings.datasheet_ai_ollama_model or settings.answer_model
+    model = settings.datasheet_ai_ollama_model or None  # None: the answer model in use
     provider = OllamaProvider(
         model, timeout=float(settings.datasheet_ai_timeout_seconds), retry_timeouts=True
     )

@@ -144,7 +144,8 @@ export interface GeneralReview {
   measured?: GeneralMeasured | null;
   cost: { usd: number | null; note?: string };
   /** A checking step whose answer was not applied to this sheet, in plain words (a failed AI step is shown in the run). */
-  steps_not_applied?: { step: string; why: string; sentence: string }[];
+  /** One row per step; a counted local set-aside, one row per cause (`count` set). */
+  steps_not_applied?: { step: string; why: string; sentence: string; count?: number }[];
   /** Pages (or Word pictures) with no text and no picture reading: a page counts as read only when text or a reading came back. */
   pages_not_read?: { where: string; why: string; sentence: string }[];
   /** "all_read" only when the check ran and every page had text or a picture reading; "not_recorded" for an older review or a check that did not run. */

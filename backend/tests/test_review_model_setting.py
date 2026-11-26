@@ -101,9 +101,7 @@ def test_the_options_list_claude_fixed_and_each_installed_local_model_with_why_n
         not local[HUGE]["selectable"]
         and local[HUGE]["why"] == review_model_setting.TOO_LARGE
     )
-    assert all(
-        m["score_words"] == aim_review_gate.LOCAL_NOT_SCORED for m in got["local"]
-    )
+    assert all(m["score_words"] == aim_review_gate.LOCAL_LABEL for m in got["local"])
     assert got["steps"] == list(local_model.STEP_GROUPS)
     assert engine == ["/api/tags"]  # only the list was read
 
@@ -182,9 +180,7 @@ def test_the_local_only_plan_names_the_models_with_not_yet_scored_and_claude_pla
         assert r.status_code == 200, r.text
         return r.json()["notes"]
 
-    line = (
-        f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_NOT_SCORED})."
-    )
+    line = f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_LABEL})."
     assert line in notes("local")
     assert all(
         not n.startswith("Review model:")
@@ -348,5 +344,183 @@ def test_the_plan_line_names_a_step_set_only_in_env(engine, world, monkeypatch):
     line = review_model_setting.plan_line(OTHER, local_model.step_models())
     assert (
         line
-        == f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_NOT_SCORED})."
+        == f"Review model: {OTHER}; judge: {SMALL} ({aim_review_gate.LOCAL_LABEL})."
+    )
+
+
+# --- review of update 10, N6: the tables are made at app start, and every change is kept
+
+
+def test_the_app_start_makes_both_tables_and_a_read_still_never_does(world):
+    import inspect
+
+    from app import main
+
+    assert "review_model_setting_mod.ensure_schema()" in inspect.getsource(
+        main.lifespan
+    )
+    assert not _table_exists()  # the test library was made without the start-up
+    review_model_setting.ensure_schema()
+    names = {
+        r[0]
+        for r in db.connect()
+        .execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .fetchall()
+    }
+    assert {review_model_setting.TABLE, review_model_setting.HISTORY} <= names
+
+
+def test_every_change_is_kept_with_who_when_old_and_new_and_nothing_else(engine, world):
+    review_model_setting.save({"default": SMALL}, "u1")
+    review_model_setting.save({"default": OTHER, "steps": {"judge": SMALL}}, "u2")
+    review_model_setting.save(
+        {"default": OTHER, "steps": {"judge": SMALL}}, "u3"
+    )  # no change: nothing kept
+    review_model_setting.save({"default": OTHER}, "u4")  # judge cleared
+    got = [
+        (h["slot"], h["old_model"], h["new_model"], h["changed_by"])
+        for h in review_model_setting.history()
+    ]
+    assert got == [
+        ("judge", SMALL, None, "u4"),
+        ("judge", None, SMALL, "u2"),
+        ("default", SMALL, OTHER, "u2"),
+        ("default", None, SMALL, "u1"),
+    ]
+    assert all(h["changed_at"] for h in review_model_setting.history())
+
+
+def test_a_refused_save_keeps_no_change(engine, world):
+    review_model_setting.save({"default": SMALL}, "u1")
+    with pytest.raises(review_model_setting.Refused):
+        review_model_setting.save({"default": HUGE}, "u2")
+    assert [h["changed_by"] for h in review_model_setting.history()] == ["u1"]
+
+
+def test_the_section_is_given_the_latest_changes_newest_first(engine, world):
+    for i in range(review_model_setting.HISTORY_SHOWN + 2):
+        review_model_setting.save({"default": SMALL if i % 2 else OTHER}, f"u{i}")
+    got = (
+        TestClient(app)
+        .get("/api/admin/review-model", headers=world["headers"])
+        .json()["history"]
+    )
+    assert len(got) == review_model_setting.HISTORY_SHOWN
+    assert got[0]["changed_by"] == f"u{review_model_setting.HISTORY_SHOWN + 1}"
+
+
+# --- lead-4, 26 Nov 2026: the score label and the measured note come from one per-model source
+
+
+@pytest.mark.parametrize(
+    "models",
+    [
+        ["qwen3.5:9b-q4_K_M"],
+        ["ministral-3:14b"],
+        ["invented-other:9b"],
+        ["qwen3.5:9b-q4_K_M", "ministral-3:14b"],
+        [],
+    ],
+)
+def test_every_local_run_is_labelled_rough_draft_with_its_own_note_beside_it(models):
+    """Planner 26 Nov 2026 14:45: one label for every local model ("rough draft, not scored as reliable"); the numbers, or
+    "not yet scored", come only from the model's own note, so the label never contradicts the note."""
+    label = aim_review_gate.local_score_words(models)
+    note = aim_review_gate.local_measured_note(models)
+    assert label == aim_review_gate.LOCAL_LABEL
+    assert (
+        aim_review_gate.LOCAL_ROUGH_DRAFT in label
+        and aim_review_gate.NOT_YET_SCORED not in label
+    )
+    assert ("of 10" in note) is (sorted(set(models)) == ["qwen3.5:9b-q4_K_M"])
+
+
+def test_the_local_only_plan_on_the_9b_says_measured_and_never_not_yet_scored(
+    engine, world, monkeypatch
+):
+    nine = "qwen3.5:9b-q4_K_M"
+    monkeypatch.setattr(
+        model_transport,
+        "get_json",
+        lambda *a, **k: {
+            "models": [{"name": nine, "size": 6_500_000_000, "digest": "d"}]
+        },
+    )
+    review_model_setting.save({"default": nine}, "u1")
+    notes = (
+        TestClient(app)
+        .get(
+            "/api/reviews/plan",
+            params={"submittal_document_id": PAPERS["datasheet"][0], "engine": "local"},
+            headers=world["headers"],
+        )
+        .json()["notes"]
+    )
+    assert f"Review model: {nine} ({aim_review_gate.LOCAL_LABEL})." in notes
+    assert aim_review_gate.LOCAL_TEST_NOTE in notes
+    assert not any(aim_review_gate.NOT_YET_SCORED in n for n in notes)
+    row = next(m for m in review_model_setting.options()["local"] if m["name"] == nine)
+    assert row["score_words"] == aim_review_gate.LOCAL_LABEL
+
+
+def test_the_short_inline_plan_names_the_model_and_takes_its_note_from_the_same_source(
+    engine, world, monkeypatch
+):
+    """The Review list's inline plan shows the plan's `sentence`: it names the model and never says "not measured" beside a
+    measured model (lead-4, 26 Nov 2026)."""
+    nine = "qwen3.5:9b-q4_K_M"
+    monkeypatch.setattr(
+        model_transport,
+        "get_json",
+        lambda *a, **k: {
+            "models": [
+                {"name": nine, "size": 6_500_000_000, "digest": "d"},
+                {"name": OTHER, "size": 6_000_000_000, "digest": "e"},
+            ]
+        },
+    )
+    client = TestClient(app)
+
+    def sentence() -> str:
+        return client.get(
+            "/api/reviews/plan",
+            params={"submittal_document_id": PAPERS["datasheet"][0], "engine": "local"},
+            headers=world["headers"],
+        ).json()["sentence"]
+
+    review_model_setting.save({"default": nine}, "u1")
+    said = sentence()
+    assert f"local model ({nine})" in said and aim_review_gate.LOCAL_TEST_NOTE in said
+    assert "not measured" not in said and aim_review_gate.NOT_YET_SCORED not in said
+    review_model_setting.save({"default": OTHER}, "u1")
+    said = sentence()
+    assert f"local model ({OTHER})" in said
+    assert (
+        f"Local model ({OTHER}): {aim_review_gate.NOT_YET_SCORED}." in said
+        and "of 10" not in said
+    )
+
+
+def test_every_row_of_a_local_runs_file_leads_its_team_note_with_the_rough_draft_label_and_a_claude_runs_is_unchanged():
+    from app import aim_review_sheet
+
+    note = "invented team note"
+    local = aim_review_sheet.local_team_note({"engine": {"local": True}}, note)
+    assert local == f"{aim_review_gate.LOCAL_TEAM_NOTE} {note}"
+    assert (
+        aim_review_sheet.local_team_note({"engine": {"local": True}}, None)
+        == aim_review_gate.LOCAL_TEAM_NOTE
+    )
+    for claude in ({"engine": {"local": False}}, {"engine": None}, {}):
+        assert (
+            aim_review_sheet.local_team_note(claude, note) == note
+        )  # Claude reviews unchanged
+        assert aim_review_sheet.local_team_note(claude, None) is None
+
+
+def test_the_plan_sentence_of_local_only_says_rough_draft_and_keeps_the_models_note():
+    words = aim_review_gate.local_plan_words({"qwen3.5:9b-q4_K_M"})
+    assert (
+        "Rough draft, not scored as reliable." in words
+        and aim_review_gate.LOCAL_TEST_NOTE in words
     )

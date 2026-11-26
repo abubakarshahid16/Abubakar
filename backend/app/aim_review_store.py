@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 
 from .db import connect
 
@@ -207,6 +208,28 @@ def start_run(conn, run_id: str, paper_id: str, now: str) -> None:
         f"INSERT INTO {RUNS} (run_id, paper_document_id, status, created_at) VALUES (?,?,?,?)",
         (run_id, paper_id, "queued", now),
     )
+
+
+def keep_identity(conn, run_id: str, identity: dict) -> None:
+    """`set_identity`, but a failure (a locked or older database) is only logged by its class: it never stops a review."""
+    try:
+        set_identity(conn, run_id, identity)
+    except Exception as exc:  # noqa: BLE001 - never stops a review; logged by its class only
+        logging.getLogger(__name__).info(
+            "run identity not stored early (%s)", type(exc).__name__
+        )
+
+
+def set_identity(conn, run_id: str, identity: dict) -> None:
+    """What the run has recorded so far (the local models it started with, then the kind it named), MERGED into its record while it still
+    runs, so its progress page reads the run's own record; `finish_run` writes the final record over it. Only a run that has not ended;
+    commits."""
+    with conn:
+        conn.execute(
+            f"UPDATE {RUNS} SET identity_json = json_patch(COALESCE(identity_json, '{{}}'), ?)"
+            " WHERE run_id = ? AND status IN ('queued', 'running')",
+            (json.dumps(identity, ensure_ascii=False), run_id),
+        )
 
 
 # ---- the run and its lines -------------------------------------------------------------------------------------------------

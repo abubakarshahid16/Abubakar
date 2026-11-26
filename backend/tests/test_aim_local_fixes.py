@@ -63,11 +63,40 @@ class _Attack:
         }
 
 
-def test_the_attack_reads_every_batch_on_the_local_model_and_once_on_claude():
-    sel = _sel(120)
-    made = {"items": [{"id": f"C{k:03d}", "topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
+def _made(n: int) -> dict:
+    return {"items": [{"id": f"C{k:03d}", "topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
                        "rule_quote": "q", "applies_when": "always", "paper_fields": [], "kind": "limit",
-                       "source": "held standard"} for k in range(1, 9)]}  # fmt: skip
+                       "source": "held standard"} for k in range(1, n + 1)]}  # fmt: skip
+
+
+class _Verdicts:
+    """The local attack: one verdict per item named in the prompt; "remove" for the first of each call."""
+
+    def __init__(self, cut_over: int | None = None):
+        self.calls, self.cut_over = [], cut_over
+
+    def ask(self, **kw):
+        import re
+
+        from app.aim_review.engine import StepFailed
+
+        self.calls.append(kw)
+        ids = re.findall(
+            r'"id": "(C[0-9]+)"',
+            kw["prompt"].split("THE ITEMS:")[-1].split("Books:")[0],
+        )
+        if self.cut_over is not None and len(ids) > self.cut_over:
+            raise StepFailed("aim_attack_items: stop_max_tokens")
+        return {"verdicts": [{"id": i, "verdict": "remove" if k == 0 else "keep", "why": "invented", "what_to_check": ""}
+                             for k, i in enumerate(ids)]}  # fmt: skip
+
+
+def test_the_local_attack_gives_every_item_one_short_verdict_in_small_calls_and_claude_one_call():
+    """Lead-4, 26 Nov 2026 (F's 9B run on update 10): every checklist item stays attacked and no answer is cut. Was: the whole
+    checklist against each rule batch."""
+    from app.aim_review import attack_local as AL
+
+    sel = _sel(120)
     ident = {
         "kind": "datasheet",
         "equipment_type": None,
@@ -75,13 +104,47 @@ def test_the_attack_reads_every_batch_on_the_local_model_and_once_on_claude():
         "service": "",
     }
     claude = _Attack()
-    CL.s3_attack(claude, ident, sel, made, None, "claude-sonnet-5-5")
-    local = _Attack()
+    CL.s3_attack(claude, ident, sel, _made(8), None, "claude-sonnet-5-5")
+    assert (
+        len(claude.calls) == 1 and claude.calls[0]["step"] == "aim_attack"
+    )  # Claude: as before
+    local = _Verdicts()
     with budget.using(budget.LOCAL):
-        got = CL.s3_attack(local, ident, sel, made, None, "local")
-        n = len(MT._batches(MT.material(sel, None)[0]))
-    assert len(claude.calls) == 1 and len(local.calls) == n > 1
-    assert len(got["attack"]["removed"]) == n  # every batch's answer counted
+        got = CL.s3_attack(local, ident, sel, _made(30), None, "local")
+    assert len(local.calls) == -(-30 // AL.ATTACK_ITEMS) and {
+        c["step"] for c in local.calls
+    } == {"aim_attack_items"}
+    assert len(got["attack"]["removed"]) == len(local.calls) and len(
+        got["items"]
+    ) == 30 - len(local.calls)
+
+
+def test_a_cut_local_attack_answer_is_asked_again_in_halves_and_never_loses_an_item():
+    from app.aim_review import faults
+
+    sel = _sel(120)
+    ident = {
+        "kind": "datasheet",
+        "equipment_type": None,
+        "subject": "invented",
+        "service": "",
+    }
+    calls: list = []
+    with faults.recording(calls), budget.using(budget.LOCAL):
+        got = CL.s3_attack(
+            _Verdicts(cut_over=3), ident, sel, _made(12), None, "local"
+        )  # cut above 3 items
+        assert not [
+            c for c in calls if c.step.startswith("aim_attack")
+        ]  # every item got its verdict
+        assert len(got["items"]) + len(got["attack"]["removed"]) == 12
+        kept = CL.s3_attack(
+            _Verdicts(cut_over=0), ident, sel, _made(5), None, "local"
+        )  # always cut
+    assert (
+        len(kept["items"]) == 5
+        and sum(c.step == "aim_attack_item_cut" for c in calls) == 5
+    )  # kept, and counted
 
 
 def test_code_reads_the_numbers_only_when_the_rule_and_the_quote_hold_one_each():
@@ -343,40 +406,6 @@ def test_on_the_local_model_a_cut_retry_answer_is_never_used_its_group_is_asked_
     assert max(sizes) > 2 and sum(s for s in sizes if s <= 2) == CL.RETRY_LOCAL
     with pytest.raises(StepFailed):
         CL.s3_checklist(_Cuts(), ident, sel, _Book(), "claude-sonnet-5-5")
-
-
-class _AttackCut(_Attack):
-    def ask(self, **kw):
-        from app.aim_review.engine import StepFailed
-
-        self.calls.append(kw)
-        if len(self.calls) == 1:
-            raise StepFailed("aim_attack: stop_max_tokens")
-        return {
-            "remove": [{"id": f"C{len(self.calls):03d}", "why": "invented"}],
-            "fix": [],
-            "add": [],
-        }
-
-
-def test_on_the_local_model_a_cut_attack_answer_of_one_batch_is_set_aside_and_the_others_count():
-    sel = _sel(120)
-    made = {"items": [{"id": f"C{k:03d}", "topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
-                       "rule_quote": "q", "applies_when": "always", "paper_fields": [], "kind": "limit",
-                       "source": "held standard"} for k in range(1, 9)]}  # fmt: skip
-    ident = {
-        "kind": "datasheet",
-        "equipment_type": None,
-        "subject": "invented",
-        "service": "",
-    }
-    local = _AttackCut()
-    with budget.using(budget.LOCAL):
-        got = CL.s3_attack(local, ident, sel, made, None, "local")
-        n = len(MT._batches(MT.material(sel, None)[0]))
-    assert (
-        len(local.calls) == n and len(got["attack"]["removed"]) == n - 1
-    )  # the cut one is not used
 
 
 def test_the_local_answer_shape_always_closes_items_and_text_are_bounded():

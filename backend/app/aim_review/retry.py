@@ -33,7 +33,8 @@ def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> lis
         ):  # still cut: never stops the run; each item is counted as left out
             from . import faults
 
-            for _ in bad:
+            for it in bad:
+                it["_cut"] = True  # counted here, not again as "not found" (`unfound`)
                 faults.record(
                     "aim_retry_dropped", "a checklist retry item", "answer cut"
                 )
@@ -132,7 +133,21 @@ def by_code(bad: list[dict], batch, found) -> tuple[list[dict], list[dict]]:
     return fixed, ask
 
 
-def capped(ask: list[dict], size: int) -> list[dict]:
+def unfound(asked: list[dict], ok: list[dict], why) -> None:
+    """On the local model: the items asked again whose answer came back (not cut) and still did not give a quote found, each
+    counted by its cause (review of update 11, N4: they were only in the checklist's 'dropped')."""
+    if not is_local():
+        return
+    from . import faults
+
+    answered = [it for it in asked if not it.pop("_cut", False)]
+    n, topics = max(0, len(answered) - len(ok)), {o.get("topic") for o in ok}
+    missing = [it for it in answered if it.get("topic") not in topics]
+    for it in (missing + [it for it in answered if it not in missing])[:n]:
+        faults.record("aim_retry_not_found", "a checklist retry item", why(it))
+
+
+def capped(ask: list[dict], size: int, why=None) -> list[dict]:
     """On the local model at most ONE retry call per batch (its first `size` items; lead-4, 26 Nov 2026, after F's run
     09105c4b): the other items keep their quote not found, are left out like any such item, and are counted under "Steps that
     did not run". On Claude: every item, as before."""
@@ -140,11 +155,13 @@ def capped(ask: list[dict], size: int) -> list[dict]:
         return ask
     from . import faults
 
-    for _ in ask[size:]:
+    for it in ask[
+        size:
+    ]:  # counted by cause (`citing.cause`): the page and the sheet say why
         faults.record(
             "aim_retry_capped",
             "a checklist retry item",
-            "the local model makes one retry call per batch",
+            why(it) if why else "not asked again",
         )
     return ask[:size]
 

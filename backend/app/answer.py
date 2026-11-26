@@ -1641,7 +1641,7 @@ def _finish_generated(raw: dict, passages: list[dict], *, base: dict, timer: Tim
             "verification": verification, "claims": claims, "claims_removed": removed,
             "numbers_unsupported": [r["value"] for r in numbers_removed],
             "notices": [*(base.get("notices") or []), *_numbers_notice(numbers_removed)],
-            "model": raw.get("model") or settings.answer_model,
+            "model": raw.get("model") or reasoning_provider.answer_model(),
             "provider": raw.get("provider") or reasoning_provider.OLLAMA,
             "cost_usd": raw.get("cost_usd"), "seconds": timer.seconds()}
 
@@ -2319,7 +2319,7 @@ def _answer_from_documents(
         # token cap; input truncation was invisible until now.
         "evidence_removed": evidence_removed,
         # WHAT THE ENGINE REPORTED, never what configuration asked for.
-        "model": raw.get("model") or settings.answer_model,
+        "model": raw.get("model") or reasoning_provider.answer_model(),
         "provider": raw.get("provider") or reasoning_provider.OLLAMA,
         "cost_usd": raw.get("cost_usd"),
         "prompt_tokens": raw.get("prompt_eval_count"),

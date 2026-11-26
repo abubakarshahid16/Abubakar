@@ -31,6 +31,7 @@ STEP_WORDS = {
     "aim_checklist_knowledge": "checklist",
     "aim_checklist_retry": "checklist",
     "aim_attack": "attack",
+    "aim_attack_items": "attack",
     "aim_judge": "judge",
     "aim_reference": "judge",
     "aim_answered": "whole-paper check",
@@ -94,7 +95,7 @@ def engine_of(conn, run: dict) -> dict:
         "local": True,
         "models": models,
         # the local model's measured note is in the score line (`measured`), which the page draws (review of update 9, M6)
-        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_NOT_SCORED}.{paper}",
+        "sentence": f"Local model ({named}): nothing left this computer, USD 0. {aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE}{paper}",
         "by_step": steps,
     }
 
@@ -126,3 +127,69 @@ def measured(identity: dict | None, local: dict) -> dict | None:
     return aim_review_measured.for_run(
         {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
     )
+
+
+# ---- the progress page of a running local review (lead-4, 26 Nov 2026: a long step must not look stuck)
+
+#: How many of the latest finished general runs are looked at for the last measured run of a model and kind.
+MEASURED_LOOK = 200
+NOT_MEASURED = "not yet measured"
+
+
+def _local_models_of(run: dict) -> set[str]:
+    return {
+        str(c.get("model") or "") for c in _calls(run) if c.get("engine") == "local"
+    } - {""}
+
+
+def measured_minutes(conn, kind: str | None, model: str) -> int | None:
+    """Whole minutes the LAST finished review of this kind took on this model on this Mac (a run whose local calls all used that one model,
+    which ended `done` with no stop reason and wrote its own checklist), or None when there is none. Read from the stored runs, never from a
+    table of its own."""
+    if not kind:
+        return None
+    rows = conn.execute(
+        "SELECT identity_json, calls_json, seconds, stop_reason FROM aim_runs WHERE status = 'done' AND seconds > 0"
+        " AND COALESCE(checklist_reused, 0) = 0"  # a run that reused a saved checklist skipped a step: not a measure
+        " ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ?",
+        (MEASURED_LOOK,),
+    ).fetchall()
+    for row in rows:
+        run = dict(row)
+        try:
+            identity = json.loads(run.get("identity_json") or "{}")
+        except ValueError:
+            continue
+        if (
+            isinstance(identity, dict)
+            and identity.get("kind") == kind
+            and not run.get("stop_reason")
+            and _local_models_of(run) == {model}
+        ):
+            return max(1, round(float(run["seconds"]) / 60))
+    return None
+
+
+def progress_note(conn, run_id: str) -> str | None:
+    """The one sentence a running LOCAL review's progress page adds: the model it runs on, and the minutes the last measured run of that
+    model and kind took on this Mac ("not yet measured" when there is none, or the kind is not named yet). None for a Claude run."""
+    from . import aim_review_jobs
+
+    if not aim_review_jobs.on_local(conn, run_id):
+        return None
+    row = conn.execute(
+        "SELECT identity_json FROM aim_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    try:
+        record = json.loads(row["identity_json"] or "{}") if row else {}
+    except (ValueError, TypeError):
+        record = {}
+    record = record if isinstance(record, dict) else {}
+    kind = record.get("kind")
+    # the models this run started with, from its own record (`aim_review_jobs` writes them at the start), never today's settings
+    models = sorted({str(m) for m in record.get("local_models") or [] if str(m).strip()})
+    minutes = measured_minutes(conn, kind, models[0]) if len(models) == 1 else None
+    named = ", ".join(models) or "(not recorded yet)"
+    if minutes is None:
+        return f"Local model {named}: {NOT_MEASURED} for this kind on this Mac."
+    return f"Local model {named}: about {minutes} min for this kind on this Mac (the last measured run of this model and kind)."

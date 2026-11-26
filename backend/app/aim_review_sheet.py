@@ -193,6 +193,16 @@ def team_note(p: dict) -> str | None:
     return " ".join(x for x in parts if x) or None
 
 
+def local_team_note(model: dict, note: str | None) -> str | None:
+    """A row's team note, led by `aim_review_gate.LOCAL_TEAM_NOTE` when the run was made on the local model (planner 26 Nov
+    2026): team file only. A Claude run's note is returned unchanged."""
+    if not (model.get("engine") or {}).get("local"):
+        return note
+    from app import aim_review_gate
+
+    return " ".join(x for x in (aim_review_gate.LOCAL_TEAM_NOTE, note) if x)
+
+
 def cut_words(cut: dict) -> str:
     """The mark of a side-claim cut (owner's completeness rule: no text cut without a visible mark and the full text beside it):
     the page the paper answers the part on and the comment's full text before the cut. Team file only."""
@@ -237,7 +247,7 @@ def comment_rows(model: dict, part: str = "comments") -> list[list]:
         cells = {
             "No.": p["n"], "Severity": p.get("severity"), "Title": p.get("title"), "Paper says": said or None,
             "Rule says": p.get("rule_says") or None, "We ask": ask or None, "Applies to": applies_text(p.get("applies_to")),
-            "Page": page, "Status": model["mark"], "Engineer decision": (p.get("decision") or {}).get("sentence"), "Team note (AI process)": team_note(p), "Lines": lines_cell(lines), "Field": p["field"],
+            "Page": page, "Status": model["mark"], "Engineer decision": (p.get("decision") or {}).get("sentence"), "Team note (AI process)": local_team_note(model, team_note(p)), "Lines": lines_cell(lines), "Field": p["field"],
             "Shown label": p["shown_label"], "Comment": comment, "Quote": quote, "Standard": p["standard"], "Clause": p["clause"],
             "Source": p["source"], "Item": p["item_id"], "Note": note,
         }  # fmt: skip
@@ -335,7 +345,7 @@ def _summary(ws: Worksheet, model: dict) -> None:
         ("Equipment type", model["identity"].get("equipment_type")),
         ("Subject", model["identity"].get("subject")),
         ("Method", model["method"]),
-        # a run on the local model names the model its engine reported and says it is not yet scored (a Claude run: no row)
+        # a run on the local model names the model its engine reported, with its rough-draft label (a Claude run: no row)
         *(
             [("Model", model["engine"]["sentence"])]
             if (model.get("engine") or {}).get("local")

@@ -27,6 +27,7 @@ from app import (
     reader_transport,
     reasoning_provider,
     review_engine,
+    review_engine_general,
 )
 from app.aim_review import budget, local_model, material, paper, prompts
 from app.aim_review import engine as method_engine
@@ -125,7 +126,9 @@ def _start_local(w, paper_id: str) -> str:
     assert plan["refused"] is None and plan["text_leaves"] is False
     assert (
         plan["documents"]["leaving"] == []
-        and aim_review_gate.LOCAL_PLAN_WORDS in plan["sentence"]
+        and "runs on the local model" in plan["sentence"]
+        and aim_review_gate.local_measured_note(review_engine_general._local_models())
+        in plan["sentence"]
     )
     r = client.post(
         "/api/reviews/start",
@@ -199,7 +202,7 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         REPORTED
     ]  # from the run, never the setting
     assert (
-        aim_review_gate.LOCAL_NOT_SCORED in page["measured"]["sentence"]
+        aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE in page["measured"]["sentence"]
         and page["measured"]["found"] is None
     )
     sheet = client.get(
@@ -213,7 +216,9 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         for v in row
         if v
     ]
-    assert any(REPORTED in c and aim_review_gate.LOCAL_NOT_SCORED in c for c in cells)
+    assert any(
+        REPORTED in c and aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE in c for c in cells
+    )
     assert any(
         c.startswith("name: " + REPORTED) for c in cells
     )  # the model of each step

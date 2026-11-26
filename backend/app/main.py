@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from . import agent_review_open_points as agent_open_points_mod
 from . import aim_review_dashboard as aim_review_dashboard_mod
 from . import aim_review_store as aim_review_store_mod
+from . import review_model_setting as review_model_setting_mod
 from . import chat as chat_mod
 from . import classification as classification_mod
 from . import absence as absence_mod
@@ -165,6 +166,7 @@ async def lifespan(app: FastAPI):
     if technical_queries_mod.enabled():  # the way-back switch (default off): no tables, no poller, no routes
         technical_queries_mod.ensure_schema()
     aim_review_store_mod.ensure_schema()  # order 14: the general review's tables (additive only)
+    review_model_setting_mod.ensure_schema()  # the Review model setting and its history (additive only)
     crs_issue_mod.ensure_indexes()  # order 109: an index for the review runs list
     # THE DISCIPLINE OVERLAY. `discipline_canonical` is derived from the raw
     # value at every write, so this backfill exists only for rows written

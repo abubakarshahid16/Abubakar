@@ -223,7 +223,7 @@ def for_local_run(identity: dict | None, models: list[str]) -> dict:
         "target": None,
         "verdict": NOT_MEASURED,
         "sentence": (
-            f"Reviewed on the local model on this computer ({named}): {aim_review_gate.LOCAL_NOT_SCORED}. "
+            f"Reviewed on the local model on this computer ({named}): {aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE} "
             "The scores of this kind were measured on Claude reviews and do not apply to it."
         ),
     }

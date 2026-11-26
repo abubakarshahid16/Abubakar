@@ -30,6 +30,8 @@ export interface ReviewProgressDetail {
 
 export interface ReviewJobState {
   progress_detail?: ReviewProgressDetail | null;
+  /** A running local review: its model and the minutes the last measured run of that model and kind took on this Mac (or "not yet measured"). */
+  local_note?: string | null;
   id: string;
   state: string;
   progress_done?: number | null;

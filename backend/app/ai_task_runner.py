@@ -60,7 +60,13 @@ from .ai import output_limits
 from .ai.json_reply import unfenced
 from .config import settings
 from .db import connect
-from .reasoning_provider import OllamaProvider, Packet, ProviderRefused, schema_errors
+from .reasoning_provider import (
+    OllamaProvider,
+    Packet,
+    ProviderRefused,
+    answer_model,
+    schema_errors,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -388,15 +394,15 @@ def model_status() -> dict:
     if _holds(names, configured):
         _logged.clear()  # recovered: a later fall-back is a change worth one line
         return status
-    if _holds(names, settings.answer_model):
+    if _holds(names, in_use := answer_model()):
         status.update(
-            used=settings.answer_model,
+            used=in_use,
             fallback=True,
             reason=f"{configured} is not installed on the engine",
         )
     else:
         status.update(
-            reason=f"neither {configured} nor {settings.answer_model} is installed"
+            reason=f"neither {configured} nor {in_use} is installed"
         )
     if _logged.get("reason") != status["reason"]:
         # Once per change, in the operator's log: never a silent fallback.

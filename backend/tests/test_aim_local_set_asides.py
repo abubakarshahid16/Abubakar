@@ -12,7 +12,7 @@ from app.aim_review import budget, faults
 from app.aim_review import checklist as CL
 from app.aim_review import retry as RT
 from app.aim_review.engine import StepFailed
-from tests.test_aim_local_fixes import _AttackCut, _Book, _Retry, _Runaway, _sel
+from tests.test_aim_local_fixes import _Book, _Retry, _Runaway, _sel
 
 IDENT = {
     "kind": "datasheet",
@@ -56,18 +56,27 @@ def test_cut_checklist_batches_are_counted_under_steps_that_did_not_run():
     )
 
 
-def test_a_cut_attack_batch_is_counted_once():
-    sel = _sel(120)
-    made = {"items": [{"id": f"C{k:03d}", "topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
-                       "rule_quote": "q", "applies_when": "always", "paper_fields": [], "kind": "limit",
-                       "source": "held standard"} for k in range(1, 9)]}  # fmt: skip
-    calls: list = []
-    with faults.recording(calls), budget.using(budget.LOCAL):
-        CL.s3_attack(_AttackCut(), IDENT, sel, made, None, "local")
-    said = _said(calls)["aim_attack_cut"]
-    assert said["count"] == 1
-    assert said["sentence"] == (
-        "1 attack batch was not used (answer cut): the checklist was not attacked on those rules."
+def test_an_attack_item_cut_or_given_no_verdict_is_counted_and_kept():
+    one = [
+        {
+            "step": "aim_attack_item_cut",
+            "ok": False,
+            "code": "an attack item not applied: answer cut",
+        }
+    ]
+    assert _said(one)["aim_attack_item_cut"]["sentence"] == (
+        "1 checklist item was not attacked (answer cut) and was kept as the first engineer wrote it."
+    )
+    two = [
+        {
+            "step": "aim_attack_no_verdict",
+            "ok": False,
+            "code": "an attack item not applied: no verdict in the answer",
+        }
+    ] * 2
+    assert _said(two)["aim_attack_no_verdict"]["sentence"] == (
+        "2 checklist items got no attack verdict (no verdict in the answer) and were kept as the first engineer "
+        "wrote them."
     )
 
 
@@ -85,9 +94,12 @@ def test_retry_items_whose_answer_stays_cut_are_left_out_counted_and_never_stop_
     assert said["sentence"].startswith(
         f"{CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found"
     )
-    assert capped["sentence"] == (
-        f"{14 - CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found on the book page and were not "
-        "asked again (the local model makes one retry call per batch)."
+    assert (
+        capped["sentence"]
+        == (  # with its cause (lead-4, 26 Nov 2026: the 117 of the 9B run could not be broken down)
+            f"{14 - CL.RETRY_LOCAL} checklist items were left out without a second ask (the local model makes one retry call per "
+            "batch): the quote is not in the book's words (paraphrased)."
+        )
     )
     with pytest.raises(StepFailed):  # Claude: a cut is raised, as before
         CL.s3_checklist(
@@ -142,16 +154,19 @@ def test_the_run_page_score_line_of_a_local_run_holds_the_local_models_measured_
     nine = {"local": True, "models": ["qwen3.5:9b-q4_K_M"], "by_step": {}}
     line = aim_review_local_view.measured({"kind": "datasheet"}, nine)["sentence"]
     assert (
-        aim_review_gate.LOCAL_NOT_SCORED in line
+        aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE in line
         and aim_review_gate.LOCAL_TEST_NOTE in line
+        and aim_review_gate.NOT_YET_SCORED
+        not in line  # a measured model never says "not yet scored"
     )
-    assert line.index(aim_review_gate.LOCAL_NOT_SCORED) < line.index(
+    assert line.index(aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE) < line.index(
         aim_review_gate.LOCAL_TEST_NOTE
     )
     other = {"local": True, "models": ["invented-local:1b"], "by_step": {}}
     line = aim_review_local_view.measured({"kind": "datasheet"}, other)["sentence"]
     assert aim_review_gate.LOCAL_TEST_NOTE not in line
     assert "Local model (invented-local:1b): not yet scored." in line
+    assert aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE in line
     claude = aim_review_local_view.measured({"kind": "datasheet"}, {"local": False})
     assert claude is None or aim_review_gate.LOCAL_TEST_NOTE not in (
         claude.get("sentence") or ""
@@ -323,3 +338,260 @@ def test_grammar_words_alone_never_make_a_match():
     with budget.using(budget.LOCAL):
         assert RT.by_code([words], BATCH, lambda it: True) == ([], [words])
     assert RT._words("The shall be for and of it") == set()
+
+
+def test_the_local_checklist_shape_requires_the_book_clause_page_quote_and_source_of_every_item():
+    """F's 9B run on update 10 (91f40e4f): optional keys were left out, so about 190 items had no book and no quote to find."""
+    from app.aim_review import answer_schema as A
+
+    for step in ("aim_checklist", "aim_checklist_retry", "aim_checklist_knowledge"):
+        item = A.for_step(step)["properties"]["items"]["items"]
+        assert (
+            {"book", "clause", "page", "rule_quote", "source"}
+            <= set(item["required"])
+            <= set(item["properties"])
+        )
+
+
+def test_a_kept_items_clause_must_hold_its_quote_or_it_is_cited_to_the_one_clause_that_does():
+    """F's 9B run on update 10: eleven items in a row cited one clause for unrelated subjects; the quote check read the page."""
+    from app.aim_review import citing
+
+    sel = _books(_sel(3))
+    words = {r["clause"]: r["source_text"] for r in sel["_pool"]}
+
+    class _Stamps(_Retry):  # every item quotes clause 4.2's words but cites clause 4.1
+        def ask(self, **kw):
+            self.calls.append(kw)
+            return {"items": [{"topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
+                               "rule_quote": words["4.2"][:60], "applies_when": "always", "paper_fields": ["f"],
+                               "kind": "limit", "source": "held standard"}]}  # fmt: skip
+
+    with budget.using(budget.LOCAL):
+        got = CL.s3_checklist(_Stamps(), IDENT, sel, _BookHoldsRules(sel), "local")
+    assert [i["clause"] for i in got["items"] if i["source"] == "held standard"] == [
+        "4.2"
+    ]
+    claude = CL.s3_checklist(
+        _Stamps(), IDENT, _books(_sel(3)), _BookHoldsRules(sel), "claude-sonnet-5-5"
+    )
+    assert [i["clause"] for i in claude["items"]] == ["4.1"]  # Claude: unchanged
+    batch = [_rule("R1", "B1", "4.1", 1, "Rule one words of the invented item here."),
+             _rule("R2", "B1", "4.2", 1, "Rule two words of the invented item here.")]  # fmt: skip
+    nowhere = {
+        "book": "B1",
+        "clause": "4.1",
+        "rule_quote": "words that are in no stored rule at all",
+    }
+    pages_only = {"book": "B9", "clause": "4.1", "rule_quote": "any words"}
+    with budget.using(budget.LOCAL):
+        assert (
+            citing.cited(dict(nowhere), batch) is False
+            and citing.cited(pages_only, batch) is True
+        )
+    assert citing.cited(dict(nowhere), batch) is True  # Claude: as before
+
+
+def test_items_left_out_are_counted_by_cause_on_the_page_and_the_sheet():
+    from app.aim_review import citing
+
+    class _Text:
+        def page(self, _b, n):
+            return {3: "The invented rule words stand on page three of the book."}.get(
+                n
+            )
+
+        def pages(self, _b):
+            return {3: self.page(None, 3)}
+
+    alias = {"B1": "doc_b1"}
+    items = [
+        {"book": "BX", "rule_quote": "q", "page": 3},
+        {"book": "B1", "rule_quote": "", "page": 3},
+        {
+            "book": "B1",
+            "rule_quote": "invented rule words stand on page three",
+            "page": 9,
+        },
+        {
+            "book": "B1",
+            "rule_quote": "invented rule words stand on page three",
+            "page": 3,
+        },
+        {"book": "B1", "rule_quote": "words of a paraphrase only", "page": 3},
+        {"book": "B1", "rule_quote": "another paraphrase of the rule", "page": 3},
+    ]
+    why = [citing.cause(it, _Text(), alias) for it in items]
+    assert why == [citing.NO_BOOK, citing.NO_QUOTE, citing.OTHER_PAGE, citing.NOT_IN_CLAUSE, citing.NOT_IN_BOOK,
+                   citing.NOT_IN_BOOK]  # fmt: skip
+    calls: list = []
+    with faults.recording(calls), budget.using(budget.LOCAL):
+        assert RT.capped(items, 0, lambda it: citing.cause(it, _Text(), alias)) == []
+    rows = [c.as_dict() for c in calls]
+    said = [
+        x
+        for x in aim_review_view.steps_not_applied(rows)
+        if x["step"] == "aim_retry_capped"
+    ]
+    assert sorted(x["count"] for x in said) == [1, 1, 1, 1, 2] and sum(
+        x["count"] for x in said
+    ) == len(items)
+    assert any(x["sentence"].startswith("2 checklist items were left out") and x["sentence"].endswith("(paraphrased).")
+               for x in said)  # fmt: skip
+
+
+def test_a_full_local_attack_answer_stays_under_the_answer_limit_even_at_one_token_per_character():
+    from app.aim_review import answer_schema as A
+    from app.aim_review import attack_local as AL
+
+    shape = A.for_step("aim_attack_items")["properties"]["verdicts"]
+    one = (
+        sum(v.get("maxLength", 6) for v in shape["items"]["properties"].values()) + 80
+    )  # keys, quotes, braces
+    assert (
+        shape["maxItems"] == AL.ATTACK_ITEMS
+        and AL.ATTACK_ITEMS * one + 40 < budget.LOCAL.max_tokens
+    )
+
+
+class _RemoveAll:
+    """The update 11 reviewer's probe: the local attack answers "remove" for every item it is shown."""
+
+    def __init__(self):
+        self.calls = []
+
+    def ask(self, **kw):
+        import re
+
+        self.calls.append(kw)
+        shown = kw["prompt"].split("THE ITEMS:")[-1].split("Books:")[0]
+        return {"verdicts": [{"id": i, "verdict": "remove", "why": "invented", "what_to_check": ""}
+                             for i in re.findall(r'"id": "(C[0-9]+)"', shown)]}  # fmt: skip
+
+
+def _item(n: int, clause: str, source: str = "held standard") -> dict:
+    held = source == "held standard"
+    return {"id": f"C{n:03d}", "topic": f"t{n}", "what_to_check": "w", "book": "B1" if held else "", "clause": clause if held else "",
+            "page": 1, "rule_quote": "q" if held else "", "applies_when": "always", "paper_fields": [], "kind": "limit",
+            "source": source}  # fmt: skip
+
+
+def test_the_local_attack_removes_only_items_whose_own_rule_it_was_shown_and_never_touches_knowledge_items():
+    """Review of update 11, B1: a fixed group of 12 under the 9,000-character material cut showed 11 of 12 rules, knowledge items
+    got no material, and "remove" (the clause does not say it) was applied to items whose clause was never shown."""
+    import re
+
+    sel = _sel(40)
+    shown = [
+        _item(k + 1, f"4.{k}") for k in range(30)
+    ]  # each cites a stored rule (about 470 characters)
+    unheld = [
+        _item(31, "9.9"),
+        _item(32, "9.8"),
+    ]  # held items whose clause has no stored rule: never shown
+    knowledge = [
+        _item(33, "", "not from a held standard"),
+        _item(34, "", "engineering knowledge (book not held)"),
+    ]
+    made = {"items": shown + unheld + knowledge}
+    calls: list = []
+    model = _RemoveAll()
+    with faults.recording(calls), budget.using(budget.LOCAL):
+        got = CL.s3_attack(model, IDENT, sel, made, None, "local")
+    kept = {i["id"] for i in got["items"]}
+    assert {i["id"] for i in unheld + knowledge} <= kept  # kept as written
+    assert not kept & {
+        i["id"] for i in shown
+    }  # each removed only after its own rule was shown
+    for c in (
+        model.calls
+    ):  # every item in a prompt has its own clause's rule in that prompt's material
+        items = c["prompt"].split("THE ITEMS:")[-1].split("Books:")[0]
+        material = c["prompt"].split("THE CLAUSES:")[-1]
+        for clause in re.findall(r'"clause": "([0-9.]+)"', items):
+            assert f'"clause": "{clause}"' in material, clause
+        assert (
+            "C033" not in items and "C034" not in items
+        )  # knowledge items are not in the local attack
+    knowledge_said = _said(calls)["aim_attack_knowledge"]
+    assert (
+        knowledge_said["count"] == 2
+        and knowledge_said["sentence"]
+        == "2 knowledge items were not attacked (no held rule)."
+    )
+    said = _said(calls)["aim_attack_not_shown"]
+    assert said["count"] == 2 and said["sentence"] == (
+        "2 checklist items were not attacked (its rule could not be shown) and were kept as the first engineer wrote them."
+    )
+
+
+def test_a_quote_held_only_by_a_rule_with_no_clause_number_is_kept_and_cited_by_page():
+    """Review of update 11, B2 (recheck at e152317c): most stored rules have no clause number (78,104 of 116,716 in the live
+    library), and N2 dropped every item whose only holding rule was one of them. Such an item is kept, cited by its page, and
+    never re-cited to a numbered clause; a numbered clause that holds the quote still wins."""
+    from app.aim_review import citing
+
+    words = "Words of an invented rule with no clause number."
+    rows = [
+        _rule("R1", "B1", "", 1, words),
+        _rule("R2", "B1", "4.2", 1, "Other invented words of a numbered rule."),
+    ]
+    it = {"book": "B1", "clause": "4.1", "rule_quote": words}
+    with budget.using(budget.LOCAL):
+        assert (
+            citing.cited(it, rows) is True and it["clause"] == ""
+        )  # cited by page, not by the clause it gave nor by 4.2
+        both = [*rows, _rule("R3", "B1", "4.3", 1, words)]
+        numbered = {"book": "B1", "clause": "", "rule_quote": words}
+        assert (
+            citing.cited(numbered, both) is True and numbered["clause"] == "4.3"
+        )  # a numbered clause holding it wins
+        nowhere = {
+            "book": "B1",
+            "clause": "4.1",
+            "rule_quote": "words that no stored rule holds at all",
+        }
+        assert citing.cited(nowhere, rows) is False and nowhere["clause"] == "4.1"
+
+
+def test_the_local_attack_shows_an_item_cited_by_page_its_own_no_clause_rule():
+    import re
+
+    words = "The invented item shall carry a stamped invented plate."
+    sel = _sel(4)
+    sel["_pool"].append({"book": "b1", "subject": "s", "tagged": True, "page": 1, "clause": "", "id": "rX",
+                         "source_text": words, "requirement_text": ""})  # fmt: skip
+    item = {**_item(1, ""), "rule_quote": words}
+    model = _RemoveAll()
+    with budget.using(budget.LOCAL):
+        got = CL.s3_attack(model, IDENT, sel, {"items": [item]}, None, "local")
+    assert (
+        len(model.calls) == 1
+        and words in model.calls[0]["prompt"].split("THE CLAUSES:")[-1]
+    )  # its own rule was shown
+    assert got["items"] == [] and re.search(
+        r'"id": "C001"', model.calls[0]["prompt"]
+    )  # so its verdict applies
+
+
+def test_items_asked_again_and_still_not_found_are_counted_by_cause():
+    asked = [{"topic": "a"}, {"topic": "b"}, {"topic": "c", "_cut": True}]
+    calls: list = []
+    with faults.recording(calls), budget.using(budget.LOCAL):
+        RT.unfound(
+            asked,
+            [{"topic": "a"}],
+            lambda it: "the quote is not in the book's words (paraphrased)",
+        )
+    said = _said(calls)["aim_retry_not_found"]
+    assert said["count"] == 1 and said["sentence"] == (
+        "1 checklist item was left out after a second ask: the quote is not in the book's words (paraphrased)."
+    )  # "b" only: "a" was fixed and "c" is counted as cut, never twice
+
+
+def test_an_old_local_review_says_its_one_fixed_reason_once():
+    old = [{"step": "aim_retry_capped", "ok": False,
+            "code": "a checklist retry item not applied: the local model makes one retry call per batch"}] * 3  # fmt: skip
+    assert _said(old)["aim_retry_capped"]["sentence"] == (
+        "3 checklist items were left out without a second ask (the local model makes one retry call per batch)."
+    )
