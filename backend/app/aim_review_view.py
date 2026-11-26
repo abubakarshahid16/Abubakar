@@ -681,7 +681,7 @@ def build(conn, run: dict, scope=None) -> dict:
     ]
     # a "not judged" Question stays a point, never a comment; one point's lines make ONE comment; each comment gets its card
     comments, confirmations = signed_groups(conn, run, points)
-    by_severity = aim_review_card.add(comments, confirmations, points)  # fmt: skip
+    by_severity = aim_review_card.add(comments, confirmations, points, aim_review_signoff.card_rules(conn, run["run_id"]))  # fmt: skip
     aim_review_decisions.attach(conn, run["run_id"], comments, confirmations)
     comments, rejected_before = learner_split(conn, run, comments, scope, by_severity)
     by_label = {
