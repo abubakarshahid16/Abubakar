@@ -80,7 +80,8 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   return (
     <li className={NEW_LOOK ? "rounded-[var(--radius-md)] bg-ink-800 p-4 shadow-[var(--shadow-resting)]" : "rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4"} data-testid="landing-row">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
+        {/* the text keeps at least 20rem: on a narrow window the buttons drop under it instead of squeezing it (H's gate, 27 Nov 2026) */}
+        <div className="min-w-0 flex-[1_1_20rem]">
           <p className="truncate font-semibold text-slateish-100">{row.filename}</p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slateish-400">
             <StatusChip tone={chip.tone} text={chip.text} />
