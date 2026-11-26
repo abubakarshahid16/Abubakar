@@ -367,6 +367,10 @@ def test_prepare_all_queues_only_unprepared_queries_and_says_the_count_first(
     done = J.enqueue(b["id"], frozenset(), "u1", True, False)
     with db.connect() as conn:
         conn.execute("UPDATE query_evidence_jobs SET state='done' WHERE id=?", (done,))
+        # a prepared query with no draft and no reason why is not ready either (owner, 26 Nov 2026 21:36: the draft follows the evidence)
+        assert J.all_plan(conn)["unprepared"] == 2
+        # the job writes the draft, or the reason none was written, at its end: then it is done
+        conn.execute("UPDATE technical_queries SET draft_note='no passage was found' WHERE id=?", (b["id"],))
         assert J.all_plan(conn) == {
             "unprepared": 1,
             "minutes_each": None,

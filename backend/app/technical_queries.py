@@ -8,6 +8,7 @@ remain separate stages so untrusted messages cannot trigger actions.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -229,6 +230,9 @@ def _ensure_schema() -> None:
             "confirmed_question",
             "confirmed_question_by",
             "confirmed_question_at",
+            "edited_question",  # an engineer's own wording, saved but not confirmed (technical_query_auto)
+            "evidence_question",  # the wording the current evidence was found for
+            "draft_note",  # why the system wrote no draft, in plain words
         ):
             if column not in columns:
                 conn.execute(f"ALTER TABLE technical_queries ADD COLUMN {column} TEXT")
@@ -250,6 +254,8 @@ def _ensure_schema() -> None:
         }
         if "attachment_checked_at" not in evidence_columns:
             conn.execute("ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT")
+        if "found_for" not in evidence_columns:  # the fingerprint of the wording that last found the passage (technical_query_auto.key)
+            conn.execute("ALTER TABLE query_evidence ADD COLUMN found_for TEXT")
         if "rank_score" not in evidence_columns:
             conn.execute("ALTER TABLE query_evidence ADD COLUMN rank_score REAL")  # the reranker's own score of the passage for this question
         for column in ("match_count", "match_terms", "match_ok"):  # how many of the question's key terms the passage holds (technical_query_match)
@@ -285,6 +291,8 @@ def _ensure_schema() -> None:
             conn.execute(
                 "ALTER TABLE query_drafts ADD COLUMN citations_json TEXT NOT NULL DEFAULT '[]'"
             )
+        if "question" not in draft_columns:  # the wording the draft answers
+            conn.execute("ALTER TABLE query_drafts ADD COLUMN question TEXT")
         mailbox_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(gmail_mailboxes)")
         }
@@ -926,6 +934,13 @@ def get(
             row["supersession_state"] = passage_standing(
                 row["supersession_state"], _source_supersession(conn, row["document_id"])
             )
+        from . import technical_query_auto as _auto
+
+        now_key = _auto.key(_auto.working(result)[0])
+        for row in result["evidence"]:  # found for the wording the system works from now (an older wording's finds fold away)
+            row["for_current_question"] = row.get("found_for") == now_key
+        for draft in result["drafts"]:
+            draft["system"] = bool(draft.get("model"))  # written by a model, not typed by an engineer
         result["decisions"] = [
             dict(r)
             for r in conn.execute(
@@ -949,7 +964,8 @@ def get(
                 "SELECT * FROM query_events WHERE query_id=? ORDER BY id", (query_id,)
             )
         ]
-        return result
+    result["ready"] = _auto.ready(result)  # question, evidence and draft: there, refreshing, and made for the current wording
+    return result
 
 
 def add_evidence(
@@ -1216,14 +1232,25 @@ def original_email_question(saved: str | None) -> str:
     return text
 
 
-def propose_question(email_question: str, proposals: list[dict[str, Any]] | None = None) -> str:
-    """The wording evidence is searched for until an engineer confirms one: the email's own question, then the questions the model found in
-    the attachment that the email does not already say, each numbered on its own line. No attachment page is copied in bulk (F4), and no
-    label or file name. It is a proposal, not an answer to anything."""
+def propose_question(email_question: str, proposals: list[dict[str, Any]] | None = None, about: str | None = None) -> str:
+    """The wording evidence is searched for until an engineer confirms one, and the ONE home of what the page shows as the proposed ask
+    (builder C's screen reads it as `ready.question`): the email's own question, then the questions the model found in the attachment that
+    the email does not already say, each once and numbered on its own line, every one kept (none is cut: a missed request is the worst
+    fault). When the email asks nothing, a lead-in makes the list read as a question (owner, 26 Nov 2026 21:29, item 2): "About <the
+    query's title>, the contractor asks for the following:". No attachment page is copied in bulk (F4), and no label or file name. It is a
+    proposal, not an answer to anything."""
     own = (email_question or "").strip()
-    lines = [own] if own else []
     said = _squash(own).casefold()
-    extra = [p["question"] for p in proposals or [] if _squash(p["question"]).casefold() not in said]
+    extra: list[str] = []
+    for p in proposals or []:
+        q = (p.get("question") or "").strip()
+        if q and _squash(q).casefold() not in said and _squash(q).casefold() not in {_squash(e).casefold() for e in extra}:
+            extra.append(q)
+    lead = own
+    if extra and not lead:
+        title = re.sub(r"^\s*((fw|fwd|re)\s*:\s*)+", "", (about or "").strip(), flags=re.IGNORECASE).strip()
+        lead = f"About {title}, the contractor asks for the following:" if title else "The contractor asks for the following:"
+    lines = [lead] if lead else []
     lines += [f"{n}. {q}" for n, q in enumerate(extra, 1)]
     text = "\n".join(lines)
     if len(text) > MAX_PROPOSED_QUESTION:
@@ -1245,7 +1272,8 @@ def confirm_question(
     current = get(query_id, user_id, is_admin, unrestricted)
     if current is None:
         return None
-    if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
+    # awaiting review too: a model wrote the draft before anyone confirmed (technical_query_auto); confirming another wording refreshes it
+    if current["status"] not in {"received", "triage", "drafting", "changes_requested", "awaiting_review"}:
         raise ValueError("the question cannot be confirmed in the current query state")
     text = question.strip()
     if not text:
@@ -1396,9 +1424,13 @@ def prepare_evidence(
     proposals, proposal_note = technical_query_questions.from_pages(context, progress)
     # when the mail asks nothing, the attached form's own question field: never the mail's introduction (lead-4, 26 Nov 2026)
     fallback = "" if proposals else technical_query_questions.form_question(context)
-    proposal = propose_question(email_question or fallback, proposals)
-    # An engineer's confirmed wording, when there is one, is what evidence is found for.
-    question = current.get("confirmed_question") or proposal
+    proposal = propose_question(email_question or fallback, proposals, current.get("title_short") or current.get("subject"))
+    # An engineer's confirmed wording, else their own saved wording, else the proposal, is what evidence is found for
+    # (technical_query_auto.working: confirming is never needed first; owner, 26 Nov 2026 21:36)
+    question = current.get("confirmed_question") or current.get("edited_question") or proposal
+    from .technical_query_auto import key as _wording_key
+
+    found_for = _wording_key(question)
     # no question but an attachment: what was read, the pages not read and why nothing was proposed are stored for the engineer to write
     # the question; nothing is searched for (lead-4, 26 Nov 2026: the mail's introduction is never searched for instead)
     if not question and not attachments_in:
@@ -1425,7 +1457,7 @@ def prepare_evidence(
     with connect() as conn:
         conn.execute(
             "UPDATE technical_queries SET extracted_question=?,attachment_context=?,"
-            "proposed_question=?,proposed_questions=?,proposal_note=?,evidence_coverage=?,attachment_reading=?,status='drafting',updated_at=? WHERE id=?",
+            "proposed_question=?,proposed_questions=?,proposal_note=?,evidence_coverage=?,attachment_reading=?,evidence_question=?,status='drafting',updated_at=? WHERE id=?",
             (
                 email_question or None,
                 json.dumps(context),
@@ -1434,6 +1466,7 @@ def prepare_evidence(
                 proposal_note or None,
                 json.dumps(coverage),
                 json.dumps(reading),
+                question or None,
                 now(),
                 query_id,
             ),
@@ -1503,13 +1536,13 @@ def prepare_evidence(
                         (standing, known["id"]),
                     )
                 conn.execute(  # the match for THIS question and a locator when there was none; never an overwrite of a locator
-                    "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,rank_score=?,locator=COALESCE(locator,?) WHERE id=?",
-                    (sc["count"], sc["terms"], int(sc["matches"]), passage.get("rerank_score"), locator, known["id"]),
+                    "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,rank_score=?,locator=COALESCE(locator,?),found_for=? WHERE id=?",
+                    (sc["count"], sc["terms"], int(sc["matches"]), passage.get("rerank_score"), locator, found_for, known["id"]),
                 )
                 continue
             evidence_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at,match_count,match_terms,match_ok,rank_score) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?,?,?,?,?)",
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at,match_count,match_terms,match_ok,rank_score,found_for) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?,?,?,?,?,?)",
                 (
                     evidence_id,
                     query_id,
@@ -1525,6 +1558,7 @@ def prepare_evidence(
                     sc["terms"],
                     int(sc["matches"]),
                     passage.get("rerank_score"),
+                    found_for,
                 ),
             )
         coverage.update(technical_query_match.coverage_of(terms, scores))  # counts, as information only
@@ -1556,12 +1590,17 @@ def add_draft(
     citations: list[dict[str, Any]] | None = None,
     model: str | None = None,
     prompt_version: str | None = None,
+    question: str | None = None,
 ) -> dict[str, Any] | None:
     current = get(query_id, user_id, is_admin, unrestricted)
     if current is None:
         return None
     if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
         raise ValueError("a draft cannot be added in the current query state")
+    if question is None:  # the wording the draft answers: the one the system works from now
+        from .technical_query_auto import working
+
+        question = working(current)[0] or None
     with connect() as conn:
         version = conn.execute(
             "SELECT COALESCE(MAX(version),0)+1 AS v FROM query_drafts WHERE query_id=?",
@@ -1569,7 +1608,7 @@ def add_draft(
         ).fetchone()["v"]
         did = str(uuid.uuid4())
         conn.execute(
-            "INSERT INTO query_drafts(id,query_id,version,answer,assumptions_json,unresolved_json,citations_json,model,prompt_version,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_drafts(id,query_id,version,answer,assumptions_json,unresolved_json,citations_json,model,prompt_version,created_by,created_at,question) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 did,
                 query_id,
@@ -1582,6 +1621,7 @@ def add_draft(
                 prompt_version,
                 actor_user_id,
                 now(),
+                question,
             ),
         )
         conn.execute(
@@ -1708,6 +1748,10 @@ def decide(
         "close": "resolved",
     }[decision]
     with connect() as conn:
+        if decision == "approve" and current is not None:  # the approval confirms the wording the draft answers (technical_query_auto)
+            from .technical_query_auto import approve_question
+
+            approve_question(conn, current, actor_user_id)
         conn.execute(
             "INSERT INTO query_decisions(id,query_id,draft_id,actor_user_id,decision,comment,created_at) VALUES (?,?,?,?,?,?,?)",
             (

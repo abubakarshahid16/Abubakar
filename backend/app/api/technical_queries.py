@@ -28,6 +28,7 @@ from .. import (
     gmail_sync,
     gmail_import_jobs,
     technical_queries,
+    technical_query_auto,
     technical_query_claude,
     technical_query_contracts,
     technical_query_docx,
@@ -903,6 +904,28 @@ def confirm_query_question(
         raise _refuse(409, str(exc)) from exc
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
+    if (item.get("evidence_question") or "") != (item.get("confirmed_question") or ""):  # confirmed another wording: refresh from it
+        technical_query_auto.refresh(query_id, scope.readable_with_attachments, scope.user_id, scope.is_admin, scope.unrestricted)
+        item = technical_queries.get(query_id, *_visible(scope)) or item
+    return _safe_item(item, scope)
+
+
+@router.post("/api/technical-queries/{query_id}/question", response_model=QueryOut)
+def edit_query_question(
+    query_id: str,
+    body: QuestionIn,
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """An engineer saves their own wording of the question WITHOUT confirming it; the evidence and the local draft refresh from it at once
+    (owner, 26 Nov 2026 21:36: the proposed question stays editable, and evidence and draft follow it). Confirming stays a separate step."""
+    _require_identity_to_write(scope)
+    try:
+        item = technical_query_auto.edit(query_id, body.question, scope.readable_with_attachments, scope.user_id, scope.is_admin,
+                                         scope.unrestricted, scope.user_id)  # fmt: skip
+    except ValueError as exc:
+        raise _refuse(409, str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="technical query not found")
     return _safe_item(item, scope)
 
 
@@ -945,23 +968,27 @@ def generate_query_draft(
     current = technical_queries.get(query_id, *_visible(scope))
     if current is None:
         raise HTTPException(status_code=404, detail="technical query not found")
+    technical_query_auto.reopen(current)  # a new draft replaces a model-written one that is awaiting review
     with connect() as conn:
         attachment_documents = technical_queries.query_attachment_document_ids(conn)
-    usable_evidence = [
-        item
-        for item in current.get("evidence", [])
-        if item["document_id"] not in attachment_documents
-        and item["evidence_state"] == "verified"
-        and item["supersession_state"] == "current"
-        and item["document_id"] in scope.allowed_document_ids
-    ]
-    if not usable_evidence:
-        raise _refuse(409, _no_usable_evidence(current, attachment_documents, scope))
-    question = (current.get("confirmed_question") or "").strip()
+    # the wording the system works from: confirmed, else the engineer's own, else the proposal (confirming is never needed first)
+    question, _source = technical_query_auto.working(current)
     if not question:
-        raise _refuse(
-            409, "an engineer must confirm the question before a draft is generated"
-        )
+        raise _refuse(409, technical_query_auto.NO_QUESTION)
+    if engine == "claude":  # the Claude lane is unchanged: only kept, current passages, and only the contracts the engineer chooses
+        usable_evidence = [
+            item
+            for item in current.get("evidence", [])
+            if item["document_id"] not in attachment_documents
+            and item["evidence_state"] == "verified"
+            and item["supersession_state"] == "current"
+            and item["document_id"] in scope.allowed_document_ids
+        ]
+    else:  # the local model: the kept passages, else the best the system found for this wording (each draft says which)
+        usable_evidence = technical_query_auto.draft_passages(current, scope.allowed_document_ids, attachment_documents)
+    if not usable_evidence:
+        raise _refuse(409, _no_usable_evidence(current, attachment_documents, scope) if engine == "claude"
+                      else technical_query_auto.NO_PASSAGE)  # fmt: skip
     scope_ids = frozenset(item["document_id"] for item in usable_evidence)
     chosen: frozenset[str] = frozenset()
     if engine == "claude":
@@ -999,43 +1026,14 @@ def generate_query_draft(
             "the evidence was insufficient for a grounded draft"
             + (f": {reason}" if reason else ""),
         )
-    passages = result.get("passages") or []
-    cited = result.get("cited") or []
-    citations = []
-    for index in cited:
-        if not isinstance(index, int) or index < 1 or index > len(passages):
-            break
-        passage = passages[index - 1]
-        match = next(
-            (
-                evidence
-                for evidence in usable_evidence
-                if evidence["document_id"] == passage.get("document_id")
-                and evidence["page_start"] is not None
-                and passage.get("page_start") is not None
-                and evidence["page_start"] <= passage.get("page_end", 0)
-                and evidence["page_end"] >= passage["page_start"]
-                and evidence["exact_quote"] in (passage.get("text") or "")
-            ),
-            None,
-        )
-        if match is None:
-            break
-        citations.append(
-            {
-                "label": f"S{index}",
-                "evidence_id": match["id"],
-                "document_id": match["document_id"],
-                "page": match["page_start"],
-                "exact_quote": match["exact_quote"],
-            }
-        )
-    if (not cited and not result.get("not_found")) or len(citations) != len(cited):
+    citations = technical_query_auto.citations_of(result, usable_evidence)
+    if citations is None:
         raise _refuse(
             409,
             "the generated answer cited passages outside the query's verified evidence",
         )
     unresolved = [result.get("reason")] if result.get("reason") else []
+    unresolved += technical_query_auto.marks(current, {c["evidence_id"] for c in citations})
     if engine == "claude" and not str(result.get("model") or "").lower().startswith("claude"):
         unresolved.append("Claude did not write this draft (the lane was closed or refused); the local model did.")
     item = technical_queries.add_draft(
@@ -1047,6 +1045,7 @@ def generate_query_draft(
         *_visible(scope),
         citations=citations,
         model=result.get("model"),
+        question=question,
     )
     if item is None:
         raise HTTPException(status_code=404, detail="technical query not found")
@@ -1092,9 +1091,8 @@ def prepare_query_evidence(
     current = technical_queries.get(query_id, *_visible(scope))
     if current is None:
         raise HTTPException(status_code=404, detail="technical query not found")
-    if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
+    if not technical_query_auto.refresh(query_id, scope.readable_with_attachments, scope.user_id, scope.is_admin, scope.unrestricted):
         raise _refuse(422, "evidence cannot be prepared in the current query state")
-    technical_query_jobs.enqueue(query_id, scope.readable_with_attachments, scope.user_id, scope.is_admin, scope.unrestricted)
     return _safe_item(technical_queries.get(query_id, *_visible(scope)) or current, scope)
 
 

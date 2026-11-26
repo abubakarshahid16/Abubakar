@@ -251,6 +251,10 @@ async def lifespan(app: FastAPI):
         from . import technical_query_jobs
 
         technical_query_jobs.recover_interrupted()
+        if technical_query_jobs.AUTO_START:  # the queries not yet ready are queued, one at a time (no "Prepare all" click needed)
+            from . import technical_query_auto
+
+            technical_query_auto.queue_backlog()
         technical_query_jobs.start()
         from . import gmail_import_jobs
 
