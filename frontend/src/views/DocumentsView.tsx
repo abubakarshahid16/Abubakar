@@ -524,7 +524,7 @@ export function DocumentsView({
         <>
           {uploader}
           {finder}
-          <InfoFold title="Background reader: what is being read now">{workerPanel}</InfoFold>
+          <InfoFold title="What is being read now">{workerPanel}</InfoFold>
         </>
       ) : (
         <>
