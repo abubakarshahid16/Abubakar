@@ -1381,9 +1381,8 @@ def prepare_evidence(
             ),
         )
         listed = 0  # the best LISTED passages that stand on their pages are listed (from the fair-share pool of MAX_PASSAGES)
-        for passage in hits[: technical_query_contracts.MAX_PASSAGES]:
-            floor = technical_query_contracts.below_floor(hits, listed, passage)
-            if listed >= technical_query_contracts.LISTED or floor:
+        for passage in hits:  # the cited clauses first (never held back), then the fair-share pool of MAX_PASSAGES
+            if technical_query_contracts.held_back(hits, listed, passage):
                 break
             quote = (passage.get("text") or "").strip()
             if not quote:
@@ -1415,8 +1414,8 @@ def prepare_evidence(
             sc = technical_query_match.score(terms, quote)
             scores.append(sc)
             # the clause holding the matched words wins over the clause the search named for the passage's start (review of evidence run 5: Q1)
-            locator = (
-                _matched_clause(conn, passage, quote, terms)
+            locator = (  # a cited clause's passage is located at the cited clause
+                (passage.get("cited") and passage.get("locator")) or _matched_clause(conn, passage, quote, terms)
                 or passage.get("locator")
                 or _locator_of(conn, passage, quote, terms)
             )

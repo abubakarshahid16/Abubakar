@@ -59,10 +59,12 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     return line
 
 
-def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[str, Any]:
+def search_all(question: str, allowed: frozenset[str], progress=None, cited: list[str] | None = None) -> dict[str, Any]:
     """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, then
-    `fair_share` (every part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all). A search that fails is counted, logged by type, and never stops the others."""
-    from . import search
+    `fair_share` (every part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all). A search that fails is counted, logged by type, and never stops the others.
+    FIRST, each clause the query cites (`cited`, else the numbers the question cites) from EVERY part that holds it, with its clause and
+    page (`technical_query_cited`, goal G6); a searched passage on the same page of the same part is not listed twice."""
+    from . import search, technical_query_cited
 
     contracts = contract_ids(allowed)
     hits: list[dict] = []
@@ -97,13 +99,18 @@ def search_all(question: str, allowed: frozenset[str], progress=None) -> dict[st
         searched += 1
         hits_in += 1 if found else 0
         per_part.append(found)
-    hits = fair_share(per_part)
+    numbers = technical_query_cited.cited_numbers(question) if cited is None else list(cited)
+    found = technical_query_cited.in_every_part(numbers, contracts, question)
+    taken = {(h["document_id"], h["page_start"]) for h in found["hits"]}
+    hits = found["hits"] + [h for h in fair_share(per_part) if (h.get("document_id"), h.get("page_start")) not in taken]
+    line = coverage_line(searched, len(contracts), hits_in, failed)
     coverage = {
         "searched": searched,
         "of": len(contracts),
         "hits_in": hits_in,
         "failed": failed,
-        "line": coverage_line(searched, len(contracts), hits_in, failed),
+        "line": f"{line} {technical_query_cited.coverage_line(found['cited'])}".strip(),
+        "cited": found["cited"],
     }
     return {"hits": hits, "coverage": coverage}
 
@@ -148,8 +155,23 @@ def below_floor(hits: list[dict], listed: int, hit: dict) -> bool:
     )
 
 
+def _searched(hits: list[dict], listed: int) -> tuple[list[dict], int]:
+    """The searched passages (a cited clause's passage set apart) and how many of `listed` were searched ones (the cited come first)."""
+    searched = [h for h in hits if not h.get("cited")]
+    return searched, max(0, listed - (len(hits) - len(searched)))
+
+
+def held_back(hits: list[dict], listed: int, hit: dict) -> bool:
+    """True when `hit` is not listed: a cited clause's passage never; a searched one past LISTED searched passages, or below the floor."""
+    if hit.get("cited"):
+        return False
+    searched, n = _searched(hits, listed)
+    return n >= LISTED or below_floor(searched, n, hit)
+
+
 def floor_note(hits: list[dict], listed: int) -> str:
     """The sentence that says how many found passages the floor left out (counted, never silent); "" when none."""
+    hits, listed = _searched(hits, listed)
     pool = hits[:MAX_PASSAGES]
     left = sum(
         1
