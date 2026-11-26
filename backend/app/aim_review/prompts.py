@@ -287,6 +287,9 @@ ANSWER_KEYS: dict[str, frozenset[str]] = {
     "aim_attack": frozenset({"remove", "fix", "add"}),
     "aim_attack_items": frozenset({"verdicts"}),
     "aim_judge": frozenset({"judgments"}),
+    "aim_checklist_missed": frozenset(
+        {"judgments"}
+    ),  # role 5 of the nine roles: the judge's question asked again
     "aim_answered": frozenset({"verdicts"}),
     "aim_second_read": frozenset({"reads"}),
     "aim_edit": frozenset({"moves", "groups"}),

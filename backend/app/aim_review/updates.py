@@ -98,3 +98,22 @@ def nine_end(run_id: str, result: dict) -> None:
         from . import roles
 
         roles.finish(run_id, result)
+
+
+def nine_missed(
+    model,
+    paper,
+    checklist: dict,
+    text,
+    items: list[dict],
+    lines: list[dict],
+    stop: str,
+    **judge,
+):
+    """Role 5 of the nine roles (`missed.ask_again`): after the judge, the items it left "not judged" are asked once more as the
+    checklist; off: `(lines, stop)` as given, nothing imported."""
+    if not nine_roles():
+        return lines, stop
+    from . import missed
+
+    return missed.ask_again(model, paper, checklist, text, items, lines, stop, **judge)

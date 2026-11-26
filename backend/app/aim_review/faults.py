@@ -81,6 +81,7 @@ def record(step: str, what: str, exc: BaseException | str) -> None:
 #: (Moved from `aim_review_view`, update 9, to keep that file under its size limit.) What a run's checking step that did not run means for the sheet, in plain words (a failed AI step is shown and never makes a
 #: comment more confident: its lines stay as the step before left them).
 NOT_APPLIED_WORDS = {
+    "aim_checklist_missed": "The checklist did not ask again on this sheet ({why}): the items the judge left not judged stay not judged.",
     "aim_second_read": "The second reader did not run on this sheet ({why}): its findings are sent as the first reader judged "
     'them, none is marked "two readers agree".',
     "aim_answered": "The whole-paper check did not run on this sheet ({why}): no comment was taken off for a claim the paper "
