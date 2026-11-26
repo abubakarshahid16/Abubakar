@@ -97,6 +97,13 @@ export interface EvidenceForMarks {
   match_count?: number | null;
   match_terms?: number | null;
   evidence_state: string;
+  /** False when found for an earlier wording (builder A): never counted for the current question's marks. */
+  for_current_question?: boolean | null;
+}
+
+/** The sources found for the wording the page works from (builder A's for_current_question; all of them on an older server). */
+export function currentSources<T extends { for_current_question?: boolean | null }>(evidence: T[] | null | undefined): T[] {
+  return (evidence ?? []).filter((e) => e.for_current_question !== false);
 }
 
 export interface MarksSource extends QuestionSource {
@@ -110,7 +117,7 @@ export interface MarksSource extends QuestionSource {
 export const QUESTION_KEY_WORDS_MAX = 60;
 
 export function staleSources(q: MarksSource): boolean {
-  return (q.evidence ?? []).some((e) => (e.match_terms ?? 0) > QUESTION_KEY_WORDS_MAX);
+  return currentSources(q.evidence).some((e) => (e.match_terms ?? 0) > QUESTION_KEY_WORDS_MAX);
 }
 
 /** HONEST MARKS INSTEAD OF GATES (owner, 26 Nov 2026 21:36): one plain line per thing the system is unsure of, shown on the item it is
@@ -121,7 +128,7 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
   if (left.length) question.push(`${left.length} more line${left.length === 1 ? " was" : "s were"} found on the form and ${left.length === 1 ? "is" : "are"} not in the list: one may be a request. Check below.`);
   const evidence: string[] = [];
   const running = q.evidence_job?.state === "queued" || q.evidence_job?.state === "running";
-  const all = q.evidence ?? [];
+  const all = currentSources(q.evidence);
   if (!running && all.length === 0) evidence.push("No source was found for this question yet: the answer has nothing to stand on.");
   const scored = all.filter((e) => (e.match_terms ?? 0) > 0);
   if (staleSources(q)) {
@@ -166,4 +173,29 @@ export function draftAuthor(d: { system?: boolean | null; model?: string | null 
   // builder A: the automatic draft is always the local model and needs no credit; a Claude draft is only an engineer's own request
   if (/claude/i.test(d.model ?? "")) return "Written by Claude from the sources found (uses paid credit).";
   return `Written by ${d.model ? `${d.model}, the AI on this computer,` : "the AI on this computer"} from the sources found (no credit needed).`;
+}
+
+export interface SourceRow {
+  id: string;
+  evidence_state: string;
+  supersession_state: string;
+  for_current_question?: boolean | null;
+}
+
+/** THE ONE-CLICK SOURCE DECISION (lead-4, 26 Nov 2026, on the owner's "approve once"): which sources a press of "Keep the sources the
+ *  draft cites, reject the others" would keep and which it would reject. Only the CURRENT wording's sources the system found and nobody
+ *  has decided ("proposed"); never one found for an earlier wording, never one flagged for review (needs review, conflicting, ambiguous),
+ *  never one already decided. Each decision is the same call as its own Keep or Reject button, so every one stays changeable. */
+export function citedSplit(
+  evidence: SourceRow[] | null | undefined,
+  citationsJson: string | null | undefined,
+): { keep: SourceRow[]; reject: SourceRow[] } {
+  let cited: Set<string>;
+  try {
+    cited = new Set((JSON.parse(citationsJson || "[]") as { evidence_id?: string }[]).map((c) => c.evidence_id ?? "").filter(Boolean));
+  } catch {
+    cited = new Set();
+  }
+  const open = currentSources(evidence).filter((e) => e.evidence_state === "proposed");
+  return { keep: open.filter((e) => cited.has(e.id)), reject: open.filter((e) => !cited.has(e.id)) };
 }

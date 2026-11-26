@@ -28,6 +28,7 @@ const query = {
 
 const api = vi.hoisted(() => ({
   saveQuestion: vi.fn(),
+  classifyEvidence: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   metrics: vi.fn(),
@@ -567,5 +568,21 @@ describe("Technical Queries screen", () => {
     expect(within(more).getByText("3 more requests")).toBeTruthy();
     expect(within(readable).getAllByRole("listitem")).toHaveLength(9); // all on the page, the last three folded
     expect((more as HTMLDetailsElement).open).toBe(false);
+  });
+
+  it("one click keeps the sources the draft cites and rejects the others, with the same calls, and says what it did", async () => {
+    const ev = (id: string, extra: object = {}) => ({ id, document_id: "c1", page_start: 2, exact_quote: `Invented quote ${id}.`, evidence_state: "proposed", supersession_state: "current", for_current_question: true, ...extra });
+    const drafted = { ...query, status: "awaiting_review", can_review: true,
+      evidence: [ev("e1"), ev("e2"), ev("e3"), ev("e4", { for_current_question: false })],
+      drafts: [{ id: "d1", version: 1, answer: "Invented answer.", assumptions_json: "[]", unresolved_json: "[]", citations_json: JSON.stringify([{ label: "1", evidence_id: "e1", document_id: "c1", page: 2, exact_quote: "x" }]), model: "invented-small:9b", system: true }] };
+    api.get.mockResolvedValue({ ok: true, data: drafted });
+    api.classifyEvidence.mockResolvedValue({ ok: true, data: drafted });
+    render(<TechnicalQueriesView queryId="q1" />);
+    const row = await screen.findByTestId("keep-cited");
+    expect(row.textContent).toContain("Keeps 1 the draft cites and rejects the other 2 found for this question.");
+    fireEvent.click(within(row).getByRole("button", { name: "Keep the sources the draft cites, reject the others" }));
+    await waitFor(() => expect(api.classifyEvidence).toHaveBeenCalledTimes(3));
+    expect(api.classifyEvidence.mock.calls.map((c) => [c[1], c[2]])).toEqual([["e1", "verified"], ["e2", "rejected"], ["e3", "rejected"]]); // never e4 (an earlier wording)
+    expect((await screen.findByTestId("keep-cited-done")).textContent).toBe("Kept 1 source the draft cites and rejected 2 others. Each can still be changed below before you approve.");
   });
 });
