@@ -18,6 +18,24 @@ from .db import connect
 #: The import job's reasons for an own reply (`gmail_import_jobs`): kept with the query, or no query of it held yet.
 ATTACHED = "our replies, added to their query (sent by us)"
 NO_QUERY = "sent from this mailbox, with no query of its thread or number yet"
+#: A message read again ("Import the label again") that is already stored: nothing is added, never a second query.
+ALREADY = "already stored, nothing added"
+
+
+def held(data: dict[str, Any]) -> bool:
+    """True when this provider message is already stored (on any query of the mailbox)."""
+    with connect() as conn:
+        return (
+            conn.execute(
+                "SELECT 1 FROM query_messages WHERE provider=? AND mailbox_id IS ? AND provider_message_id=?",
+                (
+                    data["provider"],
+                    data.get("mailbox_id") or "",
+                    data["provider_message_id"],
+                ),
+            ).fetchone()
+            is not None
+        )
 
 
 def _target(conn, data: dict[str, Any]) -> str | None:

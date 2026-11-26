@@ -23,7 +23,7 @@ import httpx
 
 from . import technical_queries
 from .db import connect
-from .technical_query_replies import NO_QUERY
+from .technical_query_replies import ALREADY, NO_QUERY
 
 log = logging.getLogger(__name__)
 
@@ -383,7 +383,10 @@ def _import_one(
             label_id=label_id, mailbox_address=box["email"], message=message,
         )  # fmt: skip
         # our own reply: its reason (kept with its query, or no query of it yet), never counted as imported
-        return (kept or {}).get("own_reply") or True
+        if (kept or {}).get("own_reply"):
+            return kept["own_reply"]
+        # read again ("Import the label again"): a message already stored adds nothing and is said apart
+        return ALREADY if (kept or {}).get("duplicate") else True
     except Exception as exc:  # noqa: BLE001 - counted, named by subject, and never stops the rest
         if _outage(exc):  # Gmail, not the message: the job waits and goes on with the messages it did not reach
             raise

@@ -138,6 +138,8 @@ export const technicalQueriesApi = {
   gmailLabels: (mailboxId: string): Promise<Result<{ items: GmailLabel[] }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/labels`, undefined, hasArrayField("items")),
   /** "Check now": queues one poll; answers at once. */
+  importAgain: (mailboxId: string): Promise<Result<{ import_job: string }>> =>
+    request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/import-again`, { method: "POST" }),
   checkNow: (mailboxId: string): Promise<Result<{ import_job: string }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/check-now`, { method: "POST" }),
   activateGmailLabel: (mailboxId: string, labelId: string): Promise<Result<{ imported: number; connection_state: string; import_job?: string | null }>> =>

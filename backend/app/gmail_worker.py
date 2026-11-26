@@ -24,8 +24,9 @@ from .technical_queries import (
     now,
     unfiled_attachment_ids,
 )
-from .technical_query_replies import ATTACHED, NO_QUERY
+from .technical_query_replies import ALREADY, ATTACHED, NO_QUERY
 from .technical_query_replies import attach as attach_reply
+from .technical_query_replies import held as replies_held
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ def attach_own(
         "provider_thread_id": message.thread_id, "from_address": message.from_address, "to_addresses": message.to_addresses,
         "cc_addresses": message.cc_addresses, "subject": message.subject, "body": message.body, "received_at": message.received_at,
     }  # fmt: skip
+    if replies_held(data):  # read again: already stored with its query, nothing is added
+        return ALREADY
     kept = attach_reply(
         data,
         actor_user_id,

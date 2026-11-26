@@ -473,6 +473,32 @@ def check_gmail_mailbox_now(mailbox_id: str, scope: access.AccessScope = Depends
     return {"import_job": gmail_import_jobs.check_now(mailbox_id)}
 
 
+@router.post(
+    "/api/technical-queries/providers/gmail/mailboxes/{mailbox_id}/import-again",
+    response_model=CheckNowOut,
+)
+def import_gmail_label_again(
+    mailbox_id: str, scope: access.AccessScope = Depends(access.current_scope)
+):
+    """ "Import the label again" (lead-4, 26 Nov 2026): reads every message of the label again and stores only what is missing (a message held
+    is counted "already stored", never a second query; our replies join their query; an attachment not yet taken in is taken in now)."""
+    _require_identity_to_write(scope)
+    if not scope.is_admin or not scope.user_id:
+        raise HTTPException(status_code=403, detail="an administrator is required")
+    with connect() as conn:
+        mailbox = conn.execute(
+            "SELECT label_id FROM gmail_mailboxes WHERE id=? AND owner_user_id=? AND connection_state='active'",
+            (mailbox_id, scope.user_id),
+        ).fetchone()
+    if mailbox is None or not mailbox["label_id"]:
+        raise HTTPException(status_code=404, detail="mailbox is not active")
+    return {
+        "import_job": gmail_import_jobs.enqueue(
+            mailbox_id, "import", mailbox["label_id"], run_now=True
+        )
+    }
+
+
 class OauthCompleteIn(BaseModel):
     code: str | None = Field(default=None, max_length=2000)
     state: str | None = Field(default=None, max_length=500)

@@ -37,7 +37,7 @@ const api = vi.hoisted(() => ({
   fileIntoLibrary: vi.fn(),
   gmailLabels: vi.fn(),
   activateGmailLabel: vi.fn(),
-  checkNow: vi.fn(),
+  checkNow: vi.fn(), importAgain: vi.fn(),
 }));
 
 vi.mock("../api/client", () => ({ technicalQueriesApi: api }));
@@ -281,6 +281,30 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message("in", 1), message("ours", 0)] } });
     render(<TechnicalQueriesView />);
     expect((await screen.findAllByTestId("sent-by-us")).length).toBe(1);
+  });
+
+  it("imports the label again only after saying what it will do, in the page", async () => {
+    const active = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: { id: "j", kind: "import", state: "done", total: 77, done: 77, failed: 0, error: null, failures: [] } };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });
+    api.importAgain.mockResolvedValue({ ok: true, data: { import_job: "j2" } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("Import the label again"));
+    expect(api.importAgain).not.toHaveBeenCalled();
+    expect(screen.getByTestId("confirm-import-again").textContent).toContain("reads all 77 messages of the label again and adds only what is not stored yet");
+    fireEvent.click(screen.getByText("Yes, read the label again"));
+    await waitFor(() => expect(api.importAgain).toHaveBeenCalledWith("mb"));
+  });
+
+  it("offers the contractor code in the number first and says 'contractor not set' instead of 'Unknown'", async () => {
+    api.routingRules.mockResolvedValue({ ok: true, data: { items: [] } });
+    api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "Unmapped", contractor_name: null }] } });
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText(/contractor not set: add its code under Routing rules/)).toBeTruthy();
+    expect(screen.queryByText(/Unknown contractor/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Filters" }));
+    const options = Array.from((screen.getByLabelText("Rule type") as HTMLSelectElement).options).map((o) => o.textContent);
+    expect(options[0]).toBe("Contractor code in the number");
+    expect(options).toContain("Discipline code");
   });
 
   it("has a Check now button that queues one poll", async () => {

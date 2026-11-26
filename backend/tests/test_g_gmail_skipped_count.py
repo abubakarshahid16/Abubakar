@@ -270,3 +270,44 @@ def test_a_new_import_records_its_reasons_from_the_start(monkeypatch):
     )
     with db.connect() as conn:
         assert gmail_import_jobs.latest(conn, "mb")["reasons_recorded"] is True
+
+
+def test_importing_the_label_again_adds_only_what_is_missing_and_never_a_second_query(
+    monkeypatch, tq
+):
+    mails = [
+        _mail("m1-theirs", "a@vendor.example", "t1"),
+        _mail(
+            "m2-ours", "box@example.test", "t1", "RE: PRJ-INV-TQ-7 - Invented question"
+        ),
+    ]
+    monkeypatch.setattr(gmail_import_jobs, "_checked", lambda mailbox_id: None)
+    box = {"id": "mb", "email": "box@example.test", "owner_user_id": "u1"}
+    first = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs._import(
+        first, _client(mails[:1]), box, "L1", None
+    )  # the first import saw only the question
+    with db.connect() as conn:
+        conn.execute("UPDATE gmail_import_jobs SET state='done' WHERE id=?", (first,))
+    again = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs._import(again, _client(mails), box, "L1", None)
+    queries, messages, _ = _counts()
+    assert queries == 1 and messages == [
+        ("m1-theirs", 1),
+        ("m2-ours", 0),
+    ]  # the missing reply is in; nothing twice
+    with db.connect() as conn:
+        job = gmail_import_jobs.latest(conn, "mb")
+    assert (
+        job["skipped"] == {replies.ALREADY: 1, replies.ATTACHED: 1}
+        and job["imported"] == 0
+    )
+    with db.connect() as conn:
+        conn.execute("UPDATE gmail_import_jobs SET state='done' WHERE id=?", (again,))
+    third = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs._import(
+        third, _client(mails), box, "L1", None
+    )  # a repeat adds nothing
+    assert _counts()[:2] == (1, [("m1-theirs", 1), ("m2-ours", 0)])
+    with db.connect() as conn:
+        assert gmail_import_jobs.latest(conn, "mb")["skipped"] == {replies.ALREADY: 2}
