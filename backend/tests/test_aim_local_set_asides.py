@@ -146,3 +146,75 @@ def test_the_run_page_score_line_of_a_local_run_holds_the_local_models_measured_
     assert claude is None or aim_review_gate.LOCAL_TEST_NOTE not in (
         claude.get("sentence") or ""
     )
+
+
+class _BookHoldsRules:
+    """A book whose stored page holds the invented rules' own words."""
+
+    def __init__(self, sel):
+        self.words = "\n".join(r["source_text"] for r in sel["_pool"])
+
+    def page(self, _doc, _n):
+        return self.words
+
+    def pages(self, _doc):
+        return {1: self.words}
+
+
+def test_on_the_local_model_a_quote_not_found_takes_its_cited_clauses_words_by_code_with_no_retry_call():
+    """F's 14B run 09105c4b: 18 retry calls of about 20 s each ran the review past the swap rule."""
+    sel = _books(_sel(3))
+    local = _Retry()
+    with budget.using(budget.LOCAL):
+        got = CL.s3_checklist(local, IDENT, sel, _BookHoldsRules(sel), "local")
+    held = [i for i in got["items"] if i["source"] == "held standard"]
+    rule = next(r["source_text"] for r in sel["_pool"] if r["clause"] == "4.1")
+    assert not [c for c in local.calls if c["step"] == "aim_checklist_retry"]
+    assert len(held) == 14 and {i["rule_quote"] for i in held} == {rule}
+    claude = _Retry()  # Claude: asked again, as before
+    CL.s3_checklist(
+        claude, IDENT, _books(_sel(3)), _BookHoldsRules(sel), "claude-sonnet-5-5"
+    )
+    assert [c for c in claude.calls if c["step"] == "aim_checklist_retry"]
+
+
+def test_a_clause_that_names_no_rule_or_two_rules_is_still_asked_again():
+    batch = [
+        {
+            "rule": "R0001",
+            "book": "B1",
+            "clause": "4.1",
+            "page": 1,
+            "text": "Rule one words.",
+        },
+        {
+            "rule": "R0002",
+            "book": "B1",
+            "clause": "4.2",
+            "page": 1,
+            "text": "Rule two words.",
+        },
+        {
+            "rule": "R0003",
+            "book": "B1",
+            "clause": "4.2",
+            "page": 2,
+            "text": "Rule three words [CUT: rule text longer than shown]",
+        },
+    ]
+    items = [
+        {"book": "B1", "clause": c, "rule_quote": "x"} for c in ("4.1.", "4.2", "9.9")
+    ]
+    with budget.using(budget.LOCAL):
+        fixed, ask = RT.by_code(items, batch, lambda it: True)
+        assert [i["rule_quote"] for i in fixed] == ["Rule one words."] and [
+            i["clause"] for i in ask
+        ] == ["4.2", "9.9"]
+        assert RT.by_code(items[:1], batch, lambda it: False) == (
+            [],
+            items[:1],
+        )  # not found on the page: asked again
+    assert RT.by_code(items, batch, lambda it: True) == (
+        [],
+        items,
+    )  # Claude: nothing by code
