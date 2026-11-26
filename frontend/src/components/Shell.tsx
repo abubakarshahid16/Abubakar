@@ -11,6 +11,7 @@ import type { AuthStatus } from "../types/api";
 
 export type ViewId =
   | "home"
+  | "preview"
   | "documents"
   | "chat"
   | "analysis"
