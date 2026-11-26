@@ -98,7 +98,7 @@
 .kit-notice--problem { background: var(--kit-late-bg); color: var(--kit-late-tone-fg); border-color: var(--kit-late-bd); }
 
 /* ---- tile: a whole card that is one button to its list (the Dashboard's three tiles, owner 03:34) ---- */
-.kit-tiles { display: grid; gap: var(--kit-space-4); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.kit-tiles { display: grid; gap: var(--kit-space-4); grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
 .kit-tile, :root[data-look="new"] main button.kit-tile, :root[data-look="new"] main a.kit-tile {
   display: flex; flex-direction: column; align-items: flex-start; gap: var(--kit-space-1); min-height: 0; text-align: left; text-decoration: none;
   background: var(--color-ink-800); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); padding: var(--kit-space-4);

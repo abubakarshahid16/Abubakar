@@ -1,4 +1,6 @@
 import { AtAGlance } from "../components/dashboard/AtAGlance";
+import { PageHeader, Small } from "../components/kit/Kit";
+import { agoWords } from "./technicalQueryQuestion";
 import { useCallback, useRef, useState } from "react";
 import { formatWhenDate } from "../format/when";
 import { api, classification, management } from "../api/client";
@@ -139,6 +141,12 @@ export function DashboardView({
     <div className="aurora-field">
       <div aria-hidden className="aurora-a" />
       <div aria-hidden className="aurora-b" />
+      {/* THE SHARED KIT'S HEADER under the new look (owner, 27 Nov 2026 03:30/03:34): the one title size, and "Updated N min ago" in small
+          grey words instead of a mono "refreshed ... GMT+3 · every 60s" line */}
+      {NEW_LOOK ? <>
+        <PageHeader title="Dashboard" lead="Every value is measured. Anything unmeasured says so rather than showing a zero." />
+        <Small>{fetchedAt ? `Updated ${agoWords(new Date(fetchedAt).toISOString()) ?? "just now"}` : "Not updated yet"}</Small>
+      </> : (
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold text-slateish-200">{NEW_LOOK ? "Dashboard" : "System"}</h1>
@@ -160,6 +168,7 @@ export function DashboardView({
           {metrics.refresh_seconds}s
         </p>
       </div>
+      )}
 
       {/* RULE 10'S PRIMARY WORKFLOW, and the only thing this screen gained.
           Four cards, one button, one Recent Reviews table - the rule names

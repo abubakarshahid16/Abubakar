@@ -7,6 +7,7 @@
  * than as a completed document.
  */
 import { render, screen, within } from "@testing-library/react";
+import { NEW_LOOK } from "../look";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -619,10 +620,15 @@ describe("the required fields", () => {
     expect(screen.getByText("51,200")).toBeInTheDocument();
   });
 
-  it("declares its own refresh interval", async () => {
+  it("declares its own refresh interval (classic look); says how fresh it is in plain words (new look, owner 27 Nov 2026 03:34)", async () => {
     mockApi();
     await openDashboard();
-    expect(await screen.findByText(/every 15s/)).toBeInTheDocument();
+    if (NEW_LOOK) {
+      expect(await screen.findByText(/^Updated (just now|\d+ min ago)$/)).toBeInTheDocument();
+      expect(screen.queryByText(/every 15s/)).toBeNull();
+    } else {
+      expect(await screen.findByText(/every 15s/)).toBeInTheDocument();
+    }
   });
 });
 

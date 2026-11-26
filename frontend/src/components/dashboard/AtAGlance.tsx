@@ -5,8 +5,11 @@
  * register and its overdue alerts); a figure that could not be loaded is said to be unknown, never shown as 0, and "late" says what it
  * is counted over (rule 4: every count states its boundary).
  */
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 
+import { GlanceTiles } from "./GlanceTiles";
+import { NavigationContext } from "../NavLink";
+import { NEW_LOOK } from "../../look";
 import { InfoFold } from "../look/LookParts";
 import { deliverables as deliverablesApi, reviews as reviewsApi } from "../../api/client";
 import { technicalQueriesApi } from "../../api/technicalQueries";
@@ -97,6 +100,28 @@ export function glanceLine(rows: GlanceRow[]): string {
   return `${waiting} waiting${someUnknown ? " (some figures could not be loaded)" : ""}, ${lateWords}.`;
 }
 
+/** The owner's headline over the tiles (27 Nov 2026 03:34): "41 items are waiting for a decision". An unknown figure is said, never 0. */
+export function waitingHeadline(rows: GlanceRow[]): string {
+  const known = rows.filter((r) => r.waiting !== null);
+  const n = known.reduce((sum, r) => sum + (r.waiting ?? 0), 0);
+  const unknown = known.length < rows.length ? " (some figures could not be loaded)" : "";
+  return `${n} item${n === 1 ? " is" : "s are"} waiting for a decision${unknown}`;
+}
+
+/** What a tile says under "done" when nothing can be late: never a dash. */
+export function lateWords(r: GlanceRow): string | undefined {
+  if (r.lateStatus === "counted") return r.late ? undefined : "none late";
+  if (r.lateStatus === "unknown") return "late not known";
+  return "no due dates set";
+}
+
+/** The tile's short name and the list it opens. */
+export const TILE: Record<string, { name: string; view: "review" | "technicalQueries" | "deliverables" }> = {
+  "Document reviews": { name: "Document reviews", view: "review" },
+  "Technical queries and CFCs": { name: "Queries and CFCs", view: "technicalQueries" },
+  Deliverables: { name: "Deliverables", view: "deliverables" },
+};
+
 function Cell({ value, tone, title }: { value: number | null; tone?: "late"; title?: string }) {
   if (value === null) return <td className="px-3 py-2 text-slateish-400" title={title}>—</td>;
   const late = tone === "late" && value > 0;
@@ -104,6 +129,7 @@ function Cell({ value, tone, title }: { value: number | null; tone?: "late"; tit
 }
 
 export function AtAGlance() {
+  const navigate = useContext(NavigationContext);
   const [review, setReview] = useState<ReviewDashboard | null | undefined>(undefined);
   const [queries, setQueries] = useState<Record<string, number> | null | "off" | undefined>(undefined);
   const [items, setItems] = useState<Deliverable[] | null | undefined>(undefined);
@@ -120,6 +146,9 @@ export function AtAGlance() {
   // drawn once every figure has answered: a figure still loading is never shown as "unknown"
   if (review === undefined || queries === undefined || items === undefined || alerts === undefined) return null;
   const rows = [reviewsRow(review), queriesRow(queries), deliverablesRow(items, alerts)].filter((r): r is GlanceRow => r !== null);
+
+  // THE OWNER'S THREE TILES (27 Nov 2026 03:34), built only from the shared kit (GlanceTiles.tsx, listed in kitPages.ts)
+  if (NEW_LOOK) return <GlanceTiles rows={rows} onOpen={(view) => navigate?.(view)} />;
 
   return (
     <section aria-labelledby="at-a-glance-title" data-testid="at-a-glance"
