@@ -247,7 +247,16 @@ class LocalModel:
         from .engine import StepFailed
 
         used = _swap_bytes()
-        if used is None:
+        if (
+            used is None
+        ):  # the swap check is off for this call: the run says so, once (D2)
+            from . import faults
+
+            faults.record_once(
+                SWAP_UNREAD_STEP,
+                "the swap check of the memory rule",
+                "swap not readable",
+            )
             return
         if self.swap_at_start is None:
             self.swap_at_start = used
@@ -366,8 +375,14 @@ def _show(name: str) -> dict:
 
     try:
         got = model_transport.post_json("/api/show", {"model": name}, timeout=30)
-    except Exception as exc:  # noqa: BLE001 - an unknown model description: the defaults apply
-        log.info("local model: description not read (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - an unknown model description: the defaults apply; a run says so, once (D2)
+        from . import faults
+
+        faults.record_once(
+            SHOW_UNREAD_STEP,
+            "the model's own description (its defaults were used)",
+            exc,
+        )
         return {}
     return got if isinstance(got, dict) else {}
 
@@ -422,6 +437,12 @@ LOW_MEMORY = (
     "6 GB to spare, so the review did not start; close other work and start it again"
 )
 ENGINE_DOWN = "the local model engine is not answering on this computer, so the review did not start"
+FREE_UNKNOWN = (
+    "this computer's free memory could not be read, so the review did not start (the memory rule needs it: the model's need "
+    "plus 6 GB to spare)"
+)
+#: The steps a run records when a read of the local engine or of this computer fails (D2: a failed read is reported).
+SWAP_UNREAD_STEP, SHOW_UNREAD_STEP = "local_swap_check", "local_model_description"
 NOT_LOCAL = (
     "the model {name} is not a model file on this computer (the engine would pass the paper's text to another computer), "
     "so the review did not start"
@@ -495,8 +516,12 @@ def readiness(names=None, num_ctx: int = LOCAL.num_ctx) -> str | None:
             return OTHER_LOADED.format(name=loaded_name)
     free = _free_bytes()
     for name in names:
-        if name in in_memory or free is None:
-            continue  # already in memory, or free memory unknown (the swap rule still holds)
+        if (
+            free is None
+        ):  # FAIL CLOSED (D2): the owner's memory rule cannot be checked, so the run does not start
+            return FREE_UNKNOWN
+        if name in in_memory:
+            continue  # already in memory
         need = need_bytes(name, _count(entries[name].get("size")), num_ctx)
         if free < need + MEMORY_MARGIN_BYTES:
             return LOW_MEMORY.format(

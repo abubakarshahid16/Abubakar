@@ -477,15 +477,20 @@ def _requeue_switched_off(conn, job_id: str, run_id: str) -> str:
     return job_queue.QUEUED
 
 
-def _cross_document(conn, paper_id: str, scope, start: int) -> list[dict]:
+def _cross_document(
+    conn, paper_id: str, scope, start: int, calls: list | None = None
+) -> list[dict]:
     """The cross-document check by tag (`tag_cross`; code only, Questions only), inside the starter's read set. A fault of the
     check adds no line and never stops the review (logged, class only)."""
     from . import tag_cross
 
     try:
         return tag_cross.lines(conn, paper_id, frozenset(scope), start)
-    except Exception as exc:  # noqa: BLE001 - the check is an addition: the review stands without it
-        log.warning("cross-document check skipped: %s", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - the check is an addition: the review stands without it, and its run says so (D2)
+        from .aim_review import faults
+
+        with faults.recording(calls if calls is not None else []):
+            faults.record("aim_cross_document", "the cross-document check by tag", exc)
         return []
 
 
@@ -543,7 +548,9 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
         from .aim_review.updates import u8
 
         if u8():  # update 8 switched off: no cross-document lines, as main
-            result.lines += _cross_document(conn, paper_id, scope, len(result.lines))
+            result.lines += _cross_document(
+                conn, paper_id, scope, len(result.lines), result.calls
+            )
         holder["result"] = _result_dict(result)
         if _cancel_requested(conn, job_id):
             raise _Cancelled()
