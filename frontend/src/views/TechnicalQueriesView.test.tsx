@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { attachmentsRead, notReadWhy, peopleLine } from "../api/technicalQueries";
+import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -405,5 +405,29 @@ describe("Technical Queries screen", () => {
     const options = Array.from((screen.getByLabelText("Status") as HTMLSelectElement).options).map((option) => option.textContent);
     expect(options).toContain("Awaiting review");
     expect(options).not.toContain("Sent");
+  });
+
+  it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
+    render(<TechnicalQueriesView />);
+    const question = await screen.findByRole("heading", { name: "Question for the draft" });
+    const response = screen.getByRole("heading", { name: /^Proposed response/ });
+    const generate = screen.getByRole("button", { name: "Generate draft" });
+    const email = screen.getByTestId("tq-folded-email-question");
+    const mail = screen.getByTestId("tq-folded-mail");
+    const evidence = screen.getByTestId("tq-folded-evidence");
+    const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect([before(question, response), before(response, generate), before(generate, email), before(email, mail), before(mail, evidence)]).toEqual([true, true, true, true, true]);
+    for (const part of [email, mail, evidence]) {
+      expect(part.tagName).toBe("DETAILS");
+      expect((part as HTMLDetailsElement).open).toBe(false);  // folded on arrival
+    }
+    expect(within(evidence).getByTestId("evidence-coverage")).toBeTruthy();  // the same parts, only folded
+  });
+
+  it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
+    expect(proposalNoteWords("none_found", true)).toBe("The AI on this computer found no separate question in the attachment. The proposed question below is the form's own question section, as printed. Check it before you confirm it.");
+    expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attachment text below and write the question\./);
+    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI on this computer was not available/);
+    expect(proposalNoteWords(null, true)).toBeNull();
   });
 });

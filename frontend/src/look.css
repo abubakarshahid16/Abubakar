@@ -1,0 +1,147 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   THE NEW LOOK (owner, 26 Nov 2026 18:10: "improve UI and UX only; no structure change"; style spec
+   ~/project/planner/NEW-LOOK-SPEC-26nov.md). The SAME app: all 11 menu items, the same page names, pages and routes.
+
+   One file of tokens. It changes nothing by itself: it applies only while <html> carries data-look="new", which the app stamps when
+   the way-back switch VITE_UI_NEW_LOOK is "true" (OFF by default, OFF on live). Every screen already draws from these token names
+   (ink-* surfaces, slateish-* text, signal-* action colour, pill-* status colours, radius, shadow, type), so the whole app changes together.
+
+   Contrast, measured (WCAG AA): white on the action colour 5.18:1; link text 6.92:1; secondary text 6.98:1 on the page ground; side menu
+   8.24-11.62:1; status chips 7.13-9.62:1 (light) and 7.3-11.4:1 (dark). Status is always a word and a colour, never colour alone.
+
+   Fonts: the spec names Space Grotesk (headings) and Inter (body). The app ships its fonts inside it and makes no outbound font request;
+   those two files are not in frontend/public/fonts yet, so the stack falls back to the app's own IBM Plex Sans and the system font.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+:root[data-look="new"] {
+  font-family: "Inter", "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: "Space Grotesk", "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Type: body 15-17px, line height 1.5; headings tight and bold. */
+  --t-xs: 0.8125rem;
+  --t-sm: 0.875rem;
+  --t-md: 1rem;
+  --t-lg: 1.375rem;
+  --t-xl: 2.0625rem;
+  line-height: 1.5;
+  /* Shape: cards 16-18px, buttons and inputs 12px, chips fully round. */
+  --radius-xs: 999px;
+  --radius-sm: 12px;
+  --radius-md: 17px;
+  --radius-lg: 18px;
+  --radius-full: 999px;
+  --density-gap: 1rem;
+  --density-card-padding: 1.5rem;
+}
+
+:root[data-look="new"] h1,
+:root[data-look="new"] h2,
+:root[data-look="new"] h3 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:root[data-look="new"][data-theme="light"] {
+  --color-ink-950: #e9edf2; /* sunken wells, table stripes */
+  --color-ink-900: #f4f6f9; /* page ground */
+  --color-ink-850: #ffffff; /* secondary panels */
+  --color-ink-800: #ffffff; /* cards */
+  --color-ink-700: #eef1f5; /* hover fill */
+  --color-ink-600: #e2e6ec; /* card border */
+  --color-ink-500: #9aa4b2; /* control outline, secondary button border */
+
+  --color-slateish-100: #111827; /* headings */
+  --color-slateish-200: #111827; /* body */
+  --color-slateish-300: #4b5563; /* secondary: never lighter on white */
+  --color-slateish-400: #4b5563;
+  --color-slateish-500: #4b5563;
+
+  --color-signal-500: #0b7a75; /* the one action colour */
+  --color-signal-400: #0b6e69;
+  --color-signal-300: #0b5f5b; /* link text */
+
+  --color-warn-500: #5c3700;
+  --color-danger-500: #8a2a12;
+  --color-info-500: #1e3a8a;
+
+  /* Status: review = AI reading, please check; fail = late / must fix (inverted); pass = done / proved by code; cond = waiting / info. */
+  --color-pill-review-fg: #5c3700; --color-pill-review-bg: #ffe2b8; --color-pill-review-border: #e8b86a;
+  --color-pill-fail-fg: #ffffff; --color-pill-fail-bg: #8a2a12; --color-pill-fail-border: #8a2a12;
+  --color-pill-pass-fg: #0b5a3a; --color-pill-pass-bg: #ddf3ea; --color-pill-pass-border: #9ad3b8;
+  --color-pill-cond-fg: #1e3a8a; --color-pill-cond-bg: #e3ecfb; --color-pill-cond-border: #a9c2ee;
+
+  --shadow-resting: 0 0 0 1px #e2e6ec;
+  --shadow-raised: 0 2px 8px rgba(17, 24, 39, 0.06), 0 0 0 1px #e2e6ec;
+  --shadow-floating: 0 12px 32px rgba(17, 24, 39, 0.12), 0 0 0 1px #e2e6ec;
+  --shadow-glow: 0 0 0 3px rgba(11, 122, 117, 0.25);
+  --focus: #0b5f5b;
+  color-scheme: light;
+}
+
+:root[data-look="new"][data-theme="dark"] {
+  --color-ink-950: #0a111d;
+  --color-ink-900: #0e1624;
+  --color-ink-850: #121c2e;
+  --color-ink-800: #152033;
+  --color-ink-700: #1d2c44;
+  --color-ink-600: #26344f;
+  --color-ink-500: #5a6a85;
+
+  --color-slateish-100: #f3f6fa;
+  --color-slateish-200: #e2e8f0;
+  --color-slateish-300: #b8c3d3;
+  --color-slateish-400: #b8c3d3;
+  --color-slateish-500: #a9b4c4;
+
+  --color-signal-500: #0b7a75;
+  --color-signal-400: #0e8a84;
+  --color-signal-300: #5fd3c9;
+
+  --color-warn-500: #ffd9a3;
+  --color-danger-500: #ffb4a0;
+  --color-info-500: #c7d7fb;
+
+  --color-pill-review-fg: #ffd9a3; --color-pill-review-bg: #3d2a0a; --color-pill-review-border: #8a6a2a;
+  --color-pill-fail-fg: #ffffff; --color-pill-fail-bg: #9a3417; --color-pill-fail-border: #9a3417;
+  --color-pill-pass-fg: #b5ecd3; --color-pill-pass-bg: #0c2e22; --color-pill-pass-border: #2f7a5c;
+  --color-pill-cond-fg: #c7d7fb; --color-pill-cond-bg: #13254a; --color-pill-cond-border: #3d5a95;
+
+  --shadow-resting: 0 0 0 1px #26344f;
+  --shadow-raised: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 0 1px #26344f;
+  --shadow-floating: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px #26344f;
+  --shadow-glow: 0 0 0 3px rgba(95, 211, 201, 0.3);
+  --focus: #5fd3c9;
+  color-scheme: dark;
+}
+
+/* THE SIDE MENU: a dark ground in both themes (spec), the same 11 items. Only its colours change, by scoping the tokens to it. */
+:root[data-look="new"] #sidebar-nav {
+  --color-ink-850: #0f1b2d;
+  --color-ink-800: #0f1b2d;
+  --color-ink-700: #1d2c44;
+  --color-ink-600: #22324d;
+  --color-ink-500: #3a4b68;
+  --color-slateish-100: #ffffff;
+  --color-slateish-200: #e5eaf2;
+  --color-slateish-300: #e5eaf2;
+  --color-slateish-400: #a9b4c4;
+  --color-slateish-500: #a9b4c4;
+  --color-signal-500: #5fd3c9;
+  --color-signal-400: #5fd3c9;
+  --color-signal-300: #5fd3c9;
+  background: #0f1b2d;
+  color: #e5eaf2;
+}
+
+:root[data-look="new"] #sidebar-nav [aria-current="page"] {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+/* Controls: 44-48px tall, 12px radius (buttons and inputs of every page; chips keep their own small size). */
+:root[data-look="new"] main button:not([role="tab"]):not([aria-label="Close"]),
+:root[data-look="new"] main select,
+:root[data-look="new"] main input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: 2.75rem;
+  border-radius: var(--radius-sm);
+}

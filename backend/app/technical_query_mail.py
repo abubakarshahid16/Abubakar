@@ -12,6 +12,8 @@ The stored text is never changed. No model.
 from __future__ import annotations
 
 import re
+from collections import Counter
+from functools import lru_cache
 
 _SIGNOFF = re.compile(
     r"^(--|(best|kind|warm|many|with)?\s*(regards|wishes|thanks)|thanks|thank you|(thanks|thank you|many thanks)\s*(and|&|,)\s*"
@@ -147,8 +149,16 @@ def _without_headers(lines: list[str]) -> list[str]:
 #: A line that only points to the attachment ("Please find attached our TQ ...", "Attached is ...") asks nothing of its own, whatever
 #: words its title holds (lead-4, 26 Nov 2026: the live intro was proposed as the question).
 _COVER = re.compile(
-    r"\b(please|kindly)\s+(find|see|refer to|note|review)\b.{0,60}\b(attach|enclos)|^\s*(attached|enclosed)\s+(is|are|please|herewith)\b|"
-    r"\b(attached|enclosed) herewith\b|\bwe (are )?(attach|enclos|send|submit|forward)(ing|ed)?\b",
+    r"\b(please|kindly)\W+(find|see|refer to|note|review)\b[^?]{0,80}?\b(attach|enclos)|^\W*(attached|enclosed)\W+(is|are|please|herewith)\b|"
+    r"\b(attached|enclosed) herewith\b|\bwe (are )?(attach|enclos|send|submit|forward)(ing|ed)?\b|"
+    # a short line that says "attached" and names a TQ or CFC ("Please, find attached our TQ: <number> - <title>"; lead-4, 26 Nov 2026)
+    r"^(?=.{0,240}$)(?=.*\b(attach(ed)?|enclosed)\b)(?=.*\b(tq|cfc|technical query|query)\b)",
+    re.IGNORECASE,
+)
+#: A courtesy line ("Please do not hesitate to contact us", "Let us know if you need anything"): it asks nothing of the engineer.
+_COURTESY = re.compile(
+    r"\b(do not|don't) hesitate\b|\bfeel free\b|\blet (us|me) know\b|\bshould you (have|need|require)\b|\bif you (have|need|require) any\b|"
+    r"\bfor your (information|reference|records|kind (attention|review|information))\b|\bthank(s| you)\b",
     re.IGNORECASE,
 )
 #: A greeting line ("Dear All,", "Hi Team"): never question text.
@@ -159,11 +169,10 @@ _GREETING = re.compile(
 
 
 def _question_line(line: str) -> bool:
-    """A line that can be question text: not a greeting, and not a line that only points to the attachment."""
+    """A line that can be question text: not a greeting, and not a line that only points to the attachment or is a courtesy."""
     stripped = line.strip()
-    return not _GREETING.match(stripped) and not (
-        _COVER.search(stripped) and "?" not in stripped
-    )
+    pointer = _COVER.search(stripped) or _COURTESY.search(stripped)
+    return not _GREETING.match(stripped) and not (pointer and "?" not in stripped)
 
 
 #: A line that names the question ("Question: ...", "Query - ..."): the question starts there.
@@ -171,10 +180,56 @@ _QUESTION_MARK = re.compile(r"^\s*(question|query)\s*[:\-]\s*", re.IGNORECASE)
 NO_QUESTION = "No question in the email text."
 
 
-def email_question(text: str | None) -> str:
+#: A web address (a link wrapper's "?" is not a question mark).
+_URL = re.compile(r"<?\bhttps?://\S+>?", re.IGNORECASE)
+#: A line in at least this many of a mailbox's received messages (and in at least BOILERPLATE_SHARE of them) is boilerplate - a footer
+#: or a standing notice every mail carries - and never question text (lead-4, 26 Nov 2026: one footer line made every stored mail "ask").
+BOILERPLATE_MIN = 5
+BOILERPLATE_SHARE = 0.3
+
+
+#: An e-mail address inside a line.
+_ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
+#: The longest text shown as the question in the mail: a question is a sentence or a short block, not a third of the mail.
+QUESTION_CAP = 600
+
+
+def _norm(line: str) -> str:
+    return " ".join(_URL.sub(" ", line).split()).casefold()
+
+
+@lru_cache(maxsize=8)
+def _repeated(bodies: tuple[str, ...]) -> frozenset[str]:
+    if len(bodies) < BOILERPLATE_MIN:
+        return frozenset()
+    counts: Counter[str] = Counter()
+    for body in bodies:
+        counts.update(
+            {_norm(line) for line in body.splitlines() if len(_norm(line)) >= 20}
+        )
+    need = max(BOILERPLATE_MIN, int(len(bodies) * BOILERPLATE_SHARE))
+    return frozenset(line for line, n in counts.items() if n >= need)
+
+
+def boilerplate(mailbox_id: str | None) -> frozenset[str]:
+    """The lines repeated across a mailbox's received messages (normalised), read from the stored mail; empty for a query by hand."""
+    if not mailbox_id:
+        return frozenset()
+    from .db import connect
+
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT body FROM query_messages WHERE mailbox_id=? AND is_inbound=1 ORDER BY id",
+            (mailbox_id,),
+        ).fetchall()
+    return _repeated(tuple(r[0] or "" for r in rows))
+
+
+def email_question(text: str | None, common: frozenset[str] = frozenset()) -> str:
     """The question in a mail's own text, by the CURRENT rules (computed each time, never trusted from an older stored copy): the message
-    itself without headers, people lists, picture place-holders, greetings, signatures, notices and lines that only point to the attachment,
-    from a "Question:" line when there is one; "" when nothing in it asks anything."""
+    itself without headers, people lists, picture place-holders, web addresses, greetings, signatures, notices, lines repeated across the
+    mailbox (`common`, from `boilerplate`) and lines that only point to the attachment, from a "Question:" line when there is one; "" when
+    nothing in it asks anything."""
     message = message_itself(text)
     lines = message.splitlines()
     marked = next(
@@ -184,9 +239,25 @@ def email_question(text: str | None) -> str:
         message = "\n".join(
             [_QUESTION_MARK.sub("", lines[marked], count=1), *lines[marked + 1 :]]
         ).strip()
-    kept = [line for line in message.splitlines() if _question_line(line)]
-    asks = any(_asks(line) for line in kept)
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip() if asks else ""
+    kept = [
+        _URL.sub("", line).rstrip()
+        for line in message.splitlines()
+        if _question_line(line)
+        and _norm(line) not in common
+        and (not line.strip() or _URL.sub("", line).strip())
+    ]
+    # a line holding an e-mail address (a template line, a forwarded header) is never question text (lead-4, F's test on update 13)
+    kept = [line for line in kept if not _ADDRESS.search(line)]
+    # only the paragraphs that ask: a signature's left-over lines (a name, a telephone number) are not the question
+    paragraphs = re.split(r"\n\s*\n", "\n".join(kept))
+    question = "\n\n".join(
+        p.strip() for p in paragraphs if any(_asks(line) for line in p.splitlines())
+    ).strip()
+    if (
+        len(question) > QUESTION_CAP
+    ):  # a long block is not a question: only its asking lines, and none when even those are long
+        question = "\n".join(line.strip() for line in kept if _asks(line)).strip()
+    return question if len(question) <= QUESTION_CAP else ""
 
 
 def shown_question(query: dict) -> dict[str, str]:
@@ -207,7 +278,11 @@ def shown_question(query: dict) -> dict[str, str]:
         first.get("provider") in (None, "manual", "synthetic") and (saved or "").strip()
     )
     source = saved if typed else first.get("body")
-    question = (saved or "").strip() if typed else email_question(source)
+    question = (
+        (saved or "").strip()
+        if typed
+        else email_question(source, boilerplate(first.get("mailbox_id")))
+    )
     note = ""
     if not question:
         files = [p.get("filename") for p in proposals or [] if p.get("filename")] + [
