@@ -17,14 +17,21 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from typing import Any
 
 from .db import connect
 
 log = logging.getLogger(__name__)
 
-#: `query_drafts.prompt_version` of a draft the system wrote by itself after preparing the evidence.
-SYSTEM_DRAFT = "system-draft-1"
+#: `query_drafts.prompt_version` of a draft the system wrote by itself after preparing the evidence. 2 = the query-reply prompt (no
+#: "Yes." / "No." opening; each numbered request answered, or "Not found in the documents searched") and the relevance floor; a query whose
+#: latest draft is an older system draft, with no decision on it, is drafted again at the next start (builder C's walk, 26 Nov 2026).
+SYSTEM_DRAFT = "system-draft-2"
+#: A passage the SYSTEM found is a draft's source only at or above this reranker score: the answer lane's own calibration (answer.py:
+#: answerable questions -1.19 .. 7.36, plausible but wrong -10.32 .. -4.73). Measured on a copy of live (32 drafts): 29 of 82 cited
+#: passages were below it; with it, 23 of 32 queries keep a source (median 7). A passage an engineer KEPT always counts.
+RELEVANCE_FLOOR = -1.19
 #: The passages a system draft is written from when no engineer has kept one: the best found for this wording.
 MAX_DRAFT_PASSAGES = 8
 #: The states in which the wording may change and evidence and draft refresh (as `technical_queries.prepare_evidence` accepts); a query
@@ -33,9 +40,10 @@ PREPARABLE = ("received", "triage", "drafting", "changes_requested")
 
 NO_QUESTION = "no question was found to answer: write it in the question box and the draft follows"
 NO_PASSAGE = "no passage was found in the contract documents and standards you may read"
+TOO_WEAK = "no passage found answers the question closely enough: keep a source by hand, then press Write the reply again (under Redo)"
 MODEL_DOWN = "the local drafting model is unavailable; the draft is written on the next preparation"
 OUTSIDE = "the draft cited passages outside the query's evidence, so it was not kept"
-TYPED_KEPT = "an engineer's own draft is kept; press Generate draft for a new one"
+TYPED_KEPT = "an engineer's own draft is kept; press Write the reply again (under Redo) for a new one"
 FOUND_NOT_KEPT = "Written by the local model from passages the system found; no engineer has kept them yet."
 
 
@@ -61,8 +69,11 @@ def working(item: dict[str, Any]) -> tuple[str, str]:
 def draft_passages(
     item: dict[str, Any], allowed, attachment_documents, *, unrestricted: bool = False
 ) -> list[dict[str, Any]]:
-    """The passages a draft is written from: the kept, current ones the caller may read; when none is kept, the best the system found FOR
-    THE CURRENT WORDING (not rejected, source not superseded), at most MAX_DRAFT_PASSAGES. A contractor's own attachment is never one."""
+    """The passages a draft is written from: the kept, current ones the caller may read FIRST, then the best the system found FOR THE
+    CURRENT WORDING that are close enough (RELEVANCE_FLOOR) and not rejected, up to MAX_DRAFT_PASSAGES in all (every kept one stays,
+    however many). Keeping one good source never narrows the draft to it alone (F's walk, 26 Nov 2026); rejecting the others ("keep the
+    sources the draft cites, reject the others") leaves exactly the kept set. A contractor's own attachment is never one; nor is a
+    superseded source."""
     question, _source = working(item)
     readable = [
         e for e in item.get("evidence", [])
@@ -73,14 +84,32 @@ def draft_passages(
         for e in readable
         if e["evidence_state"] == "verified" and e["supersession_state"] == "current"
     ]
-    if kept:
-        return kept
     found = [
         e for e in readable
-        if e["evidence_state"] in ("verified", "proposed") and e["supersession_state"] != "superseded"
-        and (e["evidence_state"] == "verified" or e.get("found_for") == key(question))
+        if e["evidence_state"] == "proposed" and e["supersession_state"] != "superseded"
+        and e.get("found_for") == key(question) and close_enough(e)
     ]  # fmt: skip
-    return found[:MAX_DRAFT_PASSAGES]
+    if not kept:  # nothing kept yet: a kept passage of an unconfirmed source still counts, as before
+        kept = [
+            e
+            for e in readable
+            if e["evidence_state"] == "verified"
+            and e["supersession_state"] != "superseded"
+        ]
+    return kept + found[: max(0, MAX_DRAFT_PASSAGES - len(kept))]
+
+
+def close_enough(row: dict[str, Any]) -> bool:
+    """A system-found passage scores at or above RELEVANCE_FLOOR (a passage with no score, a clause the form itself cites, counts)."""
+    score = row.get("rank_score")
+    return score is None or float(score) >= RELEVANCE_FLOOR
+
+
+def none_usable_note(item: dict[str, Any]) -> str:
+    """Why no passage can carry a draft: nothing was found, or what was found is too far from the question."""
+    question, _source = working(item)
+    found = any(e.get("found_for") == key(question) for e in item.get("evidence", []))
+    return TOO_WEAK if question and found else NO_PASSAGE
 
 
 def citations_of(
@@ -111,6 +140,84 @@ def citations_of(
     if not cited and not result.get("not_found"):
         return None
     return out
+
+
+#: A phrase the draft puts in quotation marks (straight or curly double quotes), at least this many characters.
+_QUOTED = re.compile(r'["\u201c]([^"\u201c\u201d\n]{4,}?)["\u201d]')
+_LABEL = re.compile(r"\[S(\d+)")
+FALSE_QUOTE = (
+    "the draft put quotation marks round words that its cited source does not contain, so it is not shown: "
+    "press Write the reply again (under Redo), or write the reply yourself"
+)
+FALSE_QUOTE_MARK = "A quote in this draft is not in its cited source."
+
+
+def _found_in(quote: str, source: str, *, exact: bool = True) -> bool:
+    """The quoted words are in `source`: the answer lane's own claim check for three words or more (word boundaries, the closed
+    normalisation list); for a shorter quote, the same normalisation and whole words."""
+    from .model_evidence import MIN_CLAIM_QUOTE_WORDS, _collapse, claim_quote_verified
+
+    if exact and len(quote.split()) >= MIN_CLAIM_QUOTE_WORDS:
+        return claim_quote_verified(quote, source)
+    needle = re.escape(_collapse(quote).casefold())
+    return (
+        bool(needle)
+        and re.search(rf"(?<!\w){needle}(?!\w)", _collapse(source).casefold())
+        is not None
+    )
+
+
+def unsupported_quotes(answer: str, sources: dict[int, str], question: str = "") -> int:
+    """How many quoted phrases of a draft are NOT in the passage they are credited to (owner, 26 Nov 2026, on a live draft: "it must
+    check a quoted phrase against the cited SOURCE passage, not against anything on the page"). A line that cites [Sn] is checked
+    against exactly those passages; a line that cites none may quote only the contractor's own question (or a cited passage)."""
+    bad = 0
+    for line in (answer or "").splitlines():
+        quotes = [q.strip() for q in _QUOTED.findall(line) if q.strip()]
+        if not quotes:
+            continue
+        labels = [int(n) for n in _LABEL.findall(line)]
+        if (
+            labels
+        ):  # credited: exactly in the cited passages (the answer lane's own claim rule)
+            ok = [any(_found_in(q, sources.get(n, "")) for n in labels) for q in quotes]
+        else:  # not credited: a cited passage, or the contractor's own words (any case: the model re-types them)
+            ok = [any(_found_in(q, t) for t in sources.values() if t) or (bool(question) and _found_in(q, question, exact=False))
+                  for q in quotes]  # fmt: skip
+        bad += ok.count(False)
+    return bad
+
+
+def seen_sources(result: dict[str, Any]) -> dict[int, str]:
+    """The passages the model was given, by their [Sn] number: what a quote must be in."""
+    return {
+        n: (p.get("text") or "") for n, p in enumerate(result.get("passages") or [], 1)
+    }
+
+
+def stored_unsupported(
+    draft: dict[str, Any], _item: dict[str, Any] | None = None
+) -> int:
+    """The same check on a stored draft: its citations' passages, by label (S1 -> the cited evidence row's text)."""
+    try:
+        cited = json.loads(draft.get("citations_json") or "[]")
+    except ValueError:
+        cited = []
+    sources = {}
+    for c in cited:
+        if (
+            isinstance(c, dict)
+            and str(c.get("label") or "").startswith("S")
+            and str(c["label"])[1:].isdigit()
+        ):
+            sources[int(str(c["label"])[1:])] = c.get("exact_quote") or ""
+    return (
+        unsupported_quotes(
+            draft.get("answer") or "", sources, draft.get("question") or ""
+        )
+        if draft.get("model")
+        else 0
+    )
 
 
 def marks(item: dict[str, Any], cited_ids=None) -> list[str]:
@@ -173,11 +280,17 @@ def write_draft(
         item, frozenset(allowed), attachment_documents, unrestricted=unrestricted
     )
     if not passages:
-        _note(query_id, NO_PASSAGE)
-        return NO_PASSAGE
+        note = none_usable_note(item)
+        _note(query_id, note)
+        return note
+    from .answer import query_reply
+
     try:
-        result = verified_passages.answer(question, evidence=passages, tier="generated",
-                                          allowed_document_ids=frozenset(p["document_id"] for p in passages), model="local")  # fmt: skip
+        with (
+            query_reply()
+        ):  # the query-reply prompt: each request answered, no "Yes." / "No." opening
+            result = verified_passages.answer(question, evidence=passages, tier="generated",
+                                              allowed_document_ids=frozenset(p["document_id"] for p in passages), model="local")  # fmt: skip
     except Exception as exc:  # noqa: BLE001 - logged by its class; the page says the draft waits for the model
         log.info("technical query: system draft not written (%s)", type(exc).__name__)
         _note(query_id, MODEL_DOWN)
@@ -192,6 +305,11 @@ def write_draft(
     if citations is None:
         _note(query_id, OUTSIDE)
         return OUTSIDE
+    if unsupported_quotes(
+        result["answer"], seen_sources(result), question
+    ):  # a false quote is never shown as a proposed reply
+        _note(query_id, FALSE_QUOTE)
+        return FALSE_QUOTE
     unresolved = ([result["reason"]] if result.get("reason") else []) + marks(
         item, {c["evidence_id"] for c in citations}
     )
@@ -316,6 +434,11 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         }
     except ValueError:
         cited = set()
+    found_marks = marks(item, cited if latest else None)
+    if latest and stored_unsupported(
+        latest, item
+    ):  # an older draft (written before this check) with a false quote says so
+        found_marks.append(FALSE_QUOTE_MARK)
     return {
         "question": question,
         "question_source": source,
@@ -337,8 +460,26 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         else "none",
         "draft_fresh": bool(latest) and (latest.get("question") or "") == question,
         "draft_note": None if busy else item.get("draft_note"),
-        "marks": marks(item, cited if latest else None),
+        "marks": found_marks,
+        "cited": cited_by_contractor(item),
     }
+
+
+def cited_by_contractor(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """What the contractor's form itself cites, one plain line each, and whether we hold it (lead-4, the owner's note of 26 Nov 2026,
+    item 4: shown FIRST, because a cited document we do not hold is the real answer). Read from the preparation's own lines
+    (`technical_query_cited.cited_first`, stored as evidence_coverage.cited_first); "held" is False for "not held" and for a lookup
+    that failed."""
+    lines = (item.get("evidence_coverage") or {}).get("cited_first") or []
+    return [
+        {
+            "line": str(line),
+            "held": "not held" not in str(line)
+            and "could not be looked up" not in str(line),
+        }
+        for line in lines
+        if str(line).strip()
+    ]
 
 
 def backlog(conn) -> list[str]:
@@ -357,7 +498,30 @@ def backlog(conn) -> list[str]:
         if row[0] not in seen:
             ids.append(row[0])
             seen.add(row[0])
+    for qid in stale_system_drafts(conn):
+        if qid not in seen:
+            ids.append(qid)
+            seen.add(qid)
     return ids
+
+
+def stale_system_drafts(conn) -> list[str]:
+    """The queries awaiting review whose latest draft is a SYSTEM draft of an older version (no engineer typed it, no decision names it):
+    they are drafted again with the current prompt and floor. Oldest first."""
+    out = []
+    for row in conn.execute(
+        "SELECT q.id, (SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
+        "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model FROM technical_queries q "
+        "WHERE q.status='awaiting_review' AND NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
+        "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at"
+    ):
+        if (
+            row["model"]
+            and (row["pv"] or "").startswith("system-draft-")
+            and row["pv"] != SYSTEM_DRAFT
+        ):
+            out.append(row["id"])
+    return out
 
 
 def queue_backlog() -> int:
@@ -375,6 +539,13 @@ def queue_backlog() -> int:
             continue
         try:
             scope = access.scope_for_user(owner)
+            with (
+                connect() as conn
+            ):  # an older system draft: back to drafting, so the job may prepare and draft again
+                conn.execute(
+                    "UPDATE technical_queries SET status='drafting' WHERE id=? AND status='awaiting_review'",
+                    (query_id,),
+                )
             technical_query_jobs.enqueue(query_id, scope.readable_with_attachments, scope.user_id, scope.is_admin, scope.unrestricted,
                                          start_thread=False)  # fmt: skip
             queued += 1

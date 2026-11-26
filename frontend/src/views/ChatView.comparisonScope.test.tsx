@@ -175,7 +175,7 @@ async function ask(question: string) {
   mockApi(question);
   render(<App />);
   await userEvent.click(await screen.findByRole("button", { name: /^Chat/ }));
-  await userEvent.type(screen.getByLabelText("Your question"), question);
+  await userEvent.type(await screen.findByLabelText("Your question"), question);
   await userEvent.click(screen.getByRole("button", { name: "Ask" }));
   // The quoted answer is on screen before anything is asserted about the
   // notice beside it; an absent notice under an absent answer proves nothing.

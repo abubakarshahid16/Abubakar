@@ -9,6 +9,10 @@ export interface TechnicalQuery {
   ref_type?: string | null;
   ref_number?: string | null;
   discipline_code?: string | null;
+  /** The contractor code inside the subject's number, read by the same code (shown beside an empty Contractor field). */
+  contractor_code?: string | null;
+  /** Which engines may write a draft now; Claude with the plain reason when it cannot (no credit, switched off). */
+  draft_engines?: { claude?: { available: boolean; why?: string | null } } | null;
   title_short?: string | null;
   /** 1 when the subject carried no TQ/CFC number: kept, and flagged for a person. */
   needs_person?: number | null;
@@ -58,6 +62,8 @@ export interface TechnicalQuery {
     draft_fresh: boolean;
     draft_note?: string | null;
     marks?: string[];
+    /** What the contractor's form cites, one plain line each, and whether we hold it (builder A, 27 Nov 2026); empty when it cites nothing. */
+    cited?: Array<{ line: string; held: boolean }>;
   } | null;
   decisions?: Array<{ decision: string; comment: string | null; created_at: string }>;
   source_access_revoked?: boolean;
@@ -193,7 +199,7 @@ export const technicalQueriesApi = {
   createByHand: (form: FormData): Promise<Result<{ item: TechnicalQuery; uploaded: number }>> =>
     request("/technical-queries/manual", { method: "POST", body: form }),
   createDraft: (id: string, answer: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer }) }),
-  decide: (id: string, decision: string, draftId?: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, draft_id: draftId }) }),
+  decide: (id: string, decision: string, draftId?: string, comment?: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(comment ? { decision, draft_id: draftId, comment } : { decision, draft_id: draftId }) }),
   confirmResolution: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/confirm-resolution`, { method: "POST" }),
 };
 

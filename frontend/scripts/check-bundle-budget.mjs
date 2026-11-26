@@ -33,9 +33,23 @@ const root = join(process.cwd(), "dist", "assets");
 // Update 16 (26 Nov 2026): 343000 -> 345000 bytes: approved increase, from the manager-view numbers (At a glance on the Dashboard) and the confirm-source-document button: content growth on the first screen; lead decision (build 344831).
 // Update 17 (26 Nov 2026): 345000 -> 348000 bytes: approved increase, from the one-screen technical query page and the admin section for technical query reviewers: a real feature, not bloat; lead decision (build 347199). Later cleanup: the admin-only reviewers section can load lazily.
 // Update 19 (26 Nov 2026): 348000 -> 350000 bytes: approved increase, from the owner's 7-point polish of the query page (build 348694); lead decision. The real fix, the admin-only reviewers section loaded lazily, is H's next small PR.
-const max = 350000;
+// (Superseded by the first-load gate below: the old all-asset total is printed, no longer gated.)
+// First load (lead-4, 26 Nov 2026, option a): the gate measures what a user downloads first, no longer the sum of every asset. Chat,
+// Technical Queries and the Review screens load when opened. Measured on the same build way: first load 300255 -> 261742 bytes (main
+// 1dee12fa -> this change); all assets 347652 -> 355608 (splitting adds a little per chunk; printed, not gated). Budget 264000.
+const max = 264000;
+// FIRST LOAD (lead-4, 26 Nov 2026): the gate is what a new user downloads before the first screen draws: the files dist/index.html
+// itself loads (its module script, its modulepreload links, its stylesheets). A screen loaded on demand (lazy) is not in it. The total
+// of every asset is printed beside it, never gated, so lazy code stays visible and cannot hide growth.
+const { readFile } = await import("node:fs/promises");
+const gz = async (file) => gzipSync(await readFile(join(root, file))).length;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
+const html = await readFile(join(process.cwd(), "dist", "index.html"), "utf8");
+const first = [...new Set([...html.matchAll(/(?:src|href)="\/assets\/([^"]+\.(?:js|css))"/g)].map((m) => m[1]))];
+if (first.length === 0) { console.error("No first-load asset found in dist/index.html: build first."); process.exit(1); }
+let firstLoad = 0;
+for (const file of first) firstLoad += await gz(file);
 let total = 0;
-for (const file of files) total += gzipSync(await (await import("node:fs/promises")).readFile(join(root, file))).length;
-console.log(`Initial asset gzip: ${total} bytes across ${files.length} assets (budget ${max})`);
-if (total > max) process.exit(1);
+for (const file of files) total += await gz(file);
+console.log(`First-load gzip: ${firstLoad} bytes across ${first.length} assets (budget ${max}); all assets, lazy included: ${total} bytes across ${files.length}`);
+if (firstLoad > max) process.exit(1);

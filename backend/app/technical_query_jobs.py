@@ -334,7 +334,10 @@ def queue_all(
     from . import technical_query_auto
 
     with connect() as conn:
-        ids = technical_query_auto.backlog(conn)  # never prepared, or prepared with no draft and no reason why
+        ids = technical_query_auto.backlog(conn)  # never prepared, prepared with no draft and no reason why, or an older system draft
+        stale = set(technical_query_auto.stale_system_drafts(conn))
+        for query_id in stale:  # back to drafting, so the job may prepare and draft again
+            conn.execute("UPDATE technical_queries SET status='drafting' WHERE id=? AND status='awaiting_review'", (query_id,))
     for query_id in ids:
         enqueue(query_id, allowed_document_ids, user_id, is_admin, unrestricted)
     with connect() as conn:

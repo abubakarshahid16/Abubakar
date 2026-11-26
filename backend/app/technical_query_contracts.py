@@ -70,6 +70,12 @@ def standard_entries(allowed: frozenset[str]) -> list[dict]:
         )
 
 
+def standard_ids(allowed: frozenset[str]) -> frozenset[str]:
+    """The held standards among `allowed` (a company standard by role, or an unroled public standard; never a contract, a submittal or
+    any other document): the ids a Claude query draft may also send (owner, 26 Nov 2026 23:00 PKT; CLAUDE.md rule 1)."""
+    return frozenset(e["id"] for e in standard_entries(allowed))
+
+
 def standards_line(of: int, hits_in: int, failed: bool) -> str:
     if of == 0:
         return " No held standard that you may read: none was searched."

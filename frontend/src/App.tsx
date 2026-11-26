@@ -11,18 +11,14 @@ import {
 import { DisconnectedState, Spinner } from "./components/states";
 import { CommandPalette } from "./components/CommandPalette";
 import { RecentChats } from "./components/chat/RecentChats";
-import { ChatView } from "./views/ChatView";
 import { DashboardView } from "./views/DashboardView";
 import { DocumentsView } from "./views/DocumentsView";
 import { IngestionView } from "./views/IngestionView";
-import { TechnicalQueriesView } from "./views/TechnicalQueriesView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { useSessionExpiry } from "./hooks/useSessionExpiry";
-import { SubmittalsLandingView } from "./views/SubmittalsLandingView";
 import type { AuthStatus, Me } from "./types/api";
 import { FinishedReviewNotice } from "./components/review/workspace/FinishedReviewNotice";
 import { clearWatchedReviews, setWatchOwner } from "./components/review/workspace/reviewWatch";
-import { ReviewWorkspace } from "./components/review/workspace/ReviewWorkspace";
 import { WORKSPACE_PANEL, documentFromSearch, reviewPageFor, workspaceSearch } from "./components/review/workspace/workspaceRoute";
 import type { WorkspaceLocation, WorkspaceTab } from "./components/review/workspace/contract";
 import { LeaveConfirm } from "./components/review/workspace/LeaveConfirm";
@@ -38,6 +34,12 @@ const StandardsView = lazy(() => import("./views/StandardsView").then((m) => ({ 
 const AnalysisModeScreen = lazy(() => import("./views/AnalysisModeScreen").then((m) => ({ default: m.AnalysisModeScreen })));
 const ReportsScreen = lazy(() => import("./views/ReportsScreen").then((m) => ({ default: m.ReportsScreen })));
 const DeliverablesView = lazy(() => import("./views/DeliverablesView").then((m) => ({ default: m.DeliverablesView })));
+// The three largest screens load when opened (lead-4, 26 Nov 2026: the bundle gate now counts what a user downloads FIRST, so a screen
+// nobody has opened yet is not part of every first visit).
+const ChatView = lazy(() => import("./views/ChatView").then((m) => ({ default: m.ChatView })));
+const TechnicalQueriesView = lazy(() => import("./views/TechnicalQueriesView").then((m) => ({ default: m.TechnicalQueriesView })));
+const SubmittalsLandingView = lazy(() => import("./views/SubmittalsLandingView").then((m) => ({ default: m.SubmittalsLandingView })));
+const ReviewWorkspace = lazy(() => import("./components/review/workspace/ReviewWorkspace").then((m) => ({ default: m.ReviewWorkspace })));
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
@@ -475,6 +477,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           the banner, which keeps the one-error-at-a-time rule above. */}
       {view === "chat" && route.kind !== "forbidden" && (
         <div className="contents" hidden={connection.state === "offline"}>
+          <Suspense fallback={<Spinner />}>
           <ChatView
             connection={connection}
             onRetryConnection={recheck}
@@ -483,6 +486,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
             onConversationChange={setChatId}
             onListChanged={bumpChats}
           />
+          </Suspense>
         </div>
       )}
       {connection.state === "offline" ? (

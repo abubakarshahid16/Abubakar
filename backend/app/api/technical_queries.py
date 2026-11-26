@@ -275,10 +275,44 @@ def _hide_unreadable_attachment_text(item: dict, scope: access.AccessScope) -> d
     }
 
 
+#: Why Claude cannot write a query's reply now, in plain words, by the lane's own reason code (never the key, only whether one is set).
+_CLAUDE_WHY = {
+    "PROVIDER_OFF": "Claude is switched off on this computer",
+    "TASK_ENGINE_LOCAL": "Claude is switched off for query replies on this computer",
+    "EGRESS_OFF": "sending to Claude is switched off on this computer",
+    "KEY_MISSING": "no Claude key is set on this computer",
+}
+
+
+def _draft_engines() -> dict:
+    """Which engine may write a draft now (owner, 27 Nov 2026 00:02: "Claude shown unavailable + why"): the same two checks the draft
+    route makes before any request (the draft-engine setting, then the lane), read only. The account's own credit is not known here:
+    a press that the account refuses still shows the server's refusal."""
+    from .. import reasoning_provider
+
+    if settings.technical_query_draft_engine.strip().lower() != "claude":
+        return {"claude": {"available": False, "why": _CLAUDE_WHY["TASK_ENGINE_LOCAL"]}}
+    code, words = reasoning_provider.claude_unavailable_for_task(settings.technical_query_draft_engine)
+    if code is None:
+        return {"claude": {"available": True, "why": None}}
+    return {"claude": {"available": False, "why": _CLAUDE_WHY.get(code, words)}}
+
+
+def _subject_codes(item: dict) -> dict:
+    """The contractor code the subject's number holds (`technical_query_subject`, the same reading the routing rules use), so an empty
+    Contractor field can say what the subject holds; nothing when the subject carries no TQ/CFC number."""
+    from .. import technical_query_subject
+
+    ref = technical_query_subject.parse(item.get("subject")) or {}
+    return {"contractor_code": ref.get("contractor_code") or None}
+
+
 def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     """Hide source material retained after a document grant is revoked."""
     item = {
         **item,
+        **_subject_codes(item),
+        "draft_engines": _draft_engines(),
         "can_review": _reviewer(scope),
         "messages": [
             {key: value for key, value in message.items() if key != "raw_storage_ref"}
@@ -956,9 +990,10 @@ def generate_query_draft(
     body: GenerateDraftIn | None = None,
 ):
     """Generate a grounded draft through the existing citation-checked answer lane. The engine is the local model unless the request asks
-    for Claude: then only the documents the engineer chose (a consent record of this lane, stored first) and the query's own text are
-    sent, through the ordinary Claude path under the spend caps, and only when the server's draft-engine setting says claude. Any other
-    vendor is refused. Chat's per-request consent is chat's lane only and is never used here."""
+    for Claude: then only the contract documents the engineer chose and the held standards of the query's kept, current evidence the
+    caller may read (owner, 26 Nov 2026 23:00 PKT; a consent record of this lane, stored first) and the query's own text are sent, through
+    the ordinary Claude path under the spend caps, and only when the server's draft-engine setting says claude. Never a submittal, the
+    register or any other document. Any other vendor is refused. Chat's per-request consent is chat's lane only and is never used here."""
     _require_identity_to_write(scope)
     engine = (body.engine if body else "local").strip().lower()
     if engine not in {"local", "claude"}:
@@ -975,7 +1010,7 @@ def generate_query_draft(
     question, _source = technical_query_auto.working(current)
     if not question:
         raise _refuse(409, technical_query_auto.NO_QUESTION)
-    if engine == "claude":  # the Claude lane is unchanged: only kept, current passages, and only the contracts the engineer chooses
+    if engine == "claude":  # the Claude lane: only kept, current passages: the contracts the engineer chooses and the held standards
         usable_evidence = [
             item
             for item in current.get("evidence", [])
@@ -988,22 +1023,32 @@ def generate_query_draft(
         usable_evidence = technical_query_auto.draft_passages(current, scope.allowed_document_ids, attachment_documents)
     if not usable_evidence:
         raise _refuse(409, _no_usable_evidence(current, attachment_documents, scope) if engine == "claude"
-                      else technical_query_auto.NO_PASSAGE)  # fmt: skip
+                      else technical_query_auto.none_usable_note(current))  # fmt: skip
     scope_ids = frozenset(item["document_id"] for item in usable_evidence)
     chosen: frozenset[str] = frozenset()
+    unread_standards = 0
     if engine == "claude":
-        chosen = frozenset(body.document_ids if body else ())
+        picked = frozenset(body.document_ids if body else ())
+        if not picked <= scope_ids:
+            raise _refuse(409, "a chosen document is not verified, current evidence of this query that you may read")
+        # the engineer's contracts, and the HELD STANDARDS of this query's kept, current evidence that the caller may read (owner,
+        # 26 Nov 2026 23:00 PKT: "Claude may read standards passages to write a query reply, same as it does for reviews"; rule 1)
+        standards = technical_query_contracts.standard_ids(scope_ids)
+        not_allowed = picked - frozenset(technical_query_contracts.contract_ids(picked)) - standards
+        if not_allowed:  # never a submittal, the register or any other document
+            raise _refuse(409, f"not a contract or a held standard: not sent ({', '.join(sorted(not_allowed))})")
+        chosen = picked | standards
         if not chosen:
             raise _refuse(409, "choose the contract documents Claude may read for this query before asking for a Claude draft")
-        if not chosen <= scope_ids:
-            raise _refuse(409, "a chosen document is not verified, current evidence of this query that you may read")
-        not_contracts = chosen - frozenset(technical_query_contracts.contract_ids(chosen))
-        if not_contracts:  # the owner approved CONTRACT documents only for this lane
-            raise _refuse(409, f"not a contract: not sent ({', '.join(sorted(not_contracts))})")
-        with connect() as conn:  # the choice is recorded BEFORE anything can be sent: ids only
+        unreadable = {e["document_id"] for e in current.get("evidence", []) if e["evidence_state"] == "verified"
+                      and e["document_id"] not in scope.allowed_document_ids}  # fmt: skip
+        unread_standards = len(technical_query_contracts.standard_ids(frozenset(unreadable)))  # counted, never named
+        with connect() as conn:  # the files sent are recorded BEFORE anything can be sent: ids only
             technical_query_claude.record(conn, query_id, chosen, scope.user_id)
+    from ..answer import query_reply
+
     try:
-        with claude_approved.technical_query_lane(chosen):
+        with claude_approved.technical_query_lane(chosen), query_reply():  # the query-reply prompt (no "Yes." / "No." opening)
             result = verified_passages.answer(
                 question,
                 evidence=usable_evidence,
@@ -1032,8 +1077,12 @@ def generate_query_draft(
             409,
             "the generated answer cited passages outside the query's verified evidence",
         )
+    if technical_query_auto.unsupported_quotes(result["answer"], technical_query_auto.seen_sources(result), question):
+        raise _refuse(409, technical_query_auto.FALSE_QUOTE)  # a false quote is never kept as a proposed reply
     unresolved = [result.get("reason")] if result.get("reason") else []
     unresolved += technical_query_auto.marks(current, {c["evidence_id"] for c in citations})
+    if unread_standards:
+        unresolved.append(f"{unread_standards} held standard(s) you may not read were not sent.")
     if engine == "claude" and not str(result.get("model") or "").lower().startswith("claude"):
         unresolved.append("Claude did not write this draft (the lane was closed or refused); the local model did.")
     item = technical_queries.add_draft(
