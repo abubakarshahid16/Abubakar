@@ -1,7 +1,7 @@
 /** The query's ask as one readable list, and honest marks instead of gates (owner, 26 Nov 2026). Invented queries only. */
 import { describe, expect, it } from "vitest";
 
-import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, citedSplit, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, boldSplit, plainMark, citedSplit, plainStatus, queryHeadline, querySteps, sharedSource, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 
 const found = (n: number) => Array.from({ length: n }, (_, i) => ({ question: `Invented request ${i + 1}`, filename: "Invented form.pdf", page: 1 }));
 
@@ -102,5 +102,38 @@ describe("keep the cited, reject the others", () => {
     expect(split.keep.map((e) => e.id)).toEqual(["c1"]);
     expect(split.reject.map((e) => e.id)).toEqual(["o1"]);
     expect(citedSplit(rows, "not json").keep).toEqual([]); // unreadable citations: nothing is kept by guess
+  });
+});
+
+describe("read in ten seconds (owner, 26 Nov 2026 22:41)", () => {
+  it("one sentence: who asks, how many items, about what", () => {
+    const ask = "About X, the contractor asks for the following:\n1. a\n2. b\n3. c";
+    expect(queryHeadline({ subject: "Fw: Invented tie-in details-Clarification" }, ask)).toBe("The contractor asks for 3 items about Invented tie-in details.");
+    expect(queryHeadline({ contractor_name: "Invented Builders", title_short: "Invented valve" }, "What is the rating?")).toBe("Invented Builders asks one question about Invented valve.");
+  });
+  it("the status in everyday words; a priority only when it is not normal", () => {
+    expect(plainStatus("drafting", "normal")).toBe("In progress");
+    expect(plainStatus("awaiting_review", "high")).toBe("In progress: waiting for your approval · high priority");
+  });
+  it("four steps, each with its own state", () => {
+    const steps = querySteps({ status: "awaiting_review", drafts: [{}], evidence: [{ for_current_question: true }], ready: { evidence: "ready", draft: "ready" } }, "x");
+    expect(steps.map((s) => `${s.label}:${s.state}`)).toEqual(["Question found:done", "Sources found:done", "Reply written:done", "Approved:todo"]);
+    expect(querySteps({ status: "drafting", ready: { evidence: "refreshing", draft: "none" } }, "x")[1].state).toBe("working");
+  });
+  it("the source is said once when every request shares it", () => {
+    const one = [{ kind: "item" as const, n: 1, text: "a", source: "f.pdf, page 1" }, { kind: "item" as const, n: 2, text: "b", source: "f.pdf, page 1" }];
+    expect(sharedSource(one)).toBe("f.pdf, page 1");
+    expect(sharedSource([one[0], { ...one[1], source: "g.pdf, page 2" }])).toBeNull();
+  });
+  it("the asked phrase in bold: up to a colon, a near comma, or seven words", () => {
+    expect(boldSplit("Matching line list: for the invented system")).toEqual(["Matching line list:", " for the invented system"]);
+    expect(boldSplit("Piping class information for metallurgy details")).toEqual(["Piping class information for metallurgy details", ""]);
+    expect(boldSplit("In order to implement the invented design note the contractor requires detailed information on the tie-in")[0]).toBe("In order to implement the invented design");
+  });
+});
+
+describe("the server's marks in everyday words", () => {
+  it("says 'the AI on this computer' and 'sources'", () => {
+    expect(plainMark("Written by the local model from passages the system found; no engineer has kept them yet.")).toBe("Written by the AI on this computer from sources the system found; no engineer has kept them yet.");
   });
 });
