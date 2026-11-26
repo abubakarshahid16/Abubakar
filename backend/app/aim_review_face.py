@@ -13,6 +13,8 @@ import sqlite3
 
 SIGNED, CHANGED, NOT_SIGNED = "signed", "changed", "not_signed"
 CLAUDE, LOCAL = "claude", "local"
+#: The face row's note when a newer review of the paper exists (lead-4, 26 Nov 2026: so the signed-first face never hides it).
+NEWER_UNSIGNED = "A newer review exists, not signed"
 
 
 def engine_words(engine: str) -> str:
@@ -76,3 +78,21 @@ def face_ids(rows: list[dict]) -> set[str]:
         )
         out.add(str(face["review_run_id"]))
     return out
+
+
+def newer_words(rows: list[dict], face_id: str) -> str | None:
+    """The face row's note naming the newest review of the same paper that is newer than the face (never signed: a newer signed
+    one would be the face), with its engine words; None when the face is the newest."""
+    face = next((r for r in rows if str(r["review_run_id"]) == face_id), None)
+    if face is None:
+        return None
+    key = lambda r: (str(r.get("created_at") or ""), str(r["review_run_id"]))  # noqa: E731
+    newer = [
+        r
+        for r in rows
+        if r["submittal_document_id"] == face["submittal_document_id"]
+        and key(r) > key(face)
+    ]
+    if not newer:
+        return None
+    return f"{NEWER_UNSIGNED} ({engine_words(max(newer, key=key).get('engine') or CLAUDE)})"

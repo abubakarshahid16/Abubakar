@@ -151,3 +151,32 @@ def test_a_sign_off_of_a_local_draft_decided_one_by_one_says_it_was_made_from_a_
         str(v) for r in summary.iter_rows(values_only=True) for v in r if v
     )
     assert SO.ROUGH_DRAFT_SIGNED in text  # the team file's Sign-off row
+
+
+def test_the_face_row_says_when_a_newer_review_exists_not_signed():
+    """Lead-4, 26 Nov 2026: the signed-first face never hides a newer review; its row names it with its engine."""
+    rows = [
+        {"review_run_id": "signed", "submittal_document_id": "p", "created_at": "2026-11-01", "engine": "claude",
+         "general_signoff": aim_review_face.SIGNED},
+        {"review_run_id": "newer", "submittal_document_id": "p", "created_at": "2026-11-20", "engine": "local",
+         "general_signoff": None},
+    ]  # fmt: skip
+    (face,) = aim_review_face.face_ids(rows)
+    assert face == "signed"
+    note = aim_review_face.newer_words(rows, face)
+    assert (
+        note.startswith(aim_review_face.NEWER_UNSIGNED)
+        and aim_review_gate.LOCAL_ROUGH_DRAFT in note
+    )
+    assert (
+        aim_review_face.newer_words(rows[1:], "newer") is None
+    )  # the face is the newest: no note
+
+
+def test_the_runs_list_carries_the_note_on_the_face_row_only(temp_db):
+    _world()
+    make_run(RUN)
+    _make_local()
+    rows = {e["review_run_id"]: e for e in _entries()}
+    assert rows[RUN]["newer_note"].startswith(aim_review_face.NEWER_UNSIGNED)
+    assert rows[LOCAL_RUN]["newer_note"] is None

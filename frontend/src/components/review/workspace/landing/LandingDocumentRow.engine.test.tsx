@@ -16,13 +16,15 @@ const run = (id: string, created: string, over: Partial<ReviewRunSummary>): Revi
 describe("LandingDocumentRow: the engine of the face", () => {
   it("opens the Claude review, names its engine, and keeps the newer rough draft among the earlier ones", () => {
     const runs = [
-      run("claude", "2026-11-18T10:00:00Z", { face: true, engine: "claude", engine_words: "Claude" }),
+      run("claude", "2026-11-18T10:00:00Z", { face: true, engine: "claude", engine_words: "Claude",
+        newer_note: "A newer review exists, not signed (Local model: rough draft, not scored as reliable)" }),
       run("local", "2026-11-26T08:00:00Z", { face: false, engine: "local", engine_words: "Local model: rough draft, not scored as reliable" }),
     ];
     const [row] = landingRowsOf([doc], runs);
     const onOpenRun = vi.fn();
     render(<LandingDocumentRow row={row} counts={null} allRuns={runs} mayStart onOpenRun={onOpenRun} onChanged={vi.fn()} />);
     expect(screen.getByTestId("row-engine")).toHaveTextContent("Claude");
+    expect(screen.getByTestId("row-newer")).toHaveTextContent("A newer review exists, not signed");
     screen.getByRole("button", { name: "Open the latest review of INV-PAPER-1.pdf" }).click();
     expect(onOpenRun).toHaveBeenCalledWith("claude");
   });

@@ -82,6 +82,8 @@ export interface ReviewRunSummary {
   engine_words?: string | null;
   /** True for the run the paper's row shows and opens (`aim_review_face`: newest signed, else newest on Claude, else newest). */
   face?: boolean | null;
+  /** The face row's note when a newer review of the paper exists, not signed ("A newer review exists, not signed (Claude)"). */
+  newer_note?: string | null;
   /** Every distinct equipment tag the run's findings name, in order; empty (shown as nothing, never a guess) when the datasheet states none. */
   equipment_tags: string[];
   status: string;
