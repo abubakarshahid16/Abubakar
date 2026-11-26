@@ -27,6 +27,7 @@ const query = {
 };
 
 const api = vi.hoisted(() => ({
+  saveQuestion: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   metrics: vi.fn(),
@@ -526,5 +527,20 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView queryId="q1" />);
     expect((await screen.findByTestId("evidence-needs-confirm")).textContent).toContain("Documents, Details, Save metadata");
     expect(screen.queryByTestId("confirm-source")).toBeNull();
+  });
+
+  it("with the server's ready state: says where the sources and the draft stand, who wrote the draft, and saves an edit without confirming", async () => {
+    const ready = { question: "See attached.\n1. What is the minimum coating thickness?", question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "ready", draft_fresh: true, draft_note: null, marks: ["Invented server mark"] };
+    const drafted = { ...query, ready, drafts: [{ id: "d1", version: 1, answer: "Invented answer.", assumptions_json: "[]", unresolved_json: "[]", citations_json: "[]", model: "invented-small:9b", system: true }] };
+    api.get.mockResolvedValue({ ok: true, data: drafted });
+    api.saveQuestion.mockResolvedValue({ ok: true, data: { ...drafted, ready: { ...ready, evidence: "refreshing" } } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    expect((await screen.findByTestId("draft-author")).textContent).toBe("Written by the AI on this computer from the sources found (no paid credit).");
+    expect(screen.getAllByTestId("question-mark").map((m) => m.textContent)).toContain("Invented server mark");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText(/Edit what the contractor is asking/), { target: { value: "See attached.\n1. An invented edited request?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and find the sources again" }));
+    await waitFor(() => expect(api.saveQuestion).toHaveBeenCalledWith("q1", "See attached.\n1. An invented edited request?"));
+    expect((await screen.findByTestId("ready-line")).textContent).toBe("Finding the sources for this question; a draft follows.");
   });
 });

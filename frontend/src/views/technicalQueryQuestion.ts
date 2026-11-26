@@ -14,6 +14,7 @@ export interface FoundQuestion {
 
 export interface QuestionSource {
   confirmed_question?: string | null;
+  edited_question?: string | null;
   proposed_question?: string | null;
   proposed_questions?: FoundQuestion[] | null;
   extracted_question?: string | null;
@@ -37,6 +38,7 @@ function plainSubject(q: QuestionSource): string {
  *  question section; else the email's question. */
 export function startingText(q: QuestionSource): string {
   if (q.confirmed_question) return q.confirmed_question;
+  if (q.edited_question) return q.edited_question; // the engineer's own wording, saved, not confirmed (builder A)
   const email = (q.extracted_question_main ?? q.extracted_question ?? "").trim();
   const found = [...new Set((q.proposed_questions ?? []).slice(0, LIST_FOUND).map((f) => f.question.trim()).filter((t) => t && !email.includes(t)))];
   if (found.length) {
@@ -130,4 +132,34 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
     if (/not held|not found|not looked up/i.test(line)) evidence.push(`The form cites ${line.replace(/^(\w)/, (c) => c.toLowerCase())}.`);
   }
   return { question, evidence };
+}
+
+export interface ReadyState {
+  evidence: "ready" | "refreshing" | "none" | "failed";
+  evidence_fresh: boolean;
+  draft: "ready" | "refreshing" | "none" | "not_written";
+  draft_fresh: boolean;
+  draft_note?: string | null;
+  marks?: string[];
+}
+
+/** One plain line on where the sources and the draft stand (builder A's `ready`), or null when nothing is under way. */
+export function readyLine(r: ReadyState | null | undefined): string | null {
+  if (!r) return null;
+  if (r.evidence === "refreshing") return "Finding the sources for this question; a draft follows.";
+  if (r.draft === "refreshing") return "Writing a draft from the sources found.";
+  if (r.evidence === "failed") return "The sources could not be found this time.";
+  if (r.draft === "not_written") return r.draft_note ? `No draft was written: ${r.draft_note}.` : "No draft was written.";
+  if (r.draft === "ready" && !r.draft_fresh) return "The draft answers an earlier wording of the question.";
+  return null;
+}
+
+/** Who wrote a draft, in plain words, and whether it used paid credit (owner, 26 Nov 2026: "say which one writes it"). */
+export function draftAuthor(d: { system?: boolean | null; model?: string | null } | null | undefined): string | null {
+  if (!d) return null;
+  if (d.system === false) return "Written by an engineer.";
+  if (d.system !== true) return null;
+  return /claude/i.test(d.model ?? "")
+    ? "Written by Claude from the sources found (uses paid credit)."
+    : "Written by the AI on this computer from the sources found (no paid credit).";
 }

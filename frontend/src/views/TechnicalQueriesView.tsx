@@ -1,4 +1,4 @@
-import { honestMarks, notInText, readableLines, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { querySummary } from "./technicalQuerySummary";
@@ -140,10 +140,13 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const confirmQuestion = () => act(async () => {
     const confirmed = await technicalQueriesApi.confirmQuestion(selected!.id, questionDraft.trim());
     if (!confirmed.ok) return confirmed;
-    // Evidence is then found for the confirmed wording, not for the first proposal.
+    // a server that reports `ready` finds the sources again by itself when the wording changed (builder A); an older one is asked
+    if (confirmed.data.ready) return confirmed;
     const prepared = await technicalQueriesApi.prepareEvidence(selected!.id);
     return prepared.ok ? prepared : confirmed;
   });
+  /** Save the wording without confirming it: the sources and a draft follow by themselves (builder A's POST /question). */
+  const saveQuestion = () => act(() => technicalQueriesApi.saveQuestion(selected!.id, questionDraft.trim()));
 
   useEffect(() => {
     setTriageContractor(selected?.contractor_name || "");
@@ -185,7 +188,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     return technicalQueriesApi.get(selected!.id);
   });
 
-  const questionMarks = selected ? honestMarks(selected, questionDraft).question : [];
+  const questionMarks = selected ? [...new Set([...honestMarks(selected, questionDraft).question, ...(selected.ready?.marks ?? [])])] : [];
   const searching = selected?.evidence_job?.state === "queued" || selected?.evidence_job?.state === "running";
   // the ask as shown differs from what the sources were found for (the confirmed wording, else the proposal)
   const questionEdited = Boolean(selected) && questionDraft.trim() !== (selected ? startingText(selected) : "").trim();
@@ -229,9 +232,10 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   }, [importing]);
 
   const jobState = selected?.evidence_job?.state;
+  const refreshing = selected?.ready?.evidence === "refreshing" || selected?.ready?.draft === "refreshing";
   useEffect(() => {
-    // The evidence is prepared by a background job: ask again every few seconds while it is queued or running, then show what it found.
-    if (!selected || (jobState !== "queued" && jobState !== "running")) return;
+    // The evidence (and now the draft) is prepared by a background job: ask again every few seconds while it is under way, then show it.
+    if (!selected || (jobState !== "queued" && jobState !== "running" && !refreshing)) return;
     const id = selected.id;
     const timer = window.setInterval(() => {
       void technicalQueriesApi.get(id).then((detail) => {
@@ -239,7 +243,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
       });
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [selected?.id, jobState]);
+  }, [selected?.id, jobState, refreshing]);
 
   useEffect(() => {
     // Google sends the person to /technicalQueries/gmail-return: read what it sent, clear it from the address bar at once, then post it on
@@ -451,11 +455,14 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               <label htmlFor="technical-query-question" className="block text-xs text-slateish-300">Edit what the contractor is asking (one request per numbered line)</label>
               <textarea id="technical-query-question" value={questionDraft} onChange={(event) => setQuestionDraft(event.target.value)} rows={6} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
             </> : <button type="button" onClick={() => setEditingQuestion(true)} className="rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100">Edit</button>}
+            {selected.ready && questionDraft.trim() && questionDraft.trim() !== selected.ready.question.trim() && <button type="button" disabled={busy} onClick={saveQuestion} className="ml-2 mt-2 rounded border border-signal-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save and find the sources again</button>}
             <button type="button" disabled={busy || !selected.can_review || !questionDraft.trim() || questionDraft.trim() === (selected.confirmed_question || "")} title={selected.can_review ? undefined : "Only a qualified reviewer can confirm the question"} onClick={confirmQuestion} className="ml-2 mt-2 rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Confirm</button>
             <p className="mt-1 text-xs text-slateish-400">Confirm means you have checked this is what the contractor is asking. It does not send anything to the contractor.</p>
             {!selected.can_review && <p className="mt-1 text-xs text-slateish-500">Only a qualified reviewer can confirm the question.</p>}
           </div>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed response{selected.status !== "approved" && selected.drafts?.length ? <span className="ml-2 rounded border border-warn-500 px-2 py-0.5 text-xs font-normal text-warn-500">AI, to be checked</span> : null}</h3>
+          {readyLine(selected.ready) && <p role="status" data-testid="ready-line" className="mt-1 text-xs text-slateish-300">{readyLine(selected.ready)}</p>}
+          {draftAuthor(selected.drafts?.at(-1)) && <p data-testid="draft-author" className="mt-1 text-xs text-slateish-400">{draftAuthor(selected.drafts?.at(-1))}</p>}
           {selected.drafts?.length ? <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.drafts.at(-1)?.answer}</p> : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
           {draftCitations(selected.drafts?.at(-1)?.citations_json).map((citation) => <p key={citation.label} className="mt-2 text-xs text-slateish-400">[{citation.label}] <a className="underline" href={`/api/documents/${encodeURIComponent(citation.document_id)}/original#page=${citation.page}`} target="_blank" rel="noreferrer">Source page {citation.page}</a>: {citation.exact_quote}</p>)}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-3">
@@ -466,7 +473,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           <div className="mt-4 flex flex-wrap gap-2">
             {/* not on the happy path (owner, 26 Nov 2026): the sources are found by themselves; this is for a query with none yet, or
                 when the ask was edited since they were found */}
-            {!searching && (!(selected.evidence?.length) || questionEdited || staleSources(selected)) && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">{selected.evidence?.length ? "Find the sources again for this question" : "Find the sources"}</button>}
+            {!searching && !refreshing && (!(selected.evidence?.length) || questionEdited || staleSources(selected) || selected.ready?.evidence_fresh === false || selected.ready?.evidence === "failed") && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">{selected.evidence?.length ? "Find the sources again for this question" : "Find the sources"}</button>}
             <label className="flex items-center gap-1 text-xs text-slateish-300">Written by
               <select value={engine} onChange={(event) => setEngine(event.target.value as "local" | "claude")} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100"><option value="local">The AI on this computer</option><option value="claude">Claude (the documents you choose go to Claude)</option></select></label>
             {engine === "claude" && <fieldset className="w-full rounded border border-ink-700 p-2 text-xs text-slateish-300" aria-label="Documents Claude may read for this query"><legend className="px-1">Contract documents Claude may read for this one query</legend>

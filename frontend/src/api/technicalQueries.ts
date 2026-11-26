@@ -43,7 +43,22 @@ export interface TechnicalQuery {
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; /** Which source the passage comes from (owner, 26 Nov 2026): "contract document", "company standard", "standard" or "document", and its number or name. */ source_kind?: string | null; source_name?: string | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
-  drafts?: Array<{ id: string; version: number; answer: string; assumptions_json: string; unresolved_json: string; citations_json: string; model: string | null }>;
+  drafts?: Array<{ id: string; version: number; answer: string; assumptions_json: string; unresolved_json: string; citations_json: string; model: string | null; /** The wording this draft answers (builder A, 26 Nov 2026). */ question?: string | null; /** True when a model wrote it, false when an engineer typed it. */ system?: boolean | null }>;
+  /** The engineer's own wording, saved but not confirmed (builder A, 26 Nov 2026). */
+  edited_question?: string | null;
+  /** The wording the current evidence was found for. */
+  evidence_question?: string | null;
+  /** What the system works from and how far it has got (builder A, owner 26 Nov 2026: question, evidence and draft always ready). */
+  ready?: {
+    question: string;
+    question_source: "confirmed" | "edited" | "proposed" | "none";
+    evidence: "ready" | "refreshing" | "none" | "failed";
+    evidence_fresh: boolean;
+    draft: "ready" | "refreshing" | "none" | "not_written";
+    draft_fresh: boolean;
+    draft_note?: string | null;
+    marks?: string[];
+  } | null;
   decisions?: Array<{ decision: string; comment: string | null; created_at: string }>;
   source_access_revoked?: boolean;
   /** True when the attachment text was left out because the signed-in person may not read that attachment. */
@@ -157,6 +172,9 @@ export const technicalQueriesApi = {
   /** Files a mailbox attachment into the library on purpose, with a role (until then it stays out of search, Chat and the review picker). */
   fileIntoLibrary: (id: string, attachmentId: string, role: string): Promise<Result<TechnicalQuery>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/file-into-library`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role }) }),
+  /** Save the engineer's wording WITHOUT confirming it; the server finds the sources again and writes a new local draft (builder A). */
+  saveQuestion: (id: string, question: string): Promise<Result<TechnicalQuery>> =>
+    request(`/technical-queries/${encodeURIComponent(id)}/question`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }),
   confirmQuestion: (id: string, question: string): Promise<Result<TechnicalQuery>> =>
     request(`/technical-queries/${encodeURIComponent(id)}/confirm-question`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }) }),
   classifyEvidence: (id: string, evidenceId: string, evidenceState: string, supersessionState: string): Promise<Result<TechnicalQuery>> =>

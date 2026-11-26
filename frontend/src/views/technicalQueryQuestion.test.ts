@@ -1,7 +1,7 @@
 /** The query's ask as one readable list, and honest marks instead of gates (owner, 26 Nov 2026). Invented queries only. */
 import { describe, expect, it } from "vitest";
 
-import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, honestMarks, notInText, readableLines, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 
 const found = (n: number) => Array.from({ length: n }, (_, i) => ({ question: `Invented request ${i + 1}`, filename: "Invented form.pdf", page: 1 }));
 
@@ -46,5 +46,26 @@ describe("honest marks", () => {
   it("a form's own list marker is not shown as part of the request", () => {
     const f = [{ question: "- Invented line list", filename: "f.pdf", page: 2 }];
     expect(readableLines("Lead.\n1. - Invented line list", f)[1]).toEqual({ kind: "item", n: 1, text: "Invented line list", source: "f.pdf, page 2" });
+  });
+});
+
+describe("where the sources and the draft stand (builder A's ready)", () => {
+  const base = { evidence: "ready" as const, evidence_fresh: true, draft: "ready" as const, draft_fresh: true };
+  it("says what is under way, what failed, and why no draft was written; nothing when all is ready", () => {
+    expect(readyLine({ ...base, evidence: "refreshing" })).toBe("Finding the sources for this question; a draft follows.");
+    expect(readyLine({ ...base, draft: "refreshing" })).toBe("Writing a draft from the sources found.");
+    expect(readyLine({ ...base, draft: "not_written", draft_note: "no passage found in the contract documents you may read" })).toBe("No draft was written: no passage found in the contract documents you may read.");
+    expect(readyLine({ ...base, draft_fresh: false })).toBe("The draft answers an earlier wording of the question.");
+    expect(readyLine(base)).toBeNull();
+    expect(readyLine(null)).toBeNull();
+  });
+  it("says who wrote the draft and whether it used paid credit", () => {
+    expect(draftAuthor({ system: true, model: "invented-small:9b" })).toBe("Written by the AI on this computer from the sources found (no paid credit).");
+    expect(draftAuthor({ system: true, model: "claude-invented" })).toBe("Written by Claude from the sources found (uses paid credit).");
+    expect(draftAuthor({ system: false, model: null })).toBe("Written by an engineer.");
+    expect(draftAuthor({ model: "x" })).toBeNull(); // an older draft with no origin recorded: nothing claimed
+  });
+  it("the engineer's saved wording comes before the proposal", () => {
+    expect(startingText({ edited_question: "Invented edit.", proposed_questions: [{ question: "Invented request", filename: "f.pdf", page: 1 }] })).toBe("Invented edit.");
   });
 });
