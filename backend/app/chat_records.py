@@ -2,7 +2,9 @@
 #1584, 25 Nov 2026). A practice-copy proof found that "which reviews are signed", "how many comments on the valve review" and
 "list the queries waiting for evidence" fell to general knowledge or to a rule book on the local engine, and reached no tool on
 Claude. They are questions about the app's own RECORDS, so code answers them from the database, with a count and its boundary,
-and no model writes a word of it (the answer never goes to Claude either).
+and no model writes a word of it. With CHAT_DATABASE_TOOLS_ENABLED on, the answer itself may later reach Claude as
+conversation history if the caller turns to a Claude-mode question in the same chat; derived_document_ids on the
+payload is what lets a later turn withhold it once a named paper is no longer readable (see chat.get_messages).
 
   * signed reviews: the general reviews of the papers the reader may read whose latest sign-off stands;
   * a paper's review: the review its Reviews list row opens (`aim_review_runs.entries`, its FACE), with its counts, engine and,
