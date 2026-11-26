@@ -118,11 +118,11 @@ def ensure_schema(conn) -> None:
 
 
 def _upgrade(conn) -> None:
-    """A call table made before the rule-book piece count gets its column (a table of an earlier build of this branch)."""
+    """A call table made before the rule-book piece count gets that count (a table of an earlier build of this branch)."""
     cols = {r[1] for r in conn.execute(f"PRAGMA table_info({CALLS})")}
     if "book_text_unmatched" not in cols:
         conn.execute(
-            f"ALTER TABLE {CALLS} ADD COLUMN book_text_unmatched INTEGER NOT NULL DEFAULT 0"
+            f"ALTER TABLE {CALLS} ADD book_text_unmatched INTEGER NOT NULL DEFAULT 0"
         )
 
 

@@ -256,3 +256,15 @@ def test_a_piece_of_rule_book_text_that_no_declared_book_holds_is_counted():
         and rows[0]["pages"] == [3]
         and rows[0]["text_sha256"] == roles._sha("Invented rule text of book A.")
     )
+
+
+def test_a_call_table_of_an_earlier_build_gets_the_piece_count():
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute(f"CREATE TABLE {roles.CALLS} (run_id TEXT, call_id TEXT)")
+    roles._upgrade(conn)
+    roles._upgrade(conn)  # twice: nothing more
+    assert "book_text_unmatched" in {
+        r[1] for r in conn.execute(f"PRAGMA table_info({roles.CALLS})")
+    }
