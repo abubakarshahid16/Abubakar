@@ -9,7 +9,8 @@ Code-only and screen-only parts stay on.
     (the editor's groups in the merge keys) and the upload-time picture stage.
   * AIM_U8_ENABLED: the second-model rule approvals in the rule pool, the cross-document check.
   * AIM_FORMULA_CHECKS_ENABLED (update 9, ON by default): the formula checks, out of AIM_U8_ENABLED.
-  * AIM_U13_ENABLED: the always-on items G2 and G3 read the app's own consistency pairs and form entries (planner, 26 Nov 2026)."""
+  * AIM_U13_ENABLED: the always-on items G2 and G3 read the app's own consistency pairs and form entries (planner, 26 Nov 2026).
+  * AGENT_REVIEW_NINE_ROLES_ENABLED: the nine-role record on the general review (`roles`); off: nothing imported."""
 
 from __future__ import annotations
 
@@ -75,3 +76,24 @@ def checklist_method() -> str:
     from . import checklist
 
     return checklist.CHECKLIST_METHOD if u7b() else checklist.CHECKLIST_METHOD_MAIN
+
+
+def nine_roles() -> bool:
+    return bool(settings.agent_review_nine_roles_enabled)
+
+
+def nine_wrap(model, run_id: str, paper_id: str):
+    """The run's model with the nine-role record around it (`roles.wrap`); off: the model as given, nothing imported."""
+    if not nine_roles():
+        return model
+    from . import roles
+
+    return roles.wrap(model, run_id, paper_id)
+
+
+def nine_end(run_id: str, result: dict) -> None:
+    """Each role's row at the run's end (`roles.finish`); off: nothing."""
+    if nine_roles():
+        from . import roles
+
+        roles.finish(run_id, result)

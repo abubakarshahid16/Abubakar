@@ -269,7 +269,7 @@ def run(
     """The general review of one paper. `cited_books`: the ids of the held company books the paper cites (the job may pass
     them; ids only); None: read by code from the stored paper (`library.cited_company`). Never writes the database itself (the checklist is saved through `store`), never raises
     for a model failure: a stopped run keeps the lines it judged and the rest as Question "not judged (<code>)"."""
-    from . import Result, faults
+    from . import Result, faults, updates
 
     t0 = time.time()
     meter = Meter(cap=float(max_usd))
@@ -280,7 +280,7 @@ def run(
     state.cited = (
         None if cited_books is None else frozenset(str(b) for b in cited_books)
     )
-    mdl = _Carried(inner, state.books, str(paper_id))
+    mdl = updates.nine_wrap(_Carried(inner, state.books, str(paper_id)), str(run_id), str(paper_id))  # off: the _Carried itself  # fmt: skip
 
     def say(pct: int, words: str) -> None:
         if progress is not None:

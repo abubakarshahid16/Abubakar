@@ -465,6 +465,9 @@ class Settings(SettingsExt, BaseSettings):
     aim_u8_enabled: bool = False
     #: Update 13's method part (`aim_review.updates.u13`): the always-on items G2 and G3 read the app's own form and pair data.
     aim_u13_enabled: bool = False
+    #: The nine-role senior reviewer ON THE GENERAL REVIEW (owner order 15 Nov 2026; `aim_review.roles`): each role's record of what
+    #: it sent and produced. Off: nothing imported, no table, every request and line as main.
+    agent_review_nine_roles_enabled: bool = False
     #: The formula checks (`aim_review/formulas.py`), their own switch since update 9 (lead-4: proven by the free code-only replay,
     #: found unchanged, 3 new Not met lines all true, no comment duplicated). Off: no formula lines, as main 475adb91.
     aim_formula_checks_enabled: bool = True
