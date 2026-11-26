@@ -84,15 +84,21 @@ def _pages(conn, doc_ids: list[str]) -> dict[str, dict[int, str]]:
 
 
 def _papers(conn) -> list[str]:
-    """Every held paper that may name a plant item: every document except a company standard."""
-    return [
-        str(r[0])
+    """Every held paper that may name a plant item: every document except a company standard, the client's register and a file
+    on the block list (`chat_db_tools.withheld_ids`): a withheld paper is never compared, so its name and values never enter a
+    comment, which goes on to the review's later model steps and to Chat (fresh review of #1926)."""
+    from . import chat_db_tools
+
+    rows = [
+        dict(r)
         for r in conn.execute(
-            "SELECT d.id FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
+            "SELECT d.id, d.filename, d.sha256 FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id"
             " WHERE COALESCE(c.document_role, '') != ? ORDER BY d.id",
             (_STANDARD_ROLE,),
         )
     ]
+    gone = chat_db_tools.withheld_ids(rows)
+    return [str(r["id"]) for r in rows if r["id"] not in gone]
 
 
 def _line_at(text: str, start: int, end: int) -> str:

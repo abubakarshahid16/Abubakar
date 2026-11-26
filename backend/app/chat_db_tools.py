@@ -105,6 +105,33 @@ def enabled() -> bool:
     return bool(getattr(settings, "chat_database_tools_enabled", False))
 
 
+def withheld_ids(rows: list[dict]) -> set[str]:
+    """The ids of `rows` ({id, filename, sha256}) that are the client's register, marked by name, or blocked by checksum: never
+    named to a model (every caller: this module, `chat_records`, `tag_cross`). A block file that cannot be read withholds all."""
+    return _withheld(rows)
+
+
+def withheld_names(conn) -> list[str]:
+    """The file names and titles of EVERY withheld document (lower case, at least 4 characters): a text that names one is never
+    handed to a model, whichever paper it is about (fresh review of #1926: a comment about another paper named a blocked one)."""
+    rows = [dict(r) for r in conn.execute(
+        "SELECT d.id, d.filename, d.sha256, c.title FROM documents d LEFT JOIN document_classification c ON c.document_id = d.id")]  # fmt: skip
+    gone = _withheld(rows)
+    out: set[str] = set()
+    for r in rows:
+        if r["id"] in gone:
+            for name in (r.get("filename"), str(r.get("filename") or "").rsplit(".", 1)[0], r.get("title")):
+                if name and len(str(name).strip()) >= 4:
+                    out.add(" ".join(str(name).lower().split()))
+    return sorted(out)
+
+
+def names_withheld(text: str, names: list[str]) -> bool:
+    """True when `text` names a withheld document (`withheld_names`)."""
+    low = " ".join(str(text or "").lower().split())
+    return any(n in low for n in names)
+
+
 def _withheld(rows: list[dict]) -> set[str]:
     """The ids of rows that are the register, marked by name, or blocked by checksum. A block file that cannot be read
     withholds every row (fail closed)."""
@@ -224,6 +251,7 @@ def latest_review(input: dict, *, allowed: frozenset[str]) -> dict:
     if run is None:
         return {"found": False, "note": "this paper has no finished review"}
     view = aim_review_view.build(conn, run, _Viewer(allowed))
+    hidden_names = withheld_names(conn)
     comments = [
         {
             "label": c.get("shown_label") or c.get("label"),
@@ -233,6 +261,8 @@ def latest_review(input: dict, *, allowed: frozenset[str]) -> dict:
             "clause": c.get("clause"),
         }
         for c in view.get("comments") or []
+        # a comment that names a withheld document (a cross-reference to another paper, any field) never goes to the model
+        if not names_withheld(" ".join(str(c.get(k) or "") for k in ("comment", "quote", "standard", "field")), hidden_names)
     ][:TOP_COMMENTS]
     out = {
         "found": True,

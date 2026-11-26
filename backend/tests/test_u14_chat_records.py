@@ -66,6 +66,14 @@ def records(monkeypatch):
     from app import aim_review_runs
 
     monkeypatch.setattr(settings, "chat_database_tools_enabled", True)
+    for doc, name in (
+        ("doc_a", "INV-WIDGET-A.pdf"),
+        ("doc_b", "INV-PUMPLET-B.pdf"),
+        ("doc_c", "INV-SECRET-C.pdf"),
+    ):
+        _doc(
+            doc, name, "datasheet"
+        )  # the reviewed papers exist (an answer names only papers in the library, u15)
     rows = [
         _entry("run-invented-a-0001", "doc_a", "INV-WIDGET-A.pdf", signed=True),
         _entry(
@@ -125,7 +133,7 @@ def test_with_the_switch_off_no_records_question_is_answered_not_even_the_list_b
 def test_signed_reviews_are_counted_with_their_boundary_and_only_readable_papers(
     records,
 ):
-    text = R.signed_reviews(records)
+    text, _named = R.signed_reviews(records)
     assert text.startswith(
         "1 of 2 finished reviews is signed, of the papers you may read."
     )
@@ -134,7 +142,7 @@ def test_signed_reviews_are_counted_with_their_boundary_and_only_readable_papers
 
 
 def test_a_papers_review_gives_its_counts_engine_and_signed_state(records):
-    text = R.paper_review("how many comments on the widget review", records)
+    text, _named = R.paper_review("how many comments on the widget review", records)
     assert (
         "INV-WIDGET-A.pdf (invented widget)" in text
         and "(Claude)" in text
@@ -147,7 +155,7 @@ def test_a_papers_review_gives_its_counts_engine_and_signed_state(records):
 
 
 def test_a_local_review_is_named_a_rough_draft(records):
-    text = R.paper_review("how many comments on the pumplet review", records)
+    text, _named = R.paper_review("how many comments on the pumplet review", records)
     assert (
         "rough draft, not scored as reliable" in text
         and "AI, to be checked (not signed)" in text
@@ -155,7 +163,7 @@ def test_a_local_review_is_named_a_rough_draft(records):
 
 
 def test_a_paper_outside_the_read_set_is_never_answered(records):
-    text = R.paper_review("how many comments on the secret review", records)
+    text, _named = R.paper_review("how many comments on the secret review", records)
     assert text.startswith(R.CANNOT) and "SECRET" not in text
 
 
@@ -165,7 +173,7 @@ def test_the_datasheets_are_listed_by_kind_not_counted_as_submittals():
     _doc("doc_p1", "INV-PROC-1.pdf", "procedure")
     _doc("doc_x", "INV-SUBMITTAL-NOKIND.pdf", None)
     _doc("doc_hidden", "INV-DS-HIDDEN.pdf", "datasheet")
-    text = R.papers_by_kind(
+    text, _named = R.papers_by_kind(
         "list the datasheets", frozenset({"doc_d1", "doc_d2", "doc_p1", "doc_x"})
     )
     assert text.startswith("2 datasheets, of the papers you may read")
@@ -177,14 +185,7 @@ def test_the_datasheets_are_listed_by_kind_not_counted_as_submittals():
 def test_chat_answers_a_records_question_by_code_on_the_local_engine_and_on_claude(
     records, monkeypatch, tmp_path
 ):
-    for doc, name in (
-        ("doc_a", "INV-WIDGET-A.pdf"),
-        ("doc_b", "INV-PUMPLET-B.pdf"),
-        ("doc_c", "INV-SECRET-C.pdf"),
-    ):
-        _doc(
-            doc, name, "datasheet"
-        )  # with sign-in off the reader may read every paper (the API's own read set)
+    # with sign-in off the reader may read every paper (the API's own read set): the fixture made all three
     _on(monkeypatch, tmp_path)
     calls: list = []
     _scripted(monkeypatch, [_text("A model essay.")], calls)
