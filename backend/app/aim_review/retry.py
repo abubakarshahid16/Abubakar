@@ -30,3 +30,43 @@ def retried(model, bad: list[dict], batch, carries, lead, depth: int = 0) -> lis
             model, bad[h:], batch, carries, lead, depth + 1
         )
     return _items_of(fix)
+
+
+#: Items one local checklist call may give per rule part of its batch, and the answer tokens allowed per item (plus a base).
+ITEMS_PER_RULE, TOKENS_PER_ITEM, BASE_TOKENS = 2, 320, 500
+
+
+def room(batch: list[dict], claude_tokens: int) -> tuple[int | None, int]:
+    """(at most this many items, at most this many answer tokens) for one checklist call. On the local model both follow the
+    batch's size (lead-4, 26 Nov 2026: a fixed 8,192 let the 14B loop on its smallest batches); on Claude (None, as before)."""
+    if not is_local():
+        return None, claude_tokens
+    n = max(4, ITEMS_PER_RULE * len(batch))
+    return n, min(claude_tokens, BASE_TOKENS + TOKENS_PER_ITEM * n)
+
+
+def _key(it: dict) -> tuple:
+    return tuple(
+        " ".join(str(it.get(k) or "").lower().split())
+        for k in ("topic", "what_to_check", "rule_quote")
+    )
+
+
+def unique(items: list[dict]) -> list[dict]:
+    """On the local model, an answer that repeats an item is cut at the first repeat (logged "repeating answer cut"): only the
+    items before it are used (a looping answer's tail is the loop). On Claude, unchanged."""
+    import logging
+
+    if not is_local():
+        return items
+    seen: set = set()
+    for i, it in enumerate(items):
+        if _key(it) in seen:
+            logging.getLogger(__name__).info(
+                "general review: repeating answer cut (%d items kept of %d)",
+                i,
+                len(items),
+            )
+            return items[:i]
+        seen.add(_key(it))
+    return items

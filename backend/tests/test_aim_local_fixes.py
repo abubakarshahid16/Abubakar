@@ -435,3 +435,36 @@ def test_a_local_checklist_answer_still_cut_after_halving_is_set_aside_and_never
         CL.s3_checklist(
             _Runaway(), ident, sel, _Book(), "claude-sonnet-5-5"
         )  # Claude: raised, as before
+
+
+def test_the_local_checklist_call_gets_an_item_cap_and_answer_room_from_its_batch():
+    """Lead-4, 26 Nov 2026: a fixed cap and 8,192 tokens let the 14B loop on its SMALLEST batches."""
+    from app.aim_review import answer_schema as A
+    from app.aim_review import retry as RT
+
+    with budget.using(budget.LOCAL):
+        most, tokens = RT.room([{}] * 3, CL.S3_MAX_TOKENS)
+        assert (most, tokens) == (6, RT.BASE_TOKENS + RT.TOKENS_PER_ITEM * 6)
+        with A.items_at_most(most):
+            assert A.for_step("aim_checklist")["properties"]["items"]["maxItems"] == 6
+    assert (
+        A.for_step("aim_checklist")["properties"]["items"]["maxItems"] == A.MAX_ITEMS
+    )  # outside a call: the fixed cap
+    assert RT.room([{}] * 3, CL.S3_MAX_TOKENS) == (
+        None,
+        CL.S3_MAX_TOKENS,
+    )  # Claude: as before
+
+
+def test_a_repeating_local_answer_is_cut_at_its_first_repeat():
+    from app.aim_review import retry as RT
+
+    a, b = (
+        {"topic": "t1", "what_to_check": "w", "rule_quote": "q"},
+        {"topic": "t2", "what_to_check": "w", "rule_quote": "q"},
+    )
+    looping = [a, b, dict(a), dict(b), dict(a)]
+    with budget.using(budget.LOCAL):
+        assert RT.unique(looping) == [a, b]
+        assert RT.unique([a, b]) == [a, b]
+    assert RT.unique(looping) == looping  # Claude: unchanged

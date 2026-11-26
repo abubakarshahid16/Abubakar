@@ -8,6 +8,10 @@ full schema of its own gets none (plain JSON). Shapes only; no text."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 _LABELS = ["Met", "Not met", "Question", "Does not apply", "AI opinion"]
 _STR, _INT, _BOOL = {"type": "string"}, {"type": "integer"}, {"type": "boolean"}
 
@@ -126,8 +130,28 @@ SCHEMAS: dict[str, dict] = {
 }
 
 
+#: The checklist call in force may hold at most this many items (`items_at_most`, set by the caller per batch); None: MAX_ITEMS.
+_ITEMS_HINT: ContextVar[int | None] = ContextVar("aim_answer_items_hint", default=None)
+_ITEM_STEPS = ("aim_checklist", "aim_checklist_retry", "aim_checklist_knowledge")
+
+
+@contextmanager
+def items_at_most(n: int | None) -> Iterator[None]:
+    """The items one checklist call may hold, from its batch's size (lead-4, 26 Nov 2026: a fixed cap let a small batch loop)."""
+    token = _ITEMS_HINT.set(n)
+    try:
+        yield
+    finally:
+        _ITEMS_HINT.reset(token)
+
+
 def for_step(step: str) -> dict | None:
     """The step's own schema, or None (the engine's plain JSON mode). A step without a full shape of its own gets NO schema: a
     schema naming only its answer keys let the local model write those keys alone (26 Nov 2026: the paper's identity came back
-    as the kind only, 30 tokens against 741, and the review lost its equipment type and subject)."""
-    return SCHEMAS.get(step)
+    as the kind only, 30 tokens against 741, and the review lost its equipment type and subject). A checklist step's item cap
+    follows the batch in force (`items_at_most`)."""
+    shape, n = SCHEMAS.get(step), _ITEMS_HINT.get()
+    if shape is None or not n or step not in _ITEM_STEPS:
+        return shape
+    items = {**shape["properties"]["items"], "maxItems": min(MAX_ITEMS, int(n))}
+    return {**shape, "properties": {**shape["properties"], "items": items}}

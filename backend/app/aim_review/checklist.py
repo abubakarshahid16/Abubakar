@@ -24,6 +24,7 @@ from . import library as L
 from . import prompts as P
 from . import retry as RT
 from . import scope_books as SB
+from .answer_schema import items_at_most
 from .budget import is_local
 from .carried import knowledge_rows, say_none, set_aside
 from .engine import StepFailed
@@ -453,8 +454,10 @@ def _answers(
         "material": "\n".join(_material_line(r) for r in batch),
     }
     try:
-        out = model.ask(step="aim_checklist", model=lead, system="", cached=None, prompt=prompt, carries=carries,
-                        max_tokens=S3_MAX_TOKENS)  # fmt: skip
+        most, tokens = RT.room(batch, S3_MAX_TOKENS)  # local: both follow the batch
+        with items_at_most(most):
+            out = model.ask(step="aim_checklist", model=lead, system="", cached=None, prompt=prompt, carries=carries,
+                            max_tokens=tokens)  # fmt: skip
     except StepFailed as exc:
         if "max_tokens" not in str(exc):
             raise
@@ -485,7 +488,7 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
     ]
     for out, batch in answered:
         got, aside = set_aside(
-            _items_of(out)
+            RT.unique(_items_of(out))  # local: cut at a first repeat
         )  # a knowledge item another paper of the package carries: not checked here
         dropped += aside
         bad = [
