@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { attachmentsRead, notReadWhy, peopleLine } from "../api/technicalQueries";
+import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
@@ -422,5 +422,12 @@ describe("Technical Queries screen", () => {
       expect((part as HTMLDetailsElement).open).toBe(false);  // folded on arrival
     }
     expect(within(evidence).getByTestId("evidence-coverage")).toBeTruthy();  // the same parts, only folded
+  });
+
+  it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
+    expect(proposalNoteWords("none_found", true)).toBe("The AI on this computer found no separate question in the attachment. The proposed question below is the form's own question section, as printed. Check it before you confirm it.");
+    expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attachment text below and write the question\./);
+    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI on this computer was not available/);
+    expect(proposalNoteWords(null, true)).toBeNull();
   });
 });

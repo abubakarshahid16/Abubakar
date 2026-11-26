@@ -224,6 +224,18 @@ export function peopleLine(to: string[], cc: string[]): { lines: string[]; folde
   return { lines: [`To/Cc: ${count} people`], folded: [`To: ${to.join(", ")}`, ...(cc.length ? [`CC: ${cc.join(", ")}`] : [])].join("\n") };
 }
 
+/** Why no question was proposed from the attachment, in plain words; never silent (lead-4, 26 Nov 2026). `hasProposal`: the form's own
+ *  question section was used instead. */
+export function proposalNoteWords(note: string | null | undefined, hasProposal: boolean): string | null {
+  const then = hasProposal
+    ? "The proposed question below is the form's own question section, as printed. Check it before you confirm it."
+    : "Read the attachment text below and write the question.";
+  if (note === "model_unavailable") return `The AI on this computer was not available, so it proposed no questions from the attachment. ${then}`;
+  if (note === "none_found") return `The AI on this computer found no separate question in the attachment. ${then}`;
+  if (note === "not_on_page") return `The AI on this computer listed questions that are not word for word on the page, so none was kept. ${then}`;
+  return null;
+}
+
 /** "Prepare evidence for all unprepared queries": counts only. */
 export interface PrepareAll { unprepared: number; minutes_each?: number | null; waiting_or_running: number; queued_now?: number | null }
 
