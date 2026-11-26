@@ -175,18 +175,56 @@ describe("Technical Queries screen", () => {
     expect(api.activateGmailLabel).not.toHaveBeenCalled(); // an in-page question first, never the browser's box
     fireEvent.click(await screen.findByText("Yes, save and start the import"));
     await waitFor(() => expect(api.activateGmailLabel).toHaveBeenCalledWith("mb", "L1"));
-    expect((await screen.findByTestId("import-progress")).textContent).toContain("imported 12 of 35, 1 failed");
+    expect((await screen.findByTestId("import-progress")).textContent).toContain("read 12 of 35 messages, 12 imported, 1 failed");
     expect(screen.getByTestId("import-failures").textContent).toContain("Invented subject one");
     expect(screen.getByTestId("last-checked").textContent).toMatch(/26 Nov 2026, \d{2}:\d{2}( \S+)?/);
   });
 
-  it("says how many listed messages were not imported and why, never 'imported' of those (first live import: 77 listed, 36 imported)", async () => {
-    const job = { id: "j", kind: "import", state: "done", total: 7, done: 7, failed: 0, error: null, failures: [], imported: 3, skipped: { "sent from this mailbox (your own replies)": 4 } };
+  it("says the finished import with every count's boundary: messages, queries, imported, our replies kept apart (first live import said 'imported 77 of 77' for 36)", async () => {
+    const job = { id: "j", kind: "import", state: "done", total: 7, done: 7, failed: 0, error: null, failures: [], imported: 3, queries: 2,
+      skipped: { "our replies, added to their query (sent by us)": 3, "sent from this mailbox, with no query of its thread or number yet": 1 } };
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: job }] } });
     render(<TechnicalQueriesView />);
     expect((await screen.findByTestId("import-done")).textContent).toBe(
-      "Import finished: imported 3 of 7; 4 not imported: 4 sent from this mailbox (your own replies).",
+      "Import finished: 7 messages in 2 queries: 3 imported, 3 our replies, added to their query (sent by us), 1 sent from this mailbox, with no query of its thread or number yet.",
     );
+  });
+
+  it("hides 'Gmail is connected. Choose the label...' once a label is active (owner's screenshot during the import)", async () => {
+    api.completeGmail.mockResolvedValue({ ok: true, data: { result: "connected", mailbox_id: "mb" } });
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null, import_job: null }] } });
+    window.history.replaceState(null, "", "/technicalQueries/gmail-return?code=one-time&state=abc");
+    render(<TechnicalQueriesView queryId="gmail-return" />);
+    await waitFor(() => expect(api.completeGmail).toHaveBeenCalled());
+    await screen.findByTestId("mailbox-status");
+    expect(screen.queryByText("Gmail is connected. Choose the label to import below.")).toBeNull();
+  });
+
+  it("fills the list while the import runs, and never says nothing was imported then", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const running = { id: "mb", email: "box@example.test", connection_state: "active", label_id: "L1", last_checked_at: null,
+        import_job: { id: "j", kind: "import", state: "running", total: 77, done: 12, failed: 0, error: null, failures: [], imported: 12 } };
+      api.mailboxes.mockResolvedValue({ ok: true, data: { items: [running] } });
+      api.list.mockResolvedValue({ ok: true, data: { items: [] } });
+      render(<TechnicalQueriesView />);
+      expect(await screen.findByText("The import is running: queries appear here as their messages arrive.")).toBeTruthy();
+      expect(screen.queryByText("No technical queries have been imported.")).toBeNull();
+      api.list.mockClear();
+      api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q-new", subject: "Arrived during the import" }] } });
+      await vi.advanceTimersByTimeAsync(3100);
+      await waitFor(() => expect(api.list).toHaveBeenCalled());
+      expect(await screen.findByText("Arrived during the import")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks our own reply in a query's thread 'Sent by us'", async () => {
+    const message = (id: string, inbound: number) => ({ id, is_inbound: inbound, from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null, attachments: [] });
+    api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message("in", 1), message("ours", 0)] } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findAllByTestId("sent-by-us")).length).toBe(1);
   });
 
   it("has a Check now button that queues one poll", async () => {
@@ -194,7 +232,7 @@ describe("Technical Queries screen", () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [active] } });
     api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j2" } });
     render(<TechnicalQueriesView />);
-    expect((await screen.findByTestId("import-done")).textContent).toContain("imported 3 of 3");
+    expect((await screen.findByTestId("import-done")).textContent).toBe("Import finished: 3 messages: 3 imported.");
     fireEvent.click(await screen.findByText("Check now"));
     await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
   });

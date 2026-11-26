@@ -52,7 +52,11 @@ def test_the_skip_rule_names_own_mail_and_another_label():
     )
 
 
-def test_the_job_counts_skipped_messages_by_reason_and_says_imported_apart(monkeypatch):
+def test_the_job_counts_our_replies_apart_and_says_imported_only_of_the_rest(
+    monkeypatch,
+):
+    from app import technical_query_replies as R
+
     senders = {
         "m1": "a@vendor.example",
         "m2": "box@example.test",
@@ -63,10 +67,17 @@ def test_the_job_counts_skipped_messages_by_reason_and_says_imported_apart(monke
         list_message_ids=lambda label: list(senders),
         message=lambda mid: _msg(senders[mid]),
     )
-    imported = []
-    monkeypatch.setattr(
-        gmail_worker, "_process_message", lambda client, mid, **kw: imported.append(mid)
-    )
+
+    def fake(
+        client, mid, **kw
+    ):  # the importer: our own mail is kept with its query (`technical_query_replies`), never a query
+        return (
+            {"own_reply": R.ATTACHED}
+            if senders[mid].startswith("box@")
+            else {"query_id": "q"}
+        )
+
+    monkeypatch.setattr(gmail_worker, "_process_message", fake)
     job_id = gmail_import_jobs.enqueue("mb", "import", "L1")
     monkeypatch.setattr(gmail_import_jobs, "_checked", lambda mailbox_id: None)
     gmail_import_jobs._import(
@@ -76,14 +87,142 @@ def test_the_job_counts_skipped_messages_by_reason_and_says_imported_apart(monke
         "L1",
         None,
     )
-    assert imported == ["m1", "m4"]  # own mail is never handed to the importer
     with db.connect() as conn:
         job = gmail_import_jobs.latest(conn, "mb")
     assert job["total"] == 4 and job["done"] == 4 and job["failed"] == 0
-    assert job["imported"] == 2 and job["skipped"] == {gmail_worker.OWN_MAIL: 2}
+    assert job["imported"] == 2 and job["skipped"] == {
+        R.ATTACHED: 2
+    }  # never "imported 4 of 4"
     with db.connect() as conn:
         assert json.loads(
             conn.execute(
                 "SELECT skipped_json FROM gmail_import_jobs WHERE id=?", (job_id,)
             ).fetchone()[0]
-        ) == {gmail_worker.OWN_MAIL: 2}
+        ) == {R.ATTACHED: 2}
+
+
+# ---- our own replies are kept with the query they answer, marked sent by us (lead-4, 26 Nov 2026)
+from app import technical_query_replies as replies  # noqa: E402
+
+
+def _mail(
+    mid,
+    sender,
+    thread,
+    subject="PRJ-INV-TQ-7 - Invented question",
+    labels=("L1",),
+    when="2026-11-20T10:00:00Z",
+):
+    return SimpleNamespace(provider_message_id=mid, thread_id=thread, from_address=sender, to_addresses=["box@example.test"], cc_addresses=[],
+                           subject=subject, body="Invented body.", received_at=when, attachments=[], label_ids=list(labels))  # fmt: skip
+
+
+@pytest.fixture
+def tq(monkeypatch):
+    from app import technical_queries
+
+    monkeypatch.setattr(settings, "technical_queries_enabled", True)
+    monkeypatch.setattr(settings, "upload_dir", settings.data_dir / "uploads")
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO users(id,email,display_name,password_hash,created_at) VALUES ('u1','u1@example.test','U','x','2026-01-01T00:00:00Z')"
+        )
+    technical_queries.ensure_schema()
+
+
+def _client(mails):
+    return SimpleNamespace(
+        list_message_ids=lambda label: [m.provider_message_id for m in mails],
+        message=lambda mid: next(m for m in mails if m.provider_message_id == mid),
+        raw_message=lambda mid: b"From: invented\r\n\r\nbody",
+    )
+
+
+def _counts():
+    with db.connect() as conn:
+        queries = conn.execute("SELECT COUNT(*) FROM technical_queries").fetchone()[0]
+        rows = conn.execute(
+            "SELECT provider_message_id, is_inbound, query_id FROM query_messages ORDER BY provider_message_id"
+        ).fetchall()
+    return queries, [(r[0], r[1]) for r in rows], {r[2] for r in rows}
+
+
+def test_our_reply_read_before_the_question_is_kept_with_its_query_and_never_makes_a_query(
+    monkeypatch, tq
+):
+    # Gmail lists the newest first: our reply comes before the contractor's question it answers
+    mails = [_mail("m2-ours", "Box <box@example.test>", "t1", "RE: PRJ-INV-TQ-7 - Invented question", when="2026-11-21T10:00:00Z"),
+             _mail("m1-theirs", "a@vendor.example", "t1")]  # fmt: skip
+    monkeypatch.setattr(gmail_import_jobs, "_checked", lambda mailbox_id: None)
+    job_id = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs._import(
+        job_id,
+        _client(mails),
+        {"id": "mb", "email": "box@example.test", "owner_user_id": "u1"},
+        "L1",
+        None,
+    )
+    queries, messages, query_ids = _counts()
+    assert queries == 1 and len(query_ids) == 1  # one query, our reply inside it
+    assert messages == [("m1-theirs", 1), ("m2-ours", 0)]  # ours marked sent by us
+    with db.connect() as conn:
+        job = gmail_import_jobs.latest(conn, "mb")
+    assert (
+        job["imported"] == 1
+        and job["skipped"] == {replies.ATTACHED: 1}
+        and job["queries"] == 1
+        and job["failed"] == 0
+    )
+
+
+def test_our_reply_with_no_query_of_its_thread_or_number_stores_nothing(
+    monkeypatch, tq
+):
+    mails = [_mail("m9-ours", "box@example.test", "t9", "Invented note with no number")]
+    monkeypatch.setattr(gmail_import_jobs, "_checked", lambda mailbox_id: None)
+    job_id = gmail_import_jobs.enqueue("mb", "import", "L1")
+    gmail_import_jobs._import(
+        job_id,
+        _client(mails),
+        {"id": "mb", "email": "box@example.test", "owner_user_id": "u1"},
+        "L1",
+        None,
+    )
+    assert _counts()[:2] == (0, [])
+    with db.connect() as conn:
+        assert gmail_import_jobs.latest(conn, "mb")["skipped"] == {replies.NO_QUERY: 1}
+
+
+def test_a_poll_keeps_our_reply_with_its_query_at_once(tq):
+    from app import gmail_worker as W
+
+    client = _client(
+        [
+            _mail("m1", "a@vendor.example", "t1"),
+            _mail(
+                "m2", "box@example.test", "t1", "RE: PRJ-INV-TQ-7 - Invented question"
+            ),
+        ]
+    )
+    out = W.process_history(
+        client,
+        "1",
+        "u1",
+        mailbox_id="mb",
+        message_ids=["m1", "m2"],
+        label_id="L1",
+        mailbox_address="box@example.test",
+    )
+    assert out[-1]["own_reply"] == replies.ATTACHED
+    assert _counts()[:2] == (1, [("m1", 1), ("m2", 0)])
+    # importing the same reply again stores nothing new
+    W.process_history(
+        client,
+        "1",
+        "u1",
+        mailbox_id="mb",
+        message_ids=["m2"],
+        label_id="L1",
+        mailbox_address="box@example.test",
+    )
+    assert _counts()[:2] == (1, [("m1", 1), ("m2", 0)])

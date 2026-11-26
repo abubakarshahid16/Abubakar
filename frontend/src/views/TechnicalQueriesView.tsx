@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
-import { skippedWords } from "../api/technicalQueries";
+import { importDoneWords } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
@@ -141,6 +141,10 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     });
   };
 
+  const refreshList = useRef(applyFilters);
+  refreshList.current = applyFilters;
+  const wasImporting = useRef(false);
+
   const act = (action: () => Promise<Result<TechnicalQuery>>) => {
     if (!selected) return;
     setBusy(true);
@@ -155,9 +159,16 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const importing = mailboxes.some((mailbox) => mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)));
   useEffect(() => {
     // The mailbox import is a background job: ask again every few seconds while it is queued or running ("imported N of M", "last checked at").
-    if (!importing) return;
+    // The list below fills as messages arrive (and once more when the import ends), with the filters chosen.
+    if (!importing) {
+      if (wasImporting.current) refreshList.current();
+      wasImporting.current = false;
+      return;
+    }
+    wasImporting.current = true;
     const timer = window.setInterval(() => {
       void technicalQueriesApi.mailboxes().then((result) => { if (result.ok) setMailboxes(result.data.items); });
+      refreshList.current();
     }, 3000);
     return () => window.clearInterval(timer);
   }, [importing]);
@@ -242,8 +253,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         </div>)}
         {mailboxes.filter((mailbox) => mailbox.connection_state === "active").map((mailbox) => <div key={mailbox.id} className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200" data-testid="mailbox-status">
           <p>Mailbox {mailbox.email} is active. {mailbox.last_checked_at ? <>Last checked at <span data-testid="last-checked">{formatWhen(mailbox.last_checked_at)}</span>.</> : "Not checked yet."}</p>
-          {mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)) && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: imported {mailbox.import_job.imported ?? mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}{skippedWords(mailbox.import_job)}. You can leave this page; it carries on.</p>}
-          {mailbox.import_job?.state === "done" && mailbox.import_job.kind === "import" && <p data-testid="import-done">Import finished: imported {mailbox.import_job.imported ?? mailbox.import_job.done} of {mailbox.import_job.total}{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}{skippedWords(mailbox.import_job)}.</p>}
+          {mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)) && <p role="status" data-testid="import-progress">{mailbox.import_job.kind === "poll" ? "Checking" : "Importing"}: read {mailbox.import_job.done} of {mailbox.import_job.total} messages, {mailbox.import_job.imported ?? mailbox.import_job.done} imported{mailbox.import_job.failed ? `, ${mailbox.import_job.failed} failed` : ""}. The list below fills as they arrive. You can leave this page; it carries on.</p>}
+          {mailbox.import_job?.state === "done" && mailbox.import_job.kind === "import" && <p data-testid="import-done">{importDoneWords(mailbox.import_job)}</p>}
           {(mailbox.import_job?.state === "failed" || (mailbox.import_job?.state === "queued" && mailbox.import_job.error)) && <p role="alert" className="text-warn-500">{mailbox.import_job?.error}</p>}
           {mailbox.import_job && mailbox.import_job.failures.length > 0 && <ul className="mt-1 list-disc pl-5 text-warn-500" data-testid="import-failures">{mailbox.import_job.failures.map((failure, index) => <li key={index}>{failure.subject}: {failure.reason}</li>)}</ul>}
           <button type="button" disabled={busy || importing} onClick={() => { setError(null); void technicalQueriesApi.checkNow(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }} className="mt-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Check now</button>
@@ -261,7 +272,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         </div>
         {gmailReturn === "admin_must_allow" && <p role="alert" className="mt-4 text-sm text-warn-500">Your company's Google admin must allow this app.</p>}
         {gmailReturn === "working" && <p role="status" className="mt-4 text-sm text-slateish-300">Finishing the Gmail connection.</p>}
-        {gmailReturn === "connected" && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
+        {gmailReturn === "connected" && !mailboxes.some((mailbox) => mailbox.connection_state === "active") && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-500">{error}</p>}
         <div className="mt-4">
           <button type="button" onClick={() => setFiltersOpen((open) => !open)} aria-expanded={filtersOpen} aria-controls="query-filters" className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">{activeFilters > 0 ? `Filters (${activeFilters} active)` : "Filters"}</button>
@@ -295,7 +306,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           )}
         </div>
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
-          {items.length === 0 && <p className="text-sm text-slateish-500">No technical queries have been imported.</p>}
+          {items.length === 0 && <p className="text-sm text-slateish-500">{importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</p>}
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
@@ -373,6 +384,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           </div>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Original email and attachments</h3>
           {selected.messages?.map((message, index) => <article key={`${message.received_at}-${index}`} className="mt-3 rounded border border-ink-700 p-3 text-sm text-slateish-300">
+            {(message.is_inbound === 0 || message.is_inbound === false) && <p className="mb-1 inline-block rounded border border-signal-500 px-1 text-xs text-signal-300" data-testid="sent-by-us">Sent by us</p>}
             <p>From: {message.from_address}</p><p>To: {message.to_addresses.join(", ")}</p>
             {message.cc_addresses.length > 0 && <p>CC: {message.cc_addresses.join(", ")}</p>}
             <p>Received: {message.received_at}</p>

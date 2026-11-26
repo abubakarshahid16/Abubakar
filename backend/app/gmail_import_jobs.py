@@ -23,6 +23,7 @@ import httpx
 
 from . import technical_queries
 from .db import connect
+from .technical_query_replies import NO_QUERY
 
 log = logging.getLogger(__name__)
 
@@ -145,15 +146,28 @@ def latest(conn, mailbox_id: str) -> dict | None:
     ).fetchone()
     if row is None:
         return None
-    keys = "id kind state total done failed error created_at updated_at".split()
-    job = {k: row[k] for k in keys}
+    keys = ("id", "kind", "state", "total", "done", "failed", "error", "created_at")
+    job = {k: row[k] for k in (*keys, "updated_at")}
+    columns = row.keys()
     try:
-        stored = row["skipped_json"] if "skipped_json" in row.keys() else None
+        stored = row["skipped_json"] if "skipped_json" in columns else None
         job["skipped"] = json.loads(stored or "{}")
     except ValueError:
         job["skipped"] = {}
     # "imported" counts only messages imported (or already held): a listed message that is not one to import is said apart
     job["imported"] = max(0, (job["done"] or 0) - sum(job["skipped"].values()))
+    # the queries this mailbox's messages are in now ("77 messages in 33 queries": replies and forwards join one query)
+    held = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='query_messages'"
+    ).fetchone()
+    job["queries"] = (
+        conn.execute(
+            "SELECT COUNT(DISTINCT query_id) FROM query_messages WHERE mailbox_id=?",
+            (mailbox_id,),
+        ).fetchone()[0]
+        if held
+        else None
+    )
     job["failures"] = [
         {"subject": r["subject"] or "(no subject)", "reason": r["reason"]}
         for r in conn.execute(
@@ -359,13 +373,14 @@ def _import_one(
         subject = message.subject
         skipped = gmail_worker.skip_reason(message, label_id, box["email"])
         # listed but not one to import: counted with its reason, never as imported
-        if skipped:
+        if skipped and skipped != gmail_worker.OWN_MAIL:
             return skipped
-        gmail_worker._process_message(
+        kept = gmail_worker._process_message(
             client, message_id, mailbox_id=box["id"], actor_user_id=box["owner_user_id"], admin_role=admin_role,
             label_id=label_id, mailbox_address=box["email"], message=message,
         )  # fmt: skip
-        return True
+        # our own reply: its reason (kept with its query, or no query of it yet), never counted as imported
+        return (kept or {}).get("own_reply") or True
     except Exception as exc:  # noqa: BLE001 - counted, named by subject, and never stops the rest
         if _outage(exc):  # Gmail, not the message: the job waits and goes on with the messages it did not reach
             raise
@@ -380,18 +395,24 @@ def _import(job_id, client, box, label_id, admin_role) -> None:
     _set(job_id, total=len(ids))
     done = failed = 0
     skipped: dict[str, int] = {}
-    for message_id in ids:
-        if _stop.is_set():
-            raise Interrupted()
-        ok = _import_one(
-            job_id, client, box, label_id, admin_role, message_id, lambda: None
-        )
-        if isinstance(ok, str):
-            skipped[ok] = skipped.get(ok, 0) + 1
-        done += 1 if ok else 0
-        failed += 0 if ok else 1
-        _set(job_id, done=done, failed=failed, skipped_json=json.dumps(skipped))
-        _checked(box["id"])
+    # our own replies read before the message they answer: tried again at the end
+    later: list[str] = []
+    for pass_ids, last in ((ids, False), (later, True)):
+        for message_id in list(pass_ids):
+            if _stop.is_set():
+                raise Interrupted()
+            ok = _import_one(
+                job_id, client, box, label_id, admin_role, message_id, lambda: None
+            )
+            if ok == NO_QUERY and not last:
+                later.append(message_id)
+                continue
+            if isinstance(ok, str):
+                skipped[ok] = skipped.get(ok, 0) + 1
+            done += 1 if ok else 0
+            failed += 0 if ok else 1
+            _set(job_id, done=done, failed=failed, skipped_json=json.dumps(skipped))
+            _checked(box["id"])
 
 
 def _poll(job_id, client, box, admin_role) -> None:

@@ -36,7 +36,7 @@ export interface TechnicalQuery {
   priority: string;
   received_at: string;
   due_at: string | null;
-  messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
+  messages?: Array<{ id: string; is_inbound?: number | boolean; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
@@ -74,13 +74,18 @@ export interface MailboxImportJob {
   imported?: number;
   /** {reason: count} of listed messages that were not imported (sent from this mailbox, not under the label). */
   skipped?: Record<string, number>;
+  /** The queries this mailbox's messages are in (replies and forwards with the same number join one query). */
+  queries?: number | null;
 }
 
-/** "; 41 not imported: 41 sent from this mailbox (your own replies)" for a job that skipped messages; "" otherwise. */
-export function skippedWords(job: MailboxImportJob): string {
-  const parts = Object.entries(job.skipped ?? {}).filter(([, n]) => n > 0);
-  const total = parts.reduce((sum, [, n]) => sum + n, 0);
-  return total ? `; ${total} not imported: ${parts.map(([why, n]) => `${n} ${why}`).join(", ")}` : "";
+/** The finished import in one sentence, every count with its boundary: "77 messages in 33 queries: 36 imported, 40 our replies, added to
+ *  their query (sent by us), 1 failed." A listed message that was not imported is never called imported. */
+export function importDoneWords(job: MailboxImportJob): string {
+  const parts = [`${job.imported ?? job.done} imported`];
+  for (const [why, n] of Object.entries(job.skipped ?? {})) if (n > 0) parts.push(`${n} ${why}`);
+  if (job.failed) parts.push(`${job.failed} failed`);
+  const where = typeof job.queries === "number" ? ` in ${job.queries} ${job.queries === 1 ? "query" : "queries"}` : "";
+  return `Import finished: ${job.total} messages${where}: ${parts.join(", ")}.`;
 }
 
 export interface TechnicalQueryMailbox {
