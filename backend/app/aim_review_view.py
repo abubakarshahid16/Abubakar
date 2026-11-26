@@ -27,7 +27,7 @@ from . import (
 )
 from .aim_review import references as aim_review_references
 from .aim_review import unread
-from .aim_review.faults import NOT_APPLIED_WORDS
+from .aim_review.faults import NOT_APPLIED_WORDS, counted
 from .aim_review.updates import group_mark, u7b
 
 #: The boundary every count carries.
@@ -782,7 +782,11 @@ def steps_not_applied(calls) -> list[dict]:
         words = NOT_APPLIED_WORDS.get(
             step, "The step " + step + " did not run on this sheet ({why})."
         )
-        out.setdefault(
-            step, {"step": step, "why": why, "sentence": words.format(why=why)}
+        row = out.setdefault(
+            step, {"step": step, "why": why, "count": 0, "words": words}
         )
+        row["count"] += 1
+    # a step that set something aside more than once says how many times
+    for row in out.values():
+        row["sentence"] = counted(row.pop("words"), row["count"]).format(why=row["why"])
     return list(out.values())
