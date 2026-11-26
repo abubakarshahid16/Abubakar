@@ -451,7 +451,7 @@ def _steps(
 
     lead, strong = _models()
     say(0, "read the paper")
-    PIC.read(conn, state.paper_id, mdl.meter)  # page pictures first (switch on)
+    PIC.read(conn, state.paper_id, mdl.meter, getattr(mdl, "pictures", None))  # page pictures first (switch on); the role record when on  # fmt: skip
     paper = load_paper(conn, state.paper_id)
     # The trace says where each page's text came from (counts only, no text): a row of the run's calls, no model, no cost.
     paper = U.with_unread(conn, state.paper_id, paper, load_paper)

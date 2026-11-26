@@ -80,6 +80,9 @@ NOT_SENT = (
     "undeclared_paper",
 )
 _REF_PAGE = re.compile(r"\[page (\d+)\]\n")
+#: The page-picture stage's prompt names its page (`picture_stage._transcribe`: "Page n. Transcribe it.").
+_PICTURE_PAGE = re.compile(r"Page (\d+)\.")
+PICTURE_STEP = "aim_page_pictures"
 
 
 def _now() -> str:
@@ -367,6 +370,35 @@ class Recorded:
         self._end(call_id, "answered", None)
         return out
 
+    @property
+    def pictures(self) -> Recorded:
+        """The page-picture reader's hook (`pictures._Metered`): its calls leave by their own route, so they are recorded here."""
+        return self
+
+    def picture_sent(self, packet, model: str) -> str:
+        """A page picture of the paper about to be sent: a "sent" call row of the reader (role 1) and the paper's read row with its page,
+        the picture count and the checksum of the picture bytes (no text is in it). The page is the one the stage names in its prompt."""
+        m = _PICTURE_PAGE.match(str(getattr(packet, "prompt", "") or ""))
+        images = tuple(getattr(packet, "images", ()) or ())
+        blob = b"".join(
+            i if isinstance(i, bytes | bytearray) else str(i).encode() for i in images
+        )
+        call_id = uuid.uuid4().hex
+        conn = _db()
+        with conn:
+            conn.execute(f"INSERT INTO {CALLS} (run_id, role_no, call_id, step, engine, model, request_sha256, chars, state, sent_at)"
+                         " VALUES (?, 1, ?, ?, 'claude', ?, ?, ?, 'sent', ?)",
+                         (self.run_id, call_id, PICTURE_STEP, str(model or ""), hashlib.sha256(blob).hexdigest(),
+                          len(str(getattr(packet, "prompt", "") or "")), _now()))  # fmt: skip
+            conn.execute(f"INSERT INTO {READS} (run_id, role_no, call_id, seq, document_id, document_kind, pages_json, chars, text_sha256,"
+                         " pictures) VALUES (?, 1, ?, 1, ?, 'paper', ?, 0, ?, ?)",
+                         (self.run_id, call_id, self.paper_id, json.dumps([int(m.group(1))] if m else []),
+                          hashlib.sha256(blob).hexdigest() if blob else None, len(images)))  # fmt: skip
+        return call_id
+
+    def picture_end(self, call_id: str, state: str, code: str | None) -> None:
+        self._end(call_id, state, code)
+
     def _end(self, call_id: str, state: str, code: str | None) -> None:
         conn = _db()
         with conn:
@@ -419,7 +451,7 @@ def finish(run_id: str, result: dict) -> None:
     conn = _db()
     calls = [dict(r) for r in conn.execute(f"SELECT role_no, step, engine, model, state, error_code, book_text_unmatched FROM {CALLS} WHERE run_id = ?",
                                            (str(run_id),))]  # fmt: skip
-    reads = [dict(r) for r in conn.execute(f"SELECT role_no, document_kind, document_id, pages_json FROM {READS} WHERE run_id = ?",
+    reads = [dict(r) for r in conn.execute(f"SELECT role_no, document_kind, document_id, pages_json, pictures FROM {READS} WHERE run_id = ?",
                                            (str(run_id),))]  # fmt: skip
     usd_of: dict[int, float] = {}
     for c in result.get("calls") or []:
@@ -481,6 +513,8 @@ def _produced(n: int, calls: list[dict], reads: list[dict], lines: list[dict]) -
         if n not in CODE_ROLES
         else {}
     )
+    if n == 1:
+        out["page_pictures_sent"] = sum(int(r.get("pictures") or 0) for r in reads)
     if n == 1:
         out["paper_pages_sent"] = len(
             {
