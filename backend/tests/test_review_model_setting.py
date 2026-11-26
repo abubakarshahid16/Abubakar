@@ -460,3 +460,41 @@ def test_the_local_only_plan_on_the_9b_says_measured_and_never_not_yet_scored(
     assert not any(aim_review_gate.NOT_YET_SCORED in n for n in notes)
     row = next(m for m in review_model_setting.options()["local"] if m["name"] == nine)
     assert row["score_words"] == aim_review_gate.LOCAL_MEASURED_WORDS
+
+
+def test_the_short_inline_plan_names_the_model_and_takes_its_note_from_the_same_source(
+    engine, world, monkeypatch
+):
+    """The Review list's inline plan shows the plan's `sentence`: it names the model and never says "not measured" beside a
+    measured model (lead-4, 26 Nov 2026)."""
+    nine = "qwen3.5:9b-q4_K_M"
+    monkeypatch.setattr(
+        model_transport,
+        "get_json",
+        lambda *a, **k: {
+            "models": [
+                {"name": nine, "size": 6_500_000_000, "digest": "d"},
+                {"name": OTHER, "size": 6_000_000_000, "digest": "e"},
+            ]
+        },
+    )
+    client = TestClient(app)
+
+    def sentence() -> str:
+        return client.get(
+            "/api/reviews/plan",
+            params={"submittal_document_id": PAPERS["datasheet"][0], "engine": "local"},
+            headers=world["headers"],
+        ).json()["sentence"]
+
+    review_model_setting.save({"default": nine}, "u1")
+    said = sentence()
+    assert f"local model ({nine})" in said and aim_review_gate.LOCAL_TEST_NOTE in said
+    assert "not measured" not in said and aim_review_gate.NOT_YET_SCORED not in said
+    review_model_setting.save({"default": OTHER}, "u1")
+    said = sentence()
+    assert f"local model ({OTHER})" in said
+    assert (
+        f"Local model ({OTHER}): {aim_review_gate.NOT_YET_SCORED}." in said
+        and "of 10" not in said
+    )

@@ -74,6 +74,18 @@ def local_score_words(models) -> str:
     )
 
 
+def local_plan_words(models) -> str:
+    """The Local only plan's sentence (the inline plan on the Review list and the start step): it names the model(s) and takes
+    the measured note from `LOCAL_MEASURED` like every other local label, so it never says "not measured" beside a measured
+    model nor shows another model's numbers."""
+    names = sorted({str(m).strip() for m in models or () if str(m).strip()})
+    return (
+        f"The general review runs on the local model ({', '.join(names) or 'the local default'}) on this computer. "
+        "Nothing leaves this computer and nothing is paid. It is slower than Claude (a large paper can take hours). "
+        + local_measured_note(names)
+    )
+
+
 def local_measured_note(models) -> str:
     """The measured line of the local model a run uses (`LOCAL_MEASURED`), only when every step uses that one model; otherwise
     "Local model (<names>): not yet scored." with no numbers."""
