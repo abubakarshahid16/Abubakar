@@ -313,7 +313,8 @@ export function ReviewDashboardPanel(
             No reviews have been run yet.
           </p>
         ) : (
-          <div className={NEW_LOOK ? "mt-3 overflow-x-auto rounded-[var(--radius-md)] bg-ink-800" : "mt-2 overflow-x-auto rounded-[var(--radius-md)] border border-ink-700"}>
+          <div className={NEW_LOOK ? "relative mt-3 overflow-x-auto rounded-[var(--radius-md)] bg-ink-800" : "relative mt-2 overflow-x-auto rounded-[var(--radius-md)] border border-ink-700"}
+            data-testid="dashboard-runs-table-box">
             <table className={NEW_LOOK ? "w-full text-left text-sm" : "w-full text-left text-xs"}>
               <thead className={NEW_LOOK ? "text-xs font-semibold text-slateish-400" : "bg-ink-900 uppercase tracking-wide text-slateish-400"}>
                 <tr>
