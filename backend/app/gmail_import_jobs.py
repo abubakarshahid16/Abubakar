@@ -395,7 +395,8 @@ def _import_one(
 
 def _import(job_id, client, box, label_id, admin_role) -> None:
     ids = client.list_message_ids(label_id)
-    _set(job_id, total=len(ids), skipped_json="{}")  # the reasons are counted from the start
+    # the reasons are counted from the start
+    _set(job_id, total=len(ids), skipped_json="{}")
     done = failed = 0
     skipped: dict[str, int] = {}
     # our own replies read before the message they answer: tried again at the end
