@@ -30,6 +30,7 @@ import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/
 import { CrsDraftContext, clearDecisionDrafts, keepOnlyDraftsOf, setDraftOwner } from "./components/review/crs/useCrsDecisions";
 import { NavigationContext } from "./components/NavLink";
 import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
+import { NEW_LOOK } from "./look";
 
 // V1b: the pages the reader opens less often are loaded when first opened, not with the first screen.
 const AdminScreen = lazy(() => import("./views/AdminScreen").then((m) => ({ default: m.AdminScreen })));
@@ -40,8 +41,6 @@ const DeliverablesView = lazy(() => import("./views/DeliverablesView").then((m) 
 
 //: One key, named once. A typo in a second literal is a preference that
 //: silently never persists.
-/** The way-back switch of the new look (owner, 26 Nov 2026): off unless the web page is started with VITE_UI_NEW_LOOK=true. */
-const NEW_LOOK = import.meta.env.VITE_UI_NEW_LOOK === "true";
 const THEME_KEY = "rag-intelligence-theme";
 
 /** Whether this deployment wants a sign-in, and who is signed in.

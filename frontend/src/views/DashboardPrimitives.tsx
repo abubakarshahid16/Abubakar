@@ -14,6 +14,8 @@
  */
 import type { ClassificationCoverage } from "../api/client";
 import type { Metrics, StageThroughput } from "../types/api";
+import { NEW_LOOK } from "../look";
+import { TileLine } from "../components/look/LookParts";
 
 const STAGE_LABELS: Record<string, string> = {
   extract: "Extraction",
@@ -63,9 +65,26 @@ export function Stat({
   label: string;
   value: string | number | null | undefined;
   hint?: string;
-  tone?: "normal" | "warn" | "danger" | "good";
+  /** "late": the new look's inverted tile (dark red ground, white words; spec "Late tile inverted"); classic: as "warn". */
+  tone?: "normal" | "warn" | "danger" | "good" | "late";
 }) {
   const measured = value !== null && value !== undefined;
+  if (NEW_LOOK) {
+    const late = tone === "late";
+    return (
+      <div className={`rounded-[var(--radius-md)] px-5 py-4 ${late ? "bg-pill-fail-bg text-pill-fail-fg" : "bg-ink-800 shadow-[var(--shadow-resting)]"}`}>
+        <p className={`text-sm font-semibold ${late ? "" : "text-slateish-400"}`}>{label}</p>
+        {measured ? (
+          <p className={`mt-1 font-[family-name:var(--font-heading)] text-[2.5rem] font-bold leading-none ${late ? "" : tone === "warn" ? "text-warn-500" : "text-slateish-100"}`}>
+            {typeof value === "number" ? nf.format(value) : value}
+          </p>
+        ) : (
+          <NotMeasured />
+        )}
+        {hint && <TileLine text={hint} inverted={late} />}
+      </div>
+    );
+  }
   const toneClass =
     tone === "warn"
       ? "text-warn-500"
@@ -73,7 +92,9 @@ export function Stat({
         ? "text-danger-500"
         : tone === "good"
           ? "text-signal-400"
-          : "text-slateish-100";
+          : tone === "late"
+            ? "text-warn-500"
+            : "text-slateish-100";
   return (
     <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
       <p className="text-xs uppercase tracking-wide text-slateish-500">{label}</p>
@@ -143,6 +164,23 @@ export function Headline({
         : tone === "good"
           ? "text-signal-400"
           : "text-slateish-100";
+  if (NEW_LOOK) {
+    return (
+      <div className="rounded-[var(--radius-lg)] bg-ink-800 px-6 py-5 shadow-[var(--shadow-resting)]">
+        <p className="text-sm font-semibold text-slateish-400">{label}</p>
+        {value == null ? (
+          <p className="mt-2 text-lg italic leading-tight text-slateish-500">nothing measured yet</p>
+        ) : (
+          <p className={`mt-2 font-[family-name:var(--font-heading)] text-[2.5rem] font-bold leading-none ${toneClass}`}>
+            {value}
+            {unit && <span className="ms-1.5 text-lg text-slateish-500">{unit}</span>}
+          </p>
+        )}
+        {children}
+        <TileLine text={note} />
+      </div>
+    );
+  }
   return (
     <div className="card-3d surface-floating rounded-[var(--radius-lg)] border border-ink-700 bg-ink-800 px-5 py-4">
       <p className="text-xs font-medium uppercase tracking-wide text-slateish-400">{label}</p>

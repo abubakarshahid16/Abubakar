@@ -10,6 +10,8 @@ import { nf, Stat, Headline, ReadinessPanel, TypeCounts } from "./DashboardPrimi
 import { DashboardTechnicalDetails } from "./DashboardTechnicalDetails";
 import { ReviewDashboardPanel } from "../components/review/ReviewDashboardPanel";
 import { usePoll } from "../hooks/usePoll";
+import { NEW_LOOK } from "../look";
+import { InfoFold } from "../components/look/LookParts";
 
 export function DashboardView({
   connection,
@@ -106,6 +108,32 @@ export function DashboardView({
   const coverageInScope = coverage != null && coverage.corpus_wide === metrics.corpus_wide;
   const byType = coverageInScope ? coverage!.by_type : [];
 
+  // THE BOUNDARY, one element: under the title in the classic look; in the new look at the bottom behind an info fold (owner).
+  const boundaryLine = (
+        <p className="mt-1 text-xs text-slateish-400">
+          {metrics.corpus_wide ? (
+            <>
+              <span className="font-semibold text-slateish-300">
+                Figures for the whole library.
+              </span>{" "}
+              The system counts on this screen cover every document in the
+              library, including documents you cannot open. You are seeing
+              them because you hold the admin capability. The AI Submittal
+              Review counts are not library-wide: they cover only the
+              documents you can open, and say so on their own block.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-slateish-300">
+                Your documents only.
+              </span>{" "}
+              These counts cover the documents you have been granted, not the
+              whole library.
+            </>
+          )}
+        </p>
+  );
+
   return (
     <div className="aurora-field">
       <div aria-hidden className="aurora-a" />
@@ -124,28 +152,7 @@ export function DashboardView({
               right and unreadable: a count with no stated boundary reads as
               total. An admin is now deliberately allowed corpus-wide figures,
               which is only defensible while the screen says so out loud. */}
-          <p className="mt-1 text-xs text-slateish-400">
-            {metrics.corpus_wide ? (
-              <>
-                <span className="font-semibold text-slateish-300">
-                  Figures for the whole library.
-                </span>{" "}
-                The system counts on this screen cover every document in the
-                library, including documents you cannot open. You are seeing
-                them because you hold the admin capability. The AI Submittal
-                Review counts are not library-wide: they cover only the
-                documents you can open, and say so on their own block.
-              </>
-            ) : (
-              <>
-                <span className="font-semibold text-slateish-300">
-                  Your documents only.
-                </span>{" "}
-                These counts cover the documents you have been granted, not the
-                whole library.
-              </>
-            )}
-          </p>
+          {!NEW_LOOK && boundaryLine}
         </div>
         <p className="font-mono text-xs text-slateish-500">
           refreshed {fetchedAt ? formatWhenDate(fetchedAt) : "—"} · every{" "}
@@ -185,7 +192,7 @@ export function DashboardView({
                 submittal reviewer, a five-figure total reads as five
                 figures of problems that reviewer found - which it is not. */}
             <Stat label="WBS review findings" value={delivery.review_findings_total} hint={delivery.findings_boundary || "from the project register, not AI submittal review"} />
-            <Stat label="Overdue" value={delivery.overdue_alerts} hint="requires follow-up" tone={delivery.overdue_alerts ? "warn" : "good"} />
+            <Stat label="Overdue" value={delivery.overdue_alerts} hint="requires follow-up" tone={delivery.overdue_alerts ? (NEW_LOOK ? "late" : "warn") : "good"} />
             <Stat label="Approved" value={delivery.deliverables_by_status?.approved ?? 0} hint="current revisions" tone="good" />
           </div>
         </section>
@@ -316,6 +323,12 @@ export function DashboardView({
           the warnings are what a reader came for; the rest is the operator's
           console, one click away, with every number intact. Nothing about
           the honesty rules changes: an unmeasured value still says so. */}
+      {NEW_LOOK && (
+        <InfoFold title="About these figures" className="mt-8">
+          {boundaryLine}
+        </InfoFold>
+      )}
+
       <DashboardTechnicalDetails metrics={metrics} corpus={corpus} throughput={throughput} retrieval={retrieval} jobs={jobs} worker={worker} models={models} system={system} noSearchable={noSearchable} isAdmin={isAdmin} />
     </div>
   );
