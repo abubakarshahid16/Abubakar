@@ -73,7 +73,6 @@ from pathlib import Path
 
 from . import (
     ai_requirements,
-    card_trust,
     deferred_value,
     field_links,
     field_naming,
@@ -413,8 +412,6 @@ def check_label(result: dict) -> str:
     a mandatory field - is UNPROVEN. No family proof applies: none is AI-compiled."""
     if result.get("checklist") and not result.get("draft") and not result.get("local"):
         return ENGINEER_CONFIRMED
-    if settings.tested_cards_decide_enabled and card_trust.decides(result):
-        return TESTED_CARD  # order 306.1: a tested card decides while its engineer approval is pending
     return UNPROVEN
 
 
@@ -491,12 +488,6 @@ def label_check(result: dict) -> dict:
     if out["status"] != result["status"]:  # held here; an earlier hold keeps its code
         out[hold_reason.KEY] = hold_reason.RULE_NOT_PROVEN
     out.update(tier=None, show_for_engineer_tick=False)
-    if out["trust_label"] == TESTED_CARD:  # order 306.1
-        is_safety = card_trust.safety(result["rule_id"])
-        out.update(
-            tier=SAFETY if is_safety else STANDARD,
-            show_for_engineer_tick=is_safety and out.get("status") == COMPLIANT,
-        )
     return out
 
 

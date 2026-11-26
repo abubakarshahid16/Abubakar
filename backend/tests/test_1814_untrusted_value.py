@@ -139,12 +139,10 @@ def test_the_checked_against_side_of_a_compared_check_holds_it_too():
 
 
 @pytest.mark.parametrize("auto_use", [False, True])
-@pytest.mark.parametrize("tested_cards", [False, True])
 def test_no_trust_switch_lifts_the_hold_and_a_sign_off_cannot_either(
-    monkeypatch, auto_use, tested_cards
-):
+    monkeypatch, auto_use
+):  # the switch tested_cards_decide_enabled is retired with its OFF behaviour (lead-4, 26 Nov 2026)
     monkeypatch.setattr(settings, "rule_auto_use_enabled", auto_use)
-    monkeypatch.setattr(settings, "tested_cards_decide_enabled", tested_cards)
     held = psv_results(_psv(STATES[0]))["PSV-24"]
     assert held["status"] == "NEEDS_ENGINEER_REVIEW"
     label = rule_trust.check_label(

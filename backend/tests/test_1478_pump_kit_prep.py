@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from app import card_trust, pump_kit, question_card, rule_cards
 from app import datasheet_checks as dc
+from app import kit_core, pump_kit, question_card, rule_cards, rule_trust
 from app.config import settings
 
 PUMP = "Centrifugal Pump"
@@ -94,7 +94,7 @@ def test_a_card_a_held_standard_requires_cites_it_with_a_clause_number_and_page(
     assert held
     for card in held:
         assert card["source"]["standard"] == "SAES-G-005"
-        assert card_trust.has_clause_number(card)
+        assert kit_core.has_clause_number(card)
         assert card["source"]["page"] > 0
 
 
@@ -364,12 +364,12 @@ def test_switch_on_a_low_npsh_margin_and_a_low_test_pressure_fail_on_a_whole_she
     assert "rule_said" not in clean["PMPD-08"]
 
 
-def test_a_kit_card_never_decides_even_with_tested_cards_deciding(kit_on, monkeypatch):
-    monkeypatch.setattr(settings, "tested_cards_decide_enabled", True)
-    for card in pump_kit.cards():
-        assert card_trust.why_not(card["id"]) is not None
-        assert card_trust.decides({"checklist": True, "rule_id": card["id"]}) is False
-    assert PUMP not in card_trust.DECIDING_TYPES
+def test_a_kit_card_never_decides(
+    kit_on,
+):  # was "even with tested cards deciding": the switch tested_cards_decide_enabled is retired with its OFF behaviour (lead-4, 26 Nov 2026)
+    for card in pump_kit.cards():  # was card_trust.why_not / decides / DECIDING_TYPES: card_trust is retired with the switch tested_cards_decide_enabled (lead-4, 26 Nov 2026)
+        held = rule_trust.check_label({"checklist": True, "draft": True, "local": False, "rule_id": card["id"]})
+        assert held == rule_trust.UNPROVEN, card["id"]  # a kit card never decides: it is held for the engineer
 
 
 def test_the_committed_checklists_and_their_card_report_are_untouched():
