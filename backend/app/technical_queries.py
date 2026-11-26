@@ -1225,13 +1225,18 @@ def _matched_clause(conn, passage: dict, quote: str, terms: list[str]) -> str | 
     first (the passage spans clauses); None otherwise."""
     from . import technical_query_match
 
-    best = technical_query_match.best_sentence(terms or [], quote)
     start, document_id = passage.get("page_start"), passage.get("document_id")
-    if not best or not start or not document_id or _squash(quote).startswith(_squash(best)):
+    if not start or not document_id:
         return None
     end = max(start, passage.get("page_end") or start)
     on = "\n".join(_page_text(r) for r in _source_pages(conn, document_id, start, end))
-    return technical_query_match.heading_above(on, best)
+    # the whole passage first (a short quote may hold none of the matched words: run 9, Q7), then the quote
+    for text in (passage.get("text") or "", quote):
+        best = technical_query_match.best_sentence(terms or [], text)
+        if best and not _squash(text).startswith(_squash(best)):
+            if found := technical_query_match.heading_above(on, best):
+                return found
+    return None
 
 
 def _locator_of(
