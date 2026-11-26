@@ -317,9 +317,10 @@ def test_the_attachment_pages_are_not_copied_in_bulk_and_an_invented_question_is
     ]
     for stray in ("Contractor query form", "Ref 12", "Thanks", "insured", "holiday"):
         assert stray not in result["proposed_question"]
+    # the cover note is not a question (lead-4, 26 Nov 2026)
     assert (
         result["proposed_question"]
-        == "See attached.\n1. Q1 What is the minimum coating thickness for the tank?"
+        == "1. Q1 What is the minimum coating thickness for the tank?"
     )
     assert (
         result["confirmed_question"] is None

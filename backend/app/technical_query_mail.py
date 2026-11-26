@@ -49,7 +49,8 @@ def _asks(line: str) -> bool:
 _SENT_FROM = re.compile(r"^sent from my\b", re.IGNORECASE)
 #: Header lines of quoted or forwarded earlier mail: kept on the page, left out of what the question finder reads.
 _HEADER = re.compile(
-    r"^(from|sent|date|to|cc|subject|von|gesendet|an|betreff|de|envoy[ée]|objet)\s*:\s|^on .{3,160} wrote:\s*$|"
+    r"^(from|sent|date|to|cc|bcc|subject|classification|sensitivity|importance|von|gesendet|an|betreff|de|envoy[ée]|objet|para)\s*:\s|"
+    r"^on .{3,160} wrote:\s*$|"
     r"^-{2,}\s*(original|forwarded) message\s*-{2,}$|^_{5,}$|^-{5,}$",
     re.IGNORECASE,
 )
@@ -103,5 +104,150 @@ def message_itself(text: str | None) -> str:
     """What the question finder reads: the message without signatures, notices and the header lines of quoted or forwarded mail (the
     quoted message's own words stay: a forward's question is there)."""
     main, _ = split_body(text)
-    lines = [line for line in main.splitlines() if not _HEADER.match(line.strip())]
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return re.sub(
+        r"\n{3,}", "\n\n", "\n".join(_without_headers(main.splitlines()))
+    ).strip()
+
+
+#: The address-list header lines (To, Cc, Bcc) whose wrapped lines follow them.
+_LIST_HEADER = re.compile(r"^(to|cc|bcc|an|para)\s*:", re.IGNORECASE)
+
+
+def _address_list(line: str) -> bool:
+    """A line that is a list of people: two or more addresses, or names joined by semicolons."""
+    return line.count("@") >= 2 or line.count(";") >= 2 or ("@" in line and ";" in line)
+
+
+def _without_headers(lines: list[str]) -> list[str]:
+    """The lines without the header lines of quoted or forwarded mail, the wrapped lines of a To / Cc list, and any line that is a list
+    of people (lead-4, 26 Nov 2026: a forward's 40-name Cc list was shown as the question)."""
+    out: list[str] = []
+    in_list = False
+    for line in lines:
+        stripped = line.strip()
+        if _HEADER.match(stripped):
+            in_list = bool(_LIST_HEADER.match(stripped))
+            continue
+        wrapped = (
+            in_list
+            and stripped
+            and (";" in stripped or "@" in stripped or stripped.endswith(","))
+        )
+        in_list = bool(wrapped)
+        if not wrapped and not _address_list(stripped):
+            out.append(line)
+    return out
+
+
+#: A line that only points to the attachment ("Please find attached ...") asks nothing of its own.
+_COVER = re.compile(
+    r"\b(please|kindly)\s+(find|see|refer to|note|review)\b.{0,60}\b(attach|enclos)",
+    re.IGNORECASE,
+)
+#: A line that names the question ("Question: ...", "Query - ..."): the question starts there.
+_QUESTION_MARK = re.compile(r"^\s*(question|query)\s*[:\-]\s*", re.IGNORECASE)
+NO_QUESTION = "No question in the email text."
+
+
+def email_question(text: str | None) -> str:
+    """The question in a mail's own text, by the CURRENT rules (computed each time, never trusted from an older stored copy): the message
+    itself without headers, people lists, signatures and notices, from a "Question:" line when there is one; "" when nothing in it asks
+    anything (a cover note such as "please find attached" does not)."""
+    message = message_itself(text)
+    lines = message.splitlines()
+    marked = next(
+        (i for i, line in enumerate(lines) if _QUESTION_MARK.match(line)), None
+    )
+    if marked is not None:
+        message = "\n".join(
+            [_QUESTION_MARK.sub("", lines[marked], count=1), *lines[marked + 1 :]]
+        ).strip()
+    asks = any(_asks(line) and not _COVER.search(line) for line in message.splitlines())
+    return message if asks else ""
+
+
+def shown_question(query: dict) -> dict[str, str]:
+    """What the query page shows as "Question in the email": recomputed from the first received mail's body (a question typed in by hand,
+    `saved`, for a query entered by hand), the signatures and notices folded, and when the mail asks nothing, a note naming the attachment
+    the question is in (lead-4, 26 Nov 2026)."""
+    from .technical_queries import original_email_question
+
+    messages, proposals = (
+        query.get("messages") or [],
+        query.get("proposed_questions") or [],
+    )
+    saved = original_email_question(query.get("extracted_question"))
+    first = next(
+        (m for m in messages if m.get("is_inbound", 1)), messages[0] if messages else {}
+    )
+    typed = (
+        first.get("provider") in (None, "manual", "synthetic") and (saved or "").strip()
+    )
+    source = saved if typed else first.get("body")
+    question = (saved or "").strip() if typed else email_question(source)
+    note = ""
+    if not question:
+        files = [p.get("filename") for p in proposals or [] if p.get("filename")] + [
+            a["filename"]
+            for m in messages
+            for a in m.get("attachments", [])
+            if a.get("document_id") and not a.get("inline_picture")
+        ]
+        note = NO_QUESTION + (
+            f" The question is in the attachment: {files[0]}; "
+            + (
+                "the proposed question below comes from it."
+                if proposals
+                else "Prepare evidence to get a proposed question from it."
+            )
+            if files
+            else ""
+        )
+    return {
+        "extracted_question_main": question,
+        "extracted_question_folded": split_body(source)[1],
+        "email_question_note": note,
+    }
+
+
+#: A list of more people than this is folded on the query page: "To/Cc: 43 people" (lead-4, 26 Nov 2026).
+PEOPLE_SHOWN = 5
+
+
+def _people(lines: list[str]) -> int:
+    text = " ".join(
+        line.split(":", 1)[-1] if _LIST_HEADER.match(line.strip()) else line
+        for line in lines
+    )
+    return text.count("@") or len([p for p in re.split(r"[;\n]", text) if p.strip()])
+
+
+def page_body(text: str | None) -> tuple[str, str]:
+    """`split_body` for the query page, with every To / Cc list of quoted or forwarded mail longer than PEOPLE_SHOWN people folded to one
+    line ("To/Cc: 43 people"); the full list goes to the folded part, shown only on "show"."""
+    main, folded = split_body(text)
+    out: list[str] = []
+    held: list[list[str]] = []
+    block: list[str] = []
+
+    def close() -> None:
+        if block:
+            many = _people(block) > PEOPLE_SHOWN
+            out.append(f"To/Cc: {_people(block)} people" if many else "\n".join(block))
+            held.extend([block[:]] if many else [])
+            block.clear()
+
+    for line in main.splitlines():
+        stripped = line.strip()
+        if _LIST_HEADER.match(stripped) or (
+            block
+            and stripped
+            and (";" in stripped or "@" in stripped or stripped.endswith(","))
+        ):
+            block.append(line)
+            continue
+        close()
+        out.append(line)
+    close()
+    extra = "\n\n".join("\n".join(b) for b in held)
+    return "\n".join(out), "\n\n".join(part for part in (folded, extra) if part)

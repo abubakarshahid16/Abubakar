@@ -38,6 +38,7 @@ export interface TechnicalQuery {
   due_at: string | null;
   extracted_question_main?: string | null;
   extracted_question_folded?: string | null;
+  email_question_note?: string | null;
   messages?: Array<{ id: string; is_inbound?: number | boolean; body_main?: string; body_folded?: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; inline_picture?: number | boolean; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
@@ -211,6 +212,16 @@ export function attachmentsRead(messages: Array<{ attachments: QueryAttachment[]
   const read = all.length ? `${all.length - notRead.length} of ${all.length} attachment${all.length === 1 ? "" : "s"} read` : "No attachments";
   const signs = pictures ? `; ${pictures} signature picture${pictures === 1 ? "" : "s"}, not attachments` : "";
   return { line: `${read}${signs}`, notRead };
+}
+
+/** More than this many people on a mail's To and Cc are folded to one line, "To/Cc: 43 people" (lead-4, 26 Nov 2026). */
+export const PEOPLE_SHOWN = 5;
+
+/** The mail's To / Cc line: in full for a few people, else one count line with the full list kept for "show". */
+export function peopleLine(to: string[], cc: string[]): { lines: string[]; folded: string | null } {
+  const count = to.length + cc.length;
+  if (count <= PEOPLE_SHOWN) return { lines: [`To: ${to.join(", ")}`, ...(cc.length ? [`CC: ${cc.join(", ")}`] : [])], folded: null };
+  return { lines: [`To/Cc: ${count} people`], folded: [`To: ${to.join(", ")}`, ...(cc.length ? [`CC: ${cc.join(", ")}`] : [])].join("\n") };
 }
 
 /** "Prepare evidence for all unprepared queries": counts only. */

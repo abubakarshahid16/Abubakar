@@ -8,7 +8,6 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from .aim_review_gate import AI_MARK
 from .config import settings
-from .technical_queries import original_email_question
 
 _CONTENT = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -79,7 +78,11 @@ def render(query: dict, output: Path | None = None) -> Path:
         # Until a reviewer approves, the words are an AI's: say so in the file (one home for the label: aim_review_gate.AI_MARK)
         *([_p(f"{AI_MARK}: not yet approved by an engineer.", True)] if query["status"] not in APPROVED_STATES else []),
         _p("Original question (from the email)", True),
-        _p(original_email_question(query.get("extracted_question")) or "Not stated in the email text."),
+        _p(
+            query.get("extracted_question_main")
+            or query.get("email_question_note")
+            or "Not stated in the email text."
+        ),
     ]
     for part in query.get("attachment_context") or []:
         paragraphs += [

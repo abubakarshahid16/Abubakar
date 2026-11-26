@@ -847,14 +847,11 @@ def get(
                 (query_id,),
             )
         ]
-        from .technical_query_mail import split_body
+        from .technical_query_mail import page_body, shown_question
 
-        main, folded = split_body(result.get("extracted_question"))
-        result["extracted_question_main"] = main
-        result["extracted_question_folded"] = folded
         for message in result["messages"]:
             # the message itself and, folded on the page, its signature, notices and quoted mail (the stored body is unchanged)
-            main, folded = split_body(message.get("body"))
+            main, folded = page_body(message.get("body"))
             message["body_main"], message["body_folded"] = main, folded
             message["to_addresses"], message["cc_addresses"] = (
                 json.loads(message["to_addresses"] or "[]"),
@@ -873,6 +870,8 @@ def get(
                     attachment["parse_status"] = "ready"
                 elif attachment["document_status"] in {"failed", "stored_not_indexed"}:
                     attachment["parse_status"] = attachment["document_status"]
+        # the email's question by the CURRENT rules, never an older stored copy
+        result.update(shown_question(result))
         result["drafts"] = [
             dict(r)
             for r in conn.execute(
@@ -1273,17 +1272,11 @@ def prepare_evidence(
         raise ValueError("evidence cannot be prepared in the current query state")
     with connect() as conn:
         invalidate_attachment_evidence(conn, query_id)
-    from .technical_query_mail import message_itself
+    from .technical_query_mail import message_itself, shown_question
 
     message = (current.get("messages") or [{}])[0]
-    # the question finder reads the message itself: never its signature, legal notices or quoted earlier mail
-    body = message_itself(message.get("body")).strip()
-    saved = original_email_question(current.get("extracted_question"))
-    saved_question = message_itself(saved).strip() or None
-    email_question = saved_question or body
-    marker = body.upper().find("QUESTION")
-    if not saved_question and marker >= 0:
-        email_question = body[marker:].split(":", 1)[-1].strip()
+    # the email's question by the CURRENT rules: never its headers, people lists, signatures, notices or an older stored copy
+    email_question = shown_question(current)["extracted_question_main"]
     attachment_ids = {
         attachment["document_id"]
         for message_row in current.get("messages", [])
@@ -1330,7 +1323,9 @@ def prepare_evidence(
     from . import technical_query_questions
 
     proposals, proposal_note = technical_query_questions.from_pages(context, progress)
-    proposal = propose_question(email_question, proposals)
+    # a mail that asks nothing ("See attached.") is searched for only when the attachment gave no question either
+    fallback = "" if proposals else message_itself(message.get("body"))
+    proposal = propose_question(email_question or fallback, proposals)
     # An engineer's confirmed wording, when there is one, is what evidence is found for.
     question = current.get("confirmed_question") or proposal
     if not question:
