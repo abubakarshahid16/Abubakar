@@ -27,10 +27,10 @@ from . import (
     tag_cross,
 )
 from .aim_review import references as aim_review_references
-from .aim_review_learner import split as learner_split
 from .aim_review import unread
 from .aim_review.faults import LEGACY_WORDS, NOT_APPLIED_WORDS, counted
 from .aim_review.updates import group_mark, u7b
+from .aim_review_learner import split as learner_split
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
