@@ -193,7 +193,19 @@ def _headings(lines: list[str]) -> list[tuple[int, str]]:
     if len(alone) < 2:
         return out
     anchors = {h.split(".")[0] for i, h in out if i not in alone and h[:1].isdigit()}
-    return [(i, h) for i, h in out if i not in alone or h.split(".")[0] in anchors]
+    # consecutive numbers of one chapter (4.1, then 4.2) are clauses laid out on two lines, not table values
+    numbers = {tuple(int(x) for x in lines[i].strip().split(".")) for i in alone}
+    clauses = {
+        (a, b) for a, b in numbers if (a, b - 1) in numbers or (a, b + 1) in numbers
+    }
+
+    def kept(i: int, h: str) -> bool:
+        number = (
+            tuple(int(x) for x in lines[i].strip().split(".")) if i in alone else None
+        )
+        return number is None or h.split(".")[0] in anchors or number in clauses
+
+    return [(i, h) for i, h in out if kept(i, h)]
 
 
 #: How far into a passage a heading may stand and still be its locator, when no heading stands above it on the page.

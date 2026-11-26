@@ -227,3 +227,8 @@ def test_a_bare_clause_number_takes_its_title_from_the_page():
 def test_several_lone_decimal_values_between_text_rows_are_not_headings():
     page = "4.1 Invented Data\nInvented pressure\n1.5\nBar Gauge Reading\nInvented temperature\n2.0\nDegrees Reading\nThe invented answer."
     assert heading_above(page, "The invented answer.") == "4.1 Invented Data"
+
+
+def test_consecutive_two_line_clause_headings_stay_headings():
+    page = "4.1\nInvented General\nInvented words.\n4.2\nInvented Scope\nThe invented answer."
+    assert heading_above(page, "The invented answer.") == "4.2 Invented Scope"
