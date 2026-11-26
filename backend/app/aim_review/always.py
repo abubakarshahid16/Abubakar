@@ -75,11 +75,56 @@ def items(
         b: str((books.get(it.get("book") or "") or {}).get("identifier") or "")
         for it, b in listed
     }
+    pairs, entries = form_context(identity)  # update 13 (off: "", "", main's G2 and G3)
+    required = "\n".join(
+        x for x in (_required([it for it, _b in listed]), entries) if x
+    )
     return [
         _item("G1", G1_CHECK, "presence", facts, named),
-        _item("G2", G2_CHECK, "limit", "", {}),
-        _item("G3", G3_CHECK, "presence", _required([it for it, _b in listed]), g3_named),
+        _item("G2", G2_CHECK, "limit", pairs, {}),
+        _item("G3", G3_CHECK, "presence", required, g3_named),
     ]  # fmt: skip
+
+
+def form_context(identity: dict) -> tuple[str, str]:
+    """(G2's pairs, G3's entries) from the app's OWN data for the paper's type, only with update 13 on (planner, 26 Nov 2026: the
+    planted mistakes of kinds 1, 2 and 4 were missed under the broad G2 and G3): the consistency pairs every datasheet must keep
+    (`datasheet_checks.json` "consistency") and the entries the type's form requires (its mandatory list).
+    The words are the app's field names and its own pair sentences: no paper words. ("", "") when off or the type has no form."""
+    from .updates import u13
+
+    if not u13():
+        return "", ""
+    from app import datasheet_checks as DC
+
+    rules = DC.load_rules()
+    pairs = "\n".join(
+        f"- {c['text']}" for c in rules.get("consistency") or [] if c.get("text")
+    )
+    etype = _sheet_type(
+        str((identity or {}).get("equipment_type") or "").strip(), rules
+    )
+    names: list[str] = []
+    if etype:  # the REQUIRED entries only (the type's mandatory list), never every box of its form
+        mandatory = (rules.get("mandatory") or {}).get(
+            DC.mandatory_list_key(etype, rules)
+        ) or []
+        names = [str(m).replace("_", " ") for m in mandatory if m]
+    return (
+        (
+            "PAIRS THAT MUST AGREE wherever the paper states both (the app's consistency rules):\n"
+            + pairs
+        )
+        if pairs
+        else "",
+        (
+            "THE FORM OF THIS KIND OF PAPER requires these entries: "
+            + "; ".join(names)
+            + "."
+        )
+        if names
+        else "",
+    )
 
 
 def is_always(item_id) -> bool:
@@ -112,6 +157,33 @@ def _item(gid: str, check: str, kind: str, context: str, named: dict[str, str]) 
         ),  # the listed books the context names or quotes: declared to the send gate with the item
         "named_books": [{"id": i, "name": n} for i, n in sorted(named.items())],
     }
+
+
+def _sheet_type(key: str, rules: dict) -> str:
+    """The name the app's form tables know the review's equipment key by: the key spelled with spaces, else its name or a synonym in
+    the equipment taxonomy (`reference/equipment_taxonomy.json`), the first one that is not the generic list; "" when none is."""
+    import json
+    from pathlib import Path
+
+    from app import datasheet_checks as DC
+
+    if not key:
+        return ""
+    names = [key.replace("_", " ")]
+    path = (
+        Path(__file__).resolve().parent.parent / "reference" / "equipment_taxonomy.json"
+    )
+    for fam in json.loads(path.read_text()).get("families") or []:
+        for t in fam.get("types") or []:
+            if t.get("id") == key:
+                names += [
+                    str(t.get("name") or "").split(" (")[0],
+                    *map(str, t.get("synonyms") or []),
+                ]
+    generic = DC.mandatory_list_key("", rules)
+    return next(
+        (n for n in names if n and DC.mandatory_list_key(n, rules) != generic), ""
+    )
 
 
 def _required(held: list[dict]) -> str:
