@@ -921,7 +921,9 @@ describe("12 the general review's results page (order 14)", () => {
     api.general.mockResolvedValue(ok({ ...g, counts: { ...g.counts, comments: 1, confirmations: 1 }, comments: [g.points[0]], confirmations: [g.points[2]] }));
     mount();
     const results = await screen.findByTestId("general-results");
+    fireEvent.click(screen.getByRole("tab", { name: "How this review was made" })); // E5: the counts are folded (answer first)
     expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, 1 comments sent, 1 confirmations not sent");
+    fireEvent.click(screen.getByRole("tab", { name: /^Comments/ }));
     const part = screen.getByTestId("general-confirmations");
     expect(part.tagName).toBe("DETAILS");
     expect(part).not.toHaveAttribute("open"); // closed until opened
@@ -949,7 +951,9 @@ describe("12 the general review's results page (order 14)", () => {
     mount();
     const results = await screen.findByTestId("general-results");
     expect(screen.getByTestId("general-mark")).toHaveTextContent(MARK);
+    fireEvent.click(screen.getByRole("tab", { name: "How this review was made" })); // E5: the counts are folded (answer first)
     expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, 2 comments sent (this paper, this review)");
+    fireEvent.click(screen.getByRole("tab", { name: /^Comments/ }));
     expect(screen.queryByTestId("general-confirmations")).toBeNull(); // an answer with no confirmations shows no such part
     const rows = within(results).getAllByTestId("general-row");
     expect(rows).toHaveLength(2); // the comments only, until "All points" is ticked

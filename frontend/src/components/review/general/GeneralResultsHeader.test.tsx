@@ -1,5 +1,5 @@
 /** The results page header (planner 18 Nov 23:40): the banner after sign-off, plain words for the label counts. Invented values only. */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { GeneralReview } from "../../../api/generalReview";
@@ -17,6 +17,8 @@ function review(over: Partial<GeneralReview> = {}): GeneralReview {
   } as GeneralReview;
 }
 const mount = (r: GeneralReview) => render(<GeneralResults review={r} howTab={null} onViewPage={() => undefined} />);
+/** E5 (answer first, 26 Nov 2026): run details live under the "How this review was made" tab. */
+const openHow = () => fireEvent.click(screen.getByRole("tab", { name: "How this review was made" }));
 
 describe("GeneralResults header", () => {
   it("after sign-off the banner says it was signed off and no longer says nothing is signed off", () => {
@@ -37,6 +39,7 @@ describe("GeneralResults header", () => {
 
   it("the header counts by label are plain words, not raw label names", () => {
     mount(review({ counts: { points: 193, comments: 73, by_label: {}, boundary: "this paper", by_shown_label: { "Question": 159, "AI opinion: does not apply": 28, "AI opinion: met": 4, "AI opinion: not met": 1, "AI opinion": 2 } } }));
+    openHow();  // E5: the counts are folded
     const t = screen.getByTestId("general-counts");
     expect(t).toHaveTextContent("159 questions");
     expect(t).toHaveTextContent("28 do not apply (the AI's view)");
@@ -50,12 +53,16 @@ describe("GeneralResults header", () => {
       { where: "page 7", why: "no_text", sentence: "Page 7 was not read: it has no text, or almost none (fewer than 20 characters), and no picture reading came back." },
       { where: "picture 2", why: "picture_not_read", sentence: "Picture 2 was not read: no picture reading came back." },
     ] }));
+    expect(screen.getByTestId("general-pages-pointer")).toHaveTextContent("2 parts of this paper were not read: see How this review was made.");  // visible (E5)
+    openHow();
     const note = screen.getByTestId("general-pages-not-read");
     expect(note).toHaveTextContent("2 parts of this paper were not read.");
     expect(note).toHaveTextContent("Page 7 was not read");
     expect(note).toHaveTextContent("Picture 2 was not read");
     unmount();
     mount(review({ pages_not_read: [] }));
+    expect(screen.queryByTestId("general-pages-pointer")).toBeNull();
+    openHow();
     expect(screen.queryByTestId("general-pages-not-read")).toBeNull();
   });
 
