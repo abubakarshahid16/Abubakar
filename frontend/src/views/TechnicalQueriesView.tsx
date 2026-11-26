@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
-import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy } from "../api/technicalQueries";
+import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, prepareAllWords, type PrepareAll } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
@@ -88,6 +88,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [handBody, setHandBody] = useState("");
   const [handFiles, setHandFiles] = useState<File[]>([]);
   const pendingMailbox = mailboxes.find((mailbox) => mailbox.connection_state === "needs_label");
+  const [prepareAll, setPrepareAll] = useState<null | { plan: PrepareAll; asking: boolean }>(null);
   const [filtersOpen, setFiltersOpen] = useState(false); // the filters are folded by default: the mailbox and the list come first
   const activeFilters = [statusFilter, contractorFilter.trim(), departmentFilter.trim(), assigneeFilter, fromFilter, toFilter, evidenceFilter, typeFilter, disciplineFilter.trim(), numberFilter.trim()].filter(Boolean).length + (needsPersonFilter ? 1 : 0);
   const topRef = useRef<HTMLDivElement>(null);
@@ -179,6 +180,16 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
       if (result.data) { setSelected(result.data); setEditedAnswer(result.data.drafts?.at(-1)?.answer || ""); setItems((current) => current.map((item) => item.id === result.data?.id ? result.data : item)); }
     });
   };
+
+  const preparingAll = (prepareAll?.plan.waiting_or_running ?? 0) > 0 && !prepareAll?.asking;
+  useEffect(() => {
+    // a started round: how many are still waiting or running, every 5 s until none
+    if (!preparingAll) return;
+    const timer = window.setInterval(() => {
+      void technicalQueriesApi.prepareAllPlan().then((result) => { if (result.ok) setPrepareAll({ plan: result.data, asking: false }); });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [preparingAll]);
 
   const importing = mailboxes.some((mailbox) => mailbox.import_job && (mailbox.import_job.state === "running" || (mailbox.import_job.state === "queued" && !mailbox.import_job.error)));
   useEffect(() => {
@@ -290,6 +301,15 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             <button type="button" onClick={() => setConfirming(null)} className="mt-1 rounded bg-ink-700 px-2 py-1 text-slateish-100">Cancel</button>
           </div>}
         </div>)}
+        {canManageGmail && <div className="mt-4 text-xs text-slateish-200" data-testid="prepare-all">
+          <button type="button" disabled={busy || preparingAll} onClick={() => { setError(null); void technicalQueriesApi.prepareAllPlan().then((result) => { if (result.ok) setPrepareAll({ plan: result.data, asking: true }); else setError(result.error.message); }); }} className="rounded bg-ink-700 px-3 py-1.5 text-slateish-100 disabled:opacity-50">Prepare evidence for all unprepared queries</button>
+          {prepareAll?.asking && <div role="alertdialog" aria-label="Confirm preparing all" className="mt-2 rounded border border-warn-500 p-2" data-testid="confirm-prepare-all">
+            <p>{prepareAllWords(prepareAll.plan)}</p>
+            {prepareAll.plan.unprepared > 0 && <button type="button" onClick={() => void technicalQueriesApi.prepareAllStart().then((result) => { if (result.ok) setPrepareAll({ plan: result.data, asking: false }); else { setPrepareAll(null); setError(result.error.message); } })} className="mt-1 mr-2 rounded bg-signal-500 px-2 py-1 text-white">Yes, prepare them</button>}
+            <button type="button" onClick={() => setPrepareAll(null)} className="mt-1 rounded bg-ink-700 px-2 py-1 text-slateish-100">{prepareAll.plan.unprepared > 0 ? "Cancel" : "Close"}</button>
+          </div>}
+          {prepareAll && !prepareAll.asking && <p role="status" className="mt-1" data-testid="prepare-all-progress">{prepareAll.plan.waiting_or_running > 0 ? `Preparing evidence in the background: ${prepareAll.plan.waiting_or_running} still waiting or running.` : "Every query that can be prepared has been prepared."}</p>}
+        </div>}
         <div className="mt-4">
           <button type="button" onClick={() => setHandOpen((open) => !open)} aria-expanded={handOpen} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">New query by hand / upload</button>
           {handOpen && <div className="mt-2 space-y-1 rounded border border-ink-700 p-3 text-xs text-slateish-300" aria-label="New query by hand">

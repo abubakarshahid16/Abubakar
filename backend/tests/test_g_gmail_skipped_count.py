@@ -344,3 +344,44 @@ def test_a_new_query_from_the_mailbox_is_queued_for_evidence_once_and_a_follow_u
         "queued"
     ]  # one query, one job, waiting for the app's one evidence thread
     assert started == []  # the import never starts a second thread of its own
+
+
+def test_prepare_all_queues_only_unprepared_queries_and_says_the_count_first(
+    monkeypatch, tq
+):
+    from app import technical_query_jobs as J
+    from app import technical_queries
+
+    monkeypatch.setattr(
+        J, "start", lambda: None
+    )  # no thread in a test: the jobs stay queued
+    a, _ = technical_queries.import_message(
+        {"provider": "gmail", "mailbox_id": "mb", "provider_message_id": "p1", "provider_thread_id": "t1", "from_address": "a@vendor.example",
+         "to_addresses": [], "cc_addresses": [], "subject": "PRJ-INV-TQ-1 - Invented", "body": "Invented?", "attachments": []}, "u1")  # fmt: skip
+    b, _ = technical_queries.import_message(
+        {"provider": "gmail", "mailbox_id": "mb", "provider_message_id": "p2", "provider_thread_id": "t2", "from_address": "b@vendor.example",
+         "to_addresses": [], "cc_addresses": [], "subject": "PRJ-INV-TQ-2 - Invented", "body": "Invented?", "attachments": []}, "u1")  # fmt: skip
+    done = J.enqueue(b["id"], frozenset(), "u1", True, False)
+    with db.connect() as conn:
+        conn.execute("UPDATE query_evidence_jobs SET state='done' WHERE id=?", (done,))
+        assert J.all_plan(conn) == {
+            "unprepared": 1,
+            "minutes_each": None,
+            "waiting_or_running": 0,
+        }
+    got = J.queue_all(frozenset(), "u1", True, False)
+    assert (
+        got["queued_now"] == 1
+        and got["unprepared"] == 0
+        and got["waiting_or_running"] == 1
+    )
+    assert (
+        J.queue_all(frozenset(), "u1", True, False)["queued_now"] == 0
+    )  # pressed again: nothing twice
+    with db.connect() as conn:
+        assert {
+            r[0]
+            for r in conn.execute(
+                "SELECT query_id FROM query_evidence_jobs WHERE state='queued'"
+            )
+        } == {a["id"]}
