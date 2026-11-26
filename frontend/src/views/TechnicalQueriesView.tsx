@@ -1,3 +1,4 @@
+import { NEW_LOOK } from "../look";
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
@@ -262,6 +263,19 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     return () => { alive = false; };
   }, [queryId]);
 
+  const evidenceBlock = selected && (
+    <>
+          <details open={NEW_LOOK || undefined} className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-evidence">
+            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">{NEW_LOOK ? "Where the answer comes from" : "Evidence"}</summary>
+            {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
+            {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
+            {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, {evidence.locator ? `${evidence.locator}, ` : ""}page {evidence.page_start ?? "unknown"}</a>{evidence.match_terms ? <> · <span data-testid="evidence-match">{evidence.match_count} of {evidence.match_terms} key terms</span></> : null} · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state === "proposed" ? "found by the system, not yet kept" : evidence.evidence_state} · {evidence.supersession_state}</footer>
+              {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-500"><p>{evidence.evidence_state === "proposed" ? "Found by the system; the words are checked to stand on that page, but nobody has judged that they answer the question. A reviewer keeps it as evidence or rejects it before a draft uses it or the response is approved." : "This quote comes from a contractor's attachment. A reviewer must decide before the response is approved or sent."}</p>
+                {selected.can_review ? <div className="mt-1 flex gap-2"><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "verified", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Keep as evidence</button><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "rejected", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Reject</button></div> : <p className="mt-1">Only a qualified reviewer can decide.</p>}</div>}
+            </blockquote>) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
+          </details>
+    </>
+  );
   return (
     <div ref={topRef} className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
       <section className="min-w-0 [overflow-wrap:anywhere]">
@@ -387,7 +401,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.can_review === false && <p className="mt-3 text-xs text-slateish-500">You can prepare evidence and write drafts. Confirming the question, deciding on evidence, approving and sending need the technical-query reviewer role.</p>}
           {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the question, the proposed response and the decisions
               come first; the email, its attachments and the evidence are folded below. Reorder only: the same parts, words and actions. */}
-          <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question for the draft</h3>
+          <h3 className="mt-6 text-sm font-semibold text-slateish-200">{NEW_LOOK ? "The contractor asks" : "Question for the draft"}</h3>
           {selected.confirmed_question
             ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${formatWhen(selected.confirmed_question_at)}` : ""}. The draft answers exactly this wording.</p>
             : <p className="mt-1 text-xs text-warn-500">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
@@ -427,6 +441,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           </div>
           {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
           {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
+          {NEW_LOOK && evidenceBlock}
           <div className="mt-4 grid gap-2 rounded border border-ink-700 p-3 sm:grid-cols-2" aria-label="Who it goes to">
             <label className="text-xs text-slateish-300">Contractor<input value={triageContractor} onChange={(event) => setTriageContractor(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
             <label className="text-xs text-slateish-300">Department<input value={triageDepartment} onChange={(event) => setTriageDepartment(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
@@ -467,15 +482,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
               </li>)}</ul>}
             </article>)}
           </details>
-          <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-evidence">
-            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Evidence</summary>
-            {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
-            {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
-            {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, {evidence.locator ? `${evidence.locator}, ` : ""}page {evidence.page_start ?? "unknown"}</a>{evidence.match_terms ? <> · <span data-testid="evidence-match">{evidence.match_count} of {evidence.match_terms} key terms</span></> : null} · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state === "proposed" ? "found by the system, not yet kept" : evidence.evidence_state} · {evidence.supersession_state}</footer>
-              {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-500"><p>{evidence.evidence_state === "proposed" ? "Found by the system; the words are checked to stand on that page, but nobody has judged that they answer the question. A reviewer keeps it as evidence or rejects it before a draft uses it or the response is approved." : "This quote comes from a contractor's attachment. A reviewer must decide before the response is approved or sent."}</p>
-                {selected.can_review ? <div className="mt-1 flex gap-2"><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "verified", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Keep as evidence</button><button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected.id, evidence.id, "rejected", evidence.supersession_state))} className="rounded bg-ink-700 px-2 py-1 text-slateish-100 disabled:opacity-50">Reject</button></div> : <p className="mt-1">Only a qualified reviewer can decide.</p>}</div>}
-            </blockquote>) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
-          </details>
+          {!NEW_LOOK && evidenceBlock}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Review history</h3>
           {selected.decisions?.length ? selected.decisions.map((decision) => <p key={decision.created_at} className="mt-2 text-sm text-slateish-300">{decision.decision}: {decision.comment || "No comment"}</p>) : <p className="mt-2 text-sm text-slateish-500">No engineer decision yet.</p>}
         </>}
