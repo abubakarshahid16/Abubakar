@@ -28,7 +28,7 @@ const root = join(process.cwd(), "dist", "assets");
 // Update 10 (26 Nov 2026): 336000 -> 337000 bytes: update 10: Review model section, 26 Nov, lead decision (build 336107).
 // Update 12 (26 Nov 2026): 337000 -> 339000 bytes: update 12: technical queries pages, draft guard, Chat, 26 Nov, lead decision (build 338387).
 // Update 13 (26 Nov 2026): 339000 -> 340000 bytes: update 13: technical queries evidence, 26 Nov, lead decision (build 339095).
-// Update 14 (27 Nov 2026): 340000 -> 341000 bytes: approved increase, from the look token file (look.css), needed for the restyle work; lead decision (build 340604).
+// Update 14 (26 Nov 2026): 340000 -> 341000 bytes: approved increase, from the look token file (look.css), needed for the restyle work; lead decision (build 340604).
 const max = 341000;
 const files = (await readdir(root)).filter((name) => /\.(js|css)$/.test(name));
 let total = 0;
