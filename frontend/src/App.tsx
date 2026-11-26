@@ -506,7 +506,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
             <IngestionView connection={connection} onRetryConnection={recheck} />
           )}
           {view === "technicalQueries" && (
-            <TechnicalQueriesView queryId={route.kind === "view" ? route.recordId : undefined} />
+            <TechnicalQueriesView queryId={route.kind === "view" ? route.recordId : undefined} isAdmin={canAdmin} />
           )}
           {view === "dashboard" && (
             <DashboardView
