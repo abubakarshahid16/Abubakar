@@ -62,6 +62,10 @@ STEP_GROUPS = {
     "second reader": ("aim_second_read",),
     "editor": ("aim_edit",),
 }
+#: Sent with every local review call (lead-4, 26 Nov 2026, after four 14B checklist answers ran on to their limit): the usual
+#: engine default, set here so a model file with no or a lower penalty cannot run on repeating itself. Not higher: the forced JSON
+#: answer repeats the same unit or clause on many items, and a stronger penalty would push the model off those values.
+REPEAT_PENALTY = 1.1
 #: What the judge's prompt says when it reads one page window of a longer paper (`prompts.WINDOW_LINE`).
 WINDOW_MARK = "THIS IS PART OF A LONGER PAPER"
 
@@ -206,6 +210,7 @@ class LocalModel:
                 "temperature": 0,
                 "num_ctx": int(self.budget.num_ctx),
                 "num_predict": num_predict,
+                "repeat_penalty": REPEAT_PENALTY,
             },
         }
         if self._thinking(name):
