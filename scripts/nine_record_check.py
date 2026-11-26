@@ -1,5 +1,5 @@
 """THE NINE-ROLE RECORD CHECK (SPEC section B, "Planner": the record a review run wrote is checked by code). READ-ONLY: the database is
-opened with `immutable=1`; nothing is written, no model is called, nothing leaves the machine. Prints ids, numbers and codes only.
+opened read-only (`mode=ro&immutable=1`); nothing is written, no model is called, nothing leaves the machine. Prints ids, numbers and codes only.
 
     python scripts/nine_record_check.py --db <folder or rag_intelligence.sqlite> --run <run id>
 
@@ -226,7 +226,7 @@ def _open(path: str):
     p = Path(path)
     if p.is_dir():
         p = p / "rag_intelligence.sqlite"
-    conn = sqlite3.connect(f"file:{p}?immutable=1", uri=True)
+    conn = sqlite3.connect(f"file:{p}?mode=ro&immutable=1", uri=True)
     conn.row_factory = sqlite3.Row
     return conn
 
