@@ -213,10 +213,88 @@ def test_on_g2_asks_for_a_single_value_off_by_an_order_of_magnitude_as_an_ai_opi
         assert always.G2_SCALE in g2 and g2.index(always.G2_COUNTS) < g2.index(
             always.G2_SCALE
         ) < g2.index(always.G2_MORE)
+    # the line asks for an AI opinion and for the numbers in the form code checks (a bound, no second paper value); it never asks for a
+    # compare of two paper values (lead-4's guard, 26 Nov 2026: the factor is checked by `scale_check`)
     assert (
         "ORDER OF MAGNITUDE" in always.G2_SCALE
         and "AI opinion" in always.G2_SCALE
-        and "code" not in always.G2_SCALE
+        and "no limit_quote" in always.G2_SCALE
     )
     monkeypatch.setattr(settings, "aim_u13_enabled", False)
     assert always.form_context({"equipment_type": None}) == ("", "")
+
+
+# ---- the false-alarm guard on a single value called implausible (lead-4, 26 Nov 2026)
+
+
+def _scale_line(
+    paper_value="500",
+    bound="1",
+    unit_p="per year",
+    unit_b="per year",
+    quote=None,
+    limit_quote="",
+):
+    return {"item_id": "G2", "label": "AI opinion", "page": 2, "field": "Initiating event frequency",
+            "quote": quote if quote is not None else f"Initiating event frequency: {paper_value} {unit_p}", "quote_unverified": "",
+            "comment": "Implausible: far above the plausible bound.", "code": "",
+            "numbers": {"paper_value": paper_value, "paper_unit": unit_p, "operator": "<=", "rule_value": bound, "rule_unit": unit_b,
+                        "limit_quote": limit_quote}}  # fmt: skip
+
+
+def test_on_a_single_value_called_implausible_keeps_its_standing_only_on_codes_factor_check(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    kept = _scale_line()
+    always.scale_check(kept)
+    assert (
+        kept["label"] == "AI opinion"
+        and "500 times off the plausible bound" in kept["code"]
+    )
+    low = _scale_line(
+        paper_value="0.01", bound="1"
+    )  # ten times or more too LOW counts too
+    always.scale_check(low)
+    assert low["label"] == "AI opinion"
+    for line, why in (
+        (_scale_line(paper_value="3", bound="1"), "factor 3"),
+        (_scale_line(unit_b="per month"), "different units"),
+        (
+            _scale_line(quote="Initiating event frequency: high"),
+            "not in the line's verified quote",
+        ),
+        (_scale_line(paper_value="many"), "could not be read"),
+    ):
+        always.scale_check(line)
+        assert (
+            line["label"] == "Question"
+            and why in line["code"]
+            and "never an order-of-magnitude opinion" in line["code"]
+        ), why
+
+
+def test_the_guard_leaves_a_consistency_line_with_a_second_paper_value_and_everything_when_off(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    pair = _scale_line(
+        paper_value="3", bound="1", limit_quote="Design frequency: 1 per year"
+    )
+    always.scale_check(pair)
+    assert (
+        pair["label"] == "AI opinion" and pair["code"] == ""
+    )  # the consistency check is compared elsewhere
+    monkeypatch.setattr(settings, "aim_u13_enabled", False)
+    off = _scale_line(paper_value="3", bound="1")
+    always.scale_check(off)
+    assert off["label"] == "AI opinion" and off["code"] == ""
+
+
+def test_the_marking_step_after_the_judge_applies_the_guard(monkeypatch):
+    from app.aim_review import asks
+
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    line = _scale_line(paper_value="3", bound="1")
+    asks.mark([line])
+    assert line["label"] == "Question"

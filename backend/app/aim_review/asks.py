@@ -59,10 +59,14 @@ def mark(decided: list[dict]) -> int:
     """Append the `no_ask` note to every decided line that asks nothing and would be sent (in place; the line stays on "All points").
     Returns how many. Runs after the last AI step, so no step sees a different list."""
     from . import NO_ASK, sendable
+    from .always import scale_check
     from .engine import to_line
 
     marked = 0
     for n, d in enumerate(decided, 1):
+        scale_check(
+            d
+        )  # update 13: a single value called implausible keeps its standing only on code's factor check
         if not sendable(to_line(n, d)):
             continue
         why = (

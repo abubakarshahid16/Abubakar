@@ -116,8 +116,76 @@ G2_SCALE = (
     "ALSO: a single value that is implausible BY AN ORDER OF MAGNITUDE (ten times or more too high or too low) for what it "
     "describes (a rate, frequency, probability, duration or size), even when nothing on the paper or in a held rule gives a "
     "second value: say it is implausible, give the plausible range from engineering knowledge and the factor it is off by, as an "
-    "AI opinion quoting the paper. Do not only ask about its unit."
+    "AI opinion quoting the paper. Do not only ask about its unit. Give numbers: paper_value and paper_unit from your quote, the "
+    "nearest bound of the plausible range as rule_value in the SAME unit, and no limit_quote; code then checks the factor, and "
+    "without a factor of ten the line is a question."
 )
+
+#: Code's check of a single value called implausible (G2_SCALE; lead-4, 26 Nov 2026: the false-alarm guard). The factor that makes it
+#: an order of magnitude.
+SCALE_FACTOR = 10.0
+SCALE_KEPT = "code's check: the paper value is {f:g} times off the plausible bound the judge gave"
+SCALE_QUESTION = (
+    "code's check: the paper value is not ten times off the plausible bound the judge gave ({why}): a question, never an "
+    "order-of-magnitude opinion"
+)
+
+
+def _number(text) -> float | None:
+    try:
+        return float(str(text).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def scale_check(line: dict) -> None:
+    """In place, update 13 on: a G2 line that stands as an AI opinion on a value with NO second value on the paper (its numbers give
+    a plausible bound as rule_value and no limit quote: the G2_SCALE form) keeps that standing only when code finds the paper value at
+    least SCALE_FACTOR times off the bound, in the same unit, with the paper value in the line's verified quote. Anything else (a
+    smaller factor, another unit, a value not in the verified quote, an unreadable number) becomes a Question with the reason. A G2
+    line with a second PAPER value (a limit quote) is the consistency check, compared elsewhere, and is not touched."""
+    from .updates import u13
+
+    nums = line.get("numbers") if isinstance(line.get("numbers"), dict) else None
+    if not (
+        u13()
+        and line.get("item_id") == "G2"
+        and line.get("label") == "AI opinion"
+        and nums
+    ):
+        return
+    if str(nums.get("limit_quote") or "").strip():
+        return
+    paper, bound = _number(nums.get("paper_value")), _number(nums.get("rule_value"))
+    same_unit = (
+        str(nums.get("paper_unit") or "").strip().lower()
+        == str(nums.get("rule_unit") or "").strip().lower()
+    )
+    quote = str(line.get("quote") or "")
+    if paper is None or bound in (None, 0.0) or paper == 0.0:
+        why = "a number could not be read"
+    elif not same_unit:
+        why = "the two values are in different units"
+    elif (
+        line.get("quote_unverified")
+        or line.get("page") is None
+        or str(nums.get("paper_value")).strip() not in quote
+    ):
+        why = "the paper value is not in the line's verified quote"
+    else:
+        factor = max(abs(paper) / abs(bound), abs(bound) / abs(paper))
+        if factor >= SCALE_FACTOR:
+            line["code"] = "; ".join(
+                x
+                for x in (line.get("code"), SCALE_KEPT.format(f=round(factor, 1)))
+                if x
+            )
+            return
+        why = f"factor {round(factor, 1):g}"
+    line["label"] = "Question"
+    line["code"] = "; ".join(
+        x for x in (line.get("code"), SCALE_QUESTION.format(why=why)) if x
+    )
 
 
 def form_context(identity: dict) -> tuple[str, str]:
