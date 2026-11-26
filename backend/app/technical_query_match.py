@@ -141,10 +141,8 @@ def _item_or_title(number: str, nxt: str, after: str) -> str | None:
     # an item's reference may stand on the line after its text ("(Ref. ..., 7.1.15)"): still an item (run 8: Q7)
     if not _ITEM_TEXT.search(nxt.strip()) and not after.strip().startswith("("):
         return f"{number.rstrip('.')} {_squash(nxt)}"[:100].strip()
-    ref = CLAUSE_NUMBER.search(f"{nxt} {after}")
-    return f"Item {number.rstrip('.')}" + (
-        f" (refers to {ref.group(1)})" if ref else ""
-    )
+    ref = _reference(f"{nxt} {after}")
+    return f"Item {number.rstrip('.')}" + (f" (refers to {ref})" if ref else "")
 
 
 #: A value in a table's column: a number with at most one decimal point, perhaps with a short unit ("2.0", "12 bar", "0.75 mm").
@@ -285,5 +283,19 @@ def table_item(terms: list[str], passage_text: str) -> str | None:
     best = max(rows, key=lambda m: score(terms, m.group("rest"))["count"])
     if not score(terms, best.group("rest"))["count"]:
         return None
-    ref = CLAUSE_NUMBER.search(best.group("rest"))
-    return f"Item {best.group('num')}" + (f" (refers to {ref.group(1)})" if ref else "")
+    ref = _reference(best.group("rest"))
+    return f"Item {best.group('num')}" + (f" (refers to {ref})" if ref else "")
+
+
+#: The end of a reference in brackets that names a part by a word and a plain number: "(Ref. Invented, Art 30)" -> "Art 30".
+_REF_TAIL = re.compile(
+    r"\(\s*ref\.?[^)]*?,\s*([A-Za-z][\w-]*\.?\s*\d+)\s*\)", re.IGNORECASE
+)
+
+
+def _reference(text: str) -> str | None:
+    """The part an item refers to: a clause number ("7.1.15"), else the word and number closing a "(Ref. ..., Art 30)" bracket."""
+    if dotted := CLAUSE_NUMBER.search(text):
+        return dotted.group(1)
+    tail = _REF_TAIL.search(text)
+    return " ".join(tail.group(1).split()) if tail else None

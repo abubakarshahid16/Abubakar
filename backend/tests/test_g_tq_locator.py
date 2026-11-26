@@ -211,4 +211,6 @@ def test_a_numbered_table_passage_is_located_at_the_row_holding_the_matched_word
     assert (
         table_item(terms, "| 19. | Invented grout curing record |") is None
     )  # one row is not a list
+    article = "| 19. | Invented grout curing record (Ref. Invented, Art 30) | 60 |\n| 20. | Invented other | 90 |"
+    assert table_item(terms, article) == "Item 19 (refers to Art 30)"
     assert table_item(key_terms("What colour is the roof?"), passage) is None
