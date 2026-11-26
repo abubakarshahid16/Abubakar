@@ -59,15 +59,55 @@ def coverage_line(searched: int, of: int, hits_in: int, failed: int = 0) -> str:
     return line
 
 
-def search_all(question: str, allowed: frozenset[str], progress=None, cited: list[str] | None = None) -> dict[str, Any]:
-    """`{"hits": [...best passages...], "coverage": {...}}`. One search per contract (dense + rerank), PER_CONTRACT passages each, then
-    `fair_share` (every part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all). A search that fails is counted, logged by type, and never stops the others.
-    FIRST, each clause the query cites (`cited`, else the numbers the question cites) from EVERY part that holds it, with its clause and
-    page (`technical_query_cited`, goal G6); a searched passage on the same page of the same part is not listed twice."""
-    from . import search, technical_query_cited
+def _one(question: str, document_id: str) -> list[dict]:
+    """The general search of ONE contract (dense + rerank), its PER_CONTRACT best passages with text."""
+    from . import search
+
+    res = search.search(
+        question,
+        limit=PER_CONTRACT,
+        document_id=document_id,
+        rerank=True,
+        dense=True,
+        allowed_document_ids=frozenset({document_id}),
+        candidates=WIDE_CANDIDATES,
+        rerank_candidates=WIDE_SHORTLIST,
+    )
+    return [h for h in (res.get("hits") or []) if (h.get("text") or "").strip()][
+        :PER_CONTRACT
+    ]
+
+
+def search_all(
+    question: str,
+    allowed: frozenset[str],
+    progress=None,
+    cited_from: list[str] | None = None,
+) -> dict[str, Any]:
+    """`{"hits": [...best passages...], "coverage": {...}}`. FIRST, what the attached form itself cites (`cited_from`: the form's page
+    texts; `technical_query_cited.cited_first`, builders A and C): the cited part's clause, a cited part searched first, a clause with no
+    part from every part that holds it. THEN one search per contract (dense + rerank), PER_CONTRACT passages each, `fair_share` (every
+    part's best, at most PER_PART_LISTED of a part, MAX_PASSAGES in all); a searched passage on the same page of the same part as one
+    listed first is not listed twice. A search that fails is counted, logged by type, and never stops the others. No form: as before."""
+    from . import technical_query_cited
 
     contracts = contract_ids(allowed)
-    hits: list[dict] = []
+    first: dict = {"hits": [], "said": [], "cited": []}
+    if cited_from:
+        try:
+            first = technical_query_cited.cited_first(
+                cited_from, contracts, question, lambda doc: _one(question, doc)
+            )
+        except Exception as exc:  # noqa: BLE001 - the form's citations are a first look; the general search still runs
+            log.warning(
+                "technical query: the form's citations could not be looked up (%s)",
+                type(exc).__name__,
+            )
+            first = {
+                "hits": [],
+                "said": ["the form's citations could not be looked up"],
+                "cited": [],
+            }
     per_part: list[list[dict]] = []
     searched = failed = hits_in = 0
     for n, document_id in enumerate(contracts, 1):
@@ -76,19 +116,7 @@ def search_all(question: str, allowed: frozenset[str], progress=None, cited: lis
                 n - 1, len(contracts), f"searching contract {n} of {len(contracts)}"
             )
         try:
-            res = search.search(
-                question,
-                limit=PER_CONTRACT,
-                document_id=document_id,
-                rerank=True,
-                dense=True,
-                allowed_document_ids=frozenset({document_id}),
-                candidates=WIDE_CANDIDATES,
-                rerank_candidates=WIDE_SHORTLIST,
-            )
-            found = [
-                h for h in (res.get("hits") or []) if (h.get("text") or "").strip()
-            ][:PER_CONTRACT]
+            found = _one(question, document_id)
         except Exception as exc:  # noqa: BLE001 - counted as not searched and said in the coverage line; the other contracts go on
             log.warning(
                 "technical query: a contract could not be searched (%s)",
@@ -99,18 +127,27 @@ def search_all(question: str, allowed: frozenset[str], progress=None, cited: lis
         searched += 1
         hits_in += 1 if found else 0
         per_part.append(found)
-    numbers = technical_query_cited.cited_refs(question) if cited is None else list(cited)
-    found = technical_query_cited.in_every_part(numbers, contracts, question)
-    taken = {(h["document_id"], h["page_start"]) for h in found["hits"]}
-    hits = found["hits"] + [h for h in fair_share(per_part) if (h.get("document_id"), h.get("page_start")) not in taken]
+    taken = {(h["document_id"], h["page_start"]) for h in first["hits"]}
+    hits = first["hits"] + [
+        h
+        for h in fair_share(per_part)
+        if (h.get("document_id"), h.get("page_start")) not in taken
+    ]
     line = coverage_line(searched, len(contracts), hits_in, failed)
+    said = first["said"]
     coverage = {
         "searched": searched,
         "of": len(contracts),
         "hits_in": hits_in,
         "failed": failed,
-        "line": f"{line} {technical_query_cited.coverage_line(found['cited'])}".strip(),
-        "cited": found["cited"],
+        "line": line
+        + (
+            " Looked up first, as the form cites them: " + "; ".join(said) + "."
+            if said
+            else ""
+        ),
+        "cited": first["cited"],
+        "cited_first": said,
     }
     return {"hits": hits, "coverage": coverage}
 

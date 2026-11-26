@@ -1,89 +1,170 @@
-"""A CITED CLAUSE IS READ IN EVERY HELD CONTRACT PART (order 14, goal G6: "evidence from every held contract part with clause and page";
-lead-4, 26 Nov 2026, the queries/CFC fault 4 with builder A).
+"""WHAT THE FORM CITES, LOOKED UP FIRST (the owner's technical-query faults of 26 Nov 2026, fault 4; one module of builders A and C,
+lead-4's decision: A's reader and part choice as the base, C's clause finder and every-part lookup inside it).
 
-A query that cites a clause ("clause 4.2.1", "Article 9.3", "section 7.1 of Schedule B") is about THAT clause. The wide search finds
-passages by meaning and keeps a fair share per part, so a part that holds the cited clause can rank below the cut and the engineer never
-sees it. Here code looks the clause number up in the clause headings of the contract parts the caller may read (the stored page text, the
-same heading reader the locator uses), and returns, for each part that holds it, the clause's own text with its clause and page:
-- a citation that names its part ("Schedule B", "Appendix 2", "the Agreement") is looked up in the parts whose file name names it, and in
-  every part when none does;
-- a citation that names no part is looked up in EVERY part; when more than CITED_PARTS_LISTED parts hold that number (each part numbers
-  its own clauses), the ones that best fit the question by the local reranker are listed and the rest are counted;
-- a clause of a named STANDARD ("SAES-X-123 section 4.2") is not a contract clause and is not looked up here.
-The parts that do not hold it are counted, never silent: "Clause 4.2.1 (cited): found in 3 of 20 contract parts."
+A technical query's form names where its subject is set ("REF.1 ... Schedule B - Attachment V, Rev 6, Section 7.2"). The evidence search
+used to search every contract on the question box's words only. Now, BEFORE that search, what the form itself cites is looked up:
 
-Builder A's reader of the form's own cited clause gives its references to the same `in_every_part` (through `search_all(cited=...)`).
-Each found passage carries the local reranker's own score against the question (None when the reranker is not available), and a listed
-one is never held back by the listing's cut. Nothing leaves the machine; read access only narrows (the parts are the caller's readable
-contracts)."""
+  1. WHERE THE FORM CITES (A): only the form's REFERENCE lines: a references block (`technical_query_questions._REFERENCES`, the
+     form reader's own label, up to the next blank line) and numbered reference entries ("REF.1", "Ref 2"). Measured on the 31 stored
+     forms (26 Nov 2026): the reference lines held the real citations; the rest of a form held its procedure text ("in accordance with
+     sub clause N of Schedule A ...", 20 citations, none of them about the query's subject) and clause numbers of company standards.
+  2. WHAT IS CITED (A): the parts each reference line names (the contract code's own part reading, `contract_checks.parts`; a lower part
+     belongs to the higher part named before it on the line, "Schedule B - Attachment V" is Attachment V of Schedule B), and the clause
+     numbers on THAT line. A line that names a standard gives no clause (it is the standard's).
+  3. WHICH CONTRACT (A): the readable contract whose own page-1 heading says it IS that part (`contract_checks.package_part`); of several,
+     the main one as a contract review chooses its reference papers (`references.pick`); still tied, or none: said, never guessed.
+  4. THE CLAUSE (C): `find_clause`: from the clause's heading line (the locator's own heading reader) to the next heading on that page,
+     verbatim, a contents line or a bare heading never; a long clause is cut at a line and the cut is said. Not found in the named
+     part: said. A clause of a named part is never looked up in another part (each part numbers its own clauses).
+  5. A CLAUSE WITH NO PART on a reference line (C): looked up in EVERY readable part, and listed only where its heading carries the
+     reference's own title (A, measured: on the stored forms the part-less sections were sections of non-contract documents, and the
+     contracts' clauses of that number were other clauses); more than CITED_PARTS_LISTED: the best fits by the local reranker listed,
+     the rest counted. No title on the line: not looked up. A named part with no clause: that contract is searched first.
+Every passage listed first is never held back by the listing's cut (`technical_query_contracts.held_back`); the coverage says what
+was looked up and found, in how many parts, and what was not held. Nothing leaves the machine; read access only narrows.
+"""
 
 from __future__ import annotations
 
 import logging
 import re
 
+from . import contract_checks as CC
+from .db import connect
+
 log = logging.getLogger(__name__)
 
-#: A cited clause: after its word ("clause 4.2", "Art. 9", "section 7.1.2", "§ 3.4"), or a bare number of three levels or more ("4.2.1").
-#: A bare "1.5" is a value ("1.5 bar"), never a citation.
-_AFTER_WORD = re.compile(
-    r"(?:\b(?:clauses?|cl\.|articles?|art\.|sections?|sec\.|paragraphs?|para\.)|§)\s*(\d+(?:\.\d+)*)(?!\w)", re.I
+# ------------------------------------------------------------------ 1-2 what the form cites (builder A)
+
+#: A clause on a reference line: "clause 4.2", "Clause No. 7", "section 7.2.1", "article 12", "para 3.1", "sub-clause 2.3".
+CLAUSE = re.compile(
+    r"\b(?:sub-?clause|clause|section|article|para(?:graph)?)\s*(?:no\.?\s*)?(\d{1,3}(?:\.\d{1,3}){0,4})\b",
+    re.IGNORECASE,
 )
-_THREE_LEVELS = re.compile(r"(?<![\w.])(\d+\.\d+\.\d+(?:\.\d+)*)(?!\w|\.\d)")  # a full stop after it ends the sentence
-#: A standard's designation just before a citation ("SAES-X-123 section", "ISO 12944 clause", "API 610 4.2.1"): the clause is the
-#: standard's, not the contract's.
-_STANDARD_BEFORE = re.compile(r"\b[A-Z]{2,6}(?:[- ][A-Z0-9]{1,3})?[- ]?\d{2,5}(?:[-:]\d+)*\W{0,3}(?:\w+\W{1,3})?$")
-_STANDARD_AFTER = re.compile(r"^\W{0,3}(?:of|in)\s+(?:the\s+)?[A-Z]{2,6}(?:[- ][A-Z0-9]{1,3})?[- ]?\d{2,5}\b")
-#: The contract part a citation names, near it ("Schedule B", "Appendix 2", "Attachment 3", "the Agreement").
-_PART = re.compile(r"\b(schedule|appendix|annex|attachment|exhibit)\s+([A-Z]{1,2}|\d{1,2})\b|\b(agreement)\b", re.I)
-NEAR = 40
-#: At most this many cited clauses are looked up for one query (a form lists one or two; a pasted list of many is not a citation).
+#: A numbered reference entry of a form: "REF.1 ...", "Ref 2: ...", also inside a table cell ("| REF.1 ...").
+_REF_ENTRY = re.compile(r"(?:^|\|)\s*ref\.?\s*\d{1,2}\b", re.IGNORECASE)
+#: At most this many citations are looked up for one query (a form lists one or two; a pasted list of many is not a citation).
 MAX_CITED = 5
-#: A citation that names no part, held by more parts than this: the best-fitting ones are listed, the rest counted.
-CITED_PARTS_LISTED = 3
+
+Part = tuple[
+    tuple[str, str], tuple[str, str] | None
+]  # (label, the higher part it belongs to), as `contract_checks.parts`
+
+
+def reference_lines(texts: list[str]) -> list[str]:
+    """The form's reference lines: a references block (the form reader's label, up to the next blank line) and numbered entries."""
+    from .technical_query_questions import _REFERENCES
+
+    out: list[str] = []
+    for text in texts:
+        block = False
+        for line in str(text or "").splitlines():
+            if _REFERENCES.match(line):
+                block = True
+                continue
+            if block and not line.strip():
+                block = False
+                continue
+            if (block or _REF_ENTRY.search(line)) and line.strip():
+                out.append(line.strip())
+    return out
+
+
+def _line_parts(line: str) -> list[Part]:
+    """The deepest parts a line names; a lower part with no higher part of its own belongs to the nearest higher part named BEFORE it."""
+    found = CC.parts(line)
+    out: list[Part] = []
+    for i, ((key, parent), _at) in enumerate(found):
+        depth = CC.DEPTH.get(key[0], 9)
+        if parent is None:
+            higher = [k for (k, _p), _a in found[:i] if CC.DEPTH.get(k[0], 9) < depth]
+            parent = higher[-1] if higher else None
+        out.append((key, parent))
+    parents = {p for _k, p in out if p}
+    return [(k, p) for k, p in out if k not in parents]
+
+
+def cited(texts: list[str]) -> list[tuple[Part | None, str | None]]:
+    """(part or None, clause or None) for each citation of the form's REFERENCE lines, in order, each once, at most MAX_CITED. A clause
+    belongs to a part on the same line; a line naming a standard gives no clause; a clause on a line naming no part has no part."""
+    from .standard_ids import cited_standards
+
+    pairs: list[tuple[Part | None, str | None]] = []
+    for line in reference_lines(texts):
+        clauses = [] if cited_standards(line) else CLAUSE.findall(line)
+        parts = _line_parts(line)
+        for part in parts:
+            pairs += [(part, c) for c in clauses] or [(part, None)]
+        if not parts:
+            pairs += [(None, c) for c in clauses]
+    out: list[tuple[Part | None, str | None]] = []
+    for pair in pairs:
+        if pair not in out:
+            out.append(pair)
+    named = {p for p, c in out if c and p}
+    return [(p, c) for p, c in out if c or p not in named][
+        :MAX_CITED
+    ]  # a part named with a clause needs no clause-less entry
+
+
+_WORD = re.compile(r"[^\W\d_]{3,}")
+
+
+def title_words(line: str, clause: str) -> set[str]:
+    """The title a reference line gives after a clause number ("Section 7.2 Process Design" -> {process, design}), folded, at most six
+    words; none when the number ends the line."""
+    m = re.search(rf"(?<![\d.]){re.escape(clause)}(?![\d])", line)
+    after = line[m.end() :] if m else ""
+    return {w.lower() for w in _WORD.findall(after)[:6]}
+
+
+def titles(texts: list[str]) -> dict[str, set[str]]:
+    """{clause with no part: the title words its reference line gives} (`title_words`)."""
+    from .standard_ids import cited_standards
+
+    out: dict[str, set[str]] = {}
+    for line in reference_lines(texts):
+        if cited_standards(line) or _line_parts(line):
+            continue
+        for clause in CLAUSE.findall(line):
+            out.setdefault(clause, title_words(line, clause))
+    return out
+
+
+# ------------------------------------------------------------------ 3 which contract (builder A)
+
+
+def _page_one(conn, document_id: str) -> str:
+    row = conn.execute(
+        "SELECT COALESCE(NULLIF(p.text, ''), o.text, '') FROM pages p LEFT JOIN page_ocr o"
+        " ON o.document_id = p.document_id AND o.page_no = p.page_no WHERE p.document_id = ? AND p.page_no = 1",
+        (document_id,),
+    ).fetchone()
+    return str(row[0] or "") if row else ""
+
+
+def which(contracts: list[str], part: Part) -> list[str]:
+    """The readable contract that IS this part by its own page-1 heading (a part cited with no higher part matches it under any); of
+    several, the main one (`references.pick`: the main schedule over its attachments, then the highest recorded revision), else all."""
+    from .aim_review import references
+
+    key, parent = part
+    with connect() as conn:
+        out = [d for d in contracts
+               if any(k == key and (parent is None or p == parent) for k, p in CC.package_part([(1, _page_one(conn, d))]))]  # fmt: skip
+        return references.pick(conn, out) if len(out) > 1 else out
+
+
+# ------------------------------------------------------------------ 4 the clause in a part (builder C)
+
 #: A heading's leading number: "4.2.1 Title", "Clause 7 Title", "Article 9.3 Title".
 _HEADING_NUMBER = re.compile(r"^(?:[A-Za-z]+\s+)?(\d+(?:\.\d+)*)\b")
 #: A contents line: a title running into leader dots or ending in a page number ("4.2.1 Painting ........ 12").
 _CONTENTS = re.compile(r"(?:\.{3,}|\s{2,})\s*\d+\s*$|\s\d{1,3}\s*$")
 #: The longest clause text kept as one passage; a longer clause is cut at a line, and the cut is said (`shortened`), never silent.
 MAX_CLAUSE_CHARS = 1500
-
-
-def _part_near(before: str, after: str) -> str | None:
-    """The part a citation names: the nearest part word in the text just after it ("4.2 of Schedule B"), else just before it."""
-    for text, nearest in ((after, 0), (before, -1)):
-        found = list(_PART.finditer(text))
-        if found:
-            m = found[nearest]
-            return "agreement" if m.group(3) else f"{m.group(1).lower()} {m.group(2).upper()}"
-    return None
-
-
-def cited_refs(text: str) -> list[dict]:
-    """`[{"clause": "4.2.1", "part": "schedule B" | None}]`: the contract clauses a text cites, in its order, each once, at most MAX_CITED.
-    A clause of a named standard is left out."""
-    text = " ".join((text or "").split())
-    found = [(m.start(), m.end(), m.group(1)) for m in _AFTER_WORD.finditer(text)]
-    found += [(m.start(), m.end(), m.group(1)) for m in _THREE_LEVELS.finditer(text)]
-    out: list[dict] = []
-    found.sort(key=lambda f: (f[0], -f[1]))
-    found = [f for n, f in enumerate(found) if not any(o[0] <= f[0] and f[1] <= o[1] for o in found[:n])]  # "clause 4.2.1" holds "4.2.1"
-    for n, (start, end, number) in enumerate(found):
-        # the words near a citation stop at its neighbours: a part named for one citation is never another's
-        since = found[n - 1][1] if n else 0
-        until = found[n + 1][0] if n + 1 < len(found) else len(text)
-        before, after = text[max(since, start - NEAR) : start], text[end : min(until, end + NEAR)]
-        if _STANDARD_BEFORE.search(before) or _STANDARD_AFTER.search(after):
-            continue
-        ref = {"clause": number.rstrip("."), "part": _part_near(before, after)}
-        if not any(r["clause"] == ref["clause"] for r in out):
-            out.append(ref)
-    return out[:MAX_CITED]
-
-
-def cited_numbers(text: str) -> list[str]:
-    """The contract clause numbers a text cites (`cited_refs` without the part)."""
-    return [r["clause"] for r in cited_refs(text)]
+#: A clause with no part, held by more parts than this: the best-fitting ones are listed, the rest counted.
+CITED_PARTS_LISTED = 3
 
 
 def _number_of(heading: str) -> str | None:
@@ -94,9 +175,9 @@ def _number_of(heading: str) -> str | None:
 
 
 def find_clause(pages: list[tuple[int, str]], number: str) -> dict | None:
-    """The clause `number` in one part's pages: `{"page", "heading", "text", "shortened"}` from its heading line to the next heading on that
-    page, verbatim lines. A contents line, or a heading with no text under it, is not the clause; of several, the one with the most text.
-    None when the part does not hold it."""
+    """The clause `number` in one part's pages: `{"page", "heading", "text", "shortened"}` from its heading line to the next heading on
+    that page, verbatim lines. A contents line, or a heading with no text under it, is not the clause; of several, the one with the most
+    text. None when the part does not hold it."""
     from .technical_query_match import _headings
 
     best: dict | None = None
@@ -116,7 +197,7 @@ def find_clause(pages: list[tuple[int, str]], number: str) -> dict | None:
                     break
                 kept.append(line)
                 size += len(line) + 1
-            found = {"page": page_no, "heading": heading, "text": "\n".join(kept), "shortened": len(kept) < len(body), "size": len("\n".join(body))}
+            found = {"page": page_no, "heading": heading, "text": "\n".join(kept), "shortened": len(kept) < len(body), "size": len("\n".join(body))}  # fmt: skip
             if best is None or found["size"] > best["size"]:
                 best = found
     return best
@@ -128,99 +209,158 @@ def _part_pages(conn, document_id: str) -> list[tuple[int, str]]:
         "ON o.document_id=p.document_id AND o.page_no=p.page_no WHERE p.document_id=? ORDER BY p.page_no",
         (document_id,),
     ).fetchall()
-    return [(r["page_no"], (r["ocr_text"] or "") if r["needs_ocr"] else (r["native"] or "")) for r in rows]
-
-
-def names_part(filename: str, part: str) -> bool:
-    """True when a contract part's file name names `part` ("schedule B" in "Invented Schedule B - Scope.pdf", not in "Schedule BB")."""
-    word, _, ident = part.partition(" ")
-    if not ident:
-        return re.search(rf"\b{word}\b", filename or "", re.I) is not None
-    return re.search(rf"\b{word}[\s_-]*{re.escape(ident)}(?![A-Za-z0-9])", filename or "", re.I) is not None
+    return [
+        (r["page_no"], (r["ocr_text"] or "") if r["needs_ocr"] else (r["native"] or ""))
+        for r in rows
+    ]
 
 
 def _scored(question: str, hits: list[dict]) -> None:
     """Each hit's own reranker score against the question, in place (None when the reranker is not available)."""
     from . import reranker
 
+    if not hits:
+        return
     try:
-        scores = dict(reranker.rerank(question, [(str(n), h["text"]) for n, h in enumerate(hits)]))
+        scores = dict(
+            reranker.rerank(question, [(str(n), h["text"]) for n, h in enumerate(hits)])
+        )
     except Exception as exc:  # noqa: BLE001 - the passages stay listed, unscored; the type is logged
-        log.warning("technical query: cited clauses could not be scored (%s)", type(exc).__name__)
+        log.warning(
+            "technical query: cited clauses could not be scored (%s)",
+            type(exc).__name__,
+        )
         scores = {}
     for n, hit in enumerate(hits):
         hit["rerank_score"] = scores.get(str(n))
         hit["score"] = hit["rerank_score"]
 
 
-def coverage_line(cited: list[dict]) -> str:
-    """One sentence per cited clause: in how many of the parts looked in it was found, how many of those are listed, how many could not be read."""
-    out = []
-    for c in cited:
-        named = f" of {c['part'][:1].upper()}{c['part'][1:]}" if c.get("part") else ""
-        where = f"parts named {c['part'][:1].upper()}{c['part'][1:]}" if c.get("looked_in") == "named" else "contract parts"
-        line = f"Clause {c['clause']}{named} (cited): found in {c['found_in']} of {c['of']} {where}."
-        if c.get("looked_in") == "every" and c.get("part"):
-            line += " No held part is named so; every part was looked in."
-        if c.get("not_listed"):
-            line += f" The {c['found_in'] - c['not_listed']} that best fit the question are listed; {c['not_listed']} more are not listed."
-        if c["failed"]:
-            line += f" {c['failed']} could not be read."
-        if c["shortened"]:
-            line += f" {c['shortened']} long clause text(s) are shown up to {MAX_CLAUSE_CHARS:,} characters; the page holds the rest."
-        out.append(line)
-    return " ".join(out)
+# ------------------------------------------------------------------ 5 a clause with no part: every part (builder C)
 
 
-def _ref(r) -> dict:
-    return {"clause": r, "part": None} if isinstance(r, str) else {"clause": r["clause"], "part": r.get("part")}
+def same_title(heading: str, words: set[str]) -> bool:
+    """The heading names the reference's own title: at least two of its title words (all of them when it gives fewer than two)."""
+    have = {w.lower() for w in _WORD.findall(heading)}
+    return bool(words) and len(have & words) >= min(2, len(words))
 
 
-def in_every_part(refs: list, contracts: list[str], question: str) -> dict:
-    """`{"hits": [...passages of the parts holding each cited clause...], "cited": [...counts per clause...]}`. `refs` are clause numbers or
-    `cited_refs` entries. A part that cannot be read is counted as not read, never as "not held", and never stops the others."""
-    from .db import connect
-
-    refs = [_ref(r) for r in refs]
-    if not refs or not contracts:
-        return {"hits": [], "cited": [{**r, "found_in": 0, "of": len(contracts), "failed": 0, "shortened": 0, "not_listed": 0} for r in refs]}
-    hits: list[dict] = []
-    cited: list[dict] = []
+def in_every_part(
+    clause: str, contracts: list[str], question: str, words: set[str] | None = None
+) -> tuple[list[dict], dict]:
+    """(passages of the parts holding `clause` under the reference's own title, its counts). Every readable part is looked in; a part
+    whose clause of that number has ANOTHER title is not the cited clause (measured on the stored forms, 26 Nov 2026: a part-less
+    "Section 13" or "Section 7.2" named a section of a non-contract document, and the contracts' clauses of that number were other
+    clauses), so it is counted apart and never listed. No title (`words` empty): nothing is looked up. More than CITED_PARTS_LISTED
+    holding it: the best fits by the reranker listed, the rest counted. A part that cannot be read is counted as not read."""
+    c = {
+        "clause": clause,
+        "found_in": 0,
+        "of": len(contracts),
+        "failed": 0,
+        "shortened": 0,
+        "not_listed": 0,
+        "other_title": 0,
+    }
+    if not words:
+        return [], c
+    found_here: list[dict] = []
     with connect() as conn:
-        names = {r["id"]: r["filename"] for r in conn.execute(
-            f"SELECT id, filename FROM documents WHERE id IN ({','.join('?' for _ in contracts)})", tuple(contracts)
-        ).fetchall()}  # fmt: skip
-        pages: dict[str, list | None] = {}
-        for ref in refs:
-            named = [d for d in contracts if ref["part"] and names_part(names.get(d, ""), ref["part"])]
-            parts = named or contracts
-            c = {**ref, "found_in": 0, "of": len(parts), "failed": 0, "shortened": 0, "not_listed": 0}
-            c["looked_in"] = "named" if named else "every"
-            found_here: list[dict] = []
-            for document_id in parts:
-                if document_id not in pages:
-                    try:
-                        pages[document_id] = _part_pages(conn, document_id)
-                    except Exception as exc:  # noqa: BLE001 - counted as not read in the coverage line
-                        log.warning("technical query: a contract part could not be read for a cited clause (%s)", type(exc).__name__)
-                        pages[document_id] = None
-                if pages[document_id] is None:
-                    c["failed"] += 1
-                    continue
-                found = find_clause(pages[document_id], ref["clause"])
-                if not found:
-                    continue
-                c["found_in"] += 1
-                c["shortened"] += 1 if found["shortened"] else 0
-                found_here.append(
-                    {"document_id": document_id, "page_start": found["page"], "page_end": found["page"], "text": found["text"],
-                     "locator": found["heading"], "cited": ref["clause"]}
-                )  # fmt: skip
-            _scored(question, found_here)
-            if not named and len(found_here) > CITED_PARTS_LISTED:
-                found_here.sort(key=lambda h: (h["rerank_score"] is None, -(h["rerank_score"] or 0.0)))
-                c["not_listed"] = len(found_here) - CITED_PARTS_LISTED
-                found_here = found_here[:CITED_PARTS_LISTED]
-            hits += found_here
-            cited.append(c)
-    return {"hits": hits, "cited": cited}
+        for document_id in contracts:
+            try:
+                pages = _part_pages(conn, document_id)
+            except Exception as exc:  # noqa: BLE001 - counted as not read in the coverage line
+                log.warning(
+                    "technical query: a contract part could not be read for a cited clause (%s)",
+                    type(exc).__name__,
+                )
+                c["failed"] += 1
+                continue
+            found = find_clause(pages, clause)
+            if not found:
+                continue
+            if not same_title(found["heading"], words):
+                c["other_title"] += 1
+                continue
+            c["found_in"] += 1
+            c["shortened"] += 1 if found["shortened"] else 0
+            found_here.append({"document_id": document_id, "page_start": found["page"], "page_end": found["page"], "text": found["text"],
+                               "locator": found["heading"], "cited": clause})  # fmt: skip
+    _scored(question, found_here)
+    if len(found_here) > CITED_PARTS_LISTED:
+        found_here.sort(
+            key=lambda h: (
+                h.get("rerank_score") is None,
+                -(h.get("rerank_score") or 0.0),
+            )
+        )
+        c["not_listed"] = len(found_here) - CITED_PARTS_LISTED
+        found_here = found_here[:CITED_PARTS_LISTED]
+    return found_here, c
+
+
+def _every_part_line(c: dict, titled: bool = True) -> str:
+    if not titled:
+        return f"clause {c['clause']} (no part named, no title): not looked up; it names no contract part"
+    line = f"clause {c['clause']} (no part named): found under its title in {c['found_in']} of {c['of']} contract parts"
+    if c.get("other_title"):
+        line += f"; {c['other_title']} hold a clause of that number with another title (not listed)"
+    if c.get("not_listed"):
+        line += f", the {c['found_in'] - c['not_listed']} that best fit the question listed, {c['not_listed']} more not listed"
+    if c["failed"]:
+        line += f", {c['failed']} could not be read"
+    return line
+
+
+# ------------------------------------------------------------------ the step (builders A and C)
+
+
+def cited_first(
+    texts: list[str], contracts: list[str], question: str, search_one
+) -> dict:
+    """`{"hits": [...passages listed first...], "said": [...one plain line per citation...], "cited": [...counts...]}`.
+    `search_one(document_id)` is the general search of ONE contract, for a cited part with no clause."""
+    hits: list[dict] = []
+    said: list[str] = []
+    counts: list[dict] = []
+    named_titles = titles(texts)
+    for part, clause in cited(texts):
+        if part is None:
+            words = named_titles.get(str(clause)) or set()
+            found, c = in_every_part(str(clause), contracts, question, words)
+            hits += found
+            counts.append(c)
+            said.append(_every_part_line(c, bool(words)))
+            continue
+        name = CC._name(part)
+        where = f"{name} clause {clause}" if clause else name
+        docs = which(contracts, part)
+        if not docs:
+            said.append(f"{where}: not held among the contracts you may read")
+            continue
+        if len(docs) > 1:
+            said.append(f"{where}: held more than once, not chosen")
+            continue
+        doc = docs[0]
+        if not clause:
+            own = [
+                dict(h, cited=True)
+                for h in (search_one(doc) or [])[:CITED_PARTS_LISTED]
+                if (h.get("text") or "").strip()
+            ]
+            hits += own
+            said.append(
+                f"{where}: searched first ({len(own)} passage{'s' if len(own) != 1 else ''})"
+            )
+            continue
+        with connect() as conn:
+            found = find_clause(_part_pages(conn, doc), clause)
+        if found is None:
+            said.append(f"{where}: the clause was not found in that contract")
+            continue
+        hit = {"document_id": doc, "page_start": found["page"], "page_end": found["page"], "text": found["text"],
+               "locator": f"{name}, {found['heading']}", "cited": clause}  # fmt: skip
+        _scored(question, [hit])
+        hits.append(hit)
+        said.append(f"{where}: found on page {found['page']}" + (" (shown in part; the page holds the rest)" if found["shortened"] else ""))  # fmt: skip
+    return {"hits": hits, "said": said, "cited": counts}

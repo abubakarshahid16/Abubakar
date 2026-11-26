@@ -244,8 +244,9 @@ def test_each_readable_contract_is_searched_on_its_own_with_dense_and_rerank_and
         "of": 3,
         "hits_in": 1,
         "failed": 1,
-        # the question cites clause 4: it is looked up in every part too, and the parts that do not hold it are counted (goal G6)
-        "line": "Searched 2 of 3 contracts, hits in 1. 1 could not be searched. Clause 4 (cited): found in 0 of 3 contract parts.",
+        # the QUESTION's words are never read for citations (both builders' measures: they cite nothing); only the form's reference
+        # lines are, and this query has no form, so the line is as before
+        "line": "Searched 2 of 3 contracts, hits in 1. 1 could not be searched.",
     }
 
 
