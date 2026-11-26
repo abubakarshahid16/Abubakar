@@ -11,6 +11,8 @@
  *  - Say "requested" for a standard nobody recorded. MISSING_LOCALLY is the
  *    default; REQUESTED shows who recorded it and when.
  */
+import { SectionFold } from "../look/LookParts";
+import { NEW_LOOK } from "../../look";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../../api/client";
@@ -60,9 +62,11 @@ export function MissingStandards() {
 
   return (
     <section aria-labelledby="missing-standards" className="flex flex-col gap-2">
-      <h3 id="missing-standards" className="text-sm font-medium">
-        Standards cited but not in the library ({load.rows.length})
-      </h3>
+      <SectionFold on={NEW_LOOK} heading={
+        <h3 id="missing-standards" className="text-sm font-medium">
+          Standards cited but not in the library ({load.rows.length})
+        </h3>
+      }>
       <p className="text-xs opacity-70">
         Cited by the submittals and standards you can read. Nothing is downloaded:
         each is sold under licence, so obtain the copy through your normal
@@ -72,6 +76,7 @@ export function MissingStandards() {
       {load.rows.length === 0 ? (
         <p className="text-xs opacity-70">Every cited standard is in the library.</p>
       ) : (
+        <div className="relative overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead>
             <tr>
@@ -116,7 +121,9 @@ export function MissingStandards() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
+      </SectionFold>
     </section>
   );
 }
