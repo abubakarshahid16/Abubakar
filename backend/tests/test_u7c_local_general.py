@@ -803,3 +803,38 @@ def test_the_probe_sends_no_document_and_a_model_that_answers_passes(monkeypatch
 
     monkeypatch.setattr(model_transport, "post_json", down)
     assert local_model._probe("invented-mid:14b", 28_672) == local_model.ENGINE_DOWN
+
+
+def test_a_checklist_answer_on_the_local_model_ends_sooner_and_other_steps_keep_the_profiles_limit(
+    monkeypatch,
+):
+    """A's measure (26 Nov 2026): a runaway 14B checklist answer ran to 8,192 tokens. The checklist steps stop at
+    `CHECKLIST_MAX_TOKENS`; the judge keeps the local profile's limit. No engine: the request body is caught."""
+    sent: dict[str, int] = {}
+
+    def body(self, name, messages, num_predict, step=""):
+        sent[step] = num_predict
+        raise RuntimeError("caught")
+
+    monkeypatch.setattr(local_model.LocalModel, "_body", body)
+    model = local_model.LocalModel()
+    for step in ("aim_checklist", "aim_checklist_retry", "aim_judge"):
+        with pytest.raises(RuntimeError):
+            model.ask(
+                step=step,
+                model=model.name,
+                system="",
+                cached=None,
+                prompt="invented",
+                carries=[],
+                max_tokens=32_000,
+                effort=None,
+            )
+    assert (
+        sent["aim_checklist"]
+        == sent["aim_checklist_retry"]
+        == local_model.CHECKLIST_MAX_TOKENS
+    )
+    assert (
+        sent["aim_judge"] == budget.LOCAL.max_tokens > local_model.CHECKLIST_MAX_TOKENS
+    )
