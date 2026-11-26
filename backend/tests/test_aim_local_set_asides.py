@@ -222,3 +222,48 @@ def test_a_clause_that_names_no_rule_or_two_rules_is_still_asked_again():
         [],
         items,
     )  # Claude: nothing by code
+
+
+def test_a_quote_with_a_wrong_page_or_clause_takes_the_stored_rule_holding_most_of_its_words():
+    """F's 14B run e19e3d8a: 126 quotes not found and almost none fixed by code, as a clause often holds several stored rules."""
+    batch = [
+        {
+            "rule": "R0001",
+            "book": "B1",
+            "clause": "5.2",
+            "page": 4,
+            "text": "The invented gasket shall be rated for the flange class.",
+        },
+        {
+            "rule": "R0002",
+            "book": "B1",
+            "clause": "5.2",
+            "page": 4,
+            "text": "The invented bolting shall be coated against rust in salt air.",
+        },
+        {
+            "rule": "R0003",
+            "book": "B2",
+            "clause": "1.1",
+            "page": 9,
+            "text": "The invented paint shall be applied in three coats.",
+        },
+    ]
+    near = {
+        "book": "B1",
+        "clause": "5.3",
+        "page": 2,
+        "rule_quote": "invented bolting shall be coated against rust",
+    }
+    loose = {
+        "book": "B1",
+        "clause": "5.2",
+        "page": 4,
+        "rule_quote": "gaskets and bolts must suit the service conditions",
+    }
+    with budget.using(budget.LOCAL):
+        fixed, ask = RT.by_code([near, loose], batch, lambda it: True)
+    assert [(i["clause"], i["page"], i["rule_quote"]) for i in fixed] == [
+        ("5.2", 4, batch[1]["text"])
+    ]
+    assert ask == [loose]  # too few of its words in any stored rule: asked again
