@@ -32,3 +32,21 @@ def test_a_review_key_reaches_its_form_through_the_taxonomy_and_an_unknown_type_
     )
     assert always.form_context({"equipment_type": "invented_thing"})[1] == ""
     assert always.form_context({})[1] == ""
+
+
+def test_on_a_required_entries_question_the_paper_fills_is_not_sent_and_off_nothing_changes(
+    monkeypatch,
+):
+    """Lead-4's WRONG guard: an always-on item never becomes a comment when the field IS filled; only a real gap is sent."""
+    from app.aim_review import asks
+
+    filled = {"item_id": "G3", "label": "Question", "field": "Corrosion allowance", "quote": "Corrosion allowance: 3 mm", "page": 2,
+              "comment": "Please state the corrosion allowance.", "ask": "concern"}  # fmt: skip
+    blank = dict(filled, quote="Corrosion allowance")
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    assert asks.entry_filled(filled) and not asks.entry_filled(blank)
+    assert not asks.entry_filled(dict(filled, item_id="G2")) and not asks.entry_filled(
+        dict(filled, page=None)
+    )
+    monkeypatch.setattr(settings, "aim_u13_enabled", False)
+    assert not asks.entry_filled(filled)
