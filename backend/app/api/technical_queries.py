@@ -548,6 +548,24 @@ def gmail_webhook(_payload: dict):
     raise HTTPException(status_code=503, detail="mailbox webhook is not configured")
 
 
+class StatusCountsOut(BaseModel):
+    mailboxes: list[dict[str, Any]]
+    boundary: str
+
+
+@router.get("/api/technical-queries/status-counts", response_model=StatusCountsOut)
+def technical_query_status_counts(
+    scope: access.AccessScope = Depends(access.current_scope),
+):
+    """Technical queries by COUNTS ONLY, per mailbox id (no subject, name, address, file name or body text): the planner's view."""
+    if not scope.is_admin or not scope.user_id:
+        raise _refuse(403, "an administrator is required")
+    from .. import technical_query_status
+
+    with connect() as conn:
+        return technical_query_status.counts(conn)
+
+
 @router.get("/api/technical-queries/routing-rules", response_model=RowsOut)
 def get_routing_rules(scope: access.AccessScope = Depends(access.current_scope)):
     if not scope.is_admin or not scope.user_id:
