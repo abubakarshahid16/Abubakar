@@ -74,10 +74,11 @@ def test_a_malformed_table_is_refused_by_its_reader(tmp_path, monkeypatch, edit)
         DG.table()
 
 
-def test_the_way_back_switch_is_on_by_default():
+def test_the_routing_switch_is_off_by_default():
     from app.config import Settings
 
-    assert Settings.model_fields["kind_family_route_enabled"].default is True
+    # update 12 review B1: on by default it changed a Claude review of an `other` paper (the owner's baseline forbids it)
+    assert Settings.model_fields["kind_family_route_enabled"].default is False
 
 
 # ---- a listed kind: placed by its kind, routed as before (every scored kind) --------------------------------------------------
