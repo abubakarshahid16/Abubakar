@@ -631,3 +631,15 @@ describe("Technical Queries screen", () => {
     expect(api.classifyEvidence.mock.calls.map((c) => [c[1], c[2]])).toEqual([["e1", "verified"], ["e2", "rejected"]]); // never e9 (an earlier wording)
   });
 });
+
+describe("the queue's contractor chip (lead-4, 26 Nov 2026)", () => {
+  it("names the code printed in the number when no rule names the contractor; never a guessed name", async () => {
+    const { problemChips } = await import("./technicalQueryQuestion");
+    const named = problemChips({ ref_type: "CFC", contractor_name: "Invented Contractor", contractor_code: "INVCO" });
+    expect(named.find((c) => c.words === "No contractor")).toBeUndefined();
+    const coded = problemChips({ ref_type: "CFC", contractor_name: null, contractor_code: "INVCO" }).find((c) => c.words === "No contractor");
+    expect(coded?.why).toContain("its number carries the code INVCO");
+    const bare = problemChips({ ref_type: "CFC", contractor_name: null, contractor_code: null }).find((c) => c.words === "No contractor");
+    expect(bare?.why).toBe("No contractor yet: add its code once under “Rules for who it goes to” (in More) and every query with that code fills itself.");
+  });
+});
