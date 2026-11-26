@@ -65,9 +65,13 @@ describe("shell navigation", () => {
     mockFetch(() => json(healthOnline));
     render(<App />);
 
-    for (const label of ["Documents", "Chat", "Ingestion", "Dashboard"]) {
+    // the everyday entries first; the rest sit in the folded "Advanced" group (owner, 26 Nov 2026, G9)
+    for (const label of ["Home", "Reviews", "Ask", "Documents"]) {
       expect(screen.getByRole("button", { name: new RegExp(label) })).toBeInTheDocument();
     }
+    // a caller not known to be an administrator gets no "Advanced" group at all (Ingestion, System and the rest)
+    expect(screen.queryByRole("button", { name: /Advanced/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Ingestion/ })).toBeNull();
     // All four are built now. Ingestion was the last placeholder; the badge
     // machinery stays for the next unbuilt route, but nothing wears it.
     expect(screen.queryByText(/not built/i)).toBeNull();
@@ -84,10 +88,9 @@ describe("shell navigation", () => {
       if (url.includes("/metrics")) return json(ingestionMetrics);
       return json(healthOnline);
     });
-    const user = userEvent.setup();
-    render(<App />);
+    // Ingestion is an "Advanced" (administrators') entry now (G9); its address still opens it
+    render(<App initialView="ingestion" />);
 
-    await user.click(screen.getByRole("button", { name: /Ingestion/ }));
     // The screen it replaced said "Not built yet. This screen is a placeholder
     // so the navigation is honest about what exists." Honest, and no longer
     // necessary.

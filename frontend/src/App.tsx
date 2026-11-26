@@ -30,9 +30,11 @@ import { type LeaveSaver, LeaveSaverContext, useLeaveGuard } from "./components/
 import { CrsDraftContext, clearDecisionDrafts, keepOnlyDraftsOf, setDraftOwner } from "./components/review/crs/useCrsDecisions";
 import { NavigationContext } from "./components/NavLink";
 import { parseRoute, pathForView, titleForView, type AppRoute } from "./routing";
+import { PurposeLine } from "./components/PurposeLine";
 
 // V1b: the pages the reader opens less often are loaded when first opened, not with the first screen.
 const AdminScreen = lazy(() => import("./views/AdminScreen").then((m) => ({ default: m.AdminScreen })));
+const HomeView = lazy(() => import("./views/HomeView").then((m) => ({ default: m.HomeView })));
 const StandardsView = lazy(() => import("./views/StandardsView").then((m) => ({ default: m.StandardsView })));
 const AnalysisModeScreen = lazy(() => import("./views/AnalysisModeScreen").then((m) => ({ default: m.AnalysisModeScreen })));
 const ReportsScreen = lazy(() => import("./views/ReportsScreen").then((m) => ({ default: m.ReportsScreen })));
@@ -469,6 +471,8 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
           Unmounting it for an outage threw both away and replayed its entrance
           animation on recovery, so it stays mounted - HIDDEN, not shown beside
           the banner, which keeps the one-error-at-a-time rule above. */}
+      {/* E4 (owner, 26 Nov 2026): every main screen starts with one line saying what it is for and what to do next. */}
+      {route.kind === "view" && !route.recordId && connection.state !== "offline" && <PurposeLine view={view} />}
       {view === "chat" && route.kind !== "forbidden" && (
         <div className="contents" hidden={connection.state === "offline"}>
           <ChatView
@@ -494,6 +498,7 @@ export default function App({ initialView = "documents" }: { initialView?: ViewI
       ) : (
         <Suspense fallback={<Spinner />}>
           <CommandPalette onNavigate={guardedNavigate} auth={authStatus} connection={connection} />
+          {view === "home" && <HomeView auth={authStatus} onNavigate={guardedNavigate} />}
           {view === "documents" && (
             <DocumentsView connection={connection} onRetryConnection={recheck} isAdmin={canAdmin}
               initialDocumentId={route.kind === "view" ? route.recordId : undefined} />

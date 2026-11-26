@@ -43,7 +43,7 @@ function stub(onCreate: () => Response) {
 
 async function openChat() {
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /^Chat/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /^Ask/ }));
 }
 
 async function submit() {

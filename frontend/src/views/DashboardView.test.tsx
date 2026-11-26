@@ -6,11 +6,12 @@
  * than left looking live, and no_searchable_content reads as a warning rather
  * than as a completed document.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
+import { NAV } from "../components/Shell";
 import type { ClassificationCoverage, Health } from "../api/client";
 import type { Metrics ,
   SystemMetrics,
@@ -188,8 +189,8 @@ function mockApi(
 }
 
 async function openDashboard() {
-  render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Dashboard/ }));
+  // the dashboard ("System") sits in the administrators' folded "Advanced" group (owner, 26 Nov 2026, G9): opened by its view
+  render(<App initialView="dashboard" />);
 }
 
 /** "Documents" labels TWO things on this screen: the headline tile, and the
@@ -197,10 +198,12 @@ async function openDashboard() {
  *  tile's own background token, `bg-ink-800`, which the Corpus Stat card
  *  (`bg-ink-850`) does not share. */
 async function documentsTile(): Promise<HTMLElement> {
-  const candidates = await screen.findAllByText("Documents");
-  const tile = candidates.map((el) => el.closest(".bg-ink-800")).find((el) => el != null);
-  if (!tile) throw new Error("Documents headline tile not found");
-  return tile as HTMLElement;
+  // waits for the tile itself: the menu's own "Documents" entry is there from the first render
+  return waitFor(() => {
+    const tile = screen.getAllByText("Documents").map((el) => el.closest(".bg-ink-800")).find((el) => el != null);
+    if (!tile) throw new Error("Documents headline tile not found");
+    return tile as HTMLElement;
+  });
 }
 
 afterEach(() => {
@@ -212,11 +215,8 @@ afterEach(() => {
 
 describe("dashboard navigation", () => {
   it("is no longer marked as not built", async () => {
-    mockApi();
-    render(<App />);
-    const nav = await screen.findByRole("navigation", { name: "Main" });
-    const item = within(nav).getByRole("button", { name: /Dashboard/ });
-    expect(within(item).queryByText("not built")).toBeNull();
+    // the entry is in the administrators' "Advanced" group now (G9): its menu record says it is built
+    expect(NAV.find((item) => item.id === "dashboard")?.built).toBe(true);
   });
 });
 
@@ -375,8 +375,12 @@ describe("warnings", () => {
       }),
     );
     await openDashboard();
-    // the phrase also appears as a corpus hint, so assert on the warning row
-    const warning = await screen.findByRole("status");
+    // the phrase also appears as a corpus hint, so assert on the warning row (waited for: a loading status shows first)
+    const warning = await waitFor(() => {
+      const row = screen.getAllByRole("status").find((el) => /scanned\.pdf finished processing/.test(el.textContent ?? ""));
+      if (!row) throw new Error("warning row not shown yet");
+      return row;
+    });
     expect(warning).toHaveTextContent("no_searchable_content");
     expect(warning).toHaveTextContent(/scanned\.pdf finished processing/);
     expect(warning).toHaveTextContent(/search can see none of it/);

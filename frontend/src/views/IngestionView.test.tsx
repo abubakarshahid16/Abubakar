@@ -7,11 +7,11 @@
  * worked on is named rather than keyed, and an idle screen teaches instead of
  * sitting blank.
  */
-import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
+import { NAV } from "../components/Shell";
 import type { Health } from "../api/client";
 import type { DocumentRecord, Metrics, WorkerStatus } from "../types/api";
 
@@ -174,8 +174,7 @@ function mockApi({
 }
 
 async function openIngestion() {
-  render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: /Ingestion/ }));
+  render(<App initialView="ingestion" />); // in the administrators' folded "Advanced" group now (owner, 26 Nov 2026, G9)
 }
 
 afterEach(() => {
@@ -185,11 +184,8 @@ afterEach(() => {
 
 describe("ingestion navigation", () => {
   it("is no longer marked as not built", async () => {
-    mockApi();
-    render(<App />);
-    const nav = await screen.findByRole("navigation", { name: "Main" });
-    const item = within(nav).getByRole("button", { name: /Ingestion/ });
-    expect(within(item).queryByText(/not built/i)).toBeNull();
+    // the entry is in the administrators' "Advanced" group now (G9): its menu record says it is built
+    expect(NAV.find((item) => item.id === "ingestion")?.built).toBe(true);
   });
 
   it("no longer says the screen is a placeholder", async () => {
