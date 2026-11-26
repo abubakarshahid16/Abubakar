@@ -265,7 +265,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
 
   const evidenceBlock = selected && (
     <>
-          <details open={NEW_LOOK || undefined} className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-evidence">
+          <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-evidence">
             <summary className="cursor-pointer text-sm font-semibold text-slateish-200">{NEW_LOOK ? "Where the answer comes from" : "Evidence"}</summary>
             {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
             {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
