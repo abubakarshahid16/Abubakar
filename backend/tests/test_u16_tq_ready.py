@@ -109,6 +109,7 @@ def test_one_job_proposes_finds_and_drafts_with_no_click_and_the_local_model_onl
         "marks": ["The question was proposed by the system; no engineer has confirmed it yet.", auto.FOUND_NOT_KEPT,
                   "The revision of contract is not confirmed yet (Documents, Details, Save metadata)."],
         "cited": [],  # what the contractor's form cites, held or not (none here)
+        "items": [],  # the request's numbered items (a single question here)
     }  # fmt: skip
     assert (
         json.loads(draft["unresolved_json"]) == ready["ready"]["marks"]
