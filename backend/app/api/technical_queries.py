@@ -20,7 +20,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import (
     access,
-    answer,
     attachment_safety,
     chat_model,
     claude_approved,
@@ -33,6 +32,7 @@ from .. import (
     technical_query_contracts,
     technical_query_docx,
     technical_query_jobs,
+    verified_passages,
 )
 from .. import upload as upload_mod
 from ..api_utils import _require_identity_to_write, reject_unknown_params
@@ -881,8 +881,9 @@ def generate_query_draft(
             technical_query_claude.record(conn, query_id, chosen, scope.user_id)
     try:
         with claude_approved.technical_query_lane(chosen):
-            result = answer.answer(
+            result = verified_passages.answer(
                 question,
+                evidence=usable_evidence,
                 tier="generated",
                 allowed_document_ids=chosen if engine == "claude" else scope_ids,
                 model="local" if engine == "local" else chat_model.TQ_DRAFT,
@@ -933,7 +934,7 @@ def generate_query_draft(
                 "exact_quote": match["exact_quote"],
             }
         )
-    if not cited or len(citations) != len(cited):
+    if (not cited and not result.get("not_found")) or len(citations) != len(cited):
         raise _refuse(
             409,
             "the generated answer cited passages outside the query's verified evidence",

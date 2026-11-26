@@ -684,7 +684,7 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
     )
     scope = AccessScope("u1", frozenset({"doc-2"}))
     monkeypatch.setattr(
-        "app.api.technical_queries.answer.answer",
+        "app.answer.answer",
         lambda *_args, **_kwargs: {
             "answer_type": "generated",
             "answer": "The limit is 20 bar [S1].",
@@ -700,9 +700,7 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         },
     )
     seen_questions = []
-    original_answer = __import__(
-        "app.api.technical_queries", fromlist=["answer"]
-    ).answer.answer
+    original_answer = __import__("app.answer", fromlist=["answer"]).answer
 
     def spying_answer(question, *_args, **_kwargs):
         seen_questions.append(question)
@@ -722,7 +720,7 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
         "u1",
         reviewer=True,
     )
-    monkeypatch.setattr("app.api.technical_queries.answer.answer", spying_answer)
+    monkeypatch.setattr("app.answer.answer", spying_answer)
     with pytest.raises(HTTPException) as blocked:
         generate_query_draft(item["id"], scope)
     assert blocked.value.status_code == 409
@@ -730,7 +728,7 @@ def test_generated_draft_refuses_citations_outside_verified_quote(monkeypatch):
     assert seen_questions == ["What is the approved limit?"]
     assert get(item["id"], "u1", False, False)["drafts"] == []
     monkeypatch.setattr(
-        "app.api.technical_queries.answer.answer",
+        "app.answer.answer",
         lambda *_args, **_kwargs: {
             "answer_type": "generated",
             "answer": "The approved limit is 12 bar [S1].",
@@ -839,7 +837,7 @@ def test_refusal_reason_from_the_answer_checks_reaches_the_engineer(monkeypatch)
         item["id"], "What is QX-1?", "u1", True, False, "u1", reviewer=True
     )
     monkeypatch.setattr(
-        "app.api.technical_queries.answer.answer",
+        "app.answer.answer",
         lambda *_a, **_k: {
             "answer_type": "insufficient_evidence",
             "answer": None,
@@ -2252,7 +2250,7 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
             "model": "synthetic-model",
         }
 
-    monkeypatch.setattr("app.api.technical_queries.answer.answer", fake_answer)
+    monkeypatch.setattr("app.answer.answer", fake_answer)
     drafted = generate_query_draft(item["id"], reviewer)
     assert asked == {
         "question": "What coating applies to carbon steel?",
