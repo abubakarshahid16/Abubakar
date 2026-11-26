@@ -32,11 +32,12 @@ def _run(
     stop=None,
     at="2026-11-20T10:00:00",
     engine="local",
+    reused=0,
 ):
     calls = [{"step": "aim_judge", "model": model, "engine": engine}]
     c.execute(
-        "INSERT INTO aim_runs (run_id, paper_document_id, status, identity_json, calls_json, seconds, stop_reason, created_at, finished_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO aim_runs (run_id, paper_document_id, status, identity_json, calls_json, seconds, stop_reason, created_at, finished_at,"
+        " checklist_reused) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
             run_id,
             "doc",
@@ -47,6 +48,7 @@ def _run(
             stop,
             at,
             at,
+            reused,
         ),
     )
 
@@ -63,16 +65,20 @@ def test_another_kind_another_model_a_stopped_or_claude_run_is_not_a_measure(con
     _run(conn, "stopped", status="stopped")
     _run(conn, "stop-reason", stop="swap")
     _run(conn, "claude", engine="claude")
+    _run(
+        conn, "reused-checklist", reused=1
+    )  # it skipped writing its checklist: shorter, not a measure (review N6)
     assert LV.measured_minutes(conn, "valve", "m9") is None
     assert LV.measured_minutes(conn, None, "m9") is None
 
 
-def _local(monkeypatch, models=("m9",), local=True):
+def _local(monkeypatch, local=True):
+    """Today's settings name ANOTHER model: the note must name the one on the run's own record (review N6)."""
     from app import aim_review_jobs
     from app.aim_review import local_model
 
     monkeypatch.setattr(aim_review_jobs, "on_local", lambda conn, run_id: local)
-    monkeypatch.setattr(local_model, "model_name", lambda: models[0])
+    monkeypatch.setattr(local_model, "model_name", lambda: "m-today")
     monkeypatch.setattr(local_model, "step_models", lambda: {})
 
 
@@ -81,17 +87,18 @@ def test_the_note_names_the_model_and_the_measured_minutes(conn, monkeypatch):
     _run(conn, "past", seconds=1980)
     conn.execute(
         "INSERT INTO aim_runs (run_id, paper_document_id, status, identity_json, created_at) VALUES ('now','doc','running',?,?)",
-        (json.dumps({"kind": "valve"}), "2026-11-26T09:00:00"),
+        (json.dumps({"kind": "valve", "local_models": ["m9"]}), "2026-11-26T09:00:00"),
     )
     note = LV.progress_note(conn, "now")
     assert "m9" in note and "about 33 min for this kind on this Mac" in note
+    assert "m-today" not in note
 
 
 def test_no_measured_run_or_no_kind_yet_says_not_yet_measured(conn, monkeypatch):
     _local(monkeypatch)
     conn.execute(
         "INSERT INTO aim_runs (run_id, paper_document_id, status, identity_json, created_at) VALUES ('now','doc','running',?,?)",
-        (json.dumps({"kind": "valve"}), "2026-11-26T09:00:00"),
+        (json.dumps({"kind": "valve", "local_models": ["m9"]}), "2026-11-26T09:00:00"),
     )
     assert "m9" in LV.progress_note(
         conn, "now"
@@ -168,3 +175,26 @@ def test_the_job_the_page_gets_carries_the_note(monkeypatch):
 def test_a_failure_storing_the_kind_early_never_stops_a_review():
     broken = sqlite3.connect(":memory:")  # no aim_runs table: the update fails
     store.keep_identity(broken, "r", {"kind": "valve"})  # does not raise
+
+
+def test_the_models_recorded_at_the_start_stay_when_the_kind_is_named(conn):
+    conn.execute(
+        "INSERT INTO aim_runs (run_id, paper_document_id, status, created_at) VALUES ('m','doc','queued','2026-11-26T09:00:00')"
+    )
+    store.keep_identity(conn, "m", {"local_models": ["m9"]})
+    store.keep_identity(conn, "m", {"kind": "valve"})
+    got = json.loads(
+        conn.execute("SELECT identity_json FROM aim_runs WHERE run_id='m'").fetchone()[
+            0
+        ]
+    )
+    assert got == {"local_models": ["m9"], "kind": "valve"}  # merged, not replaced
+
+
+def test_a_run_with_no_recorded_model_names_none_from_the_settings(conn, monkeypatch):
+    _local(monkeypatch)
+    conn.execute(
+        "INSERT INTO aim_runs (run_id, paper_document_id, status, created_at) VALUES ('bare','doc','running','2026-11-26T09:00:00')"
+    )
+    note = LV.progress_note(conn, "bare")
+    assert "m-today" not in note and "not yet measured" in note

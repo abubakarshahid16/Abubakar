@@ -498,8 +498,10 @@ export function progressLine(
   done: number | null | undefined, total: number | null | undefined,
   label: string | null | undefined,
 ): string {
-  const step = (done ?? 0) + 1;
   const text = label ?? "working";
+  // An unknown step stays unknown: the label alone, never a made-up "Step 1" (review of update 11, N9).
+  if (typeof done !== "number" || !Number.isFinite(done)) return text;
+  const step = done + 1;
   return typeof total === "number" && total > 0
     ? `Step ${Math.min(step, total)} of ${total}: ${text}`
     : `Step ${step}: ${text}`;

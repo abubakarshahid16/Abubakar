@@ -144,11 +144,13 @@ def _local_models_of(run: dict) -> set[str]:
 
 def measured_minutes(conn, kind: str | None, model: str) -> int | None:
     """Whole minutes the LAST finished review of this kind took on this model on this Mac (a run whose local calls all used that one model,
-    which ended `done` with no stop reason), or None when there is none. Read from the stored runs, never from a table of its own."""
+    which ended `done` with no stop reason and wrote its own checklist), or None when there is none. Read from the stored runs, never from a
+    table of its own."""
     if not kind:
         return None
     rows = conn.execute(
         "SELECT identity_json, calls_json, seconds, stop_reason FROM aim_runs WHERE status = 'done' AND seconds > 0"
+        " AND COALESCE(checklist_reused, 0) = 0"  # a run that reused a saved checklist skipped a step: not a measure
         " ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ?",
         (MEASURED_LOOK,),
     ).fetchall()
@@ -172,22 +174,22 @@ def progress_note(conn, run_id: str) -> str | None:
     """The one sentence a running LOCAL review's progress page adds: the model it runs on, and the minutes the last measured run of that
     model and kind took on this Mac ("not yet measured" when there is none, or the kind is not named yet). None for a Claude run."""
     from . import aim_review_jobs
-    from .aim_review import local_model
 
     if not aim_review_jobs.on_local(conn, run_id):
         return None
-    models = sorted(
-        {local_model.model_name(), *local_model.step_models().values()} - {""}
-    )
     row = conn.execute(
         "SELECT identity_json FROM aim_runs WHERE run_id = ?", (run_id,)
     ).fetchone()
     try:
-        kind = (json.loads(row["identity_json"] or "{}") if row else {}).get("kind")
-    except (ValueError, AttributeError):
-        kind = None
+        record = json.loads(row["identity_json"] or "{}") if row else {}
+    except (ValueError, TypeError):
+        record = {}
+    record = record if isinstance(record, dict) else {}
+    kind = record.get("kind")
+    # the models this run started with, from its own record (`aim_review_jobs` writes them at the start), never today's settings
+    models = sorted({str(m) for m in record.get("local_models") or [] if str(m).strip()})
     minutes = measured_minutes(conn, kind, models[0]) if len(models) == 1 else None
-    named = ", ".join(models) or "the local default"
+    named = ", ".join(models) or "(not recorded yet)"
     if minutes is None:
         return f"Local model {named}: {NOT_MEASURED} for this kind on this Mac."
     return f"Local model {named}: about {minutes} min for this kind on this Mac (the last measured run of this model and kind)."

@@ -221,11 +221,13 @@ def keep_identity(conn, run_id: str, identity: dict) -> None:
 
 
 def set_identity(conn, run_id: str, identity: dict) -> None:
-    """The kind the run has named so far, stored while it still runs (so its progress page can say which kind it measures its minutes by);
-    `finish_run` writes the final record over it. Only a run that has not ended; commits."""
+    """What the run has recorded so far (the local models it started with, then the kind it named), MERGED into its record while it still
+    runs, so its progress page reads the run's own record; `finish_run` writes the final record over it. Only a run that has not ended;
+    commits."""
     with conn:
         conn.execute(
-            f"UPDATE {RUNS} SET identity_json = ? WHERE run_id = ? AND status IN ('queued', 'running')",
+            f"UPDATE {RUNS} SET identity_json = json_patch(COALESCE(identity_json, '{{}}'), ?)"
+            " WHERE run_id = ? AND status IN ('queued', 'running')",
             (json.dumps(identity, ensure_ascii=False), run_id),
         )
 

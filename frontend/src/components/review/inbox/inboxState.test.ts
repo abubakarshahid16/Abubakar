@@ -113,6 +113,12 @@ describe("the list and the review's own page say the same step and clock (one so
     expect(inboxStateOf(run({ status: "running", job: job({ state: "queued" }) })).kind).toBe("running");
   });
 
+  it("an unknown step number is never made up: the label alone (N9)", () => {
+    expect(stateLabel(inboxStateOf(run({ status: "running", job: job({ progress_done: null, progress_total: 5, progress_label: "checklist" }) }))))
+      .toBe("Running: checklist");
+    expect(progressLine(null, 5, "checklist")).toBe("checklist");
+  });
+
   it("without a clock the step line stands alone", () => {
     expect(stateLabel(inboxStateOf(run({ status: "running", job: job({ progress_done: 2, progress_total: 5, progress_label: "checklist" }) }))))
       .toBe("Running: Step 3 of 5: checklist");

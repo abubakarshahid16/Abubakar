@@ -524,6 +524,8 @@ def run(job_id: str, worker_id: str, heartbeat=None, *, model=None) -> str:
         local, books, model, words = _prepare(conn, run_id, paper_id, scope, model)
         if words:  # a local run that may not load the local model now: nothing is loaded, the run says why
             return _done(conn, job_id, run_id, _local_not_ready(words))
+        if local:  # the models this run starts with, on its own record (its progress page names these, never the settings of now)
+            aim_review_store.keep_identity(conn, run_id, {"local_models": sorted(getattr(model, "names", list)())})
 
         def progress(_pct: int, words: str) -> None:
             if heartbeat is not None:
