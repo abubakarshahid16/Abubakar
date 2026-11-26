@@ -59,14 +59,19 @@ def test_after_a_credit_refusal_claude_is_unavailable_in_the_picker_with_the_no_
 
 
 def test_a_later_success_clears_it_at_once(ledger, lane_open):
-    ledger({**REFUSED, "at": _at(30)}, {**SUCCESS, "at": _at(2)})
+    ledger(
+        {**REFUSED, "at": _at(10)}, {**SUCCESS, "at": _at(2)}
+    )  # inside the window: the success clears it
     assert _claude(chat_model.available_models())["available"] is True
 
 
 @pytest.mark.parametrize(
     "lines, refused",
     [
-        ([{**REFUSED, "at": _at(60 * 25)}], False),  # older than a day: no longer said
+        (
+            [{**REFUSED, "at": _at(chat_model.CREDIT_REFUSAL_MINUTES + 1)}],
+            False,
+        ),  # older than the window: Claude offered again
         (
             [{**REFUSED, "at": _at(10)}, {"cached": True, "at": _at(5)}],
             True,
@@ -101,4 +106,16 @@ def test_an_unreadable_ledger_never_hides_claude(ledger, lane_open, monkeypatch)
         raise OSError("invented")
 
     monkeypatch.setattr(claude_spend, "_raw_lines", broken)
+    assert _claude(chat_model.available_models())["available"] is True
+
+
+def test_after_a_top_up_the_picker_offers_claude_again_within_the_window(
+    ledger, lane_open
+):
+    """Review of update 12, N6: Chat cannot make the call that would clear the mark, so the mark lasts only
+    `CREDIT_REFUSAL_MINUTES`: a refusal just inside it hides Claude; just past it, Claude is offered again."""
+    assert chat_model.CREDIT_REFUSAL_MINUTES <= 15
+    ledger({**REFUSED, "at": _at(chat_model.CREDIT_REFUSAL_MINUTES - 1)})
+    assert _claude(chat_model.available_models())["available"] is False
+    ledger({**REFUSED, "at": _at(chat_model.CREDIT_REFUSAL_MINUTES + 1)})
     assert _claude(chat_model.available_models())["available"] is True

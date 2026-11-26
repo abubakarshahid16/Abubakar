@@ -75,17 +75,28 @@ TQ_NOT_HERE = "Chat does not read technical queries yet; open the Technical Quer
 
 #: A question about the library's RECORDS rather than a document's words: which papers there are, their latest review, the
 #: open items of a technical query. Only these leave the local path without a document selection, and only with the switch on.
+#: NARROW ON PURPOSE (review of update 12, N9): a request for a LIST of the library's papers (a plural kind right after "list",
+#: "show me", "which", "what" or "how many", two words between at most), or a paper's review results. A question about a value
+#: in a paper ("what is the design pressure in the datasheet") is not a records question: it stays on the document path.
+_KINDS = r"(?:documents|papers|files|contracts|datasheets|procedures|specifications|submittals|standards)"
 _RECORDS = re.compile(
-    r"\b(?:list|which|what|show)\b.{0,40}\b(?:documents?|papers?|contracts?|datasheets?|procedures?|specifications?|"
-    r"submittals?|standards?)\b(?!.{0,20}\b(?:say|says|state|states|require|requires)\b)"
+    r"\b(?:list|show me|which|what|how many)\s+(?:\w+\s+){0,2}" + _KINDS + r"\b"
     r"|\blatest review\b|\breview (?:results?|comments)\b|\bopen items?\b|\btechnical quer(?:y|ies)\b",
+    re.IGNORECASE,
+)
+#: A question that points at ONE paper ("in the datasheet", "does this contract ...") asks that paper's words, never the records.
+_ONE_PAPER = re.compile(
+    r"\b(?:in|of|from|does|do|did)\s+(?:the|this|that|my|our)\s+"
+    r"(?:paper|datasheet|document|file|contract|procedure|specification|submittal|drawing)\b",
     re.IGNORECASE,
 )
 
 
 def asks_the_records(question: str) -> bool:
-    """True when the switch is on and the question asks the library's records (`_RECORDS`), not a document's words."""
-    return enabled() and bool(_RECORDS.search(question or ""))
+    """True when the switch is on and the question asks the library's records (`_RECORDS`), not a document's words
+    (`_ONE_PAPER`)."""
+    q = question or ""
+    return enabled() and bool(_RECORDS.search(q)) and not _ONE_PAPER.search(q)
 
 
 def enabled() -> bool:
@@ -198,14 +209,18 @@ class _Viewer:
 
 
 def latest_review(input: dict, *, allowed: frozenset[str]) -> dict:
-    from . import aim_review_store, aim_review_view
+    """The paper's FACE review (`aim_review_face`, the same review its Reviews list row opens: newest signed, else newest
+    finished on Claude, else newest finished), with its engine named (review of update 12, N9: a local rough draft is said)."""
+    from . import aim_review_runs, aim_review_store, aim_review_view
 
     paper = str(input.get("document_id") or "")
     rows, _withheld_count = _documents(frozenset({paper}) & allowed)
     if not rows:
         return {"found": False, "note": "no readable paper with that id"}
     conn = connect()
-    run = aim_review_store.latest_run(conn, paper, ended=True)
+    faces = aim_review_runs.entries(conn, allowed, paper, newest_only=True)
+    face = next((f for f in faces if f.get("status") == "completed"), None)
+    run = aim_review_store.run(conn, face["review_run_id"]) if face else None
     if run is None:
         return {"found": False, "note": "this paper has no finished review"}
     view = aim_review_view.build(conn, run, _Viewer(allowed))
@@ -230,6 +245,8 @@ def latest_review(input: dict, *, allowed: frozenset[str]) -> dict:
         },
         "top_comments": comments,
         "mark": view.get("mark"),
+        "engine": face.get("engine"),
+        "engine_words": face.get("engine_words"),
     }
     log.info(
         "chat database tool latest_review: paper %s run %s, %d comments",

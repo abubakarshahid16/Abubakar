@@ -74,10 +74,7 @@ def test_a_search_over_several_picked_papers_gives_each_its_own_passages(monkeyp
 def test_the_tool_budget_covers_one_read_per_selected_paper():
     assert chat_coverage.tool_cap(6, frozenset({"a"})) == 6
     assert chat_coverage.tool_cap(6, frozenset(f"d{i}" for i in range(10))) == 12
-    assert (
-        chat_coverage.tool_cap(6, frozenset(f"d{i}" for i in range(20)))
-        == 22
-    )
+    assert chat_coverage.tool_cap(6, frozenset(f"d{i}" for i in range(20))) == 22
 
 
 def test_ten_papers_answer_with_every_paper_named_and_the_coverage_line(
@@ -114,7 +111,10 @@ def test_ten_papers_answer_with_every_paper_named_and_the_coverage_line(
     got = r.json()
     cov = got["paper_coverage"]
     assert (cov["selected"], cov["read"], cov["processing"]) == (3, 2, 1)
-    assert cov["sentence"] == "Read 2 of 3 selected papers; 1 still processing."
+    assert (
+        cov["sentence"]
+        == "Passages read from 2 of 3 selected papers; 1 still processing."
+    )
     assert cov["sentence"] in got["notices"] and got["review_offer"] == []
     stored = (
         db.connect()
@@ -153,7 +153,9 @@ def test_review_these_offers_the_real_review_for_each_selected_paper(
     ).json()
     assert sorted(o["document_id"] for o in got["review_offer"]) == sorted(ids)
     assert chat_coverage.REVIEW_WORDS in got["notices"]
-    reopened = client.get(f"/api/conversations/{convo}").json()["messages"][-1]  # a reopened answer keeps the offer
+    reopened = client.get(f"/api/conversations/{convo}").json()["messages"][
+        -1
+    ]  # a reopened answer keeps the offer
     assert sorted(o["document_id"] for o in reopened["review_offer"]) == sorted(ids)
     assert reopened["paper_coverage"]["selected"] == 3
 
@@ -185,3 +187,16 @@ def test_one_selected_paper_is_unchanged(monkeypatch, tmp_path):
         "paper_coverage"
     ) is None and "THE READER SELECTED" not in json.dumps(calls[0]["messages"][0])
     assert settings.chat_tool_max_calls == 6
+
+
+def test_more_than_twenty_papers_say_the_per_paper_pass_did_not_apply_with_no_count():
+    """Review of update 12, N8: above `MAX_PAPERS` the answer says plainly that the papers were not searched one by one, and
+    counts nothing; up to it, the line counts papers passages were read from (not "read" whole)."""
+    many = frozenset(f"d{i}" for i in range(chat_coverage.MAX_PAPERS + 5))
+    cov = chat_coverage.coverage(many, set())
+    assert cov["read"] is None and cov["processing"] is None
+    assert cov["sentence"] == chat_coverage.OVER_LIMIT.format(
+        n=chat_coverage.MAX_PAPERS + 5, most=chat_coverage.MAX_PAPERS
+    )
+    out = chat_coverage.attach({"notices": []}, "what do they say", many, [])
+    assert cov["sentence"] in out["notices"]
