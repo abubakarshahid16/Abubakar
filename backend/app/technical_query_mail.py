@@ -188,6 +188,12 @@ BOILERPLATE_MIN = 5
 BOILERPLATE_SHARE = 0.3
 
 
+#: An e-mail address inside a line.
+_ADDRESS = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
+#: The longest text shown as the question in the mail: a question is a sentence or a short block, not a third of the mail.
+QUESTION_CAP = 600
+
+
 def _norm(line: str) -> str:
     return " ".join(_URL.sub(" ", line).split()).casefold()
 
@@ -240,11 +246,18 @@ def email_question(text: str | None, common: frozenset[str] = frozenset()) -> st
         and _norm(line) not in common
         and (not line.strip() or _URL.sub("", line).strip())
     ]
+    # a line holding an e-mail address (a template line, a forwarded header) is never question text (lead-4, F's test on update 13)
+    kept = [line for line in kept if not _ADDRESS.search(line)]
     # only the paragraphs that ask: a signature's left-over lines (a name, a telephone number) are not the question
     paragraphs = re.split(r"\n\s*\n", "\n".join(kept))
-    return "\n\n".join(
+    question = "\n\n".join(
         p.strip() for p in paragraphs if any(_asks(line) for line in p.splitlines())
     ).strip()
+    if (
+        len(question) > QUESTION_CAP
+    ):  # a long block is not a question: only its asking lines, and none when even those are long
+        question = "\n".join(line.strip() for line in kept if _asks(line)).strip()
+    return question if len(question) <= QUESTION_CAP else ""
 
 
 def shown_question(query: dict) -> dict[str, str]:

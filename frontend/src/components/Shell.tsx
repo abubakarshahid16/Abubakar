@@ -40,7 +40,7 @@ interface NavItem {
  *  words; every other screen under one folded "Advanced" group that administrators get. "Reviews" is the AI Submittal Review workflow.
  *  Addresses are unchanged. */
 export const NAV: NavItem[] = [
-  { id: "home", label: "Home", hint: "Start here: the three jobs", built: true },
+  { id: "home", label: "Home", hint: "Start here: what do you want to do?", built: true },
   { id: "review", label: "Reviews", hint: "Check a contractor document", built: true },
   { id: "technicalQueries", label: "Technical Queries and CFCs", hint: "Answer a contractor's question", built: true },
   { id: "chat", label: "Ask", hint: "Ask about our documents", built: true },

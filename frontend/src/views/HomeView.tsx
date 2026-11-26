@@ -60,7 +60,7 @@ export function HomeJobs({ counts, queriesOn, onNavigate }: { counts: HomeCounts
 
   return (
     <section className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8" aria-labelledby="home-title">
-      <PageHeader id="home-title" title="What do you want to do?" purpose="Pick one of the three jobs below. Each button opens the screen where you do it." />
+      <PageHeader id="home-title" title="What do you want to do?" purpose="Pick what you want to do below. Each button opens the screen where you do it." />
       <Button tone="primary" size="lg" onClick={() => onNavigate(next.view)} data-testid="home-next" className="mt-6">
         {next.label}
       </Button>

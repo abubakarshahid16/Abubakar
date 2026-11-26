@@ -134,6 +134,12 @@ _SECTION_END = re.compile(
     r"proposed (answer|solution)|query no\.?|to be (answered|completed|filled)\b.*)\s*[:\-]?\s*$",
     re.IGNORECASE,
 )
+#: A question or a request in a field's text.
+_REQUEST = re.compile(
+    r"\?|\b(confirm|clarify|clarification|advise|approve|approval|accept|acceptable|propose|proposed|request|requested|provide|please|"
+    r"kindly|whether|allow|permit|agree|consider|review|instruct|instruction|require|required|need|needs|can|could|may|shall)\b",
+    re.IGNORECASE,
+)
 MAX_FIELD = 1200
 CUT = " [cut here: the rest of the section is in the attachment text]"
 
@@ -182,7 +188,13 @@ def form_question(context: list[dict[str, Any]]) -> str:
                     body = [line for line in section[blank:] if line.strip()]
             taken += [line.strip() for line in body]
             text = " ".join(taken).strip()
-            if text:
+            # a field holds words and a question or a request, never only a reference number (F's test on update 13)
+            if (
+                text
+                and len(re.findall(r"[^\W\d_]{2,}", text)) >= 4
+                # a section under a heading naming the clarification is a request by its heading (a CFC states the comment)
+                and (_REQUEST.search(text) or heading)
+            ):
                 return (
                     text if len(text) <= MAX_FIELD else text[:MAX_FIELD].rstrip() + CUT
                 )
