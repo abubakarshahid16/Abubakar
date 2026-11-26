@@ -382,7 +382,8 @@ describe("warnings", () => {
     expect(warning).toHaveTextContent(/scanned\.pdf finished processing/);
     expect(warning).toHaveTextContent(/search can see none of it/);
     // and the status chip appears rather than the document reading as ready
-    expect(screen.getByText(/no_searchable_content 1/)).toBeInTheDocument();
+    // in plain words, the code kept on the chip (H's audit (g): no raw status codes on the Dashboard)
+    expect(screen.getByText(/no readable text 1/).getAttribute("data-status")).toBe("no_searchable_content");
   });
 
   it("reports a failed document as an error with its code", async () => {

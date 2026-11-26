@@ -21,18 +21,19 @@ import { type ChipTone, type LandingRow, NO_ROLE_LINE, countsLine, hasFinishedRe
 import { NEW_LOOK } from "../../../../look";
 import { Button } from "../../../kit/Kit";
 
+/** The row's chip in the shared kit's one shape and tone colours (F's gate, 27 Nov 2026: two chip shapes on one page). */
 const TONE: Record<ChipTone, string> = {
-  attention: "border-warn-500/50 bg-warn-500/10 text-warn-500",
-  ready: "border-signal-500/50 bg-signal-500/10 text-signal-300",
-  done: "border-signal-500/50 bg-ink-800 text-slateish-100",
-  moving: "border-ink-500 bg-ink-800 text-slateish-200",
-  failed: "border-danger-500/50 bg-danger-500/10 text-danger-500",
-  quiet: "border-ink-600 bg-ink-850 text-slateish-300",
+  attention: "kit-chip kit-chip--check",
+  ready: "kit-chip kit-chip--info",
+  done: "kit-chip kit-chip--done",
+  moving: "kit-chip kit-chip--info",
+  failed: "kit-chip kit-chip--late",
+  quiet: "kit-chip kit-chip--plain",
 };
 
 export function StatusChip({ tone, text }: { tone: ChipTone; text: string }) {
   return (
-    <span data-testid="status-chip" data-tone={tone} className={`inline-block max-w-full break-words rounded-full border px-2.5 py-0.5 text-xs font-semibold ${TONE[tone]}`}>
+    <span data-testid="status-chip" data-tone={tone} className={TONE[tone]}>
       {text}
     </span>
   );
@@ -85,9 +86,9 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             <StatusChip tone={chip.tone} text={chip.text} />
             {aiMark && !counts?.general && !counts?.aiLines && row.latest && row.latest.status === "completed" && <AiMark runId={row.latest.review_run_id}
               earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
-            {generalChip && <span data-testid="row-general-chip" className="rounded-full border border-ink-500 px-2 py-0.5 text-slateish-200">{generalChip}</span>}
-            {row.latest?.engine_words && <span data-testid="row-engine" className="rounded-full border border-ink-500 px-2 py-0.5 text-slateish-200">{row.latest.engine_words}</span>}
-            {row.latest?.newer_note && <span data-testid="row-newer" className="rounded-full border border-warn-500/60 px-2 py-0.5 text-pill-review-fg">{row.latest.newer_note}</span>}
+            {generalChip && <span data-testid="row-general-chip" className="kit-chip kit-chip--plain">{generalChip}</span>}
+            {row.latest?.engine_words && <span data-testid="row-engine" className="kit-chip kit-chip--plain">{row.latest.engine_words}</span>}
+            {row.latest?.newer_note && <span data-testid="row-newer" className="kit-chip kit-chip--check">{row.latest.newer_note}</span>}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
             {shownWhen && <span data-testid="row-date">{shownWhen}</span>}
