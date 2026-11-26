@@ -74,8 +74,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
 
   useEffect(() => {
     // The page always opens at its top (the shared scroll area can arrive halfway down from the page before).
-    topRef.current?.scrollIntoView?.({ block: "start" });
-    window.scrollTo?.(0, 0);
+    topRef.current?.scrollIntoView?.({ block: "start" }); // scrolls every scrollable parent, the shared page area included
   }, []);
 
   useEffect(() => {
