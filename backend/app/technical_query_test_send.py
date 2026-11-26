@@ -58,6 +58,18 @@ def own_mailbox(conn, query_id: str) -> tuple[str, str]:
     return row["id"], str(row["email"]).strip().lower()
 
 
+def readiness(query_id: str) -> dict[str, Any]:
+    """For the page: may a test copy of this query's draft be sent now, and to which address (the query's own mailbox), or why not."""
+    if not enabled():
+        return {"ready": False, "to": None, "why": "test sending is switched off"}
+    try:
+        with connect() as conn:
+            _mailbox, address = own_mailbox(conn, query_id)
+    except ValueError as exc:
+        return {"ready": False, "to": None, "why": str(exc)}
+    return {"ready": True, "to": address, "why": None}
+
+
 def only_self(message: EmailMessage, address: str) -> None:
     """The first lock: the message's only recipient is `address`; no Cc, no Bcc, no resent header."""
     to = [a.strip().lower() for _n, a in getaddresses(message.get_all("To", []))]

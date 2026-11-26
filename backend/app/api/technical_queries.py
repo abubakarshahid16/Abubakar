@@ -281,6 +281,7 @@ def _safe_item(item: dict, scope: access.AccessScope) -> dict:
     item = {
         **item,
         "can_review": _reviewer(scope),
+        "test_send": technical_query_test_send.readiness(item["id"]) if item.get("id") else None,  # the owner's TEST copy (23:14)
         "messages": [
             {key: value for key, value in message.items() if key != "raw_storage_ref"}
             for message in item.get("messages", [])
@@ -404,7 +405,8 @@ def gmail_mailboxes(scope: access.AccessScope = Depends(access.current_scope)):
             f"SELECT id,email,label_id,connection_state,{checked} FROM gmail_mailboxes WHERE owner_user_id=? ORDER BY email",
             (scope.user_id,),
         ).fetchall()
-        items = [{**dict(row), "import_job": gmail_import_jobs.latest(conn, row["id"])} for row in rows]
+        on = technical_query_test_send.enabled()  # the "Allow test sending" button shows only while the switch is on
+        items = [{**dict(row), "import_job": gmail_import_jobs.latest(conn, row["id"]), "test_send_enabled": on} for row in rows]
     return {"items": items}
 
 

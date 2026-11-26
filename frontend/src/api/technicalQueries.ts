@@ -43,6 +43,8 @@ export interface TechnicalQuery {
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; /** Which source the passage comes from (owner, 26 Nov 2026): "contract document", "company standard", "standard" or "document", and its number or name. */ source_kind?: string | null; source_name?: string | null; /** False when found for an earlier wording of the question (builder A). */ for_current_question?: boolean | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
+  /** Whether a TEST copy of the draft may be sent now, to which address (the query's own mailbox), or why not (owner, 26 Nov 2026 23:14 PKT). */
+  test_send?: { ready: boolean; to: string | null; why: string | null } | null;
   drafts?: Array<{ id: string; version: number; answer: string; assumptions_json: string; unresolved_json: string; citations_json: string; model: string | null; /** The wording this draft answers (builder A, 26 Nov 2026). */ question?: string | null; /** True when a model wrote it, false when an engineer typed it. */ system?: boolean | null }>;
   /** The engineer's own wording, saved but not confirmed (builder A, 26 Nov 2026). */
   edited_question?: string | null;
@@ -126,6 +128,10 @@ export interface TechnicalQueryMailbox {
   last_checked_at?: string | null;
   status_note?: string | null;
   import_job?: MailboxImportJob | null;
+  /** The owner re-granted sending for TEST copies to this mailbox itself (owner, 26 Nov 2026 23:14 PKT). */
+  test_send_granted_at?: string | null;
+  /** The test-send switch is on, so the "Allow test sending" button may show. */
+  test_send_enabled?: boolean;
 }
 
 export type RoutingRuleType = "contractor_code" | "discipline" | "domain" | "address";
@@ -146,10 +152,10 @@ export const technicalQueriesApi = {
     request(queryPath(filters).replace("/technical-queries", "/technical-queries/metrics")),
   mailboxes: (): Promise<Result<{ items: TechnicalQueryMailbox[] }>> =>
     request("/technical-queries/providers/gmail/mailboxes", undefined, hasArrayField("items")),
-  startGmail: (): Promise<Result<{ authorization_url: string }>> =>
-    request("/technical-queries/providers/gmail/oauth/start"),
+  startGmail: (purpose: "read" | "test_send" = "read"): Promise<Result<{ authorization_url: string }>> =>
+    request(`/technical-queries/providers/gmail/oauth/start${purpose === "test_send" ? "?purpose=test_send" : ""}`),
   /** The end of the Google connection: the app's own return page posts what Google sent, as a same-site request (so the sign-in cookie goes). */
-  completeGmail: (body: { code?: string | null; state?: string | null; error?: string | null }): Promise<Result<{ result: "connected" | "admin_must_allow"; mailbox_id: string | null }>> =>
+  completeGmail: (body: { code?: string | null; state?: string | null; error?: string | null }): Promise<Result<{ result: "connected" | "admin_must_allow" | "test_send_granted"; mailbox_id: string | null }>> =>
     request("/technical-queries/providers/gmail/oauth/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   gmailLabels: (mailboxId: string): Promise<Result<{ items: GmailLabel[] }>> =>
     request(`/technical-queries/providers/gmail/mailboxes/${encodeURIComponent(mailboxId)}/labels`, undefined, hasArrayField("items")),
@@ -194,6 +200,9 @@ export const technicalQueriesApi = {
     request("/technical-queries/manual", { method: "POST", body: form }),
   createDraft: (id: string, answer: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer }) }),
   decide: (id: string, decision: string, draftId?: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/decisions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, draft_id: draftId }) }),
+  /** A TEST copy of the draft to the mailbox the query came from, and to no one else (the server decides the address). */
+  testSend: (id: string, draftId: string): Promise<Result<{ sent_to: string; at: string }>> =>
+    request(`/technical-queries/${encodeURIComponent(id)}/test-send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft_id: draftId }) }),
   confirmResolution: (id: string): Promise<Result<TechnicalQuery>> => request(`/technical-queries/${encodeURIComponent(id)}/confirm-resolution`, { method: "POST" }),
 };
 

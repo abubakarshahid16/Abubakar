@@ -79,7 +79,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const [labels, setLabels] = useState<GmailLabel[]>([]);
   const [labelId, setLabelId] = useState("");
   const returnedOnce = useRef(false); // StrictMode runs an effect twice in development: the one-time code is posted once
-  const [gmailReturn, setGmailReturn] = useState<"working" | "connected" | "admin_must_allow" | null>(null);
+  const [gmailReturn, setGmailReturn] = useState<"working" | "connected" | "admin_must_allow" | "test_send_granted" | null>(null);
+  const [testSent, setTestSent] = useState<{ queryId: string; to: string } | null>(null);
   const [engine, setEngine] = useState<"local" | "claude">("local");
   const [fileRole, setFileRole] = useState("SUPPORTING_DOCUMENT");
   // IN-PAGE confirmation (house rule: never the browser's own confirm box)
@@ -359,6 +360,9 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           <button type="button" disabled={busy || importing} onClick={() => { setError(null); void technicalQueriesApi.checkNow(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }} className="mt-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Check now</button>
 
           <button type="button" disabled={busy || importing} onClick={() => setConfirming({ kind: "again", mailboxId: mailbox.id })} className="mt-2 ml-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Import the label again</button>
+          {mailbox.test_send_enabled && (mailbox.test_send_granted_at
+            ? <p className="mt-2" data-testid="test-send-allowed">Test copies of a draft can be sent to this mailbox ({mailbox.email}), and only to it.</p>
+            : <button type="button" disabled={busy} data-testid="allow-test-send" onClick={() => void technicalQueriesApi.startGmail("test_send").then((result) => { if (result.ok) window.location.assign(result.data.authorization_url); else setError(result.error.message); })} className="mt-2 ml-2 rounded bg-ink-700 px-3 py-1 text-slateish-100 disabled:opacity-50">Allow test sending</button>)}
           {confirming?.kind === "again" && confirming.mailboxId === mailbox.id && <div role="alertdialog" aria-label="Confirm importing the label again" className="mt-2 rounded border border-warn-500 p-2" data-testid="confirm-import-again">
             <p>This reads all {mailbox.import_job?.total ? `${mailbox.import_job.total} ` : ""}messages of the label again and adds only what is not stored yet: messages, our own replies (to their query) and attachments not yet read. Nothing already stored is changed, and no query is made twice.</p>
             <button type="button" disabled={busy} onClick={() => { setConfirming(null); setError(null); void technicalQueriesApi.importAgain(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }} className="mt-1 mr-2 rounded bg-signal-500 px-2 py-1 text-white">Yes, read the label again</button>
@@ -387,6 +391,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
         </div>
         {gmailReturn === "admin_must_allow" && <p role="alert" className="mt-4 text-sm text-warn-500">Your company's Google admin must allow this app.</p>}
         {gmailReturn === "working" && <p role="status" className="mt-4 text-sm text-slateish-300">Finishing the Gmail connection.</p>}
+        {gmailReturn === "test_send_granted" && <p role="status" className="mt-4 text-sm text-slateish-300" data-testid="test-send-granted">Test sending is allowed for this mailbox. A test copy goes only to this mailbox itself, never to the contractor.</p>}
         {gmailReturn === "connected" && !mailboxes.some((mailbox) => mailbox.connection_state === "active") && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-500">{error}</p>}
         <div className="mt-4">
@@ -525,6 +530,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             {bulkNote && bulkNote.queryId === selected.id && <p role="status" data-testid="keep-cited-done" className="w-full text-xs text-slateish-300">Kept {bulkNote.kept} source{bulkNote.kept === 1 ? "" : "s"} the draft cites and rejected {bulkNote.rejected} other{bulkNote.rejected === 1 ? "" : "s"}. Each can still be changed below before you approve.</p>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
+            {selected.can_review && selected.drafts?.length && selected.test_send?.ready ? <button type="button" disabled={busy} data-testid="test-send" onClick={() => { const draftId = selected.drafts?.at(-1)?.id; if (!draftId) return; setBusy(true); setError(null); void technicalQueriesApi.testSend(selected.id, draftId).then((result) => { setBusy(false); if (!result.ok) { setError(result.error.message); return; } setTestSent({ queryId: selected.id, to: result.data.sent_to }); }); }} className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200 disabled:opacity-50">Send me a test copy</button> : null}
+            {testSent && testSent.queryId === selected.id && <span role="status" data-testid="test-sent" className="w-full text-xs text-slateish-300">A test copy was sent to {testSent.to} only. Nothing went to the contractor.</span>}
             {selected.status === "approved" && <span className="text-xs text-warn-500">Sending is not approved by the owner: download the Word response, send it yourself, then confirm it resolved.</span>}
             {(selected.status === "approved" || selected.status === "sent" || selected.status === "awaiting_confirmation") && selected.can_review ? <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Confirm resolved</button> : null}
             {selected.drafts?.length ? <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download Word response</a> : null}
