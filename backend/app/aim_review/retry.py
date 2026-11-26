@@ -132,7 +132,7 @@ def by_code(bad: list[dict], batch, found) -> tuple[list[dict], list[dict]]:
     return fixed, ask
 
 
-def capped(ask: list[dict], size: int) -> list[dict]:
+def capped(ask: list[dict], size: int, why=None) -> list[dict]:
     """On the local model at most ONE retry call per batch (its first `size` items; lead-4, 26 Nov 2026, after F's run
     09105c4b): the other items keep their quote not found, are left out like any such item, and are counted under "Steps that
     did not run". On Claude: every item, as before."""
@@ -140,11 +140,13 @@ def capped(ask: list[dict], size: int) -> list[dict]:
         return ask
     from . import faults
 
-    for _ in ask[size:]:
+    for it in ask[
+        size:
+    ]:  # counted by cause (`citing.cause`): the page and the sheet say why
         faults.record(
             "aim_retry_capped",
             "a checklist retry item",
-            "the local model makes one retry call per batch",
+            why(it) if why else "not asked again",
         )
     return ask[:size]
 

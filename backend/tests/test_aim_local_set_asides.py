@@ -85,9 +85,12 @@ def test_retry_items_whose_answer_stays_cut_are_left_out_counted_and_never_stop_
     assert said["sentence"].startswith(
         f"{CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found"
     )
-    assert capped["sentence"] == (
-        f"{14 - CL.RETRY_LOCAL} checklist items were left out: their rule quote was not found on the book page and were not "
-        "asked again (the local model makes one retry call per batch)."
+    assert (
+        capped["sentence"]
+        == (  # with its cause (lead-4, 26 Nov 2026: the 117 of the 9B run could not be broken down)
+            f"{14 - CL.RETRY_LOCAL} checklist items were left out without a second ask (the local model makes one retry call per "
+            "batch): the quote is not in the book's words (paraphrased)."
+        )
     )
     with pytest.raises(StepFailed):  # Claude: a cut is raised, as before
         CL.s3_checklist(
@@ -336,3 +339,90 @@ def test_the_local_checklist_shape_requires_the_book_clause_page_quote_and_sourc
             <= set(item["required"])
             <= set(item["properties"])
         )
+
+
+def test_a_kept_items_clause_must_hold_its_quote_or_it_is_cited_to_the_one_clause_that_does():
+    """F's 9B run on update 10: eleven items in a row cited one clause for unrelated subjects; the quote check read the page."""
+    from app.aim_review import citing
+
+    sel = _books(_sel(3))
+    words = {r["clause"]: r["source_text"] for r in sel["_pool"]}
+
+    class _Stamps(_Retry):  # every item quotes clause 4.2's words but cites clause 4.1
+        def ask(self, **kw):
+            self.calls.append(kw)
+            return {"items": [{"topic": "t", "what_to_check": "w", "book": "B1", "clause": "4.1", "page": 1,
+                               "rule_quote": words["4.2"][:60], "applies_when": "always", "paper_fields": ["f"],
+                               "kind": "limit", "source": "held standard"}]}  # fmt: skip
+
+    with budget.using(budget.LOCAL):
+        got = CL.s3_checklist(_Stamps(), IDENT, sel, _BookHoldsRules(sel), "local")
+    assert [i["clause"] for i in got["items"] if i["source"] == "held standard"] == [
+        "4.2"
+    ]
+    claude = CL.s3_checklist(
+        _Stamps(), IDENT, _books(_sel(3)), _BookHoldsRules(sel), "claude-sonnet-5-5"
+    )
+    assert [i["clause"] for i in claude["items"]] == ["4.1"]  # Claude: unchanged
+    batch = [_rule("R1", "B1", "4.1", 1, "Rule one words of the invented item here."),
+             _rule("R2", "B1", "4.2", 1, "Rule two words of the invented item here.")]  # fmt: skip
+    nowhere = {
+        "book": "B1",
+        "clause": "4.1",
+        "rule_quote": "words that are in no stored rule at all",
+    }
+    pages_only = {"book": "B9", "clause": "4.1", "rule_quote": "any words"}
+    with budget.using(budget.LOCAL):
+        assert (
+            citing.cited(dict(nowhere), batch) is False
+            and citing.cited(pages_only, batch) is True
+        )
+    assert citing.cited(dict(nowhere), batch) is True  # Claude: as before
+
+
+def test_items_left_out_are_counted_by_cause_on_the_page_and_the_sheet():
+    from app.aim_review import citing
+
+    class _Text:
+        def page(self, _b, n):
+            return {3: "The invented rule words stand on page three of the book."}.get(
+                n
+            )
+
+        def pages(self, _b):
+            return {3: self.page(None, 3)}
+
+    alias = {"B1": "doc_b1"}
+    items = [
+        {"book": "BX", "rule_quote": "q", "page": 3},
+        {"book": "B1", "rule_quote": "", "page": 3},
+        {
+            "book": "B1",
+            "rule_quote": "invented rule words stand on page three",
+            "page": 9,
+        },
+        {
+            "book": "B1",
+            "rule_quote": "invented rule words stand on page three",
+            "page": 3,
+        },
+        {"book": "B1", "rule_quote": "words of a paraphrase only", "page": 3},
+        {"book": "B1", "rule_quote": "another paraphrase of the rule", "page": 3},
+    ]
+    why = [citing.cause(it, _Text(), alias) for it in items]
+    assert why == [citing.NO_BOOK, citing.NO_QUOTE, citing.OTHER_PAGE, citing.NOT_IN_CLAUSE, citing.NOT_IN_BOOK,
+                   citing.NOT_IN_BOOK]  # fmt: skip
+    calls: list = []
+    with faults.recording(calls), budget.using(budget.LOCAL):
+        assert RT.capped(items, 0, lambda it: citing.cause(it, _Text(), alias)) == []
+    rows = [c.as_dict() for c in calls]
+    said = [
+        x
+        for x in aim_review_view.steps_not_applied(rows)
+        if x["step"] == "aim_retry_capped"
+    ]
+    assert sorted(x["count"] for x in said) == [1, 1, 1, 1, 2] and sum(
+        x["count"] for x in said
+    ) == len(items)
+    assert any(x["sentence"].startswith("2 checklist items were left out") and x["sentence"].endswith("(paraphrased).")
+               for x in said)  # fmt: skip

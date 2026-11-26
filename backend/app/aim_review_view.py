@@ -782,8 +782,10 @@ def steps_not_applied(calls) -> list[dict]:
         words = NOT_APPLIED_WORDS.get(
             step, "The step " + step + " did not run on this sheet ({why})."
         )
+        # a counted step is counted per cause (its sentence holds "{n}"); any other step once
         row = out.setdefault(
-            step, {"step": step, "why": why, "count": 0, "words": words}
+            (step, why) if "{n}" in words else step,
+            {"step": step, "why": why, "count": 0, "words": words},
         )
         row["count"] += 1
     # a step that set something aside more than once says how many times

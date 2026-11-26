@@ -20,6 +20,7 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
 )
 
 from . import book_names as BN
+from . import citing as CI
 from . import faults
 from . import library as L
 from . import prompts as P
@@ -493,30 +494,27 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
             RT.unique(_items_of(out))  # local: cut at a first repeat
         )  # a knowledge item another paper of the package carries: not checked here
         dropped += aside
-        bad = [
-            it
-            for it in got
-            if it["source"] == HELD and not check_rule_quote(text, it, alias_to_book)
-        ]
+
+        def kept(
+            it: dict, batch=batch
+        ) -> bool:  # local: its clause must resolve too (`citing.cited`)
+            return check_rule_quote(text, it, alias_to_book) and CI.cited(it, batch)
+
+        bad = [it for it in got if it["source"] == HELD and not kept(it)]
         if bad:  # one retry: ask for the exact words of those items only
             retried += len(bad)
             # on the local model: the cited clause's words by code, then ONE call of at most RETRY_LOCAL items (26 Nov 2026:
             # one answer for every such item ran past its 8,000 tokens; 18 calls ran past the swap rule); on Claude one call
             size = RETRY_LOCAL if is_local() else len(bad)
-            fixed, ask = (
-                RT.by_code(  # local: the cited clause's own stored words first, no call (F's run 09105c4b)
-                    bad, batch, lambda it: check_rule_quote(text, it, alias_to_book)
-                )
-            )
+            fixed, ask = RT.by_code(
+                bad, batch, kept
+            )  # local: stored words first, no call
+            why = lambda it: CI.cause(it, text, alias_to_book)  # noqa: E731 - the count's cause
             for k in range(
-                0, len(ask := RT.capped(ask, size)), size
+                0, len(ask := RT.capped(ask, size, why)), size
             ):  # local: one retry call per batch
                 fixed += RT.retried(model, ask[k : k + size], batch, carries, lead)
-            ok_fixed = [
-                it
-                for it in fixed
-                if it["source"] == HELD and check_rule_quote(text, it, alias_to_book)
-            ]
+            ok_fixed = [it for it in fixed if it["source"] == HELD and kept(it)]
             dropped += [
                 {"topic": it["topic"], "why": "rule quote not found on the book page"}
                 for it in bad
