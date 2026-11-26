@@ -214,3 +214,26 @@ def test_an_item_too_long_is_cut_with_a_visible_mark_never_silently():
         and len(first) <= items.ITEM_CAP + len(items.ITEM_CUT)
         and second == "the next"
     )
+
+
+def test_a_draft_that_leaves_a_numbered_item_unanswered_says_so():
+    """Lead-4's blind re-score (27 Nov 2026): a draft silently dropped item 3 instead of writing "Not found" for it."""
+    q = "Please confirm each item:\n\n1. first\n2. second\n3. third"
+    assert auto.unanswered_mark(
+        "**1.** COMPANY confirms ... [S1]\n**2.** COMPANY ... [S2]", q
+    ) == ("The draft does not answer request item 3; check it by hand.")
+    assert (
+        auto.unanswered_mark(
+            "Items 1 and 2: ... Item 3: Not found in the documents searched.", q
+        )
+        is None
+    )
+    assert (
+        auto.unanswered_mark("Items 1 to 3 are answered together: ...", q) is None
+    )  # grouped, as COMPANY does
+    assert "does not say which" in auto.unanswered_mark(
+        "COMPANY confirms the rule applies.", q
+    )
+    assert (
+        auto.unanswered_mark("anything", "Please confirm the coating.") is None
+    )  # a single request: nothing to count
