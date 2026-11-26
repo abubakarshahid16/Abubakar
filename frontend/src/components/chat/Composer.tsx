@@ -158,38 +158,27 @@ export function Composer({
             +
           </Button>
           {onPick && onPickerOpen && (
-            <button
+            <Button
               ref={pickerButton}
-              type="button"
+              size="sm"
               aria-expanded={pickerOpen}
+              aria-pressed={picked.length > 0}
               aria-haspopup="dialog"
               onClick={() => onPickerOpen(!pickerOpen)}
-              className={[
-                "rounded-[var(--radius-full)] border px-3 py-1 text-xs motion-safe:transition-colors",
-                picked.length > 0
-                  ? "border-signal-500/60 text-signal-300"
-                  : "border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800",
-              ].join(" ")}
             >
               @ a document{picked.length > 0 ? ` (${picked.length})` : ""}
-            </button>
+            </Button>
           )}
           {models && (
-            <button
-              type="button"
+            <Button
+              size="sm"
               aria-pressed={web}
               disabled={!models.web_available || !onWeb}
               title={models.web_available ? "Offer a web search. Nothing is sent until you approve the phrase." : models.web_reason ?? "Web search is off"}
               onClick={() => onWeb?.(!web)}
-              className={[
-                "rounded-[var(--radius-full)] border px-3 py-1 text-xs motion-safe:transition-colors disabled:opacity-50",
-                web
-                  ? "border-signal-500/70 bg-signal-500/10 text-signal-300"
-                  : "border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800",
-              ].join(" ")}
             >
               {web ? "Web on" : "Web off"}
-            </button>
+            </Button>
           )}
           {pickerOpen && onPick && onPickerOpen && (
             <DocumentPicker
