@@ -171,9 +171,18 @@ def test_the_mixed_summary_names_pages_not_read_and_picture_parts_apart():
     assert got.endswith("Picture part not read (text and title block read): page 1.")
 
 
-# ---- lead-4, 26 Nov: a paper whose kind the code does not know (unknown, or "other") is a drawing when its PAGES pass the page test
-# (more than half of the pages of 50+ characters hold a title block AND are drawn over a quarter of the page); at upload the same
-# test SUGGESTS "drawing" for an engineer to confirm, as a guess that decides nothing by itself.
+# ---- lead-4, 26 Nov (update 13 review B2): in a REVIEW only an engineer-confirmed drawing gets the notes. The PAGE TEST is for the
+# upload's "drawing?" suggestion only (a guess an engineer confirms): a page is a drawing sheet when its bottom quarter holds 3+
+# title-block fields with a drawing number AND the page is drawn over a quarter of its area. A ruled table counts as drawn, so a form
+# (header at the top, or a revision footer with no drawing number) must not pass.
+
+HEADER = "TITLE Invented data sheet\nDOC NO. ZZ-DS-01  REV 1  DATE 2026-11-26\nSHEET 1 OF 2  PROJECT Invented  APPROVED XY"
+FOOTER = (
+    "REV 0  DATE 2026-11-26  CHECKED AB  APPROVED CD  DESCRIPTION issued for review"
+)
+ROWS = "\n".join(
+    f"Item {i}: invented field {i} of the form, value to be stated" for i in range(1, 9)
+)
 
 
 def _titled_drawn(path, n):
@@ -187,6 +196,31 @@ def _titled_drawn(path, n):
     return dict.fromkeys(range(1, n + 1), TITLE)
 
 
+def _ruled(page, top=150, rows=25, cols=5):
+    """A ruled table: 25 rows of 5 cells over most of the page (the review's B2 case)."""
+    for r in range(rows):
+        for c in range(cols):
+            page.draw_rect(
+                pymupdf.Rect(
+                    40 + c * 103, top + r * 24, 40 + (c + 1) * 103, top + (r + 1) * 24
+                )
+            )
+
+
+def _form(path, where):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    if where == "header":
+        page.insert_text((40, 50), HEADER, fontsize=9)
+    page.insert_text((45, 165), ROWS, fontsize=8)
+    _ruled(page)
+    if where == "footer":
+        page.insert_text((40, 800), FOOTER, fontsize=8)
+    doc.save(path)
+    doc.close()
+    return pymupdf.open(path)
+
+
 def _no_kind(monkeypatch, kind=None):
     import app.agent_review_kind as ARK
 
@@ -195,11 +229,13 @@ def _no_kind(monkeypatch, kind=None):
     )
 
 
-@pytest.mark.parametrize("kind", [None, "other"])
-def test_an_unknown_or_other_paper_whose_pages_pass_the_page_test_is_read_as_a_drawing(
+@pytest.mark.parametrize("kind", [None, "other", "drawing"])
+def test_in_a_review_only_a_confirmed_drawing_gets_the_notes_even_when_its_pages_are_drawing_sheets(
     aim_db, tmp_path, monkeypatch, kind
 ):
-    _no_kind(monkeypatch, kind)
+    _no_kind(
+        monkeypatch, kind
+    )  # unknown, "other", or "drawing" read by the code's own cues: none is a confirmation
     path = tmp_path / "doc_dr2.pdf"
     texts = _titled_drawn(path, 3)
     with aim_db:
@@ -207,23 +243,48 @@ def test_an_unknown_or_other_paper_whose_pages_pass_the_page_test_is_read_as_a_d
         aim_db.execute(
             "UPDATE documents SET stored_path = ? WHERE id = ?", (str(path), "doc_dr2")
         )
-    assert DP.page_test(texts, path) == (3, 3)
+    assert DP.page_test(texts, path) == (
+        3,
+        3,
+    )  # they ARE drawing sheets: the upload would suggest "drawing"
+    got, _ = _marks(aim_db, "doc_dr2")
+    assert got == []  # but a review adds nothing until an engineer confirms the kind
+    with aim_db:
+        aim_db.execute(
+            "INSERT INTO document_kinds (document_id, kind, state, routed_at) VALUES ('doc_dr2', 'drawing', 'confirmed', '2026-11-26T00:00:00Z')"
+        )
     got, _ = _marks(aim_db, "doc_dr2")
     assert got == [(f"page {n}", DP.PICTURE_PART) for n in (1, 2, 3)]
 
 
-@pytest.mark.parametrize("kind", [None, "other"])
-def test_an_unknown_paper_that_fails_the_page_test_is_exactly_as_before(
-    aim_db, tmp_path, monkeypatch, kind
-):
-    _no_kind(
-        monkeypatch, kind
-    )  # 1 of 3 text pages holds a title block (and it is barely drawn): not most pages
-    doc = _paper(
-        aim_db, tmp_path, ["titled", "notes_drawn", "short", "scan", "plain"], None
-    )
-    got, _ = _marks(aim_db, doc)
-    assert got == [("page 4", U.NO_TEXT)]
+@pytest.mark.parametrize("where", ["header", "footer"])
+def test_a_ruled_form_is_drawn_but_is_not_a_drawing_sheet(tmp_path, where):
+    """B2: a header with title-block fields (or a revision footer) over a 25 x 5 ruled table covers most of the page."""
+    doc = _form(tmp_path / f"form_{where}.pdf", where)
+    page = doc[0]
+    assert DP.drawn_share(page) >= 0.5  # drawn share alone would call it a drawing
+    if where == "header":
+        assert (
+            DP.title_fields(page.get_text()) >= 5
+        )  # and it holds a title block, at the top
+    assert DP.is_sheet(page) is False
+    texts = {1: page.get_text()}
+    assert DP.page_test(texts, tmp_path / f"form_{where}.pdf") == (0, 1)
+
+
+def test_a_rotated_sheet_is_read_by_its_bottom_band_as_shown(tmp_path):
+    path = tmp_path / "rot.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.set_rotation(90)
+    shown = pymupdf.Point(
+        40, page.rect.height - 120
+    )  # the bottom quarter of the page as it is shown
+    page.insert_text(shown * page.derotation_matrix, TITLE, fontsize=9, rotate=90)
+    _lines(page)
+    doc.save(path)
+    doc.close()
+    assert DP.is_sheet(pymupdf.open(path)[0]) is True
 
 
 @pytest.mark.parametrize("kind", [None, "other", "datasheet"])
