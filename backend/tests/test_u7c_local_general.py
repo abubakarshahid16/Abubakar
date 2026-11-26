@@ -27,6 +27,7 @@ from app import (
     reader_transport,
     reasoning_provider,
     review_engine,
+    review_engine_general,
 )
 from app.aim_review import budget, local_model, material, paper, prompts
 from app.aim_review import engine as method_engine
@@ -125,7 +126,9 @@ def _start_local(w, paper_id: str) -> str:
     assert plan["refused"] is None and plan["text_leaves"] is False
     assert (
         plan["documents"]["leaving"] == []
-        and aim_review_gate.LOCAL_PLAN_WORDS in plan["sentence"]
+        and "runs on the local model" in plan["sentence"]
+        and aim_review_gate.local_measured_note(review_engine_general._local_models())
+        in plan["sentence"]
     )
     r = client.post(
         "/api/reviews/start",

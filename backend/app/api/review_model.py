@@ -42,6 +42,14 @@ class Stored(BaseModel):
     set_at: str | None = None
 
 
+class Change(BaseModel):
+    slot: str
+    old_model: str | None = None
+    new_model: str | None = None
+    changed_by: str | None = None
+    changed_at: str
+
+
 class ReviewModelOptions(BaseModel):
     claude: list[ModelRow]
     local: list[ModelRow]
@@ -49,7 +57,9 @@ class ReviewModelOptions(BaseModel):
     engine_down_words: str | None = None
     steps: list[str]
     answer_model: str
+    answer_model_why: str | None = None
     stored: Stored
+    history: list[Change] = Field(default_factory=list)
     used_by: str
 
 

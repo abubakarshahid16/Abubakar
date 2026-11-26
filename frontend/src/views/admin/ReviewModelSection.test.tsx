@@ -24,6 +24,7 @@ const OPTIONS: ReviewModelOptions = {
   answer_model: "invented-small:14b",
   used_by: "Local only runs of the general review; Automatic and Claude never use a local model.",
   stored: { default: null, steps: {}, set_by: null, set_at: null },
+  history: [{ slot: "judge", old_model: null, new_model: "invented-small:14b", changed_by: "u-invented", changed_at: "2026-11-26T03:00:00+00:00" }],
 };
 
 function fake(save = vi.fn().mockResolvedValue({ ok: true, data: { stored: OPTIONS.stored } })) {
@@ -44,6 +45,7 @@ describe("ReviewModelSection", () => {
     const pickers = screen.getAllByRole("combobox");
     expect(pickers).toHaveLength(3); // the default and one per step; none for Claude
     expect(within(pickers[0]).queryByRole("option", { name: "invented-huge:35b" })).toBeNull();
+    expect(screen.getByTestId("review-model-history")).toHaveTextContent("judge: the default → invented-small:14b (by u-invented)");
   });
 
   it("saves the default and the per-step picks", async () => {
@@ -54,6 +56,13 @@ describe("ReviewModelSection", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(save).toHaveBeenCalledWith({ default: "invented-small:14b", steps: { judge: "invented-small:14b" } });
     expect(await screen.findByRole("status")).toHaveTextContent("Saved");
+  });
+
+  it("says why the configured answer model was replaced by the code's default", async () => {
+    const replaced = { ...OPTIONS, answer_model_why: "ANSWER_MODEL names invented-huge:35b, which cannot be used here" };
+    const api = { load: vi.fn().mockResolvedValue({ ok: true, data: replaced }), save: vi.fn() } as unknown as typeof reviewModelApi;
+    render(<ReviewModelSection api={api} />);
+    expect(await screen.findByTestId("review-model-fell-back")).toHaveTextContent("invented-huge:35b, which cannot be used here");
   });
 
   it("shows the server's refusal in its own words", async () => {

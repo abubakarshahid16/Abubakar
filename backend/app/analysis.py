@@ -39,7 +39,7 @@ import time
 # only module in `app/` allowed to (tests/test_socket_containment.py).
 import httpx
 
-from . import access, acronyms, claims, market, model_transport, search as search_mod, synthesis
+from . import access, acronyms, answer_model_choice, claims, market, model_transport, search as search_mod, synthesis
 from . import reading_state
 from .work_budget import WorkBudget
 from .config import settings
@@ -714,7 +714,7 @@ def ollama_generate(system: str, prompt: str) -> synthesis.Generation:
     tested without a model and what lets a caller here swap in a stub.
     """
     body = {
-        "model": settings.answer_model,
+        "model": answer_model_choice.name(),
         "system": system,
         "prompt": prompt,
         "stream": False,
@@ -762,7 +762,7 @@ def collection_generate(system: str, prompt: str, *, target_words: int) -> synth
     output_tokens = (min(1900, int(target_words * 2.4) + 200) if final
                      else 384 if retry else 220)
     body = {
-        "model": settings.answer_model,
+        "model": answer_model_choice.name(),
         "system": system,
         "prompt": prompt,
         "stream": False,

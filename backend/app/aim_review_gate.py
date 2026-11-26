@@ -52,6 +52,38 @@ LOCAL_MEASURED = {
 LOCAL_NOT_SCORED = "local model, not yet scored"
 #: A model with no measured score of the general review (the Review model section of the Administration page).
 NOT_YET_SCORED = "not yet scored"
+#: The local models whose line in `LOCAL_MEASURED` carries a measured score (found of 10). Every label of a run on one of these
+#: says `LOCAL_MEASURED_WORDS`; every other local run says `LOCAL_NOT_SCORED` (lead-4, 26 Nov 2026: a measured model never
+#: says "not yet scored" next to its own numbers).
+LOCAL_SCORED_MODELS = frozenset({"qwen3.5:9b-q4_K_M"})
+LOCAL_MEASURED_WORDS = "local model, measured in our test"
+
+
+def _one_model(models) -> str | None:
+    names = sorted({str(m).strip() for m in models or () if str(m).strip()})
+    return names[0] if len(names) == 1 else None
+
+
+def local_score_words(models) -> str:
+    """The label of a local run's score, from the same per-model source as its note: `LOCAL_MEASURED_WORDS` when every step
+    uses one model with a measured score, else `LOCAL_NOT_SCORED`."""
+    return (
+        LOCAL_MEASURED_WORDS
+        if _one_model(models) in LOCAL_SCORED_MODELS
+        else LOCAL_NOT_SCORED
+    )
+
+
+def local_plan_words(models) -> str:
+    """The Local only plan's sentence (the inline plan on the Review list and the start step): it names the model(s) and takes
+    the measured note from `LOCAL_MEASURED` like every other local label, so it never says "not measured" beside a measured
+    model nor shows another model's numbers."""
+    names = sorted({str(m).strip() for m in models or () if str(m).strip()})
+    return (
+        f"The general review runs on the local model ({', '.join(names) or 'the local default'}) on this computer. "
+        "Nothing leaves this computer and nothing is paid. It is slower than Claude (a large paper can take hours). "
+        + local_measured_note(names)
+    )
 
 
 def local_measured_note(models) -> str:

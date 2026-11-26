@@ -156,6 +156,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `ai_call_ledger` | #1525: counts, per step and model, the AI answers a review job asked for fresh and the stored answers it reused, for the audit report; open only with REVIEW_AUDIT_REPORT_ENABLED on |
 | `analysis` | The three engines joined to retrieval, the model and the access scope |
 | `answer` | Answer a chat question from the documents |
+| `answer_model_choice` | The local answer model in use, ONE rule for every local call (general review default, Chat, technical-query drafts, Explain): ANSWER_MODEL unless proven unusable here (too large, a cloud name, not a model file), then the code's default with the reason (26 Nov 2026) |
 | `answer_model_notice` | Order 238.2: the dashboard warning when the default 35B answer model is not installed, naming the earlier model |
 | `answerability` | B8: the answer-level safety gate - does the evidence ANSWER the question? |
 | `api.documents` | Routes: upload, list, read and delete documents, the ingest steps and the bulk role change (moved out of main.py, order 73) |
