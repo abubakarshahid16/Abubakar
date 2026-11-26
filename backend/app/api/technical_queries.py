@@ -989,7 +989,7 @@ def generate_query_draft(
         usable_evidence = technical_query_auto.draft_passages(current, scope.allowed_document_ids, attachment_documents)
     if not usable_evidence:
         raise _refuse(409, _no_usable_evidence(current, attachment_documents, scope) if engine == "claude"
-                      else technical_query_auto.NO_PASSAGE)  # fmt: skip
+                      else technical_query_auto.none_usable_note(current))  # fmt: skip
     scope_ids = frozenset(item["document_id"] for item in usable_evidence)
     chosen: frozenset[str] = frozenset()
     unread_standards = 0
@@ -1011,8 +1011,10 @@ def generate_query_draft(
         unread_standards = len(technical_query_contracts.standard_ids(frozenset(unreadable)))  # counted, never named
         with connect() as conn:  # the files sent are recorded BEFORE anything can be sent: ids only
             technical_query_claude.record(conn, query_id, chosen, scope.user_id)
+    from ..answer import query_reply
+
     try:
-        with claude_approved.technical_query_lane(chosen):
+        with claude_approved.technical_query_lane(chosen), query_reply():  # the query-reply prompt (no "Yes." / "No." opening)
             result = verified_passages.answer(
                 question,
                 evidence=usable_evidence,
