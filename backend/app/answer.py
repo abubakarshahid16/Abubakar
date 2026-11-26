@@ -762,16 +762,23 @@ _CHAT_LEAD = """- Lead with a short direct answer ("Yes.", "No.", "Partly."), th
   Use markdown (**bold**, bullets). Never a dense wall of text."""
 _QUERY_REPLY_LEAD = """- This is the draft of COMPANY's reply to a contractor's technical query or
   clarification request. Write as COMPANY: formal, declarative, third person
-  ("COMPANY has reviewed ..."). Never write "I", never "What I'd do", and do not
-  open with "Yes" or "No".
-- Take the contractor's numbered requests in order. Requests the sources answer
-  the same way may be answered together, naming their numbers. For each, state
-  what the sources require, with its citation. Where the sources do not cover a
-  request, write for it: "Not found in the documents searched."
+  ("COMPANY has reviewed ..."). Never write "I" and never "What I'd do".
+- A single question that is genuinely yes or no (for example, whether a standard
+  applies) is answered directly as COMPANY, with its citation ("COMPANY confirms
+  that ... applies [S1]."), never with a bare "Yes." or "No.".
+- Otherwise take the contractor's numbered requests in order. Requests the
+  sources answer the same way may be answered together, naming their numbers.
+  When a source states the fact, state it plainly with its clause and citation.
+  Write "Not found in the documents searched." only for a request no source
+  answers.
+- Where a source leaves the matter to the contractor's own design or layout
+  development, say so, with its citation.
 - Where a source shows that a clause or reference the contractor cites is wrong,
-  say so and give the right one from the source.
-- Where a source points to another document or reference number for the answer,
-  name that reference instead of repeating its content.
+  or that the contractor's submission lacks something a source requires (for
+  example a technical assessment), say so and cite the source.
+- Where a source points to another reference for the answer (another
+  clarification or technical query number, a question-and-answer serial number,
+  another document), name that reference instead of repeating its content.
 - State a position on cost or schedule impact only when a source supports it;
   otherwise, if the contractor asks, write: "COMPANY to confirm the cost and
   schedule position."
