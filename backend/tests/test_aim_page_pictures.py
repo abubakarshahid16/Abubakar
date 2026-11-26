@@ -184,3 +184,82 @@ def test_the_upload_stage_marks_the_paper_as_being_read_for_the_length_of_its_pa
     )
     picture_stage.run("doc_invented")
     assert seen == [True] and not picture_stage.reading_now("doc_invented")
+
+
+@pytest.fixture()
+def with_picture(monkeypatch):
+    """The stage's own reading, with an invented picture in the packet (no PDF here)."""
+
+    def transcribe(path, page_no, prov):
+        from app.reasoning_provider import Packet
+
+        return prov.reason(Packet(prompt=f"Page {page_no}. Transcribe it.", num_ctx=1, num_predict=1, step="vision",
+                                  images=(b"invented-picture-bytes",))).text  # fmt: skip
+
+    monkeypatch.setattr(picture_stage, "_transcribe", transcribe)
+
+
+def _record_rows(conn, run_id):
+    from app.aim_review import roles
+
+    calls = [
+        dict(r)
+        for r in conn.execute(
+            f"SELECT * FROM {roles.CALLS} WHERE run_id = ?", (run_id,)
+        )
+    ]
+    reads = [
+        dict(r)
+        for r in conn.execute(
+            f"SELECT * FROM {roles.READS} WHERE run_id = ?", (run_id,)
+        )
+    ]
+    return calls, reads
+
+
+def test_with_the_role_record_each_picture_call_is_recorded_with_its_page_and_picture_checksum(
+    aim_db, wired, with_picture, monkeypatch
+):
+    """The nine-role record (AIM_U13_ENABLED): page pictures leave by their own reader, so that reader records each call (role 1)
+    before it is sent, with the paper's page and the checksum of the picture bytes."""
+    import hashlib
+    import json
+
+    from app.aim_review import updates
+
+    monkeypatch.setattr(settings, "aim_page_pictures_enabled", True)
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    rec = updates.nine_wrap(object(), "run_pictures", PAPER)
+    assert pictures.read(aim_db, PAPER, Meter(cap=5.0), rec)[picture_stage.READ] == 1
+    calls, reads = _record_rows(aim_db, "run_pictures")
+    assert [(c["role_no"], c["step"], c["state"]) for c in calls] == [
+        (1, pictures.STEP, "answered")
+    ]
+    assert [
+        (r["document_id"], json.loads(r["pages_json"]), r["pictures"]) for r in reads
+    ] == [(PAPER, [PICTURE_PAGE], 1)]
+    assert (
+        reads[0]["text_sha256"] == hashlib.sha256(b"invented-picture-bytes").hexdigest()
+    )
+
+
+def test_with_the_role_record_a_picture_the_runs_cap_refuses_is_recorded_refused_and_nothing_is_sent(
+    aim_db, wired, with_picture, monkeypatch
+):
+    from app.aim_review import updates
+
+    monkeypatch.setattr(settings, "aim_page_pictures_enabled", True)
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    rec = updates.nine_wrap(object(), "run_pictures_cap", PAPER)
+    pictures.read(aim_db, PAPER, Meter(cap=0.0001), rec)
+    calls, _reads = _record_rows(aim_db, "run_pictures_cap")
+    assert [(c["state"], c["error_code"]) for c in calls] == [
+        ("refused", "run_cap")
+    ] and wired.packets == []
+
+
+def test_without_the_role_record_the_picture_reader_is_main(aim_db, wired, monkeypatch):
+    monkeypatch.setattr(settings, "aim_page_pictures_enabled", True)
+    assert (
+        pictures.read(aim_db, PAPER, Meter(cap=5.0))[picture_stage.READ] == 1
+    )  # no record given: as before
