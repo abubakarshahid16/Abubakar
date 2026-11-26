@@ -277,3 +277,71 @@ export function plainMark(mark: string): string {
     .replace(/\bpassages\b/g, "sources")
     .replace(/\bpassage\b/g, "source");
 }
+
+// ------------------------------------------------------------------ the lower half: the decision, the quote, who handles it (owner, 27 Nov 2026 00:02)
+
+/** At most this many characters of a source passage show before "Show the whole passage" (about three lines at laptop width). */
+export const QUOTE_SHORT = 260;
+
+/** The first part of a long passage, cut at a word, and whether it was cut (rule: no cut without a visible mark and the full text beside it). */
+export function shortQuote(text: string, max = QUOTE_SHORT): { short: string; cut: boolean } {
+  const plain = (text ?? "").replace(/\s+/g, " ").trim();
+  if (plain.length <= max) return { short: plain, cut: false };
+  const at = plain.lastIndexOf(" ", max);
+  return { short: plain.slice(0, at > max * 0.6 ? at : max).trimEnd(), cut: true };
+}
+
+const STOP = new Set(["about", "above", "after", "again", "being", "below", "between", "could", "every", "following", "from", "have", "into",
+  "other", "please", "provide", "shall", "should", "since", "that", "their", "there", "these", "this", "those", "under", "which", "while",
+  "with", "would", "where", "what", "when", "confirm", "clarify", "contractor", "required", "requirement", "kindly"]);
+
+/** The words of the ask that are worth marking in a passage: five letters or more, not common words, at most 12. */
+export function askWords(ask: string): string[] {
+  const seen = new Set<string>();
+  for (const w of (ask ?? "").toLowerCase().match(/[a-z][a-z0-9-]{4,}/g) ?? []) if (!STOP.has(w)) seen.add(w);
+  return [...seen].slice(0, 12);
+}
+
+/** The passage in pieces, each piece marked when it is one of the ask's words (whole words, any case). */
+export function markedPieces(text: string, words: string[]): Array<{ text: string; hit: boolean }> {
+  if (!words.length || !text) return [{ text, hit: false }];
+  const escaped = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const re = new RegExp(`\\b(${escaped.join("|")})\\b`, "gi");
+  const out: Array<{ text: string; hit: boolean }> = [];
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index! > last) out.push({ text: text.slice(last, m.index), hit: false });
+    out.push({ text: m[0], hit: true });
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last), hit: false });
+  return out;
+}
+
+/** The decision under the reply, in the words a reviewer would say, and the one line of what happens next. */
+export type Decision = { kind: "decide" | "no_role" | "none"; hint: string };
+export function decisionFor(q: { status: string; can_review?: boolean; drafts?: unknown[] | null }): Decision {
+  if (q.status !== "awaiting_review" || !q.drafts?.length) return { kind: "none", hint: "" };
+  if (!q.can_review) return { kind: "no_role", hint: "Approving needs the technical-query reviewer role. An administrator can give it to you under Administration." };
+  return { kind: "decide", hint: "Approve records that you checked this reply. Nothing is sent: you then download it as a Word file and send it yourself." };
+}
+
+/** Why the Word reply cannot be downloaded yet, or null when it can (the server serves it once a reply is approved). */
+export function wordReplyWhyNot(q: { status: string; drafts?: unknown[] | null }): string | null {
+  if (!q.drafts?.length) return "There is no reply yet.";
+  if (!["approved", "sent", "awaiting_confirmation", "resolved"].includes(q.status)) return "Available once the reply is approved.";
+  return null;
+}
+
+/** "From the subject: contractor code ABC, discipline PRO" beside empty fields, so they are never blank with no hint; null when nothing was read. */
+export function fromSubjectHint(q: { contractor_code?: string | null; discipline_code?: string | null }): string | null {
+  const parts = [q.contractor_code ? `contractor code ${q.contractor_code}` : "", q.discipline_code ? `discipline ${q.discipline_code}` : ""].filter(Boolean);
+  return parts.length ? `From the subject: ${parts.join(", ")}. Add a rule under “Rules for who it goes to” and every query with this code fills itself.` : null;
+}
+
+/** The decisions so far in plain words; empty: "Nobody has approved this yet." */
+export function historyWords(decisions: Array<{ decision: string; comment?: string | null }> | null | undefined): string[] {
+  const words: Record<string, string> = { approve: "Approved", approved: "Approved", request_changes: "Sent back", changes_requested: "Sent back", reject: "Rejected" };
+  if (!decisions?.length) return ["Nobody has approved this yet."];
+  return decisions.map((d) => `${words[d.decision] ?? d.decision}${d.comment ? `: ${d.comment}` : ""}`);
+}
