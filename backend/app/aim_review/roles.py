@@ -104,7 +104,7 @@ def ensure_schema(conn) -> None:
         f"""CREATE TABLE IF NOT EXISTS {CALLS} (
             run_id TEXT NOT NULL, role_no INTEGER NOT NULL CHECK (role_no BETWEEN 1 AND 9), call_id TEXT NOT NULL,
             step TEXT NOT NULL, engine TEXT NOT NULL CHECK (engine IN ('claude', 'local')), model TEXT NOT NULL,
-            request_sha256 TEXT NOT NULL, chars INTEGER NOT NULL,
+            request_sha256 TEXT NOT NULL, chars INTEGER NOT NULL, book_text_unmatched INTEGER NOT NULL DEFAULT 0,
             state TEXT NOT NULL CHECK (state IN ('sent', 'answered', 'failed', 'refused')), error_code TEXT, sent_at TEXT NOT NULL,
             PRIMARY KEY (run_id, call_id))"""
     )
@@ -117,11 +117,21 @@ def ensure_schema(conn) -> None:
     )
 
 
+def _upgrade(conn) -> None:
+    """A call table made before the rule-book piece count gets its column (a table of an earlier build of this branch)."""
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({CALLS})")}
+    if "book_text_unmatched" not in cols:
+        conn.execute(
+            f"ALTER TABLE {CALLS} ADD COLUMN book_text_unmatched INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 def _db():
     from app import db
 
     conn = db.connect()  # thread-local: the judge's calls run side by side, each thread writes on its own connection
     ensure_schema(conn)
+    _upgrade(conn)
     return conn
 
 
@@ -136,13 +146,109 @@ def start(run_id: str) -> None:
             )
 
 
-def reads_of(request: str, carries, paper, step: str) -> list[dict]:
-    """The read rows of ONE request, by code from its own text: one row per declared document, with the pages whose text is in it.
-    The paper: each stored page whose marked text (`paper._marked`, as `steps.paper_block` sends it) stands in the request. A
-    reference paper: the pages of its "[page n]" windows. A rule book: the document only (its pages are not derived yet)."""
+#: How a rule cut at its size ends in the material (`material.material`).
+_CUT = " [CUT: rule text longer than shown]"
+_WS = re.compile(r"\s+")
+
+
+def probes(request: str) -> list[tuple[str, str]]:
+    """The rule-book text pieces a request holds, as the steps write them, each once: a rule's text and a page of a book read by its
+    pages (`material._material_line`), and a held item's clause window (`steps._shown_item`: whitespace folded, as the judge gets
+    it). An always-on or knowledge item's "clause_text" is the app's own facts, not a book's text: not a piece."""
+    from .steps import HELD
+
+    dec, out, seen = json.JSONDecoder(), [], set()
+    for m in re.finditer(r'\{"', request):
+        try:
+            o, _end = dec.raw_decode(request, m.start())
+        except ValueError:
+            continue
+        if not isinstance(o, dict):
+            continue
+        if "rule" in o and isinstance(o.get("text"), str):
+            piece = ("rule", o["text"].removesuffix(_CUT))
+        elif isinstance(o.get("page_text"), str):
+            piece = ("page", o["page_text"])
+        elif (
+            o.get("source") == HELD
+            and isinstance(o.get("clause_text"), str)
+            and o["clause_text"].strip()
+        ):
+            piece = ("window", o["clause_text"])
+        else:
+            continue
+        if piece[1] and piece not in seen:
+            seen.add(piece)
+            out.append(piece)
+    return out
+
+
+class Books:
+    """The stored rules and pages of the run's rule books, each read once (the record's own reading: nothing is sent)."""
+
+    def __init__(self) -> None:
+        self._lock, self._rules, self._pages = threading.Lock(), {}, {}
+
+    def rules(self, doc: str) -> dict[str, int]:
+        """{a rule's text as the material sends it (cut at its size): its page}."""
+        from .material import RULE_CHARS
+
+        with self._lock:
+            if doc not in self._rules:
+                rows = _db().execute("SELECT page, source_text, requirement_text FROM standard_requirements WHERE standard_document_id = ?",
+                                     (doc,)).fetchall()  # fmt: skip
+                self._rules[doc] = {
+                    str(r[1] or r[2] or "")[:RULE_CHARS]: int(r[0] or 0)
+                    for r in rows
+                    if (r[1] or r[2])
+                }
+            return self._rules[doc]
+
+    def pages(self, doc: str) -> dict[int, tuple[str, str]]:
+        """{page: (its stored text, the same text whitespace-folded)} (`agent_review_standards.read_book`, as `library.BookText`)."""
+        with self._lock:
+            if doc not in self._pages:
+                from app import agent_review_standards
+
+                pages = agent_review_standards.read_book(_db(), doc).pages
+                self._pages[doc] = {
+                    int(p): (t, _WS.sub(" ", t)) for p, t in pages.items() if t
+                }
+            return self._pages[doc]
+
+
+def _book_pieces(
+    doc: str, pieces: list[tuple[str, str]], books: Books
+) -> list[tuple[int, str]]:
+    """(page, text) of each piece that is this book's own stored text: a rule by its text, a page by its whole text, a window
+    found inside one of its folded pages."""
+    out = []
+    rules = books.rules(doc)
+    for kind, text in pieces:
+        if kind == "rule" and text in rules:
+            out.append((rules[text], text))
+        elif kind in ("page", "window"):
+            for p, (raw, flat) in sorted(books.pages(doc).items()):
+                if (kind == "page" and raw == text) or (
+                    kind == "window" and text in flat
+                ):
+                    out.append((p, text))
+                    break
+    return out
+
+
+def reads_of(
+    request: str, carries, paper, step: str, books: Books | None = None
+) -> tuple[list[dict], int]:
+    """The read rows of ONE request, by code from its own text, and the count of rule-book pieces no declared book holds: one row
+    per declared document, with the pages whose text is in it. The paper: each stored page whose marked text (`paper._marked`, as
+    `steps.paper_block` sends it) stands in the request. A reference paper: the pages of its "[page n]" windows. A rule book: the
+    pages of the rules, pages and clause windows of it the request holds (`probes`), with their size and checksum; a book the
+    call only names (the librarian's catalogue) holds none (chars 0)."""
     from .paper import _marked
 
-    rows = []
+    rows, pieces = [], probes(request)
+    matched: set[tuple[str, str]] = set()
     for doc in sorted(str(c) for c in carries or ()):
         if paper is not None and doc == paper.paper_id:
             found = [
@@ -157,8 +263,16 @@ def reads_of(request: str, carries, paper, step: str) -> list[dict]:
             pages = sorted({int(p) for p in _REF_PAGE.findall(request)})
             rows.append({"document_id": doc, "document_kind": "project_document", "pages": pages, "chars": None, "text_sha256": None})  # fmt: skip
         else:
-            rows.append({"document_id": doc, "document_kind": "rule_book", "pages": [], "chars": None, "text_sha256": None})  # fmt: skip
-    return rows
+            mine = (
+                _book_pieces(doc, pieces, books) if books is not None and pieces else []
+            )
+            matched |= {(k, x) for k, x in pieces if any(x == y for _p, y in mine)}
+            text = "".join(x for _p, x in mine)
+            rows.append({"document_id": doc, "document_kind": "rule_book", "pages": sorted({p for p, _x in mine}), "chars": len(text),
+                         "text_sha256": _sha(text) if mine else None})  # fmt: skip
+    return rows, (
+        len([x for x in pieces if x not in matched]) if books is not None else 0
+    )
 
 
 def undeclared_paper(request: str, carries, paper) -> bool:
@@ -178,6 +292,7 @@ class Recorded:
     def __init__(self, model, run_id: str, paper_id: str) -> None:
         self.model, self.run_id, self.paper_id = model, str(run_id), str(paper_id)
         self._paper, self._loaded, self._lock = None, False, threading.Lock()
+        self.books = Books()
 
     def __getattr__(
         self, name
@@ -211,11 +326,12 @@ class Recorded:
         )
         paper, carries = self._paper_now(), kw.get("carries") or ()
         call_id, engine = uuid.uuid4().hex, self._engine()
+        reads, unmatched = reads_of(request, carries, paper, step, self.books)
         conn = _db()
         with conn:
             conn.execute(
-                f"INSERT INTO {CALLS} (run_id, role_no, call_id, step, engine, model, request_sha256, chars, state, sent_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)",
+                f"INSERT INTO {CALLS} (run_id, role_no, call_id, step, engine, model, request_sha256, chars, book_text_unmatched,"
+                " state, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?)",
                 (
                     self.run_id,
                     role,
@@ -225,10 +341,11 @@ class Recorded:
                     str(kw.get("model") or ""),
                     _sha(request),
                     len(request),
+                    unmatched,
                     _now(),
                 ),
             )
-            for seq, r in enumerate(reads_of(request, carries, paper, step), 1):
+            for seq, r in enumerate(reads, 1):
                 conn.execute(
                     f"INSERT INTO {READS} (run_id, role_no, call_id, seq, document_id, document_kind, pages_json, chars, text_sha256)"
                     " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -266,7 +383,7 @@ def finish(run_id: str, result: dict) -> None:
     """Each role's row at the run's end, from its call rows and the run's stored calls and lines (counts only). A role with calls
     "ran", or "ran partly" when a call failed or was refused; a role with no call "not run" with the reason; the two code roles ran."""
     conn = _db()
-    calls = [dict(r) for r in conn.execute(f"SELECT role_no, step, engine, model, state, error_code FROM {CALLS} WHERE run_id = ?",
+    calls = [dict(r) for r in conn.execute(f"SELECT role_no, step, engine, model, state, error_code, book_text_unmatched FROM {CALLS} WHERE run_id = ?",
                                            (str(run_id),))]  # fmt: skip
     reads = [dict(r) for r in conn.execute(f"SELECT role_no, document_kind, document_id, pages_json FROM {READS} WHERE run_id = ?",
                                            (str(run_id),))]  # fmt: skip
@@ -333,9 +450,14 @@ def _produced(n: int, calls: list[dict], reads: list[dict], lines: list[dict]) -
                 if r["document_kind"] == "project_document"
             }
         )
-    if n == 3:
-        out["rule_books_offered"] = len(
+    if n not in CODE_ROLES and any(r["document_kind"] == "rule_book" for r in reads):
+        out["rule_books_declared"] = len(
             {r["document_id"] for r in reads if r["document_kind"] == "rule_book"}
+        )
+        out["rule_book_pages_sent"] = len({(r["document_id"], p) for r in reads if r["document_kind"] == "rule_book"
+                                           for p in json.loads(r["pages_json"])})  # fmt: skip
+        out["book_text_not_matched"] = sum(
+            int(c.get("book_text_unmatched") or 0) for c in calls
         )
     if n == 7:
         out["lines_compared_by_code"] = sum(

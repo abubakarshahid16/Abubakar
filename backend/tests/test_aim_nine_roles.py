@@ -175,3 +175,84 @@ def test_every_step_name_of_the_general_review_has_its_role():
     assert found and found <= set(roles.ROLE_OF_STEP), sorted(
         found - set(roles.ROLE_OF_STEP)
     )
+
+
+def test_a_rule_books_reads_are_the_pages_of_its_rules_pages_and_clause_windows_the_request_holds(
+    aim_db, monkeypatch
+):
+    """Roles 3 and 4 (lead-4, 26 Nov 2026): a rule book's read rows name the pages of its own stored text found in the request (a
+    rule of the material, a page of a book read by its pages, the judge's clause window), with the checksum of that text; the
+    librarian's catalogue (names and subjects only) holds none; no piece of rule-book text is left unmatched."""
+    monkeypatch.setattr(settings, "agent_review_nine_roles_enabled", True)
+    sent = []
+
+    class Spy(E.FakeModel):
+        def ask(self, **kw):
+            sent.append(kw)
+            return super().ask(**kw)
+
+    _run(aim_db, Spy(kind="datasheet", subject_key="test_item"))
+    calls = {c["call_id"]: c for c in _rows(aim_db, roles.CALLS)}
+    reads = [r for r in _rows(aim_db, roles.READS) if r["document_kind"] == "rule_book"]
+    assert reads and all(c["book_text_unmatched"] == 0 for c in calls.values())
+    books = roles.Books()
+    by_sha = {roles._sha(_request(kw)): kw for kw in sent}
+    with_pages = 0
+    for r in reads:
+        kw, step = (
+            by_sha[calls[r["call_id"]]["request_sha256"]],
+            calls[r["call_id"]]["step"],
+        )
+        mine = roles._book_pieces(r["document_id"], roles.probes(_request(kw)), books)
+        assert json.loads(r["pages_json"]) == sorted({p for p, _x in mine})
+        assert r["chars"] == sum(len(x) for _p, x in mine)
+        if step == "aim_select":
+            assert (
+                r["chars"] == 0
+            )  # the catalogue names books, it sends none of their text
+        with_pages += bool(mine)
+    assert with_pages  # the checklist material and the judge's windows hold book pages
+    rows = {r["role_no"]: r for r in _rows(aim_db, roles.ROLES)}
+    assert json.loads(rows[4]["produced_json"]).get("rule_book_pages_sent", 0) > 0
+
+
+def test_a_piece_of_rule_book_text_that_no_declared_book_holds_is_counted():
+    """A rule text of a book the call does not declare is never silently taken for a declared book's."""
+
+    class NoBooks(roles.Books):
+        def rules(self, doc):
+            return {"Invented rule text of book A.": 3}
+
+        def pages(self, doc):
+            return {}
+
+    request = json.dumps(
+        {
+            "rule": "R0001",
+            "book": "B01",
+            "clause": "1",
+            "page": 3,
+            "text": "Invented rule text of book Z.",
+        }
+    )
+    rows, unmatched = roles.reads_of(
+        request, {"doc_book_a"}, None, "aim_checklist", NoBooks()
+    )
+    assert unmatched == 1 and rows[0]["pages"] == [] and rows[0]["chars"] == 0
+    request = json.dumps(
+        {
+            "rule": "R0001",
+            "book": "B01",
+            "clause": "1",
+            "page": 3,
+            "text": "Invented rule text of book A.",
+        }
+    )
+    rows, unmatched = roles.reads_of(
+        request, {"doc_book_a"}, None, "aim_checklist", NoBooks()
+    )
+    assert (
+        unmatched == 0
+        and rows[0]["pages"] == [3]
+        and rows[0]["text_sha256"] == roles._sha("Invented rule text of book A.")
+    )
