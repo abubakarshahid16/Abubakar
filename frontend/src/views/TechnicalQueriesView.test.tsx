@@ -272,7 +272,7 @@ describe("Technical Queries screen", () => {
     fireEvent.click(await screen.findByText("Second"));
     await waitFor(() => expect(narrow).toHaveBeenCalledWith("(max-width: 1023px)"));
     expect(scroll.mock.calls.length).toBeGreaterThanOrEqual(2); // the page top on arrival, then the detail
-    const region = screen.getByRole("region", { name: "Technical Queries" });
+    const region = screen.getByRole("region", { name: "Technical Queries and CFCs" });
     expect(region.className).toContain("minmax(0,1fr)");
   });
 

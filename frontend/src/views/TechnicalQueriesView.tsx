@@ -264,7 +264,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   return (
     <div ref={topRef} className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
       <section className="min-w-0 [overflow-wrap:anywhere]">
-        <h1 id="technical-queries-title" className="text-xl font-semibold text-slateish-100">Technical Queries</h1>
+        <h1 id="technical-queries-title" className="text-xl font-semibold text-slateish-100">Technical Queries and CFCs</h1>
         <p className="mt-1 text-sm text-slateish-400">Incoming questions, evidence and engineer decisions.</p>
         <p className="mt-2 text-xs text-slateish-400">{visibleTotal === null ? "Loading queries" : `${items.length} matching · ${visibleTotal} in selected contractor and department`}</p>
         {canManageGmail && mailboxes.length === 0 && <div className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200">
