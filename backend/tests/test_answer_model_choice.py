@@ -5,6 +5,8 @@ faked: nothing is loaded and no engine is called. Invented model names only."""
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 
 from app import answer_model_choice, chat_model, model_transport
@@ -112,17 +114,43 @@ def test_a_model_that_is_not_a_file_here_falls_back(
     assert choice.name == CODE_DEFAULT and reason in choice.why
 
 
-def test_when_the_engine_cannot_be_asked_nothing_is_proven_and_the_setting_stands(
+def test_a_list_read_that_times_out_uses_the_code_default_and_is_never_kept(
     monkeypatch,
 ):
-    def down(*_a, **_k):
-        raise ConnectionError("invented")
+    """Review of update 11, N3: fail closed. While the engine's list cannot be read nothing is proven usable, so the 9B is used,
+    never the configured model (on live that was the 35B), and the failed read is asked again next time."""
+    asked: list[str] = []
 
-    monkeypatch.setattr(model_transport, "get_json", down)
+    def timed_out(path, *, timeout, required=True):
+        asked.append(path)
+        raise TimeoutError("invented")
+
+    monkeypatch.setattr(model_transport, "get_json", timed_out)
     monkeypatch.setattr(settings, "answer_model", HUGE)
+    choice = answer_model_choice.resolve()
+    assert choice.name == CODE_DEFAULT and answer_model_choice.LIST_UNREAD in choice.why
+    assert rp.OllamaProvider().requested_model == CODE_DEFAULT
+    assert len(asked) == 2  # the failed read was not kept: asked again
+
+
+def test_a_configured_model_the_engine_does_not_list_is_not_used(engine, monkeypatch):
+    monkeypatch.setattr(settings, "answer_model", "invented-missing:9b")
+    choice = answer_model_choice.resolve()
     assert (
-        answer_model_choice.resolve().name == HUGE
-    )  # the run's own start check still refuses it
+        choice.name == CODE_DEFAULT and answer_model_choice.NOT_INSTALLED in choice.why
+    )
+
+
+def test_every_other_reader_names_the_model_in_use(engine, monkeypatch):
+    """Review of update 11, N5: the run outcome, the AI task fallback, the old local reviewer's model A and the answer labels
+    read the model in use, never the configured one."""
+    from app import agent_review_local, ai_task_runner, aim_review_jobs
+
+    monkeypatch.setattr(settings, "answer_model", HUGE)
+    monkeypatch.setattr(settings, "agent_review_local_model_a", "")
+    assert agent_review_local.models_from_settings()[0] == CODE_DEFAULT
+    source = inspect.getsource(aim_review_jobs) + inspect.getsource(ai_task_runner)
+    assert "settings.answer_model" not in source.replace("settings.answer_model_", "")
 
 
 def test_the_code_default_never_asks_the_engine_and_the_list_is_read_once_a_minute(

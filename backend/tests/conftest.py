@@ -209,12 +209,15 @@ def _no_test_reads_the_local_edition_cutoff(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def _fresh_ollama_probe_state():
     """The Ollama probe answer is cached for 30 s and its HTTP client is shared
-    (#626). Neither may leak from one test into the next."""
-    from app import metrics, model_transport
+    (#626); the answer model's list is kept for a minute (`answer_model_choice`).
+    None may leak from one test into the next."""
+    from app import answer_model_choice, metrics, model_transport
     metrics.reset_ollama_cache()
+    answer_model_choice.forget()
     model_transport.close_shared_client()
     yield
     metrics.reset_ollama_cache()
+    answer_model_choice.forget()
     model_transport.close_shared_client()
 
 
