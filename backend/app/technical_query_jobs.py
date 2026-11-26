@@ -124,6 +124,29 @@ def _review_running() -> bool:
         return False
 
 
+#: How long a preparation waits for its query's papers to be read, and what it says meanwhile.
+READING_WAIT = 30 * 60
+READING_WORDS = "waiting for the query's attachments to be read"
+
+
+def _attachments_reading(query_id: str) -> bool:
+    """True while a paper this query took in (not a signature picture) is still being read by the ingest worker."""
+    from . import states
+
+    settled = sorted(
+        states.TERMINAL_STATES | {states.PARTIALLY_SEARCHABLE}
+    )  # the ingest worker's own "finished" set
+    with connect() as conn:
+        return (
+            conn.execute(
+                "SELECT 1 FROM query_attachments a JOIN query_messages m ON m.id=a.message_id JOIN documents d ON d.id=a.document_id "
+                f"WHERE m.query_id=? AND d.status NOT IN ({','.join('?' * len(settled))}) LIMIT 1",
+                (query_id, *settled),
+            ).fetchone()
+            is not None
+        )
+
+
 def run_job(job_id: str, *, wait_for_review: bool = True) -> None:
     """Do one job to its end (state done or failed). Used by the thread and by tests."""
     with connect() as conn:
@@ -137,6 +160,18 @@ def run_job(job_id: str, *, wait_for_review: bool = True) -> None:
     while wait_for_review and _review_running() and not _stop.is_set():
         _set(job_id, state="queued", label=WAITING_WORDS)
         _stop.wait(5)
+    # the query's own papers are read first (review of update 12, N10): a preparation started before them finds no question; at most
+    # READING_WAIT seconds, then it goes on and says what it could read
+    waited = 0
+    while (
+        wait_for_review
+        and waited < READING_WAIT
+        and _attachments_reading(row["query_id"])
+        and not _stop.is_set()
+    ):
+        _set(job_id, state="queued", label=READING_WORDS)
+        _stop.wait(5)
+        waited += 5
     _set(job_id, state="running", label="starting", started_at=technical_queries.now())
 
     def progress(done: int, total: int, label: str) -> None:

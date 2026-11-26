@@ -14,7 +14,9 @@ from app.config import settings
 
 @pytest.fixture(autouse=True)
 def temp_storage(tmp_path, monkeypatch):
-    monkeypatch.setattr(gmail_import_jobs, "AUTO_START", False)  # jobs are run here by hand, never by the background thread
+    monkeypatch.setattr(
+        gmail_import_jobs, "AUTO_START", False
+    )  # jobs are run here by hand, never by the background thread
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "db_path", tmp_path / "g.sqlite")
     db.reset_connection()
@@ -386,3 +388,25 @@ def test_prepare_all_queues_only_unprepared_queries_and_says_the_count_first(
                 "SELECT query_id FROM query_evidence_jobs WHERE state='queued'"
             )
         } == {a["id"]}
+
+
+def test_a_preparation_waits_while_its_query_papers_are_being_read(monkeypatch, tq):
+    from app import technical_queries
+    from app import technical_query_jobs as J
+
+    item, _ = technical_queries.import_message(
+        {"provider": "gmail", "mailbox_id": "mb", "provider_message_id": "w1", "provider_thread_id": "tw", "from_address": "a@vendor.example",
+         "to_addresses": [], "cc_addresses": [], "subject": "PRJ-INV-TQ-9 - Invented", "body": "Invented?",
+         "attachments": [{"filename": "form.pdf", "media_type": "application/pdf", "size_bytes": 1}]}, "u1")  # fmt: skip
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('d-w','form.pdf',?,1,'x','extracting','2026-01-01')",
+            ("e" * 64,),
+        )
+        conn.execute(
+            "UPDATE query_attachments SET document_id='d-w' WHERE filename='form.pdf'"
+        )
+    assert J._attachments_reading(item["id"]) is True
+    with db.connect() as conn:
+        conn.execute("UPDATE documents SET status='ready' WHERE id='d-w'")
+    assert J._attachments_reading(item["id"]) is False

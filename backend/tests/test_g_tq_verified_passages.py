@@ -200,3 +200,27 @@ def test_a_refusal_that_is_not_a_not_found_is_still_refused(monkeypatch):
     with pytest.raises(HTTPException) as refused:
         generate_query_draft(_verified_query(), _scope())
     assert refused.value.status_code == 409
+
+
+# ---- review of update 12, N3 and N4
+def test_a_not_found_draft_names_the_model_that_answered_never_the_configured_one(
+    monkeypatch, weak_gate
+):
+    monkeypatch.setattr(answer_mod, "_call_model", _model([], "INSUFFICIENT EVIDENCE"))
+    monkeypatch.setattr(settings, "answer_model", "configured-but-not-used")
+    draft = generate_query_draft(_verified_query(), _scope())["drafts"][-1]
+    assert draft["model"] == "invented-local"
+
+
+def test_a_refusal_made_before_any_model_was_asked_stays_a_refusal_never_not_found(
+    monkeypatch,
+):
+    calls: list = []
+    monkeypatch.setattr(answer_mod, "_call_model", _model(calls, "x [S1]"))
+    monkeypatch.setattr(
+        "app.front_matter.demoted", lambda hit, question: True
+    )  # the front-matter gate refuses
+    with pytest.raises(HTTPException) as refused:
+        generate_query_draft(_verified_query(), _scope())
+    assert refused.value.status_code == 409 and calls == []
+    assert "Not found in the chosen papers" not in str(refused.value.detail)

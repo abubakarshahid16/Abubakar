@@ -30,6 +30,10 @@ FORM_QUESTION = (
     "What is the invented design pressure of the invented cooling water header?"
 )
 CFC_QUESTION = "Which invented drawing governs the invented valve pit depth?"
+#: A forwarded query: its question sits only below the forwarded-message header (review of update 12, N5).
+FORWARDED_QUESTION = "Is the invented spare impeller included in the invented scope?"
+#: A query with a rule line above its question (review of update 12, N5).
+RULED_QUESTION = "May the invented flange rating be lowered to invented class 150?"
 #: A clause of the held (invented) contract that answers the TQ.
 CONTRACT_CLAUSE = "The invented cooling water header shall be designed for 12 bar(g)."
 
@@ -188,6 +192,21 @@ def _mail() -> list[Message]:
         "Requested reply date: invented",
     ]
     return [
+        Message(
+            "m9-ruled",
+            "t9",
+            "Invented Sender <sender9@contractor-invented.example>",
+            f"{PROJECT}-{CONTRACTOR}-{OWNER}-TQ-00015 - MEC_Invented flange rating",
+            f"Dear all,\n______________________________\n{RULED_QUESTION}\n\nKind regards,\nInvented Sender\n\n{NOTICE}",
+        ),
+        Message(
+            "m8-forwarded",
+            "t8",
+            "Invented Coordinator <coordinator@contractor-invented.example>",
+            f"FW: {PROJECT}-{CONTRACTOR}-{OWNER}-TQ-00014 - MEC_Invented spare impeller",
+            "FYI\n\n-----Original Message-----\nFrom: Invented Engineer\nSent: invented day\nTo: invented desk\n"
+            f"Subject: {PROJECT}-{CONTRACTOR}-{OWNER}-TQ-00014\n\nDear Sir,\n{FORWARDED_QUESTION}\n\n{SIGNATURE}\n\n{NOTICE}",
+        ),
         Message(
             "m7-macro",
             "t7",
