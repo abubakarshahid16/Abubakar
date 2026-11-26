@@ -95,6 +95,8 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             {shownWhen && <span data-testid="row-date">{shownWhen}</span>}
           </p>
         </div>
+        {/* the row's buttons move as one group: all beside the text or all under it, never 2 + 1 (H's gate, 27 Nov 2026) */}
+        <div className="flex flex-wrap items-center gap-2">
         {row.latest && (
           <Button variant="primary"
            
@@ -124,6 +126,7 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             onStarted={onOpenRun}
           />
         )}
+        </div>
       </div>
       {mayStart && moving && row.latest && <ReviewJobControl run={row.latest} onChanged={onChanged} />}
       {row.runs.length > 0 && (
