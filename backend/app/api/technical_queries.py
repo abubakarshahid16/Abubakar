@@ -91,6 +91,8 @@ class MetricsOut(BaseModel):
     cancelled: int = 0
     failed: int = 0
     total: int = 0
+    open_with_due_date: int = 0
+    overdue: int = 0
 
 
 class MailboxConnectedOut(BaseModel):

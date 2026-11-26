@@ -1,3 +1,4 @@
+import { querySummary } from "./technicalQuerySummary";
 import { NEW_LOOK } from "../look";
 import { useEffect, useRef, useState } from "react";
 
@@ -407,6 +408,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         {!selected ? <p className="text-sm text-slateish-500">Select a query to inspect its original message and review history.</p> : <>
           <h2 className="text-lg font-semibold text-slateish-100">{selected.subject}</h2>
           <p className="mt-1 text-xs uppercase tracking-wide text-slateish-500">{selected.status} · {selected.priority}</p>
+          {/* the one-line plain summary (owner's E5, 26 Nov 2026): where it stands and what is missing */}
+          <p data-testid="query-summary" className="mt-2 text-sm font-medium text-slateish-100">{querySummary(selected)}</p>
           {selected.source_access_revoked && <p role="alert" className="mt-3 text-sm text-warn-500">Access to a cited source changed. The draft is hidden until an authorised reviewer checks it again.</p>}
           {selected.can_review === false && <p className="mt-3 text-xs text-slateish-500">You can prepare evidence and write drafts. Confirming the question, deciding on evidence, approving and sending need the technical-query reviewer role.</p>}
           {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the question, the proposed response and the decisions

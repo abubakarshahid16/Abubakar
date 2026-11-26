@@ -14,6 +14,8 @@ from typing import Any
 
 from .db import connect
 
+#: A query in one of these needs nothing more from the team: never waiting, never late (answered and confirmed, or set aside).
+CLOSED_STATUSES = ("resolved", "duplicate", "cancelled")
 STATUSES = (
     "received",
     "triage",
@@ -740,6 +742,17 @@ def metrics(
     result = dict.fromkeys(STATUSES, 0)
     result.update({row["status"]: row["count"] for row in rows})
     result["total"] = sum(result.values())
+    # LATE (owner's E5, 26 Nov 2026: in, waiting, late, done): an open query whose due date has passed, and how many open ones have a
+    # due date at all (the boundary of "late"; a query with none is never called late)
+    marks = ",".join("?" for _ in CLOSED_STATUSES)
+    with connect() as conn:
+        due = conn.execute(
+            "SELECT COUNT(due_at) AS with_due, SUM(CASE WHEN substr(due_at,1,10) < date('now') THEN 1 ELSE 0 END) AS late"
+            " FROM technical_queries" + where + (" AND " if where else " WHERE ") + f"status NOT IN ({marks})",
+            (*args, *CLOSED_STATUSES),
+        ).fetchone()
+    result["open_with_due_date"] = int(due["with_due"] or 0)
+    result["overdue"] = int(due["late"] or 0)
     return result
 
 
