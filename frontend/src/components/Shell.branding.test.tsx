@@ -65,8 +65,9 @@ describe("sidebar wording", () => {
     // "sample only" is the whole point of the row: it says these numbers are
     // illustrative. A label reworded to "Market data" is fine; a value
     // reworded to anything that implies live coverage is not.
-    expect(sidebar.getByText(/sample only/i)).toBeInTheDocument();
+    // the new look says the same in everyday words, inside "About this app" (owner's design audit, 26 Nov 2026)
+    expect(sidebar.getByText(/sample only|example figures only/i)).toBeInTheDocument();
     // A report is a frozen PDF: evidence as it stood, not a live view.
-    expect(sidebar.getByText(/frozen PDF/i)).toBeInTheDocument();
+    expect(sidebar.getByText(/frozen PDF|PDF that does not change later/i)).toBeInTheDocument();
   });
 });

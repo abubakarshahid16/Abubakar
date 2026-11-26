@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, type Health } from "../api/client";
+import { api, systemApi, type Health } from "../api/client";
 import type { AuthStatus } from "../types/api";
 import { NEW_LOOK } from "../look";
 import { InfoFold, NavIcon } from "./look/LookParts";
@@ -331,6 +331,16 @@ export function Shell({
   children: React.ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // THE ANSWERING AI BY NAME (owner's design audit, 26 Nov 2026: "ready" with no name): read from the signed-in /api/metrics, never
+  // from the unauthenticated health check (which deliberately carries no name: see the comment by the line that shows it)
+  const [answerModel, setAnswerModel] = useState<string | null>(null);
+  const online = connection.state === "online";
+  useEffect(() => {
+    if (!online) return;
+    let live = true;
+    void systemApi.metrics().then((r) => { if (live && r.ok) setAnswerModel(r.data.models?.answer_model || null); });
+    return () => { live = false; };
+  }, [online]);
   const [density, setDensity] = useState<DensityMode>(() => {
     try { return localStorage.getItem("rag-intelligence-density") === "compact" ? "compact" : "comfortable"; }
     catch { return "comfortable"; }
@@ -477,13 +487,28 @@ export function Shell({
           {connection.state === "online" && (
             <p className="mt-1.5 text-xs text-slateish-500">
               {connection.health.answer_model_configured
-                ? "The AI that answers is ready"
+                ? (answerModel ? `The AI that answers is ready: ${answerModel}, on this computer` : "The AI that answers is ready")
                 : "The AI that answers is not set up"}
             </p>
           )}
           <div className="mt-4">
             <ThemeToggle theme={theme} onChange={onThemeChange} />
           </div>
+          {NEW_LOOK ? (
+            <InfoFold title="About this app" className="mt-4 text-xs">
+              <dl className="space-y-1 text-xs text-slateish-400">
+                <div><dt className="inline font-semibold text-slateish-300">Documents: </dt><dd className="inline">kept on this computer.</dd></div>
+                <div><dt className="inline font-semibold text-slateish-300">Market prices: </dt><dd className="inline">example figures only, until you search for real ones.</dd></div>
+                <div><dt className="inline font-semibold text-slateish-300">Reports: </dt><dd className="inline">saved as a PDF that does not change later.</dd></div>
+              </dl>
+              <div className="mt-3 flex items-center gap-2 text-xs text-slateish-400" aria-label="Density">
+                <span>Text spacing</span>
+                <button type="button" aria-pressed={density === "comfortable"} onClick={() => setDensity("comfortable")} className="min-h-11 rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1">Comfortable</button>
+                <button type="button" aria-pressed={density === "compact"} onClick={() => setDensity("compact")} className="min-h-11 rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1">Compact</button>
+              </div>
+            </InfoFold>
+          ) : (
+            <>
           <div className="mt-3 flex items-center gap-2 text-xs text-slateish-400" aria-label="Density">
             <span>Density</span>
             <button type="button" aria-pressed={density === "comfortable"} onClick={() => setDensity("comfortable")} className="min-h-11 rounded-[var(--radius-xs)] border border-ink-600 px-2 py-1">Comfortable</button>
@@ -508,6 +533,8 @@ export function Shell({
               <dd className="text-slateish-400">frozen PDF</dd>
             </div>
           </dl>
+            </>
+          )}
           {NEW_LOOK && (
             <InfoFold title="Private by design" className="mt-4 text-xs">
               <PrivacyLine />
