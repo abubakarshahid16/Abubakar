@@ -129,7 +129,10 @@ for (const mode of ["light", "dark"]) {
       await page.waitForTimeout(300);
     }
     const r = await page.evaluate(readPage, EXEMPT_DISABLED);
-    const titleOk = r.h1 !== null && r.h1.toLowerCase().includes(menu.toLowerCase().replace(" & ", " ").split(" ")[0]);
+    // the page's visible main heading must BE its menu name (integrator, 27 Nov 2026: "Analysis" passed for "Analysis Hub" and
+    // "Deliverables & timeline" for "Deliverables" while only the first word was compared); case, spacing and "&"/"and" aside
+    const norm = (t) => String(t ?? "").toLowerCase().replace(/&/g, " and ").replace(/\s+/g, " ").trim();
+    const titleOk = r.h1 !== null && norm(r.h1) === norm(menu);
     // every failure grouped by colour pair: one shared colour token usually explains many
     const pairs = {};
     for (const l of r.low) { const k = `${l.color} on ${l.background}`; pairs[k] = (pairs[k] ?? 0) + 1; }
