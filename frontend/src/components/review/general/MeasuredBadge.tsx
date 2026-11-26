@@ -21,7 +21,10 @@ export function plainMeasured(m: GeneralMeasured): string {
   if (m.verdict === "not measured" || m.found === null) return "This kind of paper has not been measured on test copies yet.";
   const found = Math.floor(Math.round(m.found * 10 * 1e6) / 1e6) / 10;
   const wrong = m.false_alarm ? ` ${m.false_alarm.wrong} of ${m.false_alarm.of} of its comments were wrong (the limit is ${m.false_alarm.target_percent}%).` : "";
-  return `On test copies with planted mistakes, this kind of paper found ${found} of 10 (the target is ${m.target}).${wrong}`;
+  // a sample says its size (CLAUDE.md rule 4; F's gate): the count of copies the server's own sentence names, else "test copies"
+  const copies = m.sentence.match(/(\d+) planted test cop(?:y|ies)/);
+  const on = copies ? `On ${copies[1]} test cop${copies[1] === "1" ? "y" : "ies"} with planted mistakes` : "On test copies with planted mistakes";
+  return `${on}, this kind of paper found ${found} of 10 (the target is ${m.target}).${wrong}`;
 }
 
 export function MeasuredBadge({ measured }: { measured: GeneralMeasured | null | undefined }) {

@@ -87,9 +87,9 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
             <StatusChip tone={chip.tone} text={chip.text} />
             {aiMark && !counts?.general && !counts?.aiLines && row.latest && row.latest.status === "completed" && <AiMark runId={row.latest.review_run_id}
               earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
-            {generalChip && <span data-testid="row-general-chip" className="kit-chip kit-chip--plain">{generalChip}</span>}
-            {row.latest?.engine_words && <span data-testid="row-engine" className="kit-chip kit-chip--plain">{row.latest.engine_words}</span>}
-            {row.latest?.newer_note && <span data-testid="row-newer" className="kit-chip kit-chip--check">{row.latest.newer_note}</span>}
+            {generalChip && <span data-testid="row-general-chip" className="kit-chip kit-chip--plain kit-chip--note">{generalChip}</span>}
+            {row.latest?.engine_words && <span data-testid="row-engine" className="kit-chip kit-chip--plain kit-chip--note">{row.latest.engine_words}</span>}
+            {row.latest?.newer_note && <span data-testid="row-newer" className="kit-chip kit-chip--check kit-chip--note">{row.latest.newer_note}</span>}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
             {shownWhen && <span data-testid="row-date">{shownWhen}</span>}
