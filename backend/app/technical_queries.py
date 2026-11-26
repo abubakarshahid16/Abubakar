@@ -364,14 +364,42 @@ def _squash(text: str | None) -> str:
     return " ".join((text or "").split())
 
 
+#: The shortest verbatim run that may stand for a passage whose whole text is not on its pages.
+MIN_VERBATIM_RUN = 60
+
+
+def _verbatim_quote(
+    conn, document_id: str, start: int, end: int, text: str
+) -> str | None:
+    """The quote of a passage that stands VERBATIM on its own pages: the whole passage, else its longest run of words found there (at
+    least MIN_VERBATIM_RUN characters); None when neither is on the pages. Never a word that is not on the page."""
+    on = " ".join(
+        _squash(_page_text(row)) for row in _source_pages(conn, document_id, start, end)
+    )
+    wanted = _squash(text)
+    if not wanted or not on:
+        return None
+    if wanted in on:
+        return text
+    words, best, i = wanted.split(" "), "", 0
+    while i < len(words):
+        j, run = i + 1, ""
+        while j <= len(words) and " ".join(words[i:j]) in on:
+            run, j = " ".join(words[i:j]), j + 1
+        best = run if len(run) > len(best) else best
+        i += max(1, len(run.split(" ")) // 2) if run else 1
+    return best if len(best) >= MIN_VERBATIM_RUN else None
+
+
 def _quote_on_pages(conn, document_id: str, start: int, end: int, quote: str) -> bool:
     wanted = _squash(quote)
     if not wanted:
         return False
-    return any(
-        wanted in _squash(_page_text(row))
-        for row in _source_pages(conn, document_id, start, end)
+    # read ACROSS the passage's own pages: a passage running from one page onto the next is on its pages, never "not found"
+    pages = " ".join(
+        _squash(_page_text(row)) for row in _source_pages(conn, document_id, start, end)
     )
+    return wanted in pages
 
 
 def validate_send_evidence(
@@ -1331,13 +1359,16 @@ def prepare_evidence(
             if passage.get("document_id") in attachment_documents:
                 # A contractor's attachment is context, not an authority for any answer.
                 continue
-            if not _quote_on_pages(
+            # the quote is what stands VERBATIM on the passage's pages: the whole passage, else its longest verbatim run of words (a
+            # passage stored in another reading order than its page, a table or two columns, kept with the part that is on the page)
+            quote = _verbatim_quote(
                 conn,
                 passage["document_id"],
                 passage["page_start"],
                 passage["page_end"],
                 quote,
-            ):
+            )
+            if not quote:
                 continue
             import hashlib
 
