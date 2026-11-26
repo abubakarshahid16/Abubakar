@@ -1161,7 +1161,7 @@ def ask(
         from . import chat_coverage
 
         result = chat_coverage.attach(result, original, allowed_document_ids & frozenset(document_ids),
-                                      result.get("passages") or [])
+                                      chat_coverage.sources_of(result))
     result.update(chat_presentation.present(result))
     thought_seconds = result.pop("thought_seconds", None)
     if thought_seconds is not None:
