@@ -33,8 +33,16 @@ MUST_FIX, CHECK, MISSING, CONFIRM = (
 SEVERITIES = (MUST_FIX, CHECK, MISSING, CONFIRM)
 #: G2 (lead-4, 26 Nov 2026): a Question that asks to confirm, or raises a concern about, a value the paper is said to state, with
 #: NO code-verified quote of it at any place, is never shown as if the paper stated it: it is open, "Missing information", and
-#: its ask starts with this sentence.
-VALUE_NOT_SHOWN = "The paper's value is not shown on any page; please state it."
+#: its ask starts with this sentence. It is said both when no quote exists and when a quote exists that code could not find on
+#: the page, so it claims neither (update 13 review N3: it goes to the contractor).
+VALUE_NOT_SHOWN = (
+    "We could not find this value on the page; please state it or point to it."
+)
+#: The card rules that change a comment's WORDING. A SIGNED review keeps the wording it was signed with: its sign-off records the
+#: rules in force when it was signed (`aim_review_signoff.card_rules`), and a rule it did not record is not applied to it
+#: (lead-4, 26 Nov 2026). An unsigned review takes every rule.
+RULE_VALUE_NOT_SHOWN = "value_not_shown"
+CARD_RULES = (RULE_VALUE_NOT_SHOWN,)
 _ABOUT_A_STATED_VALUE = ("confirm", "concern")
 #: The shown labels of code's own verdict: the only ones that are "compared by code".
 BY_CODE = frozenset({FAIL_BY_CODE, PASS_BY_CODE})
@@ -224,10 +232,18 @@ def value_not_shown(members: list[dict]) -> bool:
     return asks_about_value and not any(place_text(m) for m in members)
 
 
-def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict:
-    """The card fields of one comment, from its member points (in line order)."""
+def card(
+    comment: dict,
+    members: list[dict],
+    confirmation: bool = False,
+    rules: tuple[str, ...] = CARD_RULES,
+) -> dict:
+    """The card fields of one comment, from its member points (in line order). `rules`: the wording rules that apply
+    (`CARD_RULES` unless the review's sign-off recorded fewer)."""
     first = members[0]
-    unshown = not confirmation and value_not_shown(members)
+    unshown = (
+        RULE_VALUE_NOT_SHOWN in rules and not confirmation and value_not_shown(members)
+    )
     severity = (
         CONFIRM
         if confirmation
@@ -260,15 +276,19 @@ def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict
 
 
 def add(
-    comments: list[dict], confirmations: list[dict], points: list[dict]
+    comments: list[dict],
+    confirmations: list[dict],
+    points: list[dict],
+    rules: tuple[str, ...] = CARD_RULES,
 ) -> dict[str, int]:
-    """Every comment and confirmation gets its card fields (in place). Returns the count per severity (the summary tiles)."""
+    """Every comment and confirmation gets its card fields (in place), under the wording `rules` that apply to this review.
+    Returns the count per severity (the summary tiles)."""
     by_n = {p["n"]: p for p in points}
     counts = dict.fromkeys(SEVERITIES, 0)
     for group, confirm in ((comments, False), (confirmations, True)):
         for c in group:
             members = [by_n[n] for n in sorted(c.get("lines") or [c["n"]]) if n in by_n]
-            c.update(card(c, members or [c], confirm))
+            c.update(card(c, members or [c], confirm, rules))
             counts[c["severity"]] += 1
     return counts
 

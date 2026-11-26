@@ -134,6 +134,29 @@ def latest(conn, run_id: str):
     ).fetchone()
 
 
+def card_rules(conn, run_id: str) -> tuple[str, ...]:
+    """The card wording rules that apply to this review: every rule (`aim_review_card.CARD_RULES`) while it is unsigned; once
+    signed, only the rules its latest sign-off recorded, so a later update never changes a signed review's wording. A sign-off
+    made before rules were recorded recorded none."""
+    from .aim_review_card import CARD_RULES
+
+    signed = latest(conn, run_id)
+    if signed is None:
+        return CARD_RULES
+    try:
+        recorded = json.loads(signed["counts_json"] or "{}").get("card_rules") or []
+    except (TypeError, ValueError):
+        recorded = []
+    return tuple(r for r in CARD_RULES if r in recorded)
+
+
+def _rules_now() -> list[str]:
+    """The card wording rules in force now: a sign-off records them, so a later rule never rewrites its review."""
+    from .aim_review_card import CARD_RULES
+
+    return list(CARD_RULES)
+
+
 def rough_draft(view: dict) -> bool:
     """True for a review made on the local model (`aim_review_view`'s engine, from the run's own calls)."""
     return bool((view.get("engine") or {}).get("local"))
@@ -236,8 +259,8 @@ def sign(
             "the contractor copy cannot be issued yet: " + str(exc), exc.blockers
         ) from exc
     # the record says what the sign-off was made from (the contractor copy itself is unchanged)
-    if rough_draft(view):
-        counts = {**counts, "rough_draft": True}
+    # with the card wording rules it is signed under (`card_rules`), and whether it is a local rough draft
+    counts = {**counts, "card_rules": _rules_now(), **({"rough_draft": True} if rough_draft(view) else {})}  # fmt: skip
     signoff_id = str(uuid.uuid4())
     with conn:
         if not conn.in_transaction:
