@@ -131,3 +131,29 @@ def test_a_saved_contract_checklist_resting_on_books_the_scope_does_not_name_is_
     r = aim_review.run(aim_db, run_id="run_scope_reuse", paper_id=PAPER, allowed_books=LISTED, store=store, max_usd=5.0,
                        model=E.FakeModel(kind="contract", subject_key="test_item"))  # fmt: skip
     assert r.status == "done" and r.checklist_reused is False and r.books == []
+
+
+def test_a_specification_keeps_only_the_books_its_scope_names_or_it_cites(monkeypatch):
+    """#1903: a specification is checked with the contract-labelled rules, so it takes the same scope rule as a contract: a
+    technical book stays only when the specification's own scope names its subject or the specification cites it."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "aim_u7b_enabled", True)  # its update's switch (`aim_review.updates`)
+    cat = _cat(
+        ("b1", "welding inspection"),
+        ("b2", "pressure vessel design"),
+        ("b3", "coating thickness"),
+    )
+    kept, req = SB.keep(
+        cat, {"b2": "rules of this kind"}, "specification", GENERIC, frozenset({"b3"})
+    )
+    assert [c["book"] for c in kept] == [
+        "b3"
+    ] and req == {}  # a generic scope names nothing; the cited book stays
+    kept, _req = SB.keep(cat, {}, "specification", NAMES_WELDING, frozenset())
+    assert [c["book"] for c in kept] == ["b1"]  # the scope names welding and inspection
+
+
+def test_a_specification_with_no_stated_scope_is_offered_no_technical_book(aim_db):
+    r, steps = _run(aim_db, "specification")
+    assert r.status == "done" and "aim_select" not in steps and r.books == []

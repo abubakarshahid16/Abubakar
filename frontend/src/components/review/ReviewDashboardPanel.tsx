@@ -45,9 +45,9 @@ function generalFindings(run: RecentRun): string {
 
 /** The status of a row: a general review says whether an engineer signed it; an earlier-method run says so. */
 function rowStatus(run: RecentRun): string {
-  if (run.method !== "general") return runStatusLabel(run.status);
+  if (run.method !== "general") return runStatusLabel(run.status, run.waiting_reason);
   const c = (run.general_counts ?? null) as { stopped?: boolean } | null;
-  if (run.status !== "completed") return runStatusLabel(run.status);
+  if (run.status !== "completed") return runStatusLabel(run.status, run.waiting_reason);
   const signed = run.general_signoff === "signed" ? "Signed off"
     : run.general_signoff === "changed" ? "Changed since sign-off" : "Not signed off yet";
   return c?.stopped ? `${signed} (stopped early)` : signed;

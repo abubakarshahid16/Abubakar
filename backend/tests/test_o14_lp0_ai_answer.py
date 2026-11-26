@@ -836,7 +836,7 @@ def test_a_deferred_quote_that_states_a_figure_says_so_and_no_cell_says_met():
         "Fail",
         reason_code="not_met",
         field="Field Figure",
-        paper_quote="Set pressure: 340 psig by contractor",
+        paper_quote="Set pressure: 315 psig by contractor",
     )
     blank = mk(
         "R-V2",

@@ -42,16 +42,20 @@ describe("CompanyStandardsSection (#620)", () => {
     expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent("uploaded before 18 Oct 2026 count as confirmed");
   });
 
-  it("confirm asks first, calls the route, then reads the list again", async () => {
+  it("confirm asks first on the page (never the browser's box), calls the route, then reads the list again", async () => {
     const user = userEvent.setup();
     const held = vi.fn()
       .mockResolvedValueOnce(page([{ id: "std-1", filename: "sample-company-standard.pdf", uploaded_at: null }]))
       .mockResolvedValueOnce(page([]));
     const confirmRoute = vi.fn().mockResolvedValue({ ok: true, data: { document_id: "std-1", confirmed: true } });
-    const ask = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const browserBox = vi.spyOn(window, "confirm");
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: held, confirmCompanyStandard: confirmRoute })} />);
     await user.click(within(await screen.findByTestId("admin-held-std-1")).getByRole("button", { name: "Confirm for reviews" }));
-    expect(ask).toHaveBeenCalled();
+    const ask = screen.getByRole("alertdialog", { name: "Confirm this standard for reviews" });
+    expect(ask).toHaveTextContent('Use "sample-company-standard.pdf" in reviews from the next run? This is recorded under your name.');
+    expect(confirmRoute).not.toHaveBeenCalled();
+    await user.click(within(ask).getByRole("button", { name: "Yes, use it in reviews" }));
+    expect(browserBox).not.toHaveBeenCalled();
     expect(confirmRoute).toHaveBeenCalledWith("std-1");
     expect(await screen.findByRole("status")).toHaveTextContent('Confirmed: "sample-company-standard.pdf" is used from the next review.');
     expect(held).toHaveBeenCalledTimes(2);
@@ -62,9 +66,10 @@ describe("CompanyStandardsSection (#620)", () => {
     const user = userEvent.setup();
     const held = vi.fn().mockResolvedValue(page([{ id: "std-1", filename: "s.pdf", uploaded_at: null }]));
     const confirmRoute = vi.fn();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: held, confirmCompanyStandard: confirmRoute })} />);
     await user.click(await screen.findByRole("button", { name: "Confirm for reviews" }));
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(confirmRoute).not.toHaveBeenCalled();
   });
 

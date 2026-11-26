@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
+from .budget import cap
+
 log = logging.getLogger(__name__)
 
 DEFAULT_WINDOW_TOKENS = 60_000
@@ -26,6 +28,8 @@ DEFAULT_OVERLAP_PAGES = 1
 
 #: Where a page's text came from (`Paper.sources`): the stored PDF in visual order, the stored text, the recognised text.
 FROM_PDF, FROM_STORED, FROM_OCR = "pdf_visual_order", "stored_text", "recognised_text"
+#: A page Claude transcribed from its picture (`picture_stage`, the upload's picture reading; such a page is stored as recognised text): the page held no text and local recognition found none.
+FROM_PICTURE = "claude_picture_reading"
 
 
 @dataclass
@@ -49,7 +53,9 @@ class Paper:
         for src in self.sources.values():
             counts[src] = counts.get(src, 0) + 1
         note = "pages: " + ", ".join(
-            f"{counts[k]} {k}" for k in (FROM_PDF, FROM_STORED, FROM_OCR) if k in counts
+            f"{counts[k]} {k}"
+            for k in (FROM_PDF, FROM_STORED, FROM_OCR, FROM_PICTURE)
+            if k in counts
         )
         return note + (f"; file not read: {self.file_note}" if self.file_note else "")
 
@@ -156,6 +162,7 @@ def windows(paper: Paper, kind: str | None) -> list[list[int]]:
         limit, overlap = 0, 0
     if limit <= 0:
         limit, overlap = DEFAULT_WINDOW_TOKENS, DEFAULT_OVERLAP_PAGES
+    limit = cap(int(limit), "window_tokens")  # smaller on the local model (`budget`)
     return agent_general_review.window_pages(paper.pages, int(limit), int(overlap))
 
 

@@ -648,8 +648,19 @@ def refusal() -> tuple[str, str] | None:
                 f"{len(apart)} of {len(ids)} document(s) in this prompt are technical-query attachments not filed into the library "
                 f"(ids: {', '.join(sorted(apart))}), so nothing is sent"
             )
+    from . import (
+        standards_lane,  # the standards converter lane: after the blocks; the contract check below still applies
+    )
+
+    # The lane is never open inside a review run (`standards_lane.open_for` refuses it), so a review's shown list is not its
+    # question: the run name its spend ledger books under is not a review.
+    lane = bool(ids) and standards_lane.allows(ids)
     # The list the screen showed is a cap of its own, whether or not the owner's list is enforced.
-    held = frozenset() if _REQUEST_CONSENT.get() else _unshown_specifications(ids)
+    held = (
+        frozenset()
+        if (_REQUEST_CONSENT.get() or lane)
+        else _unshown_specifications(ids)
+    )
     if held:
         return NOT_APPROVED, (
             f"{len(held)} of {len(ids)} document(s) in this prompt were not on the list shown before the start "
@@ -664,6 +675,8 @@ def refusal() -> tuple[str, str] | None:
                 f"{len(contracts)} of {len(ids)} document(s) in this prompt are a contract without the owner's recorded yes "
                 f"(ids: {', '.join(sorted(contracts))}), so nothing is sent"
             )
+    if lane:
+        return None
     if not settings.claude_approved_list_enforced:
         return None
     if ids is None:

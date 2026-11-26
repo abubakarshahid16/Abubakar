@@ -3,7 +3,7 @@
 The side-by-side view showed two gaps on the findings an engineer sees most -
 the datasheet checklist rows (planner, live PSV run 12 Oct 05:12 UTC):
 
-1. NO BOX ON THE SUBMITTAL PAGE. The value read ("23.5 barg") is shorter than
+1. NO BOX ON THE SUBMITTAL PAGE. The value read ("22.2 barg") is shorter than
    `highlight.locate` will place safely, so the page came back unboxed. The
    fact itself often knows where it was read: the geometry reader stores the
    value's box, and every reader keeps the line it read. So, in order:

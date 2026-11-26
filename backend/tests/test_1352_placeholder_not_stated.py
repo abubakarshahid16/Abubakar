@@ -114,17 +114,17 @@ def test_a_reference_number_before_a_phrase_is_not_a_figure(printed):
 
 
 def test_the_mandatory_field_path_keeps_a_figure_with_a_note_as_missing():
-    """DS-M2 is unchanged by the checklist fix: '340 psig By Contractor' is a provisional figure the
+    """DS-M2 is unchanged by the checklist fix: '315 psig By Contractor' is a provisional figure the
     vendor must confirm (the `blank_markers` module note), exactly as on 2o."""
     from tests.test_datasheet_checks import fact as sheet_fact
     from tests.test_datasheet_checks import full_vessel, run
 
-    f = sheet_fact("hydrotest pressure", "340", "psig")
-    f["field_value"] = "340 psig By Contractor"
+    f = sheet_fact("hydrotest pressure", "315", "psig")
+    f["field_value"] = "315 psig By Contractor"
     results = run(full_vessel(**{"hydrotest pressure": f}))
     assert results["DS-M2"]["status"] == "MISSING_INFORMATION"
     assert (
-        "Hydrotest pressure is marked '340 psig By Contractor'"
+        "Hydrotest pressure is marked '315 psig By Contractor'"
         in results["DS-M2"]["detail"]
     )
 

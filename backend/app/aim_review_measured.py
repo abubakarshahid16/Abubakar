@@ -117,7 +117,11 @@ def false_alarm(row: dict | None) -> dict | None:
 def _copies_words(row: dict | None) -> str:
     """ "2 planted test copies" when the row says how many, else "planted test copies": the score is of test copies, never of this paper."""
     n = _count((row or {}).get("copies"))
-    return f"{n} planted test copies" if n else "planted test copies"
+    return (
+        f"{n} planted test cop{'y' if n == 1 else 'ies'}"
+        if n
+        else "planted test copies"
+    )
 
 
 def _when_words(row: dict | None) -> str:
@@ -137,6 +141,13 @@ def _when_words(row: dict | None) -> str:
         )
         + ")"
     )
+
+
+def round_note() -> str | None:
+    """The table's own line about the latest round ("Update 6 round cut short: 3 of 5 kinds measured."), or None. Each kind states its own
+    date and version; this line says the newest round did not reach every kind, so an older number beside a newer one is not a mistake."""
+    note = str(_table().get("round_note") or "").strip().rstrip(".")
+    return f"{note[0].upper()}{note[1:]}." if note else None
 
 
 def _not_measured(label: str, target) -> dict:
@@ -185,6 +196,9 @@ def for_run(identity: dict | None) -> dict | None:
     wrong = false_alarm(row)
     if wrong is not None:
         sentence += " " + wrong["sentence"]
+    note = round_note()
+    if note:
+        sentence += " " + note
     return {
         "kind_label": label,
         "found": found,
@@ -192,4 +206,24 @@ def for_run(identity: dict | None) -> dict | None:
         "verdict": verdict,
         "sentence": sentence,
         "false_alarm": wrong,
+    }
+
+
+def for_local_run(identity: dict | None, models: list[str]) -> dict:
+    """What a run made on the LOCAL model says in place of its kind's score: the measured scores are of Claude reviews, so they do
+    not apply; `aim_review_gate.LOCAL_NOT_SCORED` until local runs are scored (planner 25 Nov 2026 22:35). `models`: the model names
+    the local engine itself reported in the run's calls (never the setting); none recorded is said so."""
+    from . import aim_review_gate
+
+    kind = _word((identity or {}).get("kind"))
+    named = ", ".join(models) if models else "its name was not recorded"
+    return {
+        "kind_label": kind or None,
+        "found": None,
+        "target": None,
+        "verdict": NOT_MEASURED,
+        "sentence": (
+            f"Reviewed on the local model on this computer ({named}): {aim_review_gate.LOCAL_NOT_SCORED}. "
+            "The scores of this kind were measured on Claude reviews and do not apply to it."
+        ),
     }

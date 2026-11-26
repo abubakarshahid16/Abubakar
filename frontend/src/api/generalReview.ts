@@ -20,7 +20,7 @@ export interface GeneralLine {
   topic?: string;
   code_note?: string;
   quote_unverified?: boolean;
-  /** What code compared, in words ("380 psig <= 23.5 barg: false"); empty when code compared nothing. */
+  /** What code compared, in words ("345 psig <= 22.2 barg: false"); empty when code compared nothing. */
   compared?: string;
   compare_kind?: string;
   /** The comment card (code-decided, from the server; absent on an older answer): how serious, a short title, and the parts of the card. */
@@ -36,6 +36,8 @@ export interface GeneralLine {
   readers?: { first: string; second: string; reason: string } | null;
   /** The AI chose which two values of the paper to compare and code compared them: said as a small tag, never in the comment text. */
   paired?: boolean;
+  /** Parts the paper answers that were cut out of the comment (team only): the page and the full text before the cut. */
+  cut?: { page: number; pages?: number[]; before: string }[];
   /** The engineer's latest decision on this comment (append-only on the server); null when undecided. */
   decision?: CommentDecision | null;
 }

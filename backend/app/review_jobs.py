@@ -198,17 +198,30 @@ _CLAIMABLE = ("(state = 'queued' OR (state = 'retrying'"
               " AND next_attempt_at IS NOT NULL AND next_attempt_at <= :now))")
 
 
-def _paper_read_sql() -> str:
-    """A job whose OWN paper the upload lane is still reading is not claimed (review of 7a, M3): with two lanes a review waits for
-    its paper, as the one thread did on main, and the next job is claimed instead. "Still being read" is the upload lane's own
-    test (`ingest.IngestionWorker._next_document`): a status not settled, or answerable with vectors or the index outstanding.
-    A job whose paper row is gone is claimable (its run says the file is missing)."""
+def _reading_predicate(alias: str = "d") -> str:
+    """The upload lane's own "this document is still being read" test, as SQL on a `documents` row aliased `alias`: a status not
+    settled, or answerable with vectors or the index outstanding (`ingest.IngestionWorker._next_document`). One home for the claim
+    (`_paper_read_sql`) and for the words a parked run shows (`paper_still_being_read`)."""
     from . import states
 
     settled = ", ".join(f"'{s}'" for s in sorted(states.TERMINAL_STATES | {states.PARTIALLY_SEARCHABLE}))
-    return ("NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = jobs.document_id AND ("
-            f"d.status NOT IN ({settled}) OR (d.status = '{states.PARTIALLY_SEARCHABLE}'"
-            " AND (d.embedded_count < d.chunk_count OR d.indexed_at IS NULL))))")
+    return (f"({alias}.status NOT IN ({settled}) OR ({alias}.status = '{states.PARTIALLY_SEARCHABLE}'"
+            f" AND ({alias}.embedded_count < {alias}.chunk_count OR {alias}.indexed_at IS NULL)))")
+
+
+def _paper_read_sql() -> str:
+    """A job whose OWN paper the upload lane is still reading is not claimed (review of 7a, M3): with two lanes a review waits for
+    its paper, as the one thread did on main, and the next job is claimed instead. "Still being read" is the upload lane's own
+    test (`_reading_predicate`). A job whose paper row is gone is claimable (its run says the file is missing)."""
+    return f"NOT EXISTS (SELECT 1 FROM documents d WHERE d.id = jobs.document_id AND {_reading_predicate('d')})"
+
+
+WAITING_FOR_PAPER_WORDS = "waiting: its paper is still being read"
+
+
+def paper_still_being_read(conn, document_id: str) -> bool:
+    """True when the paper of a queued review is still being read by the upload lane: the review is PARKED behind it, and says so."""
+    return conn.execute(f"SELECT 1 FROM documents d WHERE d.id = ? AND {_reading_predicate('d')}", (document_id,)).fetchone() is not None
 
 
 #: The inner pick of every review stage's claim: claimable AND its paper is read (`_paper_read_sql`).

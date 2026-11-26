@@ -40,7 +40,7 @@ COVER = [
 #: Label and value pairs that every reader drops as page furniture (a title
 #: block and a date): a cover page the check may mark.
 FURNITURE_PAIRS = [("Document No", "0001-XX"), ("Date", "01/01/2024")]
-DATA_ROWS = [("Design pressure", "23.5 barg"), ("Design temperature", "120 C")]
+DATA_ROWS = [("Design pressure", "22.2 barg"), ("Design temperature", "120 C")]
 
 
 def _ruled_pdf(path, cover_pairs) -> str:
@@ -64,14 +64,14 @@ def _ruled_pdf(path, cover_pairs) -> str:
     return str(path)
 
 
-DATA = ["Notes", "Design pressure shall not exceed 23.5 barg at 120 C"]
+DATA = ["Notes", "Design pressure shall not exceed 22.2 barg at 120 C"]
 
 
 @pytest.mark.parametrize(
     "text, expected",
     [
         ("Document no 0001-XX Rev 00 Sheet 1 of 8", False),
-        ("Design pressure 23.5 barg", True),
+        ("Design pressure 22.2 barg", True),
         ("Design temperature 120 C", True),
         ("Flow 120 m3/h", True),
         ("Clause 5.3.2 applies, see note 4", False),
@@ -88,7 +88,7 @@ def test_every_part_of_the_check_must_hold():
     ok = ("TITLE Rev 00", False)
     assert cover_page.is_cover_or_notes(furniture, ok)
     assert not cover_page.is_cover_or_notes(
-        furniture, ("Design pressure 23.5 barg", False)
+        furniture, ("Design pressure 22.2 barg", False)
     )
     assert not cover_page.is_cover_or_notes({**furniture, "value gate": 1}, ok)
     assert not cover_page.is_cover_or_notes({row_noise.MERGED_BLOCK: 1}, ok)
@@ -141,7 +141,7 @@ def _with_picture(tmp_path, big: bool) -> str:
     pixmap.clear_with(200)
     size = 560 if big else 30
     page.insert_image(
-        pymupdf.Rect(20, 100, 20 + size, 100 + min(size, 380)), pixmap=pixmap
+        pymupdf.Rect(20, 100, 20 + size, 100 + min(size, 345)), pixmap=pixmap
     )
     path = tmp_path / ("big.pdf" if big else "logo.pdf")
     doc.save(str(path))

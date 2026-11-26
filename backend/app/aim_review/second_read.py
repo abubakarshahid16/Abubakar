@@ -18,6 +18,7 @@ from app.crs_completeness import CUT_MARK
 
 from . import PROVISIONAL, READERS_DIFFER, TWO_READERS_AGREE
 from . import prompts as P
+from .budget import cap
 from .engine import StepFailed
 from .references import NOTE_CHECKED as REFERENCE_CHECKED
 from .steps import _dumps, paper_block
@@ -68,7 +69,8 @@ def s4c_second_read(model, paper, lines: list[dict], checklist: dict, lead: str)
     }
     keys = list(pool)
     differ = 0
-    for part in (keys[i : i + READ_CHUNK] for i in range(0, len(keys), READ_CHUNK)):
+    chunk = cap(READ_CHUNK, "line_chunk")  # fewer per call on the local model
+    for part in (keys[i : i + chunk] for i in range(0, len(keys), chunk)):
         shown = {n: pool[n] for n in part}
         out = _ask(model, paper, shown, items, lead)
         if out is not None:

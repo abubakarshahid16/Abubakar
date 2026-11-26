@@ -157,18 +157,21 @@ def test_a_blocked_book_on_the_list_is_not_sent_even_on_an_explicit_claude(
 # ---------------------------------------------------------------- the start
 
 
-def test_local_only_is_refused_queues_nothing_and_writes_no_ledger_line(general):
+def test_local_only_queues_one_local_run_barred_from_claude_and_writes_no_ledger_line(
+    general,
+):
+    """Planner 25 Nov 2026 22:35: Local only queues the general review on the local model; its stored plan bars Claude."""
     plan = _plan(general, "local")
-    assert (
-        plan["refused_code"] == review_engine.GENERAL_NOT_ON_LOCAL
-        and not plan["text_leaves"]
-    )
-    assert plan["refused"] == aim_review_gate.LOCAL_NOT_AVAILABLE
+    assert plan["refused"] is None and not plan["text_leaves"]
     before, lines = _jobs(), _ledger_lines()
     r = _start(general, "local", shown=[])
-    assert r.status_code == 409 and aim_review_gate.LOCAL_NOT_AVAILABLE in r.text
-    assert r.json()["detail"]["code"] == review_engine.GENERAL_NOT_ON_LOCAL
-    assert _jobs() == before and _ledger_lines() == lines
+    assert r.status_code == 200, r.text
+    run_id = r.json()["review_run_id"]
+    with db.connect() as conn:
+        got = review_engine.stored(conn, run_id)
+        assert review_engine.ai_review_engine(conn, run_id) == review_engine.ON_LOCAL
+    assert got["bar_claude"] == 1  # the worker runs it under `review_engine.barring`
+    assert _jobs() == before + 1 and _ledger_lines() == lines
 
 
 def test_a_start_without_the_shown_list_is_refused(general):

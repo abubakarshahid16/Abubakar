@@ -176,6 +176,18 @@ def complete(
     history_id = str(mailbox_profile.get("historyId") or "").strip()
     if not address or "@" not in address or not history_id:
         raise RuntimeError("Gmail mailbox identity could not be verified")
+    with connect() as conn:  # connecting again a mailbox that was revoked or in error: the same row takes the new token and chooses its label again
+        again = conn.execute(
+            "SELECT id FROM gmail_mailboxes WHERE lower(email)=? AND owner_user_id=? AND connection_state IN ('revoked','error')", (address, user_id)
+        ).fetchone()
+    if again is not None:
+        store.save_refresh_token(again["id"], refresh_token)
+        with connect() as conn:
+            conn.execute(
+                "UPDATE gmail_mailboxes SET connection_state='needs_label',label_id=NULL,last_history_id=?,status_note=NULL,updated_at=? WHERE id=?",
+                (history_id, now(), again["id"]),
+            )
+        return {"mailbox_id": again["id"], "email": address, "connection_state": "needs_label"}
     mailbox_id = str(uuid.uuid4())
     store.save_refresh_token(mailbox_id, refresh_token)
     try:

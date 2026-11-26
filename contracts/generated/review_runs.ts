@@ -95,6 +95,8 @@ export interface ReviewRunSummary {
   standards_change?: StandardsChange | null;
   /** Why a failed run failed, verbatim. None on a run that did not fail. */
   failure_reason?: string | null;
+  /** Why a QUEUED run is not running yet ("waiting: its paper is still being read"); null when it is not parked behind anything. */
+  waiting_reason?: string | null;
   /** THE ENGINEER'S DECISION, BESIDE THE MACHINE'S AND NEVER INSTEAD OF IT. Section 15: the AI recommends and the engineer decides; both are stored so a reader can see what was recommended and what was signed. */
   engineer_final_code?: string | null;
   override_reason?: string | null;

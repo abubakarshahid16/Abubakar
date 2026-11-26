@@ -188,8 +188,19 @@ def team_note(p: dict) -> str | None:
     parts = [
         readers_words(p.get("readers")),
         PAIRED_TEAM_WORDS if p.get("paired") else None,
+        *(cut_words(c) for c in p.get("cut") or []),
     ]
     return " ".join(x for x in parts if x) or None
+
+
+def cut_words(cut: dict) -> str:
+    """The mark of a side-claim cut (owner's completeness rule: no text cut without a visible mark and the full text beside it):
+    the page the paper answers the part on and the comment's full text before the cut. Team file only."""
+    # a firm formula line took this AI comment's place (`aim_review.formulas.join_into`)
+    if cut.get("kind") == "replaced":
+        return f'This comment was replaced by a reading proven by code. Full text before: "{cut.get("before")}"'
+    pages = ", ".join(str(x) for x in cut.get("pages") or [cut.get("page")])
+    return f'A part the paper answers (page {pages}) was taken out of this comment. Full text before: "{cut.get("before")}"'
 
 
 def readers_words(readers) -> str | None:
@@ -324,6 +335,17 @@ def _summary(ws: Worksheet, model: dict) -> None:
         ("Equipment type", model["identity"].get("equipment_type")),
         ("Subject", model["identity"].get("subject")),
         ("Method", model["method"]),
+        # a run on the local model names the model its engine reported and says it is not yet scored (a Claude run: no row)
+        *(
+            [("Model", model["engine"]["sentence"])]
+            if (model.get("engine") or {}).get("local")
+            else []
+        ),
+        # which model ran each step, from the run's own calls (planner 25 Nov 2026 22:40); a null prints as an empty cell
+        (
+            "Model by step",
+            ((model.get("engine") or {}).get("by_step") or {}).get("sentence"),
+        ),
         # piece G: the measured score of this paper's kind; a null prints as an empty cell ("below target" / "not measured yet")
         ("Measured score of this kind", (model.get("measured") or {}).get("sentence")),
         ("Comments by severity", severity_words(counts.get("by_severity"))),
@@ -340,7 +362,7 @@ def _summary(ws: Worksheet, model: dict) -> None:
             ),
         ),
         (
-            "AI steps that did not run",
+            "Steps that did not run",
             " ".join(x["sentence"] for x in model.get("steps_not_applied") or [])
             or "none",
         ),

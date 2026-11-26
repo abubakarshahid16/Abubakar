@@ -27,7 +27,7 @@ function resultWords(run: ReviewRunSummary): string {
   if (run.recommended_code_note) return run.recommended_code_note; // order 14: no approving code from one run
   // v2.1 L9: a failed review says why, in the words the run stored.
   if (run.status === "failed" && run.failure_reason) return `${runStatusLabel(run.status)}: ${run.failure_reason}`;
-  return runStatusLabel(run.status);
+  return runStatusLabel(run.status, run.waiting_reason);
 }
 
 /** A row of "All reviews of this file": the contract's row, plus whether

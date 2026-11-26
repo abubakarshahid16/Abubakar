@@ -18,14 +18,17 @@ from . import (
     aim_review_card,
     aim_review_decisions,
     aim_review_gate,
-    aim_review_measured,
+    aim_review_local_view,
     aim_review_merge,
     aim_review_signoff,
     aim_review_store,
     review_shown,
+    tag_cross,
 )
 from .aim_review import references as aim_review_references
 from .aim_review import unread
+from .aim_review.faults import NOT_APPLIED_WORDS, counted
+from .aim_review.updates import group_mark, u7b
 
 #: The boundary every count carries.
 BOUNDARY = "this paper, this review"
@@ -110,6 +113,8 @@ def line_view(row: dict, n: int, hidden: bool = False) -> dict:
             "book_document_id": None,
             "comment": aim_review_references.HIDDEN_COMMENT
             if aim_review_references.NOTE_CHECKED in str(row.get("code_note") or "")
+            else tag_cross.HIDDEN_COMMENT  # the other paper's value is its content too: never shown (rule 5)
+            if str(row.get("code_note") or "").startswith(tag_cross.NOTE)
             else comment,
             # code's note may hold the rule's words or numbers: only its state words stay (they decide whether the line is sent
             # and how it groups, the same for every viewer); the comparison's words are not served either (`compared`)
@@ -248,18 +253,31 @@ def _field_key(field) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", str(field or "").lower()).split())
 
 
+def editor_group(p: dict) -> int | None:
+    """The editor's (S5) group mark of a line (`same_point_as`, the group's first line), or None: part of every merge key, so
+    two lines the editor judged different points never share a comment (none of a run without marks changes)."""
+    return group_mark(p)  # 7b switched off: no group in any key, as main
+
+
 def _keys(sent: list[dict]) -> dict[int, tuple]:
     """{line number: the key of its comment}. ONE comment per CHECK: the lines of one checklist item that show the same label,
     the same compare kind and the same provisional kind (a provisional figure never joins an ordinary Question), across tags,
     lines, sheets and pages (the repeats a strict judge marks WEAK). Lines of DIFFERENT
     items are never merged, whatever their label or rule book (18 Nov 2026: long lists of different points buried findings a
     senior engineer would raise one by one), so a code-compared Fail never joins a Question. A line with no item stays alone.
-    Every sent line is in exactly one comment, which keeps each place's own words; every line stays a point."""
-    return {
-        p["n"]: ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
-                 _provisional_kind(p.get("code_note")))
-        for p in sent
-    }  # fmt: skip
+    Every sent line is in exactly one comment, which keeps each place's own words; every line stays a point.
+    ONE POINT, ONE COMMENT (update 7, the live datasheet: one point sent twice, and a card of an always-on item listing six
+    unrelated fields): lines of one item that the editor (S5) put in DIFFERENT groups are different points, so each keeps its own
+    group mark in the key and joins its group (`aim_review_merge.same_group`); and the always-on items report each place as its
+    own finding (`always.G1_CHECK` ...), so their lines are keyed by field too."""
+    from .aim_review.always import TOPIC as ALWAYS
+
+    def key(p: dict) -> tuple:
+        own = _field_key(p.get("field")) if p.get("topic") == ALWAYS and u7b() else ""
+        return ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
+                _provisional_kind(p.get("code_note")), editor_group(p), own)  # fmt: skip
+
+    return {p["n"]: key(p) for p in sent}
 
 
 def group_comments(points: list[dict]) -> list[dict]:
@@ -326,6 +344,9 @@ def _finding_key(p: dict) -> tuple | None:
         p["shown_label"],
         p.get("compare_kind") or "",
         _provisional_kind(p.get("code_note")),
+        editor_group(
+            p
+        ),  # two lines the editor judged different points are never one finding
     )
     quote = "" if p.get("quote_unverified") else _field_key(p.get("quote"))
     if quote:
@@ -667,6 +688,7 @@ def build(conn, run: dict, scope=None) -> dict:
     for p in points:
         by_shown[p["shown_label"]] = by_shown.get(p["shown_label"], 0) + 1
     identity = _json(run.get("identity_json"), {})
+    local = aim_review_local_view.engine_of(conn, run)
     books, hidden, carried = _books(conn, run, scope)
     unlisted = _json(run.get("unlisted_json"), [])
     view = {
@@ -681,10 +703,9 @@ def build(conn, run: dict, scope=None) -> dict:
         "identity": {
             k: _blank(identity.get(k)) for k in ("kind", "equipment_type", "subject")
         },
-        # the measured score of this paper's kind ("below target" says so); None when the run names no kind (piece G)
-        "measured": aim_review_measured.for_run(
-            {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
-        ),
+        # the measured score of this paper's kind ("below target" says so; a local run: not yet scored); None: no kind (piece G)
+        "measured": aim_review_local_view.measured(identity, local),
+        "engine": local,  # the local model the run's own calls name (never the setting); a Claude run: not local
         "counts": {
             "points": len(points),
             "comments": len(comments),
@@ -741,17 +762,6 @@ def served(conn, paper_id: str, scope, run_id: str | None = None) -> dict | None
     return view
 
 
-#: What a run's checking step that did not run means for the sheet, in plain words (a failed AI step is shown and never makes a
-#: comment more confident: its lines stay as the step before left them).
-_NOT_APPLIED_WORDS = {
-    "aim_second_read": "The second reader did not run on this sheet ({why}): its findings are sent as the first reader judged "
-    'them, none is marked "two readers agree".',
-    "aim_answered": "The whole-paper check did not run on this sheet ({why}): no comment was taken off for a claim the paper "
-    "contradicts.",
-    "aim_edit": "The editor did not run on this sheet ({why}): repeated comments are not grouped or taken off.",
-}
-
-
 def steps_not_applied(calls) -> list[dict]:
     """[{step, why, sentence}] for each checking step whose answer was not applied (its code note "<step> not applied: <why>"),
     once per step, in run order. Read from the run's calls only; no document words."""
@@ -769,10 +779,14 @@ def steps_not_applied(calls) -> list[dict]:
             if ":" in str(c.get("code"))
             else "no reason recorded"
         )
-        words = _NOT_APPLIED_WORDS.get(
+        words = NOT_APPLIED_WORDS.get(
             step, "The step " + step + " did not run on this sheet ({why})."
         )
-        out.setdefault(
-            step, {"step": step, "why": why, "sentence": words.format(why=why)}
+        row = out.setdefault(
+            step, {"step": step, "why": why, "count": 0, "words": words}
         )
+        row["count"] += 1
+    # a step that set something aside more than once says how many times
+    for row in out.values():
+        row["sentence"] = counted(row.pop("words"), row["count"]).format(why=row["why"])
     return list(out.values())

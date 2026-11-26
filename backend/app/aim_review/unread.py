@@ -27,6 +27,8 @@ NO_TEXT, WAITING, FAILED, NO_TEXT_AFTER = (
     "picture_reading_no_text",
 )
 PICTURE_NOT_READ, PICTURE_FAILED = "picture_not_read", "picture_reading_failed"
+#: A page Claude's picture reading was not given: past the per-review limit, or refused (a cap, the lane, the approval).
+CAPPED, REFUSED = "picture_reading_capped", "picture_reading_refused"
 
 #: The plain words of each code (the same on the page and in the file).
 WHY_WORDS = {
@@ -36,19 +38,21 @@ WHY_WORDS = {
     NO_TEXT_AFTER: "its picture reading came back with no text",
     PICTURE_NOT_READ: "no picture reading came back",
     PICTURE_FAILED: "its picture reading failed",
+    CAPPED: "it is past the limit of pages Claude reads as pictures in one review",
+    REFUSED: "Claude's picture reading of it was refused (a spending cap, the lane or the approval)",
 }
 
 STEP = "aim_unread_pages"
+#: The run's calls row when the check itself failed (`faults`); its own step, so `record_state` still reads "not checked".
+CHECK_STEP, PICTURES_STEP = "aim_unread_check", "aim_picture_readings"
 #: The record's code when every page had text or a picture reading, and when the check did not run (an older review, a failed check, a missing file).
 NONE, NOT_CHECKED = "none", "not_checked"
 LISTED, ALL_READ, NOT_RECORDED = "listed", "all_read", "not_recorded"
 
 
-def with_unread(
-    conn, paper_id: str, paper, _reload
-):  # kept for the caller's signature; unused since the review stopped reading pages
+def with_unread(conn, paper_id: str, paper, _reload):
     """The paper with its `unread` list filled: a PDF's pages with no usable text (waiting pages are named, not read here), or a Word
-    file's pictures with no reading. `_reload` is kept for the caller's signature (unused: the review no longer reads waiting pages). Never raises."""
+    file's pictures with no reading. `_reload` is kept for the caller's signature (the review no longer reloads the paper). Never raises."""
     try:
         ref = _ref(conn, paper_id)
         if ref is None:
@@ -62,8 +66,10 @@ def with_unread(
         # 7a: a page waiting for the upload's own picture reading is only NAMED (WAITING); the review never runs recognition itself
         paper.unread = _pdf_unread(conn, paper_id, paper, ref["pages"])
         paper.unread_checked = True
-    except Exception as exc:  # noqa: BLE001 - never a failed review: the pages simply are not claimed
-        log.info("general review: unread pages not worked out (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - never a failed review: the pages are not claimed, and the run says the check failed
+        from . import faults
+
+        faults.record(CHECK_STEP, "the unread-pages check", exc)
     return paper
 
 
@@ -82,13 +88,12 @@ def _ref(conn, paper_id: str) -> dict | None:
         or (row["pagination"] or "") == "flow"
     )
     path = None
-    if word:
-        try:
-            path = agent_review_pages.pdf_path(
-                {"stored_path": row["stored_path"]}, settings.data_dir
-            )
-        except agent_review_pages.PageImageUnavailable:
-            path = None
+    try:  # the stored file: a Word file's pictures are read from it, a PDF's unread pages are rendered from it
+        path = agent_review_pages.pdf_path(
+            {"stored_path": row["stored_path"]}, settings.data_dir
+        )
+    except agent_review_pages.PageImageUnavailable:
+        path = None
     return {"word": word, "path": path, "pages": int(row["page_count"] or 0)}
 
 
@@ -110,11 +115,22 @@ def _pdf_unread(conn, paper_id: str, paper, total: int) -> list[dict]:
                 "SELECT page_no, error FROM page_ocr WHERE document_id = ?", (paper_id,)
             )
         }
+    from app import picture_stage
+
+    looked_at = picture_stage.recorded(
+        conn, paper_id
+    )  # the upload's own picture reading (never run inside a review)
     out = []
     for n in range(1, last + 1):
         if len(str(paper.pages.get(n) or "").strip()) >= MIN_PAGE_CHARS:
             continue
-        if n in recognised:
+        if n in looked_at and looked_at[n] != picture_stage.READ:
+            why = {
+                picture_stage.FAILED: PICTURE_FAILED,
+                picture_stage.REFUSED: REFUSED,
+                picture_stage.CAPPED: CAPPED,
+            }.get(looked_at[n], NO_TEXT_AFTER)
+        elif n in recognised:
             why = FAILED if recognised[n] else NO_TEXT_AFTER
         elif state.get(n, (0, None))[0]:
             why = WAITING
@@ -154,10 +170,18 @@ def _word_unread(conn, path) -> list[dict]:
                     (sha,),
                 )
             }
-        except Exception as exc:  # noqa: BLE001 - no table: no reading
-            log.debug(
-                "general review: no stored picture readings (%s)", type(exc).__name__
-            )
+        except Exception as exc:  # noqa: BLE001 - no reading: every picture is named as not read
+            if "no such table" in str(
+                exc
+            ):  # an older database: no picture was ever read
+                log.debug(
+                    "general review: no stored picture readings (%s)",
+                    type(exc).__name__,
+                )
+            else:  # a store that holds readings but cannot be read: the run says so
+                from . import faults
+
+                faults.record(PICTURES_STEP, "reading the stored picture readings", exc)
             status = {}
     out = []
     for p in pictures:

@@ -199,16 +199,16 @@ describe("H10: Accept / Edit / Reject on each card", () => {
 describe("card chips (planner 18 Nov 23:30-3)", () => {
   it("a chip shows the tag, the page and the value; a place with no verified quote shows no value", () => {
     const c = card(1, { applies_to: [
-      { page: 1, field: "Set pressure (North skid)", quote: "340 psig", tag: "North skid", value: "340 psig" },
+      { page: 1, field: "Set pressure (North skid)", quote: "315 psig", tag: "North skid", value: "315 psig" },
       { page: 2, field: "Effective area", quote: "76 Effective area", tag: "", value: "" },
     ] });
     mount(review([c]));
-    expect(screen.getByRole("button", { name: "page 1" })).toHaveTextContent("North skid · p1 · 340 psig");
+    expect(screen.getByRole("button", { name: "page 1" })).toHaveTextContent("North skid · p1 · 315 psig");
     expect(screen.getByRole("button", { name: "page 2" })).toHaveTextContent("Effective area · p2");
   });
 
   it("a long value is cut with a mark and the whole text stays in the chip's title", () => {
-    const long = "340 psig (By Contractor, as per Code and the project rules for this unit)";
+    const long = "315 psig (By Contractor, as per Code and the project rules for this unit)";
     const c = card(1, { applies_to: [{ page: 1, field: "Set pressure (Skid one)", quote: long, tag: "Skid one", value: long }] });
     mount(review([c]));
     const chip = screen.getByRole("button", { name: "page 1" });
@@ -249,5 +249,19 @@ describe("one chip per field (planner 19 Nov, item 3)", () => {
     const quotes = screen.getAllByTestId("card-quote").map((q) => q.textContent);
     expect(quotes).toEqual(["page 1page one says 10 bar", "page 3page three says 12 bar"]);
     expect(screen.getByText(/Show evidence \(2 quotes\)/)).toBeTruthy();
+  });
+});
+
+describe("side-claim cut mark (A, update 6)", () => {
+  it("shows the page and the full text before the cut, never inside We ask", () => {
+    const before = "The test is set to NO. The record is not named. State the test.";
+    mount(review([card(1, { we_ask: "The test is set to NO. State the test.", cut: [{ page: 2, pages: [2, 5], before }] })]));
+    expect(screen.getByTestId("card-cut")).toHaveTextContent(`Part answered on page 2, 5 taken out. Before: ${before}`);
+    expect(screen.getByText("The test is set to NO. State the test.")).not.toHaveTextContent("taken out");
+  });
+
+  it("shows no mark when nothing was cut", () => {
+    mount(review([card(1, { cut: [] }), card(2)]));
+    expect(screen.queryByTestId("card-cut")).toBeNull();
   });
 });

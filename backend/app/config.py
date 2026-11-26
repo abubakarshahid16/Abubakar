@@ -416,8 +416,8 @@ class Settings(SettingsExt, BaseSettings):
     #: string split - see `model_host_of`.
     answer_model_allowed_hosts: tuple[str, ...] = ()
     #: ONE local default (owner, 25 Nov 2026 23:25: "let us not use the 35 billion parameter model, it crashes memory"): the
-    #: 14B-class model for Chat's local answers and technical-query drafts. The 35B stays installed and is loaded only when
-    #: the owner asks (set ANSWER_MODEL to it).
+    #: 14B-class model for Chat's local answers, technical-query drafts and the general review on Local only. The 35B stays
+    #: installed and is loaded only when the owner asks (set ANSWER_MODEL to it).
     answer_model: str = "ministral-3:14b"
     answer_prompt_variant: str = "default"
     #: Resident size of the answer model: the 14B MEASURED at 11.10 GB in the engine with a 28,672-token window (25 Nov
@@ -457,6 +457,17 @@ class Settings(SettingsExt, BaseSettings):
     #: passes as a DRAFT for the engineer, never a verdict. ON by default
     #: (#805 rule 1); at most this many sentences per run (one call each).
     ai_clause_checks_enabled: bool = True
+    #: The way back per live update (owner via the planner, 26 Nov 2026): each update's review-changing parts, OFF until a quick
+    #: score switches them on (`aim_review/updates.py`). All three off: a review runs exactly as main 475adb91.
+    aim_u6b_enabled: bool = False
+    aim_u7b_enabled: bool = False
+    aim_u8_enabled: bool = False
+    #: The formula checks (`aim_review/formulas.py`), their own switch since update 9 (lead-4: proven by the free code-only replay,
+    #: found unchanged, 3 new Not met lines all true, no comment duplicated). Off: no formula lines, as main 475adb91.
+    aim_formula_checks_enabled: bool = True
+    #: Discipline reviewers (owner 25 Nov 2026): the judge with a mechanical or contract section and worked examples
+    #: (`aim_review/disciplines.py`, `reference/discipline_reviewers.json`). OFF until scored against the general judge.
+    aim_discipline_reviewers_enabled: bool = False
     ai_clause_checks_max_per_run: int = 20
     #: Rule trust (`rule_trust.py`, owner decision on AI-compiled rules): a rule the AI compiled may
     #: decide a verdict WITHOUT one-by-one engineer approval only when its family (standard x equipment

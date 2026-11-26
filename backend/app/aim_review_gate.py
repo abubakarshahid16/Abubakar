@@ -6,7 +6,8 @@ THE ONE WAY BACK is `REVIEW_OLD_ENGINE_ENABLED` (`settings.review_old_engine_ena
   True  -> everything is exactly as before the general review; it is not offered.
 
 Every piece reads the switch and the knobs ONLY through this module. It opens no lane: the general review runs on Claude only when
-the AI reviewer's lane is open as today (`AGENT_REVIEW_ENABLED`, the provider, both egress flags, a key), decided elsewhere.
+the AI reviewer's lane is open as today (`AGENT_REVIEW_ENABLED`, the provider, both egress flags, a key), decided elsewhere. With
+Local only it runs on the local model (`aim_review.local_model`), barred from Claude for the whole run.
 Each sentence below has ONE home: this file (a grep test says so).
 """
 
@@ -19,11 +20,28 @@ EARLIER = "earlier"
 
 #: Every sheet of the general review's file, the page header and each row carry these words.
 AI_MARK = "AI, to be checked"
-#: Local only: the general review needs Claude; nothing is sent and nothing is reviewed.
-LOCAL_NOT_AVAILABLE = (
-    "The general review needs Claude. It does not run on the local model yet, so with Local only nothing is "
-    "sent and nothing is reviewed. Choose Automatic or Claude to review this paper."
+#: Local only while the AI review itself is switched off on this install: nothing is sent and nothing is reviewed.
+LOCAL_NOT_AVAILABLE = "The AI review is switched off on this install, so with Local only nothing is sent and nothing is reviewed."
+#: LOCAL ONLY RUNS THE GENERAL REVIEW ON THE LOCAL MODEL (planner 25 Nov 2026 22:35, the owner: "if we do not have the Claude API,
+#: use the local model until then"): the same steps, code checks and labels, on the installed local model; nothing leaves this
+#: computer, USD 0. Its quality is not measured yet, so the page and the file say so until a score of local runs exists.
+LOCAL_RUN_WHY = (
+    "it runs on this computer on the local model: nothing leaves this computer, USD 0"
 )
+LOCAL_PLAN_WORDS = (
+    "The general review runs on the local model on this computer. Nothing leaves this computer and nothing is paid. "
+    "It is slower than Claude (a large paper can take hours) and its quality is not measured yet: local model, not yet scored."
+)
+#: Local only while the local route is switched off (GENERAL_REVIEW_LOCAL_ENABLED, the way back): refused before the start.
+LOCAL_SWITCHED_OFF = (
+    "The local model is switched off for the general review on this install, so with Local only nothing is sent and nothing "
+    "is reviewed."
+)
+#: The one line the plan and the sheet show for the local model: its measured time and score (night test, 26 Nov 2026, on the
+#: 14B: valve copy A 20 minutes, 0 of 10 planted mistakes found; contract copy A 3 of 10). Change it with the next measured score.
+LOCAL_TEST_NOTE = "Local model: about 20 minutes; found 0 of 10 planted datasheet mistakes and 3 of 10 contract mistakes in our test."
+#: The score line of a review made on the local model (page and file), in place of the kind's score measured on Claude.
+LOCAL_NOT_SCORED = "local model, not yet scored"
 #: The contractor copy of a general review is refused (409) with these words.
 NO_CONTRACTOR_COPY_WORDS = "No contractor copy yet: this review is not signed off. This file is for the team: AI, to be checked."
 #: The rule-check part of the plan while the general review is on.
@@ -38,6 +56,11 @@ RUN_CAP_USD = 15.0
 def answered_check_on() -> bool:
     """True: the general review runs the whole-paper check (S4b) after the judge (`AIM_ANSWERED_CHECK_ENABLED`, default off)."""
     return bool(settings.aim_answered_check_enabled)
+
+
+def local_on() -> bool:
+    """True: Local only runs the general review on the local model (the way back, GENERAL_REVIEW_LOCAL_ENABLED, is on)."""
+    return bool(getattr(settings, "general_review_local_enabled", True))
 
 
 def old_engine_on() -> bool:

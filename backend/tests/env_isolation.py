@@ -211,10 +211,18 @@ EGRESS_SAFE: dict[str, object] = {
     "old_crs_download_enabled": False,  # 16 Nov: the older per-review CRS files (no count line), off
     # order 14: the general review. The way-back switch is pinned ON in tests (TEST_PINS); its production default is False.
     "review_old_engine_enabled": True,
+    # 26 Nov (A3): Local only runs the general review on the local model; nothing leaves; the model URL is the dead port here
+    "general_review_local_enabled": True,
     "general_review_max_usd_per_run": 5.0,  # the general review run's own meter (refused above 15)
     "general_review_lead_model": "claude-sonnet-5-5",  # only on the Claude lane, which stays closed in tests
     "general_review_strong_model": "claude-opus-5-5",
     "aim_answered_check_enabled": False,  # the whole-paper check (S4b), a way-back switch, off; its own tests turn it on
+    # the way back per live update (`aim_review.updates`): off for the suite, as live; the tests of each part turn it on
+    "aim_u6b_enabled": False,
+    "aim_u7b_enabled": False,
+    "aim_u8_enabled": False,
+    "aim_formula_checks_enabled": True,  # the formula checks, ON by default (update 9); "all off = main" pins it off itself
+    "aim_discipline_reviewers_enabled": False,  # discipline reviewers on Claude, off; the local route gives their examples
     "ai_review_calculator_enabled": False,  # 12 Nov: the calculator step of the AI review, off
     "agent_review_two_reader_absence_enabled": False,  # its absence word, off
     "agent_review_two_reader_other_paper_enabled": False,  # its other-paper class, off

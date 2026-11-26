@@ -14,7 +14,7 @@ def _f(i, status, finding):
 
 
 FINDINGS = [
-    _f(1, "COMPLIANT", "Set pressure 340 psig meets the limit."),
+    _f(1, "COMPLIANT", "Set pressure 315 psig meets the limit."),
     _f(2, "COMPLIANT", "Set pressure By Contractor meets the limit."),
     _f(3, "COMPLIANT", "Material TBA meets the limit."),
     _f(4, "NON_COMPLIANT", "Back pressure TBA exceeds the limit."),

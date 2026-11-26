@@ -96,6 +96,7 @@ class Facts:
     kind: str | None = None  # "datasheet", "procedure", "contract", ... None = unknown
     kind_guess: bool = False
     agent_enabled: bool = True  # AGENT_REVIEW_ENABLED
+    local_enabled: bool = True  # GENERAL_REVIEW_LOCAL_ENABLED
     provider: str = "ollama"  # REASONING_PROVIDER: ollama | claude | per_task | other
     agent_engine_claude: bool = False  # AGENT_REVIEW_ENGINE says claude
     step_engine_claude: bool = False  # any normal-review step's OWN engine says claude
@@ -344,6 +345,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         agent_review_gate,
         agent_review_kind,
         agent_review_local,
+        aim_review_gate,
         claude_approved,
         claude_spend,
         contract_yes,
@@ -391,6 +393,7 @@ def read_facts(conn, document_id: str, allowed: frozenset[str]) -> tuple[Facts, 
         kind=kind,
         kind_guess=bool(reading.guess),
         agent_enabled=agent_review_gate.enabled(),
+        local_enabled=aim_review_gate.local_on(),
         provider=provider,
         agent_engine_claude=str(settings.agent_review_engine or "").strip().lower()
         == "claude",

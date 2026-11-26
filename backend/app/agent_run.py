@@ -531,7 +531,9 @@ def _scope_for(conn, trace, document_id, edition_map, claude, documents):
 
 
 def _guard(local, claude, consent, allowed):
-    """The heavy lock for a local run; the per-request consent of exactly the declared ids for a Claude run."""
+    """The heavy lock for a local run; for a Claude run, exactly the declared ids through the normal gate (`carrying`): the
+    owner's approved list, the contract check and the blocks all apply (CLAUDE.md rule 1: per-request consent is the chat's
+    own lane, and every other Claude workflow keeps the owner's list)."""
     stack = contextlib.ExitStack()
     if local:
         stack.enter_context(
@@ -541,7 +543,7 @@ def _guard(local, claude, consent, allowed):
         )
     if claude:
         stack.enter_context(
-            _consent_module(consent).per_request_consent(sorted(allowed))
+            _consent_module(consent).carrying(sorted(allowed))
         )
     return stack
 

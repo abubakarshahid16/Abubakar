@@ -33,7 +33,7 @@ COVER = [
     "Rev. Date Status Description",
     "00 01/01/2024 IFF Issued for Final",
 ]
-ROWS = [("Design pressure", "23.5 barg"), ("Design temperature", "120 C")]
+ROWS = [("Design pressure", "22.2 barg"), ("Design temperature", "120 C")]
 
 
 def _pdf(path, cover_pages=1) -> str:

@@ -86,7 +86,7 @@ class Result:
 
 #: `code_note` of a line whose item was never answered (the run stopped, a batch failed, its book was not on the list).
 NOT_JUDGED = "not_judged"
-#: `code_note` of a PROVISIONAL figure (a stated figure beside a who-supplies note, "380 psig (By Contractor)"): always a Question.
+#: `code_note` of a PROVISIONAL figure (a stated figure beside a who-supplies note, "345 psig (By Contractor)"): always a Question.
 #: Code compared it and it PASSED: kept in "All points", never sent (fewer false alarms).
 PROVISIONAL = "provisional"
 #: ... code compared it and it FAILED: a sent Question whose comment states the check in numbers.
@@ -103,7 +103,7 @@ EDITED = "edited"
 #: `code_note` part of a line on NO held rule that the whole-paper check (S4b, `answered.py`) found answered by the paper:
 #: "answered: the paper answers it on page 7: "..."" (a quote code found on that page). It stays in "All points", never sent.
 ANSWERED = "answered"
-#: `code_note` part of a line whose quoted figure the contractor FILLED IN beside a who-supplies note ("380 psig (By Contractor)"):
+#: `code_note` part of a line whose quoted figure the contractor FILLED IN beside a who-supplies note ("345 psig (By Contractor)"):
 #: judged as a stated value (owner, 18 Nov 2026 after live); the note says where the figure came from.
 CONTRACTOR_FILLED = "filled in by the contractor (By Contractor)"
 #: `code_note` parts of the second reader (S4c, `second_read.py`): both readers find a fault, or they differ ("readers differ:
@@ -118,6 +118,10 @@ DIFFERENT_ITEMS = "different_items"
 NO_ASK = "no_ask"
 #: A point that a standard the paper cites is not held, so its requirements were not checked: on All points, never sent.
 CITED_NOT_HELD = "cited_not_held"
+#: `code_note` part of a line the judge itself said was Met, with numbers code could not prove on the paper (planner's live check
+#: of 26 Nov 2026: valve cards were sent as Questions whose ask only stated a pass). An AI verdict of a pass is internal only:
+#: kept on All points, never sent. Decided by the judge's own label and code's result, never by the comment's words.
+AI_MET_UNPROVEN = "ai_met_unproven"
 NOT_SENT_NOTES = (
     NOT_JUDGED,
     PROVISIONAL,
@@ -127,6 +131,7 @@ NOT_SENT_NOTES = (
     ANSWERED,
     NO_ASK,
     CITED_NOT_HELD,
+    AI_MET_UNPROVEN,
 )
 
 
@@ -185,6 +190,7 @@ def run(
 
 
 __all__ = [
+    "AI_MET_UNPROVEN",
     "ANSWERED",
     "CITED_NOT_HELD",
     "CONTRACTOR_FILLED",

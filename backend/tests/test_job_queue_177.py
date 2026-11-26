@@ -475,7 +475,7 @@ def _datasheet(path) -> str:
     page = doc.new_page(width=600, height=500)
     y = 60
     for index, (label, value) in enumerate(
-            [("Design pressure", "23.5 barg"), ("Compressibility factor", "0.892")],
+            [("Design pressure", "22.2 barg"), ("Compressibility factor", "0.892")],
             start=1):
         page.draw_rect(pymupdf.Rect(40, y - 14, 300, y + 6), color=(0, 0, 0), width=0.7)
         page.draw_rect(pymupdf.Rect(300, y - 14, 560, y + 6), color=(0, 0, 0), width=0.7)
@@ -494,7 +494,7 @@ def test_fact_extraction_records_its_version_and_input_hash(tmp_path):
         conn.execute("UPDATE documents SET stored_path = ? WHERE id = 'doc_fact'",
                      (_datasheet(tmp_path / "sheet.pdf"),))
     _chunk("doc_fact", "c_fact",
-           "1 Design pressure 23.5 barg 2 Compressibility factor 0.892",
+           "1 Design pressure 22.2 barg 2 Compressibility factor 0.892",
            section="Process Data")
     scope = frozenset({"doc_fact"})
     written = datasheets.extract_facts("doc_fact", allowed_document_ids=scope)

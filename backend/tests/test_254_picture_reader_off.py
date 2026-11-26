@@ -29,7 +29,7 @@ PROSE = [
     "factory acceptance test has been witnessed by the purchaser representative",
     "and all outstanding comments on the earlier submission have been closed out.",
 ]
-ROWS = [("Design pressure", "23.5 barg"), ("Design temperature", "120 C")]
+ROWS = [("Design pressure", "22.2 barg"), ("Design temperature", "120 C")]
 
 
 def _pdf(path, picture_share: float = 0.0) -> str:

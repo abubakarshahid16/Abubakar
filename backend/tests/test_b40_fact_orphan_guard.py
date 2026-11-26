@@ -35,7 +35,7 @@ from app import comparison, datasheets, db, submittal_review
 from app.config import settings
 
 NOW = "2026-09-22T00:00:00Z"
-ROWS = [("Design pressure", "23.5 barg"), ("Set pressure", "340 psig"),
+ROWS = [("Design pressure", "22.2 barg"), ("Set pressure", "315 psig"),
         ("Compressibility factor", "0.892")]
 SUPERSEDED_ACTION = "facts.superseded.re_extract_facts"
 OLD_GUARD_ACTION = "findings.orphaning.re_extract_facts"

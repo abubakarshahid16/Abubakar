@@ -7,6 +7,7 @@ the general review does with them. Pure resolver; the plan reads and writes noth
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import replace
 
@@ -19,6 +20,7 @@ from .review_engine import (
     NEEDS_YES,
     NOT_RUN,
     ON_CLAUDE,
+    ON_LOCAL,
     RULE_CHECK,
     UNKNOWN_CHOOSE,
     Facts,
@@ -28,8 +30,8 @@ from .review_engine import (
 )
 from .review_engine_ran import _notes
 
-#: Order 14 (owner, 18 Nov 2026): with the general review on, Local only is refused with this code (the sentence is
-#: `aim_review_gate.LOCAL_NOT_AVAILABLE`); nothing is queued.
+#: Order 14 (owner, 18 Nov 2026): Local only was refused with this code. Since the local route (planner 25 Nov 2026 22:35) it is used
+#: only when the AI review itself is switched off on this install (the sentence is `aim_review_gate.LOCAL_NOT_AVAILABLE`).
 GENERAL_NOT_ON_LOCAL = "GENERAL_NOT_ON_LOCAL"
 #: The blockers an explicit choice of Claude lifts (`decide` replaces those facts for Claude): Automatic says so.
 LIFTED_BY_CLAUDE = ("NEEDS_YES", "NOT_APPROVED", "BOOKS_NOT_APPROVED", "UNSCORED")
@@ -94,8 +96,9 @@ def _general_blocker(f: Facts) -> tuple[str, str] | None:
 
 def decide_general(choice: str, f: Facts) -> Plan:
     """The general review (order 14). Parts stay [rule_check, ai_review]; the rule check never runs; the AI review is the general
-    review, on Claude or not run. A start that would run nothing is refused (never queued): Local only with
-    GENERAL_NOT_ON_LOCAL, Automatic and Claude with the blocker's code. Pure: `f` is already narrowed or widened by the choice."""
+    review, on Claude, on the local model (Local only: nothing leaves this computer) or not run. A start that would run nothing is
+    refused (never queued): Local only with GENERAL_NOT_ON_LOCAL when the AI review is switched off on this install, Automatic and
+    Claude with the blocker's code. Pure: `f` is already narrowed or widened by the choice."""
     from . import aim_review_gate
 
     plan = Plan(choice=choice)
@@ -103,12 +106,18 @@ def decide_general(choice: str, f: Facts) -> Plan:
     plan.needs_yes = bool(f.is_contract and not f.contract_yes)
     off = Part(RULE_CHECK, NOT_RUN, aim_review_gate.OLD_ENGINE_OFF_WORDS)
     if choice == LOCAL:
-        plan.refused = aim_review_gate.LOCAL_NOT_AVAILABLE
-        plan.refused_code = GENERAL_NOT_ON_LOCAL
-        plan.parts = [
-            off,
-            Part(AI_REVIEW, NOT_RUN, aim_review_gate.LOCAL_NOT_AVAILABLE),
-        ]
+        if not f.agent_enabled or not f.local_enabled:
+            words = (
+                aim_review_gate.LOCAL_NOT_AVAILABLE
+                if not f.agent_enabled
+                else aim_review_gate.LOCAL_SWITCHED_OFF
+            )
+            plan.refused, plan.refused_code = words, GENERAL_NOT_ON_LOCAL
+            plan.parts = [off, Part(AI_REVIEW, NOT_RUN, words)]
+            return plan
+        # LOCAL ONLY RUNS THE GENERAL REVIEW ON THE LOCAL MODEL (planner 25 Nov 2026 22:35): the run is barred from Claude for its
+        # whole length (`review_engine_start`: an AI review not on Claude raises the bar), nothing leaves this computer, USD 0
+        plan.parts = [off, Part(AI_REVIEW, ON_LOCAL, aim_review_gate.LOCAL_RUN_WHY)]
         return plan
     blocker = _general_blocker(f)
     if blocker is None:
@@ -182,6 +191,8 @@ def _unscored_note(facts) -> str:
 
 ACCOUNT_REFUSAL_HOURS = 24
 
+log = logging.getLogger(__name__)
+
 
 def _recent_account_refusal(conn) -> str | None:
     """The plain sentence when a general review of the last day STOPPED because the Claude account cannot answer, else None. It says what
@@ -211,8 +222,12 @@ def _recent_account_refusal(conn) -> str | None:
     ).fetchone()
     if later is not None:
         return None
-    at = str(row["stopped_at"])[11:16]
-    return f"A review's Claude call was refused{f' at {at}' if at else ''}. {words}"
+    at = str(
+        row["stopped_at"]
+    )[
+        11:16
+    ]  # the stored clock is UTC: said so, never a bare time that reads as the reader's own
+    return f"A review's Claude call was refused{f' at {at} UTC' if at else ''}. {words}"
 
 
 def general_plan(
@@ -251,6 +266,11 @@ def general_plan(
         out["sentence"] = (
             plan.refused if plan.refused.endswith(".") else plan.refused + "."
         )
+    elif plan.part(AI_REVIEW).engine == ON_LOCAL:
+        out["sentence"] = (
+            f"{aim_review_gate.LOCAL_PLAN_WORDS} {aim_review_gate.AI_MARK}."
+        )
+        out["notes"] = [*out["notes"], aim_review_gate.LOCAL_TEST_NOTE]
     else:
         out["sentence"] = (
             f"The general review runs on Claude. {GENERAL_LEAVES} {aim_review_gate.AI_MARK}."

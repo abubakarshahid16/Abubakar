@@ -11,6 +11,7 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from . import kind_list
 from .blank_form import is_blank_form, line_shape
 from .classification import (
     _SPACE,
@@ -37,16 +38,9 @@ DOCUMENT_KIND_CLASSIFIER_VERSION = "document-kind-v1"
 
 #: The vocabulary. `unknown` is a real answer: general review, marked.
 DOCUMENT_KINDS: tuple[str, ...] = (
-    "datasheet",
-    "procedure",
-    "specification",
-    "transmittal",
-    "contract",
-    "drawing",
-    "feed",
-    "standard",
+    *kind_list.cover_kinds(),
     "unknown",
-)
+)  # from THE ONE LIST (`kind_list`)
 
 #: Type codes a document number carries ("<project>-<area>-SP-<serial>"). Read
 #: only inside a line that is a document number, and only when a serial number
@@ -749,5 +743,7 @@ def after_read_in(document_id: str) -> None:
         import logging
 
         logging.getLogger(__name__).warning(
-            "kind and role suggestion skipped for %s: %s", document_id, type(exc).__name__
+            "kind and role suggestion skipped for %s: %s",
+            document_id,
+            type(exc).__name__,
         )

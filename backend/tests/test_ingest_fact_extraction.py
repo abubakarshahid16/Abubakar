@@ -32,7 +32,7 @@ from app.main import app
 ROWS = [
     ("Set pressure", "355 psig By Contractor"),
     ("Density at relieving temper.", "31.75 Kg/m3"),
-    ("Design pressure", "23.5 barg"),
+    ("Design pressure", "22.2 barg"),
     ("Compressibility factor", "0.892"),
 ]
 

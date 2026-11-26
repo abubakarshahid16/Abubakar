@@ -28,7 +28,7 @@ export interface TechnicalQuery {
   /** The newest "prepare evidence" job: it runs in the background, one at a time, and waits for a running review. */
   evidence_job?: { id: string; state: "queued" | "running" | "done" | "failed"; progress_done: number; progress_total: number; label: string | null; error: string | null } | null;
   /** How many contracts the evidence search covered: "Searched N of N contracts, hits in M." */
-  evidence_coverage?: { searched: number; of: number; hits_in: number; failed: number; line: string } | null;
+  evidence_coverage?: { searched: number; of: number; hits_in: number; failed: number; line: string; matching_passages?: number; key_terms?: number; /** The best passage's own reranker score: a number from the search, never a verdict. */ top_rerank_score?: number | null } | null;
   confirmed_question?: string | null;
   confirmed_question_by?: string | null;
   confirmed_question_at?: string | null;
@@ -37,7 +37,7 @@ export interface TechnicalQuery {
   received_at: string;
   due_at: string | null;
   messages?: Array<{ id: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
-  evidence?: Array<{ id: string; document_id: string; page_start: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
+  evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;
   drafts?: Array<{ id: string; version: number; answer: string; assumptions_json: string; unresolved_json: string; citations_json: string; model: string | null }>;
@@ -78,6 +78,7 @@ export interface TechnicalQueryMailbox {
   connection_state: string;
   label_id: string | null;
   last_checked_at?: string | null;
+  status_note?: string | null;
   import_job?: MailboxImportJob | null;
 }
 

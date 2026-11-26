@@ -14,13 +14,13 @@ def pt(n, field, page, quote, **kw):
 
 def test_the_same_text_on_two_pages_is_said_once_with_both_pages():
     members = [
-        pt(1, "Set pressure (Skid one)", 1, "340 psig (By Contractor)"),
-        pt(2, "Set pressure (Skid two)", 2, "340 psig (By Contractor)"),
+        pt(1, "Set pressure (Skid one)", 1, "315 psig (By Contractor)"),
+        pt(2, "Set pressure (Skid two)", 2, "315 psig (By Contractor)"),
         pt(3, "Set pressure (Skid three)", 3, "120 psig"),
     ]
     assert (
         C.paper_says(members)
-        == "pages 1, 2: 340 psig (By Contractor) | page 3: 120 psig"
+        == "pages 1, 2: 315 psig (By Contractor) | page 3: 120 psig"
     )
 
 
@@ -72,12 +72,12 @@ def test_a_quote_with_any_other_word_or_number_is_a_value():
 
 def test_the_chip_carries_the_tag_the_page_and_the_value():
     (chip,) = C._places(
-        [pt(1, "Set pressure / MAWP (North skid)", 1, "340 psig (By Contractor)")]
+        [pt(1, "Set pressure / MAWP (North skid)", 1, "315 psig (By Contractor)")]
     )
     assert (chip["tag"], chip["page"], chip["value"]) == (
         "North skid",
         1,
-        "340 psig (By Contractor)",
+        "315 psig (By Contractor)",
     )
     (bare,) = C._places([pt(2, "Set pressure", 3, "120 psig")])
     assert bare["tag"] == ""

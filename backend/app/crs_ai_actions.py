@@ -435,7 +435,7 @@ def sheet_mark(line: Mapping) -> str:
 
 
 def provisional(line: Mapping) -> bool:
-    """The sheet prints a FIGURE with a unit beside its deferral mark ("340 psig By Contractor"): a provisional value to be confirmed, not
+    """The sheet prints a FIGURE with a unit beside its deferral mark ("315 psig By Contractor"): a provisional value to be confirmed, not
     a blank to be provided. Read by the app's one number reader (`claims.extract_measurements`) in the verified quote only."""
     from .claims import extract_measurements
 

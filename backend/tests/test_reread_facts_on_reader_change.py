@@ -1,7 +1,7 @@
 """Planner 2026-10-10 (F-b, roadmap R5): a review re-reads a datasheet whose
 stored facts were read by an older reader version.
 
-A fix to the reader (#725 F3: "340 psig (By Contractor)" is a value, not a
+A fix to the reader (#725 F3: "315 psig (By Contractor)" is a value, not a
 blank) reached no live review, because a review reuses stored facts forever:
 the live PSV still had 24 blank fields where a re-read gives 6. Now the one
 guard (`submittal_review.ensure_facts_extracted`) also re-reads, with
@@ -28,7 +28,7 @@ def sheet(tmp_path, monkeypatch):
                      "uploaded_at) VALUES ('sub','s.pdf','x',1,'s.pdf','ready',1,?)", (NOW,))
         conn.execute("INSERT INTO chunks (id,document_id,filename,ordinal,page_start,page_end,section,kind,"
                      "text,token_count,content_hash,retrievable) VALUES ('c','sub','s.pdf',0,1,1,NULL,'prose',"
-                     "'Set pressure 340 psig',4,'h',1)")
+                     "'Set pressure 315 psig',4,'h',1)")
         conn.execute("INSERT INTO review_runs (id,submittal_document_id,status,created_at,updated_at)"
                      " VALUES ('run','sub','pending',?,?)", (NOW, NOW))
     yield "sub"
@@ -37,7 +37,7 @@ def sheet(tmp_path, monkeypatch):
 
 def _fact(version, method="extracted", label="Set pressure"):
     return datasheets.create_fact(submittal_document_id="sub", chunk_id="c", review_run_id="run",
-                                  field_label=label, raw_value="340 psig", page=1,
+                                  field_label=label, raw_value="315 psig", page=1,
                                   extraction_method=method, extractor_version=version)
 
 

@@ -1,5 +1,6 @@
 /**
- * ONE date format for everything the reader sees: "12 Nov 2026, 14:35", in the reader's own time zone.
+ * ONE date format for everything the reader sees: "12 Nov 2026, 14:35 GMT+3", in the reader's own time zone, WITH the zone named
+ * (a clock time without its zone is a guess: the planner read a Mac's 23:20 as the time where it was 01:20 PKT).
  *
  * The server writes times in several shapes ("2026-09-30T18:48:03Z", "2026-09-30 18:48:03+00:00", "2026-09-30T18:48:03"
  * with no zone). All of them are UTC. A value with no zone is read as UTC, never as local time. A value that is not a
@@ -23,7 +24,17 @@ export function parseWhen(value: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** "12 Nov 2026, 14:35" (or "12 Nov 2026" for a bare calendar day). */
+/** The short name of the reader's zone at that instant ("GMT+3", "UTC", "PKT" where the browser knows the abbreviation). */
+export function zoneLabel(date: Date): string {
+  try {
+    const part = new Intl.DateTimeFormat("en-GB", { timeZoneName: "short" }).formatToParts(date).find((p) => p.type === "timeZoneName");
+    return part?.value ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** "12 Nov 2026, 14:35 GMT+3" (or "12 Nov 2026" for a bare calendar day). */
 export function formatWhen(value: string | null | undefined): string {
   if (value === null || value === undefined || value === "") return "";
   const date = parseWhen(value);
@@ -32,7 +43,8 @@ export function formatWhen(value: string | null | undefined): string {
   if (DATE_ONLY.test(value.trim())) return day;
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");
-  return `${day}, ${hh}:${mm}`;
+  const zone = zoneLabel(date);
+  return `${day}, ${hh}:${mm}${zone ? ` ${zone}` : ""}`;
 }
 
 /** The same for a Date or epoch milliseconds (the page's own "refreshed" stamp). */

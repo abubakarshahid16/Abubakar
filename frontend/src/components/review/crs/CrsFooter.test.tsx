@@ -68,10 +68,10 @@ describe("CrsFooter plain words and the signed line", () => {
   it("a signed review says Signed on <date>, never Not signed yet", () => {
     const at = "2026-10-16T10:00:00Z";
     const text = footerText(runOf({ crs_issued_at: at }));
-    expect(text).toMatch(/Signed on 16 Oct 2026, \d{2}:\d{2}\./);
+    expect(text).toMatch(/Signed on 16 Oct 2026, \d{2}:\d{2}( \S+)?\./);
     expect(text).not.toContain("Not signed yet");
     // Given by the caller, it wins.
-    expect(footerText(runOf({}), at)).toMatch(/Signed on 16 Oct 2026, \d{2}:\d{2}\./);
+    expect(footerText(runOf({}), at)).toMatch(/Signed on 16 Oct 2026, \d{2}:\d{2}( \S+)?\./);
   });
 
   it("an unsigned review still says Not signed yet", () => {

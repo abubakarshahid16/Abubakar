@@ -56,7 +56,7 @@ def test_on_an_ambiguous_dot_is_no_value(on, text):
 def test_on_the_reader_is_unchanged_for_ordinary_values(on):
     assert datasheets.measure_value("5 mm")[:2] == ("5", "mm")
     assert datasheets.measure_value("0.5 mm")[:2] == ("0.5", "mm")
-    assert datasheets.measure_value("340 psig")[:2] == ("340", "psig")
+    assert datasheets.measure_value("315 psig")[:2] == ("315", "psig")
     assert datasheets.measure_value("approx. 5") == (None, None, None)
     assert datasheets.measure_value("p.4") == (None, None, None)
 

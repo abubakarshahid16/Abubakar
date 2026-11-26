@@ -1160,7 +1160,7 @@ def test_a_cut_off_second_reader_never_reads_the_readers_disagree():
 
 
 def test_a_deferred_value_is_worded_as_the_sheet_shows_it():
-    """Lane D (valve S-EQ-02 "340 psig By Contractor"): a figure beside the deferral mark is a provisional value to CONFIRM; a lone star
+    """Lane D (valve S-EQ-02 "315 psig By Contractor"): a figure beside the deferral mark is a provisional value to CONFIRM; a lone star
     or words only is a value to PROVIDE; the mark and the page are said either way."""
     from app import crs_ai_actions as actions
 
@@ -1168,12 +1168,12 @@ def test_a_deferred_value_is_worded_as_the_sheet_shows_it():
         "R-1",
         "Query",
         reason_code="value_deferred",
-        paper_quote="340 psig (By Contractor, as per Code)",
+        paper_quote="315 psig (By Contractor, as per Code)",
         paper_page=1,
     )
     assert actions.provisional(figure)
     assert actions.query_action(figure, "Set pressure", "STD-1 clause 4.1") == (
-        'Contractor to confirm the provisional value of Set pressure (marked "340 psig (By Contractor, as per Code)" on page 1) '
+        'Contractor to confirm the provisional value of Set pressure (marked "315 psig (By Contractor, as per Code)" on page 1) '
         "against STD-1 clause 4.1."
     )
     assert WB.layout_comment(figure, *WB.status_of(figure)).startswith(

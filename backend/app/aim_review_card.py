@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 
 from . import aim_review
+from .aim_review import answered as _answered
+from .aim_review import formulas as _formulas
 from .aim_review import steps as _steps
 from .aim_review.always import TOPIC as ALWAYS_TOPIC
 from .aim_review.fail_words import PAIRED_MARK
@@ -226,6 +228,13 @@ def card(comment: dict, members: list[dict], confirmation: bool = False) -> dict
         "readers": readers_of(members),
         # internal AI process (never the comment, never the contractor copy): the team file's note column and the card's tag
         "paired": any(PAIRED_MARK in str(m.get("code_note") or "") for m in members),
+        # a part the paper answers was cut out of a member's comment (S4b): the page and the full text before (team only)
+        "cut": [
+            c
+            for m in members
+            for c in _answered.cuts_of(m.get("code_note"))
+            + _formulas.replaced_of(m.get("code_note"))
+        ],
     }
 
 

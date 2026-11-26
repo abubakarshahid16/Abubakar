@@ -7,6 +7,7 @@ flags, https, the allowed host, the key from the app's settings, never kept). Th
 `claude_spend.for_run(run_id)` and `claude_approved.reviewing(run_id)`. The run's own meter (`max_usd`) stops before a call whose
 worst case would cross it. Nothing here reads backend/.env or logs a key or any document text: errors are codes.
 
+LocalModel (`local_model`): the same ask() on the local model (`model_transport` only, USD 0, the sizes of `budget.LOCAL`).
 FakeModel: no network. It answers each step with fixed JSON built from the prompt's own material (so quotes verify) and asks the
 gate the same question (`claude_approved.refusal()` inside the same declaration). Tests use it; it costs nothing.
 """
@@ -19,6 +20,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
+from . import budget
 from .prompts import (
     ANSWER_KEYS,
     _text_of,
@@ -57,6 +59,9 @@ class CallRecord:
     seconds: float = 0.0
     ok: bool = True
     code: str = ""
+    #: "local" and what the call read, on the local model (`local_model`); "" for Claude (a Claude run's calls are unchanged)
+    engine: str = ""
+    note: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -68,7 +73,7 @@ class CallRecord:
             "seconds": self.seconds,
             "ok": self.ok,
             "code": self.code,
-        }
+        } | {k: v for k, v in (("engine", self.engine), ("note", self.note)) if v}
 
 
 @dataclass
@@ -202,6 +207,9 @@ def gate_checker():
     """`gate_ok(doc_id) -> None | refusal code`: what the send gate would say about a prompt that carries that one book."""
     from app import claude_approved
 
+    if budget.is_local():  # nothing is sent on the local model
+        return lambda _doc_id: None
+
     def gate_ok(doc_id: str) -> str | None:
         with claude_approved.carrying([doc_id]):
             r = claude_approved.refusal()
@@ -263,9 +271,7 @@ def run(
     """The general review of one paper. `cited_books`: the ids of the held company books the paper cites (the job may pass
     them; ids only); None: read by code from the stored paper (`library.cited_company`). Never writes the database itself (the checklist is saved through `store`), never raises
     for a model failure: a stopped run keeps the lines it judged and the rest as Question "not judged (<code>)"."""
-    from app import claude_approved, claude_spend
-
-    from . import Result
+    from . import Result, faults
 
     t0 = time.time()
     meter = Meter(cap=float(max_usd))
@@ -285,8 +291,8 @@ def run(
             except Exception:  # noqa: BLE001 - a progress callback never stops the review
                 log.debug("general review %s: progress callback failed", run_id)
 
-    try:
-        with claude_spend.for_run(str(run_id)), claude_approved.reviewing(str(run_id)):
+    try:  # budget.of: smaller pieces per call on the local model; faults.during_run: ledger, papers it may send, failed steps
+        with budget.of(inner), faults.during_run(str(run_id), meter.calls):
             _steps(conn, state, mdl, allowed_books, store, say, cancelled)
     except StepFailed as exc:
         state.stop(str(exc))
@@ -491,6 +497,9 @@ def _steps(
     )
     if not state.stop_reason:
         _after_judge(conn, state, mdl, paper, checklist, allowed_books, lead, say)
+        from .updates import formula_lines
+
+        formula_lines(conn, paper, state)  # own switch, on; off: none
     state.decided += BN.cited_points(
         state.not_held
     )  # a cited book not held: one point each, on All points, never sent
@@ -504,7 +513,9 @@ def _after_judge(
     editor (S5), and last the no-ask mark (code: a Question that asks nothing is kept on All points, not sent)."""
     from . import asks, contract_code
     from . import references as R
-    from .answered import s4b_answered
+    from .updates import s4b
+
+    s4b_answered = s4b()  # 6b's guard v3, else main's check
     from .editor import s5_edit
     from .second_read import s4c_second_read
 
@@ -563,12 +574,13 @@ def _known_keys(store) -> list[str]:
     keys = getattr(store, "keys", None)
     if not callable(keys):
         return []
-    try:
-        from . import library as L
+    from . import faults
+    from . import library as L
 
+    try:
         return sorted({L.base_key(str(k)) for k in keys()})  # the type names only
-    except Exception as exc:  # noqa: BLE001 - a store that cannot list its keys gives none
-        log.info("general review: checklist keys unreadable (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - none listed: named without them, and the run says so
+        faults.record("aim_checklist_keys", "listing the saved checklists", exc)
         return []
 
 
@@ -578,7 +590,7 @@ def _saved_current(store, state: _RunState) -> dict | None:
     from . import checklist as CL
 
     saved = store.get(state.key) if store is not None else None
-    if isinstance(saved, dict) and saved.get("method") != CL.CHECKLIST_METHOD:
+    if isinstance(saved, dict) and saved.get("method") != CL.checklist_method():
         log.info(
             "general review %s: the saved checklist is from another checklist method: built again",
             state.run_id,
@@ -695,12 +707,10 @@ def _checklist(
         state.sha = str(
             store.put(state.key, checklist, run_id=state.run_id, usd=usd) or ""
         )
-    except Exception as exc:  # noqa: BLE001 - a store that refuses the checklist: judged anyway, not saved, said so
-        log.warning(
-            "general review %s: checklist not saved (%s)",
-            state.run_id,
-            type(exc).__name__,
-        )
+    except Exception as exc:  # noqa: BLE001 - a store that refuses the checklist: judged anyway, not saved, said so in the run
+        from . import faults
+
+        faults.record("aim_checklist_save", "saving the checklist", exc)
         state.sha = ""
     return checklist
 
@@ -786,5 +796,5 @@ def _judge(
         state.stop(stop)
 
 
-# the fake model (tests and the dry run) lives in its own module; kept importable from here
-from .fake import FakeModel  # noqa: E402, F401
+from .fake import FakeModel  # noqa: E402, F401 - tests and the dry run (its own module)
+from .local_model import LocalModel  # noqa: E402, F401

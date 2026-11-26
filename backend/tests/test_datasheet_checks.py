@@ -40,7 +40,7 @@ def P(name, value, unit="barg"):
 
 
 def full_vessel(**over):
-    base = {"design pressure": P("design pressure", "23.5"),
+    base = {"design pressure": P("design pressure", "22.2"),
             "operating pressure": P("operating pressure", "20"),
             "hydrotest pressure": P("hydrotest pressure", "30.6"),
             "design temperature": fact("design temperature", "120", "C", normalized=120.0, norm_unit="C"),
@@ -66,7 +66,7 @@ def test_design_pressure_below_operating_is_a_comment_with_the_calculation():
 
 
 def test_test_pressure_must_exceed_design_pressure():
-    assert run(full_vessel(**{"hydrotest pressure": P("hydrotest pressure", "23.5")}))["DS-C3"]["status"] \
+    assert run(full_vessel(**{"hydrotest pressure": P("hydrotest pressure", "22.2")}))["DS-C3"]["status"] \
         == "NON_COMPLIANT"
 
 
@@ -234,7 +234,7 @@ def test_a_value_without_its_unit_or_in_the_wrong_kind_of_unit():
 def test_a_revision_block_is_looked_for():
     """M1063."""
     assert run(full_vessel())["DS-R1"]["status"] == "COMPLIANT"
-    assert run(full_vessel(), pages={1: "DESIGN DATA\nDesign pressure 23.5 barg"})["DS-R1"]["status"] \
+    assert run(full_vessel(), pages={1: "DESIGN DATA\nDesign pressure 22.2 barg"})["DS-R1"]["status"] \
         == "MISSING_INFORMATION"
 
 

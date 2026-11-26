@@ -20,9 +20,13 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
 )
 
 from . import book_names as BN
+from . import faults
 from . import library as L
 from . import prompts as P
+from . import retry as RT
 from . import scope_books as SB
+from .answer_schema import items_at_most
+from .budget import is_local
 from .carried import knowledge_rows, say_none, set_aside
 from .engine import StepFailed
 from .library import (  # noqa: F401 - the coverage floor (one home: library)
@@ -39,6 +43,7 @@ from .material import (  # noqa: F401 - the clause material S3 and the attack re
     _material_line,
     material,
 )
+from .updates import checklist_method
 
 log = logging.getLogger(__name__)
 HELD = "held standard"
@@ -49,6 +54,8 @@ KNOWLEDGE_NOT_HELD = "engineering knowledge (book not held)"
 MAX_KNOWLEDGE = 40
 #: At most this many knowledge items the attack step may add (code cuts the rest; light check e1c61001).
 MAX_ATTACK_KNOWLEDGE = 10
+#: Items per checklist retry call on the local model (its answer for every item at once could pass the 8,000-token limit).
+RETRY_LOCAL = 6
 #: The `source` of a not-held name that `wanted` found in the app's tables (the rebuild test reads these, never an AI's name).
 WANTED_GOVERNS, WANTED_METHOD = "governing table", "method table"
 WANTED_SOURCES = (WANTED_GOVERNS, WANTED_METHOD)
@@ -64,7 +71,10 @@ SELECT_MAX_BOOKS = 10  # S2 chooses at most this many books (besides the require
 #: "2026-11-18.3": one item per stated operating or service condition that checks the values the same paper chooses for it.
 #: "2026-11-19.1": carried_by names the package: what a schedule, annex or attachment of the same package normally carries
 #: is set aside for a Form of Agreement (and its S3 knowledge items too, not only S3K's).
-CHECKLIST_METHOD = "2026-11-19.1"
+#: "2026-11-25.1": a stated hazardous-area classification gets one item over every gas or vapour the same paper names.
+CHECKLIST_METHOD = "2026-11-25.1"
+#: The method main 475adb91 builds with (`updates.u7b` off): its saved checklists are reused as on main.
+CHECKLIST_METHOD_MAIN = "2026-11-19.1"
 
 
 def _dumps(o) -> str:
@@ -335,9 +345,11 @@ def _chosen(out: dict, cat: list[dict], required: dict[str, str]) -> list[dict]:
         if not c or c["book"] in chosen:
             continue
         subj = row.get("subjects")
+        # on the local model every subject of a chosen book (26 Nov 2026: the 14B's narrow subject lists offered 40k of the
+        # material's characters against Claude's 150k, on the same 20 books); its smaller calls read it all (`_batches`)
         subj = (
             "all"
-            if subj == "all" or not isinstance(subj, list)
+            if subj == "all" or not isinstance(subj, list) or is_local()
             else [s for s in subj if s in c["subjects"]] or "all"
         )
         chosen[c["book"]] = {
@@ -439,15 +451,22 @@ def _answers(
         "identity": _identity(ident),
         "books": _books_line(sel),
         "kinds": _dumps(list(ITEM_KINDS)),
-        "knowledge": P.KNOWLEDGE_ASK if first else "",
+        "knowledge": P.knowledge_ask() if first else "",
         "material": "\n".join(_material_line(r) for r in batch),
     }
     try:
-        out = model.ask(step="aim_checklist", model=lead, system="", cached=None, prompt=prompt, carries=carries,
-                        max_tokens=S3_MAX_TOKENS)  # fmt: skip
+        most, tokens = RT.room(batch, S3_MAX_TOKENS)  # local: both follow the batch
+        with items_at_most(most):
+            out = model.ask(step="aim_checklist", model=lead, system="", cached=None, prompt=prompt, carries=carries,
+                            max_tokens=tokens)  # fmt: skip
     except StepFailed as exc:
-        if "max_tokens" not in str(exc) or len(batch) < 2 or depth >= SPLIT_DEPTH:
+        if "max_tokens" not in str(exc):
             raise
+        if len(batch) < 2 or depth >= SPLIT_DEPTH:
+            if not is_local():
+                raise
+            faults.record("aim_checklist_cut", "a checklist batch", "answer cut")
+            return []  # a cut answer is never used, and on the local model it never stops the run
         log.info(
             "general review: a checklist answer was cut; its batch is asked again in two halves"
         )
@@ -470,7 +489,7 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
     ]
     for out, batch in answered:
         got, aside = set_aside(
-            _items_of(out)
+            RT.unique(_items_of(out))  # local: cut at a first repeat
         )  # a knowledge item another paper of the package carries: not checked here
         dropped += aside
         bad = [
@@ -480,20 +499,16 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
         ]
         if bad:  # one retry: ask for the exact words of those items only
             retried += len(bad)
-            fix = model.ask(
-                step="aim_checklist_retry",
-                model=lead,
-                system="",
-                cached=None,
-                prompt=P.S3_RETRY
-                % {
-                    "items": _dumps(bad),
-                    "material": "\n".join(_material_line(r) for r in batch),
-                },
-                carries=carries,
-                max_tokens=8000,
+            # on the local model in groups of RETRY_LOCAL (26 Nov 2026: one answer for every such item ran past its 8,000
+            # tokens and stopped the run); on Claude in one call, as before
+            size = RETRY_LOCAL if is_local() else len(bad)
+            fixed, ask = (
+                RT.by_code(  # local: the cited clause's own stored words first, no call (F's run 09105c4b)
+                    bad, batch, lambda it: check_rule_quote(text, it, alias_to_book)
+                )
             )
-            fixed = _items_of(fix)
+            for k in range(0, len(ask), size):
+                fixed += RT.retried(model, ask[k : k + size], batch, carries, lead)
             ok_fixed = [
                 it
                 for it in fixed
@@ -548,7 +563,13 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
     the kind's floor: items from the model's knowledge of each not-held public standard's requirements (and of engineering
     practice up to the floor), source KNOWLEDGE_NOT_HELD, the standard's public name in `stands_in_for`, no clause quote, no
     clause number. The items so far are named by topic only (the listed books are declared). A failed call adds nothing."""
-    names = _not_held_line(sel)
+    names = sel.get("_not_held_only") or _not_held_line(sel)
+    # the local model: one not-held standard per call (26 Nov 2026: the 9B's answer for all at once ran past its limit)
+    if is_local() and names and "; " in names:
+        for one in names.split("; "):
+            one_sel = {**sel, "_not_held_only": one}
+            made = s3_knowledge(model, ident, one_sel, made, lead)
+        return made
     floor = floor_for(ident.get("kind"))
     have = len(made["items"])
     if not names and have >= floor:
@@ -571,7 +592,7 @@ def s3_knowledge(model, ident: dict, sel: dict, made: dict, lead: str) -> dict:
         "most": most,
         "kinds": _dumps(list(ITEM_KINDS)),
         "table_rows": P.TABLE_ROWS_ASK,
-        "conditions": P.CONDITIONS_ASK,
+        "conditions": P.conditions_ask(),
     }
     try:
         out = model.ask(
@@ -639,24 +660,34 @@ def s3_attack(
         }
         for it in made["items"]
     ]
-    out = model.ask(
-        step="aim_attack",
-        model=strong,
-        system="",
-        cached=None,
-        prompt=_for_type(P.ATTACK_TASK)
-        % {
-            "identity": _identity(ident),
-            "kinds": _dumps(list(ITEM_KINDS)),
-            "items": "\n".join(_dumps(s) for s in shown),
-            "not_held": _not_held_line(sel) or "none",
-            "books": _books_line(sel),
-            "material": "\n".join(_material_line(r) for r in rows),
-        },
-        carries=set(alias_to_book.values()),
-        max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
-    )
-    out = out if isinstance(out, dict) else {}
+    # one call with all the material on Claude; on the local model one per material batch, the answers joined (26 Nov 2026)
+    out: dict = {"remove": [], "fix": [], "add": []}
+    for part in _batches(rows) if is_local() else [rows]:
+        try:
+            got = model.ask(
+                step="aim_attack",
+                model=strong,
+                system="",
+                cached=None,
+                prompt=_for_type(P.ATTACK_TASK)
+                % {
+                    "identity": _identity(ident),
+                    "kinds": _dumps(list(ITEM_KINDS)),
+                    "items": "\n".join(_dumps(s) for s in shown),
+                    "not_held": _not_held_line(sel) or "none",
+                    "books": _books_line(sel),
+                    "material": "\n".join(_material_line(r) for r in part),
+                },
+                carries=set(alias_to_book.values()),
+                max_tokens=S3_MAX_TOKENS,  # the attack answers for the whole checklist (the longest seen: about 13,400 tokens)
+            )
+        except StepFailed as exc:  # a cut answer is never used: on the local model that batch's attack is set aside
+            if not is_local() or "max_tokens" not in str(exc):
+                raise
+            faults.record("aim_attack_cut", "an attack batch", "answer cut")
+            continue
+        for k in out:
+            out[k] += (got.get(k) or []) if isinstance(got, dict) else []
     by_id = {it["id"]: it for it in made["items"]}
     log = {"removed": [], "fixed": [], "added": [], "rejected": []}
     for r in out.get("remove") or []:
@@ -740,7 +771,7 @@ def build(
     cl.update(
         {
             "key": key,
-            "method": CHECKLIST_METHOD,
+            "method": checklist_method(),
             "built_from": BUILT_FROM_KNOWLEDGE if knows else BUILT_FROM,
             "made_at": made_at,
             "identity": {

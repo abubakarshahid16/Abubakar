@@ -219,7 +219,7 @@ def test_the_datasheet_reader_carries_no_rejected_field(model, monkeypatch):
     )
     call, why = datasheet_ai.model_call_for("claude")
     assert why is None
-    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, call)
     assert seen and rejected_fields(seen[0]) == []
 
 
@@ -566,7 +566,7 @@ def test_the_datasheet_reader_names_the_model_that_answered(monkeypatch):
     assert output_limits.model_used(call) == "asked-for", (
         "before any answer: what was asked"
     )
-    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, call)
     assert output_limits.model_used(call) == "answered-by"
 
 
@@ -629,7 +629,7 @@ def test_the_datasheet_reader_keeps_its_cap_and_reads_at_low_effort(model, monke
         lambda: _send(seen, _reply(model, '{"facts": []}')),
     )
     call, _why = datasheet_ai.model_call_for("claude")
-    datasheet_ai.read_page_text_with_ai("1 Design pressure 23.5 barg", 1, call)
+    datasheet_ai.read_page_text_with_ai("1 Design pressure 22.2 barg", 1, call)
     assert seen[0]["max_tokens"] == 8192
     assert seen[0]["output_config"] == {"effort": "low"}
 

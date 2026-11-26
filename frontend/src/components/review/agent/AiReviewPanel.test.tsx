@@ -59,7 +59,7 @@ describe("AiReviewPanel", () => {
     const ov = { state: "ok" as const, summary: SUMMARY, lines: [line({})], openPoints: 1, missing: null };
     const { rerender } = render(<AiReviewPanel runId="r1" overview={ov} onSeeEvery={() => {}}
       pageCoverage={{ carried_from_run: "old", carried_from_at: "2026-11-01T10:00:00Z" }} />);
-    expect(screen.getByTestId("ai-panel-pages")).toHaveTextContent("Pages: copied from an earlier review of this paper, 2026-11-01");
+    expect(screen.getByTestId("ai-panel-pages")).toHaveTextContent("Pages: copied from an earlier review of this paper, 1 Nov 2026");
     rerender(<AiReviewPanel runId="r1" overview={ov} onSeeEvery={() => {}} pageCoverage={{}} />);
     expect(screen.queryByTestId("ai-panel-pages")).toBeNull();
     expect(screen.queryByTestId("ai-panel-missing")).toBeNull();

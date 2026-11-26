@@ -20,7 +20,7 @@ from tests.test_applicability import _doc, _scope, temp_storage  # noqa: F401
 
 def _psv(**meta):
     return _doc("sub", "psv-datasheet.pdf", "CONTRACTOR_SUBMITTAL",
-                text="Set pressure 340 psig. Body material SA-216 WCB.", **meta)
+                text="Set pressure 315 psig. Body material SA-216 WCB.", **meta)
 
 
 def _rows(result):

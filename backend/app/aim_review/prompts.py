@@ -87,7 +87,9 @@ CONDITIONS_ASK = (
     "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
     "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
     '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
-    "value it covers, and each material, allowance or rating suits the stated condition."
+    "value it covers, and each material, allowance or rating suits the stated condition. A stated hazardous-area "
+    "classification (zone, gas group, temperature class) is such a choice too: ONE item checks that it covers EVERY gas "
+    "or vapour the same paper names, wherever it names it."
 )
 KNOWLEDGE_ASK = (
     "ALSO add the items a senior engineer always checks on this kind of paper that NO clause below covers "
@@ -155,10 +157,16 @@ finding per place: repeat the item's id for each such place (at most 6), each wi
 that holds everywhere gets one judgment.
 A figure the contractor FILLED IN beside a note of who supplies it, such as "380 psig (By Contractor)", is a STATED value: judge
 it as any value (Met, Not met or Question, and give "numbers" for a limit). A comment on a value left open (no figure) is a
-QUESTION to the vendor, never a statement that it fails. A "Question" ASKS: its comment never says that a value passes, fails,
+QUESTION to the vendor, never a statement that it fails. On a data sheet issued for enquiry or purchase, a field left for the
+vendor to fill (vendor to advise, by vendor, a blank vendor entry) is no fault of the sheet: at most a Question asking the vendor
+to state it with the offer, never a request to complete the sheet; the sheet's own revision and approval block is no comment.
+A "Question" ASKS: its comment never says that a value passes, fails,
 exceeds or meets a limit (code compares the numbers you give). Compare a value only with a limit for the SAME quantity: a field
 with two names and two values split by "/" pairs them in order (the first value is the first name's), and a limit for one kind
-of a quantity (one part, one case, one state) never judges another kind of it.
+of a quantity (one part, one case, one state) never judges another kind of it: a limit the clause gives for one component of a
+pressure (built-up, superimposed, constant, variable, total; internal or external; operating or design) is never held against
+another component. A comment states every condition as the paper gives it (its own value and unit), never a stronger or a
+generic one (an external design pressure is not "full vacuum" unless the paper says so).
 Read each item's "applies_when" against THIS place of the paper (this sheet, this item, its stated type and service): when the
 condition does not hold there (the item is for a part, a type or a service this place does not have), the label is "Does not
 apply" with the paper words that show it; a blank field for a part the condition excludes is never a Question.
@@ -176,6 +184,7 @@ Reply with ONE JSON object only: {"judgments": [{"id": "C..", "label": "...", "f
  "ask": for a "Question" only: "concern" if you suspect the stated value is wrong or does not fit the clause (say which rule in
         the comment), "confirm" if nothing is suspected and the vendor only needs to confirm it,
  "numbers": {"paper_value": "...", "paper_unit": "...", "operator": "<=|>=|<|>|==|!=", "rule_value": "...", "rule_unit": "...",
+             each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),
              "limit_quote": only when the limit is stated on THE PAPER and not in the clause: the exact paper words that state
              rule_value (5 to 30 words from one page), "limit_page": that paper page}
             or null,
@@ -192,8 +201,12 @@ answered true when the paper states what the comment says is missing or asks for
 for ANY ONE of its claims (a comment with one false claim is wrong as written, even when another part of it is right): give that
 claim in at most 12 words, the page, and the exact paper words that show it (5 to 30 words from that one page, character for
 character, no "..."); answered false when the paper covers none of its claims. Code checks every quote on its page.
-Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
-{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "..."}, {"n": n, "answered": false}]}
+For an answered comment also give "claims": EVERY claim and request of that comment, each with "words" (the comment's OWN words
+for it, a whole sentence or clause, character for character, so code can cut it) and "answered": true with its own "page" and
+"quote" (as above) when the paper states it, or false when the paper does not.
+Reply COMPACT, with ONE JSON object only and no other words; repeat a comment's words only in "words":
+{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "...", "claims": [{"words": "...", "answered": true,
+ "page": p, "quote": "..."}, {"words": "...", "answered": false}]}, {"n": n, "answered": false}]}
 THE COMMENTS:
 %(comments)s"""
 
@@ -412,3 +425,81 @@ def _shape_blocks(body: dict) -> list[str]:
     if caches > 4:
         out.append(f"{caches} cache_control blocks (at most 4)")
     return out
+
+
+# ------------------------------------------------------------------ the way back (main 475adb91), per update switch
+#: The texts as main 475adb91 sends them, word for word (`aim_review.updates`: a switch OFF sends these). Removed when the update
+#: is switched on for good.
+CONDITIONS_ASK_MAIN = (
+    "For EACH operating or service condition this kind of paper states (the fluid and what it carries, such as chlorides, "
+    "hydrogen sulphide, water or solids; temperatures; pressures; densities or specific gravities), include ONE "
+    '"consistency" item that checks the values the same paper chooses for it: a design value is never below the operating '
+    "value it covers, and each material, allowance or rating suits the stated condition."
+)
+#: The judge's task as main 475adb91 sends it: S4_TASK without the three passages update 7b added (the vendor-field rule, the
+#: pressure-component rule, the values-as-printed line). Built, not copied: `tests/test_aim_updates_off.py` pins it to main.
+_7B_ADDED = (
+    "On a data sheet issued for enquiry or purchase, a field left for the\nvendor to fill (vendor to advise, by vendor, a blank vendor entry) is no fault of the sheet: at most a Question asking the vendor\nto state it with the offer, never a request to complete the sheet; the sheet's own revision and approval block is no comment.\n",
+    ': a limit the clause gives for one component of a\npressure (built-up, superimposed, constant, variable, total; internal or external; operating or design) is never held against\nanother component. A comment states every condition as the paper gives it (its own value and unit), never a stronger or a\ngeneric one (an external design pressure is not "full vacuum" unless the paper says so)',
+    "each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),\n             ",
+)
+S4_TASK_MAIN = S4_TASK
+for _added in _7B_ADDED:
+    S4_TASK_MAIN = S4_TASK_MAIN.replace(_added, "", 1)
+#: Update 7b's judge task gives an INVENTED example of a figure filled in beside a who-supplies note (lead-4, 26 Nov 2026: main's
+#: example is a real paper's figure). Main's text above keeps its own until the paid quick score; built by pattern, so no added
+#: line repeats the real figure.
+S4_TASK = re.sub(
+    r'such as "[^"]+\(By Contractor\)"',
+    'such as "150 psig (By Contractor)"',
+    S4_TASK,
+    count=1,
+)
+
+ANSWERED_TASK_MAIN = """TASK S4B - CHECK EACH COMMENT'S CLAIMS AGAINST THE WHOLE PAPER. Below are comments a reviewer would send about
+the paper above (one per line: n, field, page, comment). Read EVERY page of the paper. A comment often CLAIMS that the paper
+lacks something, leaves it blank or unstated, does not define or address it, or ONLY says X; it may also ask for something.
+For EACH comment, as a strict senior engineer checking the reviewer's work, check EVERY such claim and request against the whole
+paper, on ANY page, not only the comment's own page (another section, a table, an annex, an attachment, a note, a filled field):
+answered true when the paper states what the comment says is missing or asks for, or states the opposite of what it claims,
+for ANY ONE of its claims (a comment with one false claim is wrong as written, even when another part of it is right): give that
+claim in at most 12 words, the page, and the exact paper words that show it (5 to 30 words from that one page, character for
+character, no "..."); answered false when the paper covers none of its claims. Code checks every quote on its page.
+Reply COMPACT, with ONE JSON object only and no other words; never repeat a comment's text:
+{"verdicts": [{"n": n, "answered": true, "claim": "...", "page": p, "quote": "..."}, {"n": n, "answered": false}]}
+THE COMMENTS:
+%(comments)s"""
+
+
+def conditions_ask() -> str:
+    from .updates import u7b
+
+    return CONDITIONS_ASK if u7b() else CONDITIONS_ASK_MAIN
+
+
+def knowledge_ask() -> str:
+    """KNOWLEDGE_ASK with the conditions text of the switch (main's has no gas-group sentence)."""
+    return KNOWLEDGE_ASK.replace(CONDITIONS_ASK, conditions_ask())
+
+
+#: The local model's judge line on values (26 Nov 2026: the 14B did its own unit conversions and sums, so code could not find its
+#: figures in the quotes). Part of update 7b's text; on the local route it is given with main's text too.
+PRINTED_LINE = "             each value and unit exactly as PRINTED (never converted or worked out: code converts units itself),\n"
+_NUMBERS_ANCHOR = '"rule_value": "...", "rule_unit": "...",\n'
+
+
+def s4_task() -> str:
+    """The judge's task: update 7b's text when AIM_U7B_ENABLED is on, main's otherwise; on the local model with PRINTED_LINE."""
+    from .budget import is_local
+    from .updates import u7b
+
+    text = S4_TASK if u7b() else S4_TASK_MAIN
+    if is_local() and PRINTED_LINE.strip() not in text:
+        text = text.replace(_NUMBERS_ANCHOR, _NUMBERS_ANCHOR + PRINTED_LINE, 1)
+    return text
+
+
+def answered_task() -> str:
+    from .updates import u6b
+
+    return ANSWERED_TASK if u6b() else ANSWERED_TASK_MAIN

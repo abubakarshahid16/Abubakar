@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 
 import { request } from "../../../api/core";
+import { formatWhen } from "../../../format/when";
 import { downloadAgentCrs } from "../agent/downloadAgentCrs";
 import { OlderFileLine } from "../agent/OlderFileLine";
 import { downloadCrs } from "../downloadCrs";
@@ -58,7 +59,7 @@ function earlierDownload(run: HistoryRun, url: string): (() => Promise<string | 
 }
 
 function when(value: string | null): string {
-  return value ? value.slice(0, 16).replace("T", " ") : "";
+  return formatWhen(value);
 }
 
 /** Every review of the paper, newest first. An older one says "Earlier version" and keeps its own file buttons. */

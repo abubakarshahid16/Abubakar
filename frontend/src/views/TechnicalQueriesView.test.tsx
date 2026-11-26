@@ -75,6 +75,18 @@ describe("Technical Queries screen", () => {
     expect(screen.getByTestId("attachment-reading").textContent).toBe("query.pdf: pages 1 to 5 of 12 read; pages 6 to 12 were not read.");
   });
 
+  it("shows the clause locator, the key-term count (information only) and the best passage's reranker score, and never says 'not covered'", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query,
+      evidence_coverage: { searched: 20, of: 20, hits_in: 5, failed: 0, line: "Searched 20 of 20 contracts, hits in 5.", matching_passages: 0, key_terms: 5, top_rerank_score: 0.412 },
+      evidence: [{ id: "e1", document_id: "c1", page_start: 4, locator: "6.1 Painting", match_count: 1, match_terms: 5, match_ok: 0, rank_score: 0.412, exact_quote: "x", evidence_state: "proposed", supersession_state: "current" }] } });
+    const { container } = render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("evidence-top-score")).textContent).toContain("relevance score");
+    expect(screen.getByTestId("evidence-top-score").textContent).toContain("0.412");
+    expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
+    expect(screen.getByTestId("evidence-match").textContent).toBe("1 of 5 key terms");
+    expect(container.textContent).not.toMatch(/not covered|weak match/i);
+  });
+
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, status: "approved", confirmed_question: "What applies?", evidence: [{ id: "e1", document_id: "contract-1", page_start: 1, exact_quote: "x", evidence_state: "verified", supersession_state: "current" }] } });
     api.generateDraft.mockResolvedValue({ ok: true, data: query });
@@ -188,6 +200,17 @@ describe("Technical Queries screen", () => {
     expect(screen.queryByTestId("import-progress")).toBeNull();
     fireEvent.click(await screen.findByText("Check now"));
     await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
+  });
+
+  it("says why a stopped mailbox is not checked, and offers Check now (error) or Connect Gmail again", async () => {
+    const stopped = { id: "mb", email: "box@example.test", connection_state: "error", label_id: "L1", last_checked_at: null, status_note: "Gmail could not be read after several tries, so the checking stopped.", import_job: null };
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [stopped] } });
+    api.checkNow.mockResolvedValue({ ok: true, data: { import_job: "j" } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("mailbox-stopped")).textContent).toContain("is not being checked. Gmail could not be read after several tries");
+    fireEvent.click(await screen.findByText("Check now"));
+    await waitFor(() => expect(api.checkNow).toHaveBeenCalledWith("mb"));
+    expect(screen.getByText("Connect Gmail again")).toBeTruthy();
   });
 
   it("lists type, discipline, number and title, flags a subject with no number, and filters by them", async () => {

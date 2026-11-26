@@ -334,3 +334,39 @@ def test_a_row_with_its_copies_date_and_version_says_them(monkeypatch):
     assert got["sentence"].startswith(
         "Measured on 3 planted test copies of this kind (measured 2026-11-18, version abc1234): 6.0 of 10 mistakes found (target 7)"
     )
+
+
+# ---- the shipped table after the update-6 quick score (the lead's numbers, 26 Nov 2026) --------------------------------------------
+
+
+@pytest.fixture
+def shipped(monkeypatch):
+    """The table as the app ships it (the autouse fixture above swaps in a small invented one)."""
+    real = json.loads(M.TABLE_PATH.read_text(encoding="utf-8"))
+    monkeypatch.setattr(M, "_table", lambda: real)
+
+
+def _shipped(kind, equipment_type=None):
+    return M.for_run({"kind": kind, "equipment_type": equipment_type})
+
+
+def test_valve_pump_and_vessel_show_their_own_latest_round_with_date_version_and_denominators(shipped):
+    for equipment, found, wrong, of in (("relief valve", "8.0", 1, 49), ("pump", "6.0", 3, 54), ("pressure vessel", "5.0", 2, 29)):
+        got = _shipped("datasheet", equipment)
+        text = got["sentence"]
+        assert f"{found} of 10 mistakes found" in text, text
+        assert "measured 2026-11-25" in text and "version 99f73a76" in text and "1 planted test copy" in text
+        assert f"{wrong} of {of} comments wrong" in text
+        assert got["false_alarm"]["wrong"] == wrong and got["false_alarm"]["of"] == of
+
+
+def test_hazop_and_contract_keep_their_18_nov_numbers_dated_18_nov(shipped):
+    for kind in ("study", "contract"):
+        text = _shipped(kind)["sentence"]
+        assert "measured 2026-11-18" in text and "version 2026" not in text
+
+
+def test_every_kind_says_the_newest_round_was_cut_short(shipped):
+    for kind, equipment in (("datasheet", "relief valve"), ("study", None), ("contract", None)):
+        assert _shipped(kind, equipment)["sentence"].endswith("Update 6 round cut short: 3 of 5 kinds measured.")
+    assert _shipped("procedure")["sentence"] == "This kind has not been measured on test copies yet."  # a kind with no number says no number

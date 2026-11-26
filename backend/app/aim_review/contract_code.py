@@ -446,8 +446,17 @@ def lines(
     ):
         try:
             out += fn(pages)
-        except Exception as exc:  # noqa: BLE001 - a parse fault of one check never stops the review: logged, no line
-            log.info("contract code: a check failed (%s)", type(exc).__name__)
+        except Exception as exc:  # noqa: BLE001 - a parse fault of one check never stops the review: no line, the run says so
+            from . import faults
+
+            name = getattr(fn, "__name__", "check").replace(
+                "<lambda>", "check_schedules"
+            )
+            faults.record(
+                "aim_contract_code",
+                "a contract code check",
+                f"{name}: {faults.why_of(exc)}",
+            )
     return out
 
 
@@ -460,8 +469,10 @@ def held_labels(
 
         linked, _other = held_schedules(conn, paper_id, shown)
         return {lab for (w, lab) in linked if w == "schedule"}
-    except Exception as exc:  # noqa: BLE001 - not known: no package line (logged)
-        log.info("contract code: held Schedules not read (%s)", type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - not known: no package line, and the run says so
+        from . import faults
+
+        faults.record("aim_contract_schedules", "reading the package's Schedules", exc)
         return None
 
 

@@ -635,7 +635,22 @@ def test_a_requirement_a_schedule_of_the_package_carries_is_set_aside_for_the_ma
         "No answer",
     ]
     assert aside == [{"topic": "Insurance", "why": "for Schedule of insurance paper"}]
-    assert CL.CHECKLIST_METHOD == "2026-11-19.1"
+    assert (
+        CL.CHECKLIST_METHOD >= "2026-11-19.1"
+    )  # update 7 moved it on (the classification item)
+
+
+def test_a_stated_hazardous_area_classification_gets_one_item_over_every_gas_the_paper_names():
+    """Update 7 (queue of update 6): two datasheet runs judged a stated gas group as stated ("confirm the certification") while
+    the same paper named a gas it does not cover. One general instruction: a stated classification is a chosen value checked
+    against every gas or vapour the paper names; the method moves on so every type is built again once."""
+    ask = CL.P.CONDITIONS_ASK
+    assert (
+        "hazardous-area" in ask
+        and "gas group, temperature class" in ask
+        and "EVERY gas" in ask
+    )
+    assert CL.CHECKLIST_METHOD == "2026-11-25.1"
 
 
 def test_a_long_set_aside_reason_is_never_cut():
@@ -652,3 +667,14 @@ def test_a_long_set_aside_reason_is_never_cut():
         rows, 5, CL._clean_item, CL.KNOWLEDGE_NOT_HELD
     )
     assert elsewhere[0]["why"] == f"for {long} paper"
+
+
+def test_the_judge_holds_a_limit_only_against_its_own_component_and_states_conditions_as_the_paper_gives_them():
+    """Update 6 same-judge read: a limit for one pressure component was held against another (in update 5 and 6), and a comment
+    wrote a stronger external condition than the paper's own value. One general sentence each in the judge's instructions."""
+    task = CL.P.S4_TASK
+    assert "never held against" in task and "built-up, superimposed" in task
+    assert (
+        "states every condition as the paper gives it" in task
+        and '"full vacuum" unless the paper says so' in task
+    )

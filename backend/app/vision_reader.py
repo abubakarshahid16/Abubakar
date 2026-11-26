@@ -290,7 +290,7 @@ def above_in_column(value: Box, unit: Box) -> bool:
 
 #: The degree sign as these sheets' text layers print it: a capital or
 #: lower-case O, or the masculine ordinal (`datasheets.normalise_degree_glyph`
-#: reads `121OC` as 121 °C). A model reading the IMAGE sees "°C"; the text
+#: reads `245OC` as 245 °C). A model reading the IMAGE sees "°C"; the text
 #: layer says "OC". Only this glyph - nothing else about a unit is relaxed.
 _DEGREE_SPELLINGS = ("O", "o", "º")
 

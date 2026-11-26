@@ -103,7 +103,7 @@ Every one is then discarded. Replaying the filters:
 The 53 killed by the furniture rule are the ones carrying real values:
 `Set pressure` = `355 psig`, `Relieving temperature` = `220ºC`,
 `Density at relieving temper.` = `31.75 Kg/m3`, `Max. allow. working pressure`
-= `23.5 barg`, `Compressibility factor` = `0.892`, and so on.
+= `22.2 barg`, `Compressibility factor` = `0.892`, and so on.
 
 `furniture_labels` treats any label appearing on 3 or more pages as a title
 block or footer. Its docstring states the assumption: "a real field appears
@@ -231,7 +231,7 @@ Supplementary, since the standard side is the only citation the run emitted:
    distinguishes "this valve" from "that valve", so even with extraction
    working, four different set pressures would land in one undifferentiated
    pile.
-5. **Ranges remain unparsed and are common here.** `-3 to 121OC`,
+5. **Ranges remain unparsed and are common here.** `-7 to 245OC`,
    `27.5 / 8 barg`, `4-28 cP`, `12.25psig/88.40psig`. Known limitation 3 from
    Phase 4, unchanged, and this sheet is dense with them.
 
