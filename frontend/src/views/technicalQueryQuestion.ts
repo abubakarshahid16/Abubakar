@@ -199,3 +199,81 @@ export function citedSplit(
   const open = currentSources(evidence).filter((e) => e.evidence_state === "proposed");
   return { keep: open.filter((e) => cited.has(e.id)), reject: open.filter((e) => !cited.has(e.id)) };
 }
+
+// ---------------------------------------------------------------------- the page read in ten seconds (owner, 26 Nov 2026 22:41)
+
+/** The subject's topic: the short title, else the subject, without mail prefixes and a trailing "Clarification". */
+function topicOf(q: { title_short?: string | null; subject?: string | null }): string {
+  return (q.title_short || q.subject || "")
+    .replace(/^\s*((fw|fwd|re)\s*:\s*)+/i, "")
+    .replace(/[\s_-]*clarification\s*$/i, "")
+    .trim();
+}
+
+/** ONE plain sentence on top: who asks, how many things, about what ("The contractor asks for 6 items about MP fuel gas tie-in
+ *  details."). The count is the numbered requests of the ask the page shows (one when it is a single question). */
+export function queryHeadline(q: { contractor_name?: string | null; title_short?: string | null; subject?: string | null }, askText: string): string {
+  const who = (q.contractor_name ?? "").trim() || "The contractor";
+  const n = readableLines(askText, []).filter((l) => l.kind === "item").length;
+  const topic = topicOf(q);
+  const what = n > 1 ? `for ${n} items` : "one question";
+  return `${who} asks ${what}${topic ? ` about ${topic}` : ""}.`;
+}
+
+/** The status in everyday words (owner: "DRAFTING - NORMAL means nothing to me"); a priority is said only when it is not normal. */
+export function plainStatus(status: string, priority?: string | null): string {
+  const word: Record<string, string> = {
+    received: "In progress", triage: "In progress", drafting: "In progress", awaiting_review: "In progress: waiting for your approval",
+    changes_requested: "In progress: the reply is being changed", approved: "Approved, not sent yet", send_pending: "Being sent",
+    sent: "Sent", awaiting_confirmation: "Sent, waiting for the contractor to confirm", resolved: "Closed",
+    duplicate: "Closed as a duplicate", cancelled: "Cancelled", failed: "Stopped by an error",
+  };
+  const p = (priority ?? "").toLowerCase();
+  return `${word[status] ?? status.replaceAll("_", " ")}${p && p !== "normal" ? ` · ${p} priority` : ""}`;
+}
+
+export type StepState = "done" | "working" | "todo";
+export interface Step { label: string; state: StepState }
+
+/** Three steps and the approval, each with its own mark (owner: instead of the dense status sentence). */
+export function querySteps(q: {
+  status: string;
+  drafts?: unknown[] | null;
+  evidence?: { for_current_question?: boolean | null }[] | null;
+  ready?: { evidence?: string | null; draft?: string | null } | null;
+}, askText: string): Step[] {
+  const approved = ["approved", "send_pending", "sent", "awaiting_confirmation", "resolved"].includes(q.status);
+  const sources = currentSources(q.evidence).length;
+  return [
+    { label: "Question found", state: askText.trim() ? "done" : "todo" },
+    { label: "Sources found", state: q.ready?.evidence === "refreshing" ? "working" : sources ? "done" : "todo" },
+    { label: "Reply written", state: q.ready?.draft === "refreshing" ? "working" : q.drafts?.length ? "done" : "todo" },
+    { label: "Approved", state: approved ? "done" : "todo" },
+  ];
+}
+
+/** "file, page 1" said once under the list when every request was found in the same place (owner: it repeated under each item). */
+export function sharedSource(lines: ReadableLine[]): string | null {
+  const items = lines.filter((l) => l.kind === "item");
+  if (items.length < 2 || items.some((l) => !l.source)) return null;
+  return items.every((l) => l.source === items[0].source) ? items[0].source ?? null : null;
+}
+
+/** The short phrase that says what is asked, to be shown in bold, and the rest: up to a colon or the first comma when that part is
+ *  short, else the first seven words. */
+export function boldSplit(text: string): [string, string] {
+  const colon = text.indexOf(":");
+  if (colon > 0 && colon <= 80) return [text.slice(0, colon + 1), text.slice(colon + 1)];
+  const comma = text.indexOf(", ");
+  if (comma > 0 && comma <= 60) return [text.slice(0, comma + 1), text.slice(comma + 1)];
+  const words = text.split(" ");
+  return words.length <= 9 ? [text, ""] : [words.slice(0, 7).join(" "), ` ${words.slice(7).join(" ")}`];
+}
+
+/** A mark from the server in everyday words (the E3 word map): "the local model" is "the AI on this computer", a passage is a source. */
+export function plainMark(mark: string): string {
+  return mark
+    .replace(/\bthe local (drafting )?model\b/gi, "the AI on this computer")
+    .replace(/\bpassages\b/g, "sources")
+    .replace(/\bpassage\b/g, "source");
+}

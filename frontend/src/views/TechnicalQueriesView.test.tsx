@@ -1,4 +1,3 @@
-import { NEW_LOOK } from "../look";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +28,7 @@ const query = {
 const api = vi.hoisted(() => ({
   saveQuestion: vi.fn(),
   classifyEvidence: vi.fn(),
+  decide: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
   metrics: vi.fn(),
@@ -75,7 +75,7 @@ describe("Technical Queries screen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     const text = screen.getByLabelText(/Edit what the contractor is asking/) as HTMLTextAreaElement;
     expect(text.value).toBe("See attached.\n1. What is the minimum coating thickness?");
-    expect(screen.getByText(/Confirm means you have checked this is what the contractor is asking\. It does not send anything to the contractor\./)).toBeTruthy();
+    expect(screen.getByText("Confirming only records that you checked it. Nothing is sent.")).toBeTruthy(); // one short line (owner, 22:41)
   });
 
   it("lists only the first few found requests; the rest are marked as possibly missed and one can be added as the next number", async () => {
@@ -472,23 +472,27 @@ describe("Technical Queries screen", () => {
     expect(options).not.toContain("Sent");
   });
 
-  it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
+  it("reads top to bottom (owner, 26 Nov 2026 22:41): one sentence, the ask, what the sources say, the reply, then everything else folded", async () => {
     render(<TechnicalQueriesView />);
-    const question = await screen.findByRole("heading", { name: "What the contractor is asking" }); // the new look names it as the spec does
-    const response = screen.getByRole("heading", { name: /^Proposed response/ });
-    const generate = screen.getByRole("button", { name: "Generate draft" });
+    const headline = await screen.findByTestId("query-headline");
+    const question = screen.getByRole("heading", { name: "What the contractor is asking" });
+    const sources = screen.getByRole("heading", { name: "What the contract or standard says" });
+    const reply = screen.getByRole("heading", { name: /^Proposed reply/ });
+    const more = screen.getByTestId("more-actions");
+    const evidence = screen.getByTestId("tq-folded-evidence");
+    const who = screen.getByTestId("who-it-goes-to");
     const email = screen.getByTestId("tq-folded-email-question");
     const mail = screen.getByTestId("tq-folded-mail");
-    const evidence = screen.getByTestId("tq-folded-evidence");
+    const history = screen.getByTestId("review-history");
     const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    // the new look puts "where the answer comes from" right after the decisions (the spec's order); the classic look keeps it last
-    const order = NEW_LOOK ? [question, response, generate, evidence, email, mail] : [question, response, generate, email, mail, evidence];
-    expect(order.slice(1).map((part, i) => before(order[i], part))).toEqual([true, true, true, true, true]);
-    for (const part of [email, mail, evidence]) {
+    const order = [headline, question, sources, reply, more, evidence, who, email, mail, history];
+    expect(order.slice(1).map((part, i) => before(order[i], part))).toEqual(order.slice(1).map(() => true));
+    for (const part of [more, evidence, who, email, mail, history]) {
       expect(part.tagName).toBe("DETAILS");
-      expect((part as HTMLDetailsElement).open).toBe(false);  // folded on arrival
+      expect((part as HTMLDetailsElement).open).toBe(false); // folded on arrival
     }
-    expect(within(evidence).getByTestId("evidence-coverage")).toBeTruthy();  // the same parts, only folded
+    expect(within(more).getByRole("button", { name: "Generate draft" })).toBeTruthy(); // the other actions are there, folded
+    expect(within(evidence).getByTestId("evidence-coverage")).toBeTruthy();
   });
 
   it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
@@ -538,8 +542,10 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView queryId="q1" />);
     expect((await screen.findByTestId("draft-author")).textContent).toBe("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
     expect(screen.getAllByTestId("question-mark").map((m) => m.textContent)).toContain("Invented server mark");
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" })); // shown once the ask has filled in
     fireEvent.change(screen.getByLabelText(/Edit what the contractor is asking/), { target: { value: "See attached.\n1. An invented edited request?" } });
+    // after saving, the server reports the refresh under way on every read (the page polls while it is)
+    api.get.mockResolvedValue({ ok: true, data: { ...drafted, ready: { ...ready, evidence: "refreshing" } } });
     fireEvent.click(screen.getByRole("button", { name: "Save and find the sources again" }));
     await waitFor(() => expect(api.saveQuestion).toHaveBeenCalledWith("q1", "See attached.\n1. An invented edited request?"));
     expect((await screen.findByTestId("ready-line")).textContent).toBe("Finding the sources for this question; a draft follows.");
@@ -584,5 +590,21 @@ describe("Technical Queries screen", () => {
     await waitFor(() => expect(api.classifyEvidence).toHaveBeenCalledTimes(3));
     expect(api.classifyEvidence.mock.calls.map((c) => [c[1], c[2]])).toEqual([["e1", "verified"], ["e2", "rejected"], ["e3", "rejected"]]); // never e4 (an earlier wording)
     expect((await screen.findByTestId("keep-cited-done")).textContent).toBe("Kept 1 source the draft cites and rejected 2 others. Each can still be changed below before you approve.");
+  });
+
+  it("one Approve keeps the cited sources, rejects the others for this question, then approves; said before the press", async () => {
+    const ev = (id: string, extra: object = {}) => ({ id, document_id: "c1", page_start: 2, exact_quote: `Invented quote ${id}.`, evidence_state: "proposed", supersession_state: "current", for_current_question: true, ...extra });
+    const drafted = { ...query, status: "awaiting_review", can_review: true, evidence: [ev("e1"), ev("e2"), ev("e9", { for_current_question: false })],
+      drafts: [{ id: "d1", version: 1, answer: "Invented answer.", assumptions_json: "[]", unresolved_json: "[]", citations_json: JSON.stringify([{ label: "1", evidence_id: "e1", document_id: "c1", page: 2, exact_quote: "Invented quote e1." }]), model: "invented-small:9b", system: true }] };
+    api.get.mockResolvedValue({ ok: true, data: drafted });
+    api.classifyEvidence.mockResolvedValue({ ok: true, data: drafted });
+    api.decide.mockResolvedValue({ ok: true, data: { ...drafted, status: "approved" } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    const box = await screen.findByTestId("approve-once");
+    expect(box.textContent).toContain("Approving keeps the 1 source the reply cites and rejects the other 1 found for this question.");
+    expect(within(screen.getByTestId("reply-sources")).getByText("Invented quote e1.")).toBeTruthy();
+    fireEvent.click(within(box).getByRole("button", { name: "Approve the reply" }));
+    await waitFor(() => expect(api.decide).toHaveBeenCalledWith("q1", "approve", "d1"));
+    expect(api.classifyEvidence.mock.calls.map((c) => [c[1], c[2]])).toEqual([["e1", "verified"], ["e2", "rejected"]]); // never e9 (an earlier wording)
   });
 });
