@@ -155,7 +155,8 @@ export function FindingsTable(
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
+      {/* `relative`: the table's hidden header label (sr-only, absolutely placed) is clipped by THIS box, so the table scrolls inside it and never widens the page (the same fault as the CRS table, 26 Nov 2026) */}
+      <div className="relative overflow-x-auto rounded-[var(--radius-md)] border border-ink-700" data-testid="findings-table-box">
         <table className="w-full text-left text-sm">
           <thead className="bg-ink-900 text-xs uppercase tracking-wide text-slateish-400">
             <tr>
