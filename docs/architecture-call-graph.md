@@ -130,6 +130,17 @@ build `aim_checklist` / `aim_checklist_knowledge`, the attack `aim_attack`), the
 (`aim_answered`) and the editor (`aim_edit`). Code decides each line (`steps._decide`: quotes, numbers, labels). The run is stored
 by `aim_review_store.finish_run`.
 
+**Where the paper is placed** (`document_groups.route`, called on the naming step's answer in `engine`; code only, no model, no
+network). `document_groups.place` chooses the paper's family and document group from its kind, its subject and subject key, its
+file name and the equipment type the naming recorded. Strongest signal first: a group that LISTS that equipment type (`equipment`:
+equipment taxonomy ids an owner or engineer assigned to the group, checked against the taxonomy on load; update 14), a group name
+standing whole in the text, a name whose every word stands in it (any order, plurals folded), a group naming the equipment's main
+word. When the client's own list is loaded (`backend/data/document_groups.local.json`, git-ignored) only its groups are used; with
+no match and not exactly one group of the paper's kind, the paper keeps its family and no group (never an invented repository
+example). A paper placed by its kind only RECORDS the placement (`identity.document_group`, `kind_placed`): its prompts, lines and
+measured score are unchanged. A paper the naming calls `other` is reviewed with its family's route kind only with
+`KIND_FAMILY_ROUTE_ENABLED` on (off by default).
+
 **The ways out of a general review.**
 - **Every model call** goes through the run's ONE model object: `engine._Carried` around `ClaudeModel` (Claude) or
   `local_model.LocalModel` (Local). `ClaudeModel.ask` holds the run's meter (USD cap), declares the call's documents
