@@ -136,7 +136,7 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
   } else if (scored.length) {
     const best = scored.reduce((a, b) => ((b.match_count ?? 0) / (b.match_terms ?? 1) > (a.match_count ?? 0) / (a.match_terms ?? 1) ? b : a));
     if ((best.match_count ?? 0) / (best.match_terms ?? 1) < 0.5) {
-      evidence.push(`The sources found match the question only weakly (the best holds ${best.match_count ?? 0} of ${best.match_terms} key words): read them before relying on the answer.`);
+      evidence.push("Weak match: the sources found share few words with the question. Read them before relying on the reply.");
     }
   }
   for (const line of q.evidence_coverage?.cited_first ?? []) {
@@ -358,4 +358,18 @@ export function rowLine(item: { contractor_name?: string | null; status: string;
   };
   const who = item.assignee_user_id ? `with ${people.find((p) => p.id === item.assignee_user_id)?.display_name ?? "a person"}` : "nobody assigned";
   return [item.contractor_name || "", word[item.status] ?? item.status.replaceAll("_", " "), who].filter(Boolean).join(" · ");
+}
+
+/** A passage's match in plain words (owner's live walk, 27 Nov 2026 01:15: "8 of 22 key words" reads as machine talk); the counts stay
+ *  one hover away, so nothing is hidden. Null when the passage carries no count. */
+export function matchWords(e: { match_count?: number | null; match_terms?: number | null; match_ok?: number | null }): { words: string; counts: string } | null {
+  if (!e.match_terms) return null;
+  const counts = `${e.match_count ?? 0} of ${e.match_terms} of the question's key words`;
+  const ok = e.match_ok ?? ((e.match_count ?? 0) * 2 >= e.match_terms ? 1 : 0);
+  return { words: ok ? "Shares many words with the question" : "Weak match: this quote shares few words with the question", counts };
+}
+
+/** While the sources or the reply are being prepared again, the reply on screen is the OLD one (owner's live walk, 27 Nov 2026 01:15). */
+export function replyBeingRewritten(ready: { evidence?: string; draft?: string } | null | undefined): boolean {
+  return ready?.evidence === "refreshing" || ready?.draft === "refreshing";
 }

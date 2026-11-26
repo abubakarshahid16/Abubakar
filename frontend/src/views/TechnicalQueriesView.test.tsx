@@ -120,8 +120,10 @@ describe("Technical Queries screen", () => {
     expect((await screen.findByTestId("evidence-top-score")).textContent).toContain("relevance score");
     expect(screen.getByTestId("evidence-top-score").textContent).toContain("0.412");
     expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
-    expect(screen.getByTestId("evidence-match").textContent).toBe("1 of 5 key terms");
-    expect(container.textContent).not.toMatch(/not covered|weak match/i);
+    expect(screen.getByTestId("evidence-match").textContent).toBe("Weak match: this quote shares few words with the question"); // plain words (owner, 27 Nov 2026)
+    expect(screen.getByTestId("evidence-match").getAttribute("title")).toBe("1 of 5 of the question's key words"); // the counts, one hover away
+    // the owner asked for "weak match" in plain words (live walk, 27 Nov 2026 01:15); "not covered" is still never said from a count
+    expect(container.textContent).not.toMatch(/not covered/i);
   });
 
   it("says which source each passage comes from: the contract document or the standard, by name (owner, 26 Nov 2026)", async () => {
