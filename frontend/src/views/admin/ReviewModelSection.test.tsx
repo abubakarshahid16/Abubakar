@@ -7,6 +7,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { formatWhen } from "../../format/when";
 import { ReviewModelSection, type ReviewModelOptions, reviewModelApi } from "./ReviewModelSection";
 
 const OPTIONS: ReviewModelOptions = {
@@ -63,6 +64,21 @@ describe("ReviewModelSection", () => {
     const api = { load: vi.fn().mockResolvedValue({ ok: true, data: replaced }), save: vi.fn() } as unknown as typeof reviewModelApi;
     render(<ReviewModelSection api={api} />);
     expect(await screen.findByTestId("review-model-fell-back")).toHaveTextContent("invented-huge:35b, which cannot be used here");
+  });
+
+  it("says when it was last saved and when each change was made with the zone named, and says when nothing was recorded", async () => {
+    const at = "2026-11-26T03:24:16+00:00";
+    const saved = { ...OPTIONS, stored: { ...OPTIONS.stored, set_at: at } };
+    const api = { load: vi.fn().mockResolvedValue({ ok: true, data: saved }), save: vi.fn() } as unknown as typeof reviewModelApi;
+    const { unmount } = render(<ReviewModelSection api={api} />);
+    expect(await screen.findByText(`Last saved ${formatWhen(at)}`)).toBeInTheDocument();
+    expect(screen.queryByText(/2026-11-26T03:24:16/)).toBeNull(); // never the raw stamp
+    expect(screen.getByTestId("review-model-history")).toHaveTextContent(formatWhen(OPTIONS.history![0].changed_at));
+    unmount();
+    const empty = { ...OPTIONS, history: [], history_since: "2026-11-26T10:34:00Z", history_since_update: "update 11" };
+    render(<ReviewModelSection api={{ load: vi.fn().mockResolvedValue({ ok: true, data: empty }), save: vi.fn() } as unknown as typeof reviewModelApi} />);
+    expect(await screen.findByTestId("review-model-no-history"))
+      .toHaveTextContent(`No change recorded since ${formatWhen("2026-11-26T10:34:00Z")} (update 11).`);
   });
 
   it("shows the server's refusal in its own words", async () => {

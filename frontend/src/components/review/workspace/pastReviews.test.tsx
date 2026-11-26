@@ -196,7 +196,7 @@ describe("PastReviewsList", () => {
       expect(row.querySelector('[data-field="findings"]')).toBeEmptyDOMElement();
       expect(row.querySelector('[data-field="date"]')?.textContent).not.toBe("");
       // v2.2 one date style: "19 Oct 2026, 12:20".
-      expect(row.querySelector('[data-field="date"]')?.textContent).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/);
+      expect(row.querySelector('[data-field="date"]')?.textContent).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} (GMT[+-]\d{1,2}(:\d{2})?|UTC|GMT|[A-Z]{2,5})$/);
     }
     expect(screen.queryByText(/^0 /)).not.toBeInTheDocument();
     expect(screen.queryByTestId("past-counts-note")).toBeNull();

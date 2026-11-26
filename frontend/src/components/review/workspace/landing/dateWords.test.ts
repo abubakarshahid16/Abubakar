@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { zoneLabel } from "../../../../format/when";
 import { dayTimeWords, dayWords } from "./dateWords";
 
 describe("dateWords (one date style)", () => {
@@ -7,9 +8,12 @@ describe("dateWords (one date style)", () => {
     expect(dayWords(at)).toBe("19 Oct 2026");
     expect(dayWords(new Date(2026, 0, 3, 9, 5).toISOString())).toBe("3 Jan 2026");
   });
-  it("adds the time as hours and minutes", () => {
-    expect(dayTimeWords(at)).toBe("19 Oct 2026, 12:20");
-    expect(dayTimeWords(new Date(2026, 0, 3, 9, 5).toISOString())).toBe("3 Jan 2026, 09:05");
+  it("adds the time as hours and minutes, with the zone named (lead-4, 26 Nov 2026)", () => {
+    const zone = (d: Date) => (zoneLabel(d) ? ` ${zoneLabel(d)}` : "");
+    expect(dayTimeWords(at)).toBe(`19 Oct 2026, 12:20${zone(new Date(at))}`);
+    const jan = new Date(2026, 0, 3, 9, 5);
+    expect(dayTimeWords(jan.toISOString())).toBe(`3 Jan 2026, 09:05${zone(jan)}`);
+    expect(zoneLabel(jan)).not.toBe("");
   });
   it("says nothing when the date is not known or not readable", () => {
     for (const v of [null, undefined, "", "not a date"]) {

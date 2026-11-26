@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { request } from "../../api/core";
+import { formatWhen } from "../../format/when";
 
 export interface ReviewModelOption {
   name: string;
@@ -35,6 +36,9 @@ export interface ReviewModelOptions {
   stored: { default: string | null; steps: Record<string, string>; set_by: string | null; set_at: string | null };
   /** The latest changes, newest first (ids only: the slot, the models, the administrator's id, the time). */
   history?: { slot: string; old_model: string | null; new_model: string | null; changed_by: string | null; changed_at: string }[];
+  /** Since when changes are kept (UTC) and the update that brought the history; an empty history says so. */
+  history_since?: string | null;
+  history_since_update?: string | null;
 }
 
 const isOptions = (b: unknown): boolean =>
@@ -138,16 +142,21 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
               Save
             </button>
             {options.stored.set_at && (
-              <span className="text-xs text-slateish-400">Last saved {options.stored.set_at}</span>
+              <span className="text-xs text-slateish-400">Last saved {formatWhen(options.stored.set_at)}</span>
             )}
           </div>
+          {(options.history ?? []).length === 0 && options.history_since && (
+            <p data-testid="review-model-no-history" className="text-xs text-slateish-400">
+              No change recorded since {formatWhen(options.history_since)}{options.history_since_update ? ` (${options.history_since_update})` : ""}.
+            </p>
+          )}
           {(options.history ?? []).length > 0 && (
             <div className="space-y-1">
               <h3 className="text-xs font-semibold text-slateish-300">Latest changes</h3>
               <ul data-testid="review-model-history" className="space-y-0.5 text-xs text-slateish-400">
                 {(options.history ?? []).map((h) => (
                   <li key={`${h.changed_at}-${h.slot}`}>
-                    {h.changed_at} · {h.slot}: {h.old_model ?? "the default"} → {h.new_model ?? "the default"}
+                    {formatWhen(h.changed_at)} · {h.slot}: {h.old_model ?? "the default"} → {h.new_model ?? "the default"}
                     {h.changed_by ? ` (by ${h.changed_by})` : ""}
                   </li>
                 ))}
