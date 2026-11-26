@@ -202,7 +202,7 @@ export function DashboardView({
             <Stat label="Approved" value={delivery.deliverables_by_status?.approved ?? 0} tone="good" />
           </div>
           {onOpenDeliverables && (
-            <button type="button" onClick={onOpenDeliverables} className="mt-2 text-xs font-medium text-signal-400 hover:underline">Open deliverables</button>
+            <button type="button" className="mt-2 text-xs font-medium text-signal-400 hover:underline" onClick={onOpenDeliverables}>Open deliverables</button>
           )}
         </InfoFold>
       )}
