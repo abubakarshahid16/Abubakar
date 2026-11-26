@@ -56,7 +56,7 @@
 .kit-btn--sm, :root[data-look="new"] main button.kit-btn--sm, :root[data-look="new"] main a.kit-btn--sm { min-height: 32px; padding: var(--kit-space-1) var(--kit-space-3); font-size: 13px; }
 .kit-btn--primary { background: var(--kit-primary-bg); color: var(--kit-primary-fg); border-color: var(--kit-primary-bg); }
 .kit-btn--primary:hover:not(:disabled) { background: var(--kit-primary-hover); }
-.kit-btn--secondary { background: var(--color-ink-800); color: var(--color-slateish-100); border-color: var(--kit-edge); }
+.kit-btn--secondary, :root[data-look="new"] main a.kit-btn--secondary, :root[data-look="new"] main button.kit-btn--secondary { background: var(--color-ink-800); color: var(--color-slateish-100); border-color: var(--kit-edge); }
 .kit-btn--secondary:hover:not(:disabled) { background: var(--color-ink-700); }
 .kit-btn:disabled, :root[data-look="new"] main button.kit-btn:disabled {
   background: var(--color-ink-800); color: var(--color-slateish-400); border-color: var(--color-ink-600); cursor: not-allowed;
@@ -98,7 +98,9 @@
 .kit-notice--problem { background: var(--kit-late-bg); color: var(--kit-late-tone-fg); border-color: var(--kit-late-bd); }
 
 /* ---- tile: a whole card that is one button to its list (the Dashboard's three tiles, owner 03:34) ---- */
-.kit-tiles { display: grid; gap: var(--kit-space-4); grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+/* three in a row, or one per row, never 2 + 1 (H's gate, 27 Nov 2026) */
+.kit-tiles { display: grid; gap: var(--kit-space-4); grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .kit-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .kit-tile, :root[data-look="new"] main button.kit-tile, :root[data-look="new"] main a.kit-tile {
   display: flex; flex-direction: column; align-items: flex-start; gap: var(--kit-space-1); min-height: 0; text-align: left; text-decoration: none;
   background: var(--color-ink-800); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); padding: var(--kit-space-4);
@@ -132,3 +134,6 @@
 .kit-more > summary { list-style: none; display: inline-flex; }
 .kit-more > summary::-webkit-details-marker { display: none; }
 .kit-more__panel { margin-top: var(--kit-space-2); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); background: var(--color-ink-850); padding: var(--kit-space-3); display: flex; flex-direction: column; gap: var(--kit-space-3); }
+
+/* a tile whose number is not known says so at the label's size, never a big word or a dash */
+.kit-tile__unknown { font-size: 18px; line-height: 1.9; font-weight: 600; color: var(--color-slateish-300); }

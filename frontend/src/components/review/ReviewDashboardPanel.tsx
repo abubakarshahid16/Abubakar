@@ -12,6 +12,7 @@
  * tile reading "9" is a number a reader has to trust.
  */
 import { formatWhen } from "../../format/when";
+import "../kit/kit.css";
 import { equipmentLabel } from "../../format/equipment";
 import { useCallback, useEffect, useState } from "react";
 
@@ -25,6 +26,7 @@ import {
   LIST_MAX, runStatusLabel, statusLabel, statusTone, totalFromResponse,
   truncationNote,
 } from "./reviewFormat";
+import { Button } from "../kit/Kit";
 
 /** The population of the review cards: the latest review of each paper (earlier runs of a paper are not counted). */
 function boundary(data: ReviewDashboard): string {
@@ -144,12 +146,11 @@ export function ReviewDashboardPanel(
         <h2 id="review-dashboard-title" className="text-sm font-semibold text-slateish-200">
           AI Submittal Review
         </h2>
-        <button
-          type="button" onClick={() => onOpenReview()}
-          className="text-xs font-medium text-signal-400 hover:underline"
+        <Button variant="secondary" size="sm"
+          onClick={() => onOpenReview()}
         >
           Open all reviews
-        </button>
+        </Button>
       </div>
 
       {/* THE BOUNDARY OF EVERY COUNT BELOW (CLAUDE.md rule 4). The review
@@ -164,9 +165,9 @@ export function ReviewDashboardPanel(
         <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
           The review figures could not be loaded - {loadError}. This is not a
           count of zero.{" "}
-          <button type="button" onClick={() => void load()} className="font-medium underline">
+          <Button variant="secondary" onClick={() => void load()}>
             Try again
-          </button>
+          </Button>
         </div>
       )}
 
@@ -210,13 +211,12 @@ export function ReviewDashboardPanel(
 
       {/* --------------------------------------------- the one button */}
       <div className="mt-4">
-        <button
-          type="button" onClick={() => setPicking((value) => !value)}
+        <Button variant="primary"
+          onClick={() => setPicking((value) => !value)}
           disabled={!isAdmin}
-          className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
         >
           Upload a document and run AI review
-        </button>
+        </Button>
         {/* THE REASON, not a quietly-greyed-out button. The server gives a
             non-admin a 404 that reads as "no such submittal", not as "you
             lack permission" - this says the real reason before anyone has to
@@ -254,13 +254,12 @@ export function ReviewDashboardPanel(
                   <option key={doc.id} value={doc.id}>{doc.filename}</option>
                 ))}
               </select>
-              <button
-                type="button" onClick={run}
+              <Button variant="primary"
+                onClick={run}
                 disabled={!target || launch.kind === "running" || stepFor !== null}
-                className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
               >
                 {launch.kind === "running" ? "Running…" : "Run AI review"}
-              </button>
+              </Button>
             </div>
             {stepFor && (
               <div className="mt-2">
@@ -290,12 +289,11 @@ export function ReviewDashboardPanel(
                 wait or duplicate the screen that reports it. */}
             <p className="mt-3 text-xs text-slateish-400">
               Need to add a new datasheet?{" "}
-              <button
-                type="button" onClick={onOpenDocuments}
-                className="font-medium text-signal-400 hover:underline"
+              <Button variant="secondary"
+                onClick={onOpenDocuments}
               >
                 Upload it on the Documents page
-              </button>{" "}
+              </Button>{" "}
               — it appears here once it has finished processing.
             </p>
           </div>
@@ -396,9 +394,10 @@ function Card({ label, value, detail, tone }: {
   if (NEW_LOOK) {
     // the new look (owner): one big number, a short label, at most one short line; a long line folds behind "Details", never dropped
     return (
-      <div className="rounded-[var(--radius-md)] bg-ink-900 px-5 py-4">
-        <p className="text-sm font-semibold text-slateish-400">{label}</p>
-        <p className={`mt-1 font-[family-name:var(--font-heading)] text-[2.5rem] font-bold leading-none ${tone === "warn" ? "text-warn-500" : "text-slateish-100"}`}>
+      // the shared kit's card, with the tiles' name and number styles: one tile look on the Dashboard (H's gate, 27 Nov 2026)
+      <div className="kit-card">
+        <p className="kit-tile__name">{label}</p>
+        <p className={tone === "warn" ? "kit-tile__number text-warn-500" : "kit-tile__number"}>
           {value.toLocaleString()}
         </p>
         <TileLine text={detail} />

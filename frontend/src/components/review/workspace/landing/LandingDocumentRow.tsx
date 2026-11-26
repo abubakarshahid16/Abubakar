@@ -19,6 +19,7 @@ import { useStartFailure } from "../startFailures";
 import { dayTimeWords } from "./dateWords";
 import { type ChipTone, type LandingRow, NO_ROLE_LINE, countsLine, hasFinishedReview, rowChip } from "./landingRows";
 import { NEW_LOOK } from "../../../../look";
+import { Button } from "../../../kit/Kit";
 
 const TONE: Record<ChipTone, string> = {
   attention: "border-warn-500/50 bg-warn-500/10 text-warn-500",
@@ -93,24 +94,22 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
           </p>
         </div>
         {row.latest && (
-          <button
-            type="button"
+          <Button variant="primary"
+           
             onClick={() => onOpenRun(row.latest!.review_run_id)}
             aria-label={`Open the latest review of ${row.filename}`}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950"
           >
             Open
-          </button>
+          </Button>
         )}
         {onOpenCrs && hasFinishedReview(row) && (
-          <button
-            type="button"
+          <Button variant="secondary"
+           
             onClick={() => onOpenCrs(row.latest!.review_run_id)}
             aria-label={`Open the CRS of ${row.filename}`}
-            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-2 text-sm font-semibold text-signal-300"
           >
             Open CRS
-          </button>
+          </Button>
         )}
         {mayStart && !moving && (
           <ReviewAgainButton

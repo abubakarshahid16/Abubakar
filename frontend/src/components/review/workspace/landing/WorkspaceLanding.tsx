@@ -47,6 +47,7 @@ import { StartReviewBar } from "./StartReviewBar";
 import { allRunsOf, landingRowsOf, matchesName } from "./landingRows";
 import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
 import { NEW_LOOK } from "../../../../look";
+import { Button } from "../../../kit/Kit";
 
 export const LANDING_HELP_TEXT =
   "To check a new file, pick it and press Start review. To finish one, press Open, decide each comment, then sign.";
@@ -190,14 +191,13 @@ export function WorkspaceLanding({
         {!helpHidden && (
           <p className="mr-auto flex flex-wrap items-center gap-2 text-sm text-slateish-300" data-testid="landing-help">
             <span>{LANDING_HELP_TEXT}</span>
-            <button
-              type="button"
+            <Button variant="secondary" size="sm"
+             
               onClick={() => { writeHelpHidden(); setHelpHidden(true); }}
               aria-label="Hide this help"
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs font-medium text-slateish-300"
             >
               Hide
-            </button>
+            </Button>
           </p>
         )}
         <ViewModeSwitch mode={mode} onMode={setMode} />
@@ -234,33 +234,30 @@ export function WorkspaceLanding({
               <span data-testid="review-all-question">
                 Start {notReviewed.length.toLocaleString("en-US")} review{notReviewed.length === 1 ? "" : "s"}? They run one after another, on this computer only: nothing is sent to Claude. Open a paper to choose Claude and see what will be sent.
               </span>
-              <button
-                type="button"
+              <Button variant="primary" size="sm"
+               
                 onClick={() => void reviewAll()}
-                className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1.5 text-sm font-semibold text-ink-950"
               >
                 Yes
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button variant="secondary" size="sm"
+               
                 onClick={() => setConfirmAll(false)}
-                className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100"
               >
                 Cancel
-              </button>
+              </Button>
             </span>
           ) : (
             <>
-              <button
-                type="button"
+              <Button variant="secondary" size="sm"
+               
                 disabled={batching}
                 onClick={() => setConfirmAll(true)}
-                className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-1.5 text-sm font-semibold text-signal-300 disabled:opacity-50"
               >
                 {batching
                   ? "Queuing reviews…"
                   : `Review all not reviewed (${notReviewed.length.toLocaleString("en-US")} of the contractor documents listed here)`}
-              </button>
+              </Button>
               <span className="text-xs text-slateish-400">
                 Each runs in the background, one at a time. You get a notice when each one is ready.
               </span>

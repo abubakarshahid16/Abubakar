@@ -4,6 +4,7 @@
  * info button), never cut or dropped; a status keeps its word and gains the spec's colour (never colour alone).
  */
 import type { ReactNode } from "react";
+import "../kit/kit.css";
 
 import type { ChipTone } from "./lookTone";
 
@@ -52,7 +53,8 @@ export function SectionFold({ on, heading, children }: { on: boolean; heading: R
   );
 }
 
-const CHIP: Record<ChipTone, string> = {
+/** The old chip classes (kept for the record; the kit's chip draws them now). */
+export const CHIP: Record<ChipTone, string> = {
   done: "border-pill-pass-border bg-pill-pass-bg text-pill-pass-fg",
   check: "border-pill-review-border bg-pill-review-bg text-pill-review-fg",
   late: "border-pill-fail-border bg-pill-fail-bg text-pill-fail-fg",
@@ -62,11 +64,9 @@ const CHIP: Record<ChipTone, string> = {
 
 /** A status as a chip: its word, in the spec's colour (Signed off green, Not signed off amber, Late red). */
 export function StatusChip({ tone, children }: { tone: ChipTone; children: ReactNode }) {
-  return (
-    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs font-bold ${CHIP[tone]}`}>
-      {children}
-    </span>
-  );
+  // THE SHARED KIT'S CHIP (owner, 27 Nov 2026 03:30: chips boxed here and plain there): the same shape and tone colours as the kit's
+  // StatusChip on every page; these tones map one to one (done, check, late, info, plain)
+  return <span className={`kit-chip kit-chip--${tone}`}>{children}</span>;
 }
 
 function Svg({ children }: { children: ReactNode }) {

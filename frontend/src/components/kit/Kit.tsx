@@ -114,7 +114,7 @@ export function Tile({ name, number, label, done, late, lateWords, onOpen }: {
   return (
     <button type="button" className="kit-tile" onClick={onOpen}>
       <span className="kit-tile__name">{name}</span>
-      <span className="kit-tile__number">{number === null ? "Not known" : number}</span>
+      {number === null ? <span className="kit-tile__unknown">Not known</span> : <span className="kit-tile__number">{number}</span>}
       <span className="kit-tile__label">{label}</span>
       <span className="kit-tile__figures">
         {typeof done === "number" ? <span className="kit-ok">{done} done</span> : null}

@@ -164,18 +164,18 @@
 :root[data-look="new"] main#main {
   padding: 2.25rem 2.75rem 3rem;
 }
-:root[data-look="new"] main h1 {
+:root[data-look="new"] main h1:is([class], *) {
   /* ONE page-title size on every page (owner, 27 Nov 2026 03:30, A: three title styles): the shared kit's 22px semibold */
   font-size: 22px;
   line-height: 1.3;
   font-weight: 600;
 }
-:root[data-look="new"] main h2 {
+:root[data-look="new"] main h2:is([class], *) {
   font-size: 18px;
   line-height: 1.35;
   font-weight: 600;
 }
-:root[data-look="new"] main h3 {
+:root[data-look="new"] main h3:is([class], *) {
   font-size: 15px;
   font-weight: 600;
 }

@@ -37,7 +37,7 @@ describe("the new look on the Dashboard (owner's notes)", () => {
     expect(reviewStatusTone("Changed since sign-off")).toBe("check");
     expect(reviewStatusTone("Late")).toBe("late");
     render(<StatusChip tone="done">Signed off</StatusChip>);
-    expect(screen.getByText("Signed off").className).toMatch(/bg-pill-pass-bg/);
+    expect(screen.getByText("Signed off").className).toBe("kit-chip kit-chip--done"); // the shared kit's chip (owner, 27 Nov 2026)
   });
 
   it("the menu keeps every name, each with an icon, its hint on hover only, and the privacy line folded at the bottom", () => {
