@@ -60,12 +60,20 @@ describe("where the sources and the draft stand (builder A's ready)", () => {
     expect(readyLine(null)).toBeNull();
   });
   it("says who wrote the draft and whether it used paid credit", () => {
-    expect(draftAuthor({ system: true, model: "invented-small:9b" })).toBe("Written by the AI on this computer from the sources found (no paid credit).");
+    expect(draftAuthor({ system: true, model: "invented-small:9b" })).toBe("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
+    expect(draftAuthor({ system: true, model: null })).toBe("Written by the AI on this computer from the sources found (no credit needed).");
     expect(draftAuthor({ system: true, model: "claude-invented" })).toBe("Written by Claude from the sources found (uses paid credit).");
     expect(draftAuthor({ system: false, model: null })).toBe("Written by an engineer.");
     expect(draftAuthor({ model: "x" })).toBeNull(); // an older draft with no origin recorded: nothing claimed
   });
   it("the engineer's saved wording comes before the proposal", () => {
     expect(startingText({ edited_question: "Invented edit.", proposed_questions: [{ question: "Invented request", filename: "f.pdf", page: 1 }] })).toBe("Invented edit.");
+  });
+});
+
+describe("the server's composed ask (builder A: the one home)", () => {
+  it("is shown exactly, whatever the page's own rule would compose", () => {
+    const text = "About Invented, the contractor asks for the following:\n1. a\n2. b\n3. c\n4. d\n5. e\n6. f\n7. g\n8. h";
+    expect(startingText({ ready: { question: text }, proposed_questions: [{ question: "zzz", filename: null, page: null }] })).toBe(text);
   });
 });

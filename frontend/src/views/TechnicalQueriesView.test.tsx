@@ -535,12 +535,37 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: drafted });
     api.saveQuestion.mockResolvedValue({ ok: true, data: { ...drafted, ready: { ...ready, evidence: "refreshing" } } });
     render(<TechnicalQueriesView queryId="q1" />);
-    expect((await screen.findByTestId("draft-author")).textContent).toBe("Written by the AI on this computer from the sources found (no paid credit).");
+    expect((await screen.findByTestId("draft-author")).textContent).toBe("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
     expect(screen.getAllByTestId("question-mark").map((m) => m.textContent)).toContain("Invented server mark");
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByLabelText(/Edit what the contractor is asking/), { target: { value: "See attached.\n1. An invented edited request?" } });
     fireEvent.click(screen.getByRole("button", { name: "Save and find the sources again" }));
     await waitFor(() => expect(api.saveQuestion).toHaveBeenCalledWith("q1", "See attached.\n1. An invented edited request?"));
     expect((await screen.findByTestId("ready-line")).textContent).toBe("Finding the sources for this question; a draft follows.");
+  });
+
+  it("sources found for an earlier wording are folded apart, never mixed with the current ones (builder A's for_current_question)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, evidence: [
+      { id: "e1", document_id: "c1", page_start: 4, exact_quote: "Invented current quote.", evidence_state: "proposed", supersession_state: "current", for_current_question: true },
+      { id: "e2", document_id: "c2", page_start: 9, exact_quote: "Invented earlier quote.", evidence_state: "proposed", supersession_state: "current", for_current_question: false },
+    ] } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    const earlier = await screen.findByTestId("evidence-earlier");
+    expect(within(earlier).getByText(/1 source found for an earlier wording of the question/)).toBeTruthy();
+    expect(within(earlier).getByText("Invented earlier quote.")).toBeTruthy();
+    expect((earlier as HTMLDetailsElement).open).toBe(false);
+    expect(screen.getByText("Invented current quote.").closest("[data-testid=evidence-earlier]")).toBeNull();
+  });
+
+  it("a long ask from the server folds after six with 'N more requests', none dropped", async () => {
+    const asks = Array.from({ length: 9 }, (_, i) => `${i + 1}. Invented request ${i + 1}`).join("\n");
+    const ready = { question: `About Invented, the contractor asks for the following:\n${asks}`, question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "none", draft_fresh: true, draft_note: null, marks: [] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, ready } });
+    render(<TechnicalQueriesView queryId="q1" />);
+    const readable = await screen.findByTestId("question-readable");
+    const more = within(readable).getByTestId("question-more");
+    expect(within(more).getByText("3 more requests")).toBeTruthy();
+    expect(within(readable).getAllByRole("listitem")).toHaveLength(9); // all on the page, the last three folded
+    expect((more as HTMLDetailsElement).open).toBe(false);
   });
 });
