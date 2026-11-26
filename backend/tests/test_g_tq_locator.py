@@ -118,6 +118,17 @@ def test_a_list_item_whose_reference_stands_on_the_line_after_its_text_is_an_ite
     )
 
 
+def test_a_table_value_alone_on_its_line_is_not_a_clause_heading():
+    page = "6.2 Invented Design Data\nInvented pressure\n1.5\nBar g\n2.0\nBar g\nThe invented answer words."
+    assert (
+        heading_above(page, "The invented answer words.") == "6.2 Invented Design Data"
+    )
+    clause = "10.1\nInvented General\nThe invented text.\n10.1.1\nInvented Scope\nThe invented answer words."
+    assert (
+        heading_above(clause, "The invented answer words.") == "10.1.1 Invented Scope"
+    )
+
+
 def test_a_dotted_number_before_a_long_sentence_is_a_wrapped_reference_not_a_heading():
     page = (
         "3.4.1.2\nInvented Seal Flush\nThe invented flush plan applies.\n3.4.1\n"

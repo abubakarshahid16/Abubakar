@@ -14,7 +14,8 @@ from __future__ import annotations
 import re
 
 _SIGNOFF = re.compile(
-    r"^(--|(best|kind|warm|many|with)?\s*(regards|wishes|thanks)|thanks|thank you|thanks (and|&) regards|regards|sincerely|"
+    r"^(--|(best|kind|warm|many|with)?\s*(regards|wishes|thanks)|thanks|thank you|(thanks|thank you|many thanks)\s*(and|&|,)\s*"
+    r"((best|kind|warm)\s+)?regards|rgds|regards|sincerely|"
     r"yours sincerely|yours faithfully|cheers|mit freundlichen gr(ue|ü)(ss|ß)en|cordialement|saludos|atentamente)\s*[,.!]?$",
     re.IGNORECASE,
 )
@@ -103,10 +104,14 @@ def split_body(text: str | None) -> tuple[str, str]:
 def message_itself(text: str | None) -> str:
     """What the question finder reads: the message without signatures, notices and the header lines of quoted or forwarded mail (the
     quoted message's own words stay: a forward's question is there)."""
-    main, _ = split_body(text)
+    main = _CID.sub("", split_body(text)[0])
     return re.sub(
         r"\n{3,}", "\n\n", "\n".join(_without_headers(main.splitlines()))
     ).strip()
+
+
+#: A picture's place-holder in a mail's text ("[cid:image001.png@...]"): never words of the message.
+_CID = re.compile(r"\[cid:[^\]]*\]", re.IGNORECASE)
 
 
 #: The address-list header lines (To, Cc, Bcc) whose wrapped lines follow them.
@@ -139,11 +144,28 @@ def _without_headers(lines: list[str]) -> list[str]:
     return out
 
 
-#: A line that only points to the attachment ("Please find attached ...") asks nothing of its own.
+#: A line that only points to the attachment ("Please find attached our TQ ...", "Attached is ...") asks nothing of its own, whatever
+#: words its title holds (lead-4, 26 Nov 2026: the live intro was proposed as the question).
 _COVER = re.compile(
-    r"\b(please|kindly)\s+(find|see|refer to|note|review)\b.{0,60}\b(attach|enclos)",
+    r"\b(please|kindly)\s+(find|see|refer to|note|review)\b.{0,60}\b(attach|enclos)|^\s*(attached|enclosed)\s+(is|are|please|herewith)\b|"
+    r"\b(attached|enclosed) herewith\b|\bwe (are )?(attach|enclos|send|submit|forward)(ing|ed)?\b",
     re.IGNORECASE,
 )
+#: A greeting line ("Dear All,", "Hi Team"): never question text.
+_GREETING = re.compile(
+    r"^(dear|hi|hello|greetings|good (morning|afternoon|evening))\b[^.?!]{0,60}[,!:]?$",
+    re.IGNORECASE,
+)
+
+
+def _question_line(line: str) -> bool:
+    """A line that can be question text: not a greeting, and not a line that only points to the attachment."""
+    stripped = line.strip()
+    return not _GREETING.match(stripped) and not (
+        _COVER.search(stripped) and "?" not in stripped
+    )
+
+
 #: A line that names the question ("Question: ...", "Query - ..."): the question starts there.
 _QUESTION_MARK = re.compile(r"^\s*(question|query)\s*[:\-]\s*", re.IGNORECASE)
 NO_QUESTION = "No question in the email text."
@@ -151,8 +173,8 @@ NO_QUESTION = "No question in the email text."
 
 def email_question(text: str | None) -> str:
     """The question in a mail's own text, by the CURRENT rules (computed each time, never trusted from an older stored copy): the message
-    itself without headers, people lists, signatures and notices, from a "Question:" line when there is one; "" when nothing in it asks
-    anything (a cover note such as "please find attached" does not)."""
+    itself without headers, people lists, picture place-holders, greetings, signatures, notices and lines that only point to the attachment,
+    from a "Question:" line when there is one; "" when nothing in it asks anything."""
     message = message_itself(text)
     lines = message.splitlines()
     marked = next(
@@ -162,8 +184,9 @@ def email_question(text: str | None) -> str:
         message = "\n".join(
             [_QUESTION_MARK.sub("", lines[marked], count=1), *lines[marked + 1 :]]
         ).strip()
-    asks = any(_asks(line) and not _COVER.search(line) for line in message.splitlines())
-    return message if asks else ""
+    kept = [line for line in message.splitlines() if _question_line(line)]
+    asks = any(_asks(line) for line in kept)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip() if asks else ""
 
 
 def shown_question(query: dict) -> dict[str, str]:

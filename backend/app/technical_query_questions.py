@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -55,14 +56,18 @@ def _ask(page_text: str) -> list[str]:
     return [str(q).strip() for q in (data.get("questions") or []) if str(q).strip()]
 
 
-def from_pages(context: list[dict[str, Any]], progress=None) -> tuple[list[dict[str, Any]], str]:
+def from_pages(
+    context: list[dict[str, Any]], progress=None
+) -> tuple[list[dict[str, Any]], str]:
     """`(proposals, note)`. A proposal is `{"question", "filename", "page"}`; the note is "" or `MODEL_UNAVAILABLE` (the pages are then
     shown to the engineer as they are, with no questions proposed)."""
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     for n, part in enumerate(context, 1):
         if progress:
-            progress(n - 1, len(context), f"reading attachment page {n} of {len(context)}")
+            progress(
+                n - 1, len(context), f"reading attachment page {n} of {len(context)}"
+            )
         page_text = str(part.get("text") or "")
         if not page_text.strip():
             continue
@@ -90,3 +95,39 @@ def from_pages(context: list[dict[str, Any]], progress=None) -> tuple[list[dict[
         if len(out) >= MAX_TOTAL:
             return out[:MAX_TOTAL], ""
     return out, ""
+
+
+#: A form's question field label ("Question:", "Query", "Description of query", "Details of the query"), alone or before its text.
+_FIELD = re.compile(
+    r"^\s*(technical\s+)?(question|query|description|clarification required|details of (the )?(query|question)|description of (the )?"
+    r"(query|question))\s*(:|-|$)\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+#: The next field of the form ends the question's text.
+_NEXT_FIELD = re.compile(
+    r"^\s*(answer|reply|response|proposed (answer|solution)|contractor|company|date|ref(erence)?|attachments?|prepared by|"
+    r"signature|remarks|discipline|status|originator)\b.{0,40}[:\-]?\s*$|^\s*(answer|reply|response)\s*[:\-]",
+    re.IGNORECASE,
+)
+MAX_FIELD = 1200
+
+
+def form_question(context: list[dict[str, Any]]) -> str:
+    """The text of the attached form's own question field (the first one found, as printed, at most MAX_FIELD characters), or "" when
+    the form has none. Used when the model proposed no question and the mail itself asks nothing (lead-4, 26 Nov 2026): the question is
+    never taken from the mail's introduction."""
+    for part in context:
+        lines = str(part.get("text") or "").splitlines()
+        for i, line in enumerate(lines):
+            if not (field := _FIELD.match(line)):
+                continue
+            taken = [field.group("rest").strip()] if field.group("rest").strip() else []
+            for following in lines[i + 1 :]:
+                if _NEXT_FIELD.match(following) or (not following.strip() and taken):
+                    break
+                if following.strip():
+                    taken.append(following.strip())
+            text = " ".join(taken).strip()
+            if text:
+                return text[:MAX_FIELD]
+    return ""

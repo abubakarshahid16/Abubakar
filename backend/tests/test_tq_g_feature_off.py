@@ -343,7 +343,9 @@ def test_a_model_that_cannot_answer_proposes_nothing_and_says_so(monkeypatch):
         result["proposed_questions"] == []
         and result["proposal_note"] == "model_unavailable"
     )
-    assert result["proposed_question"] == "See attached."
+    # the mail only says "See attached.": nothing is proposed and nothing is searched for (lead-4, 26 Nov 2026)
+    assert result["proposed_question"] == ""
+    assert result["evidence_coverage"]["line"] == tq.NOT_SEARCHED
 
 
 # ---------------------------------------------------------------- F5: Claude for the draft: the owner's lane, its own consent record

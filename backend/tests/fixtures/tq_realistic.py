@@ -37,6 +37,15 @@ RULED_QUESTION = "May the invented flange rating be lowered to invented class 15
 #: A query whose question starts "Important:" (recheck of update 12, R4: it is not a notice).
 IMPORTANT_QUESTION = "Can the invented bolt material be changed to invented grade B7M?"
 #: A clause of the held (invented) contract that answers the TQ.
+#: The live shape of 26 Nov 2026 (lead-4's walk on update 12): the mail is an introduction that only points to the attached form; the
+#: question stands only in the form's own field.
+INTRO_FORM_QUESTION = (
+    "Confirm the invented grout thickness under the invented pump base plate."
+)
+INTRO_BODY = (
+    "Classification: Internal\n\nDear All,\n\nPlease find attached our TQ-00018 - MEC_Invented base plate grouting for your review.\n\n"
+    "[cid:image001.png@01DB0000.00000000]\nThanks & Best Regards,\nInvented Engineer\nInvented Contractor Company"
+)
 CONTRACT_CLAUSE = "The invented cooling water header shall be designed for 12 bar(g)."
 
 NOTICE = (
@@ -204,6 +213,29 @@ def _mail() -> list[Message]:
         "Requested reply date: invented",
     ]
     return [
+        Message(
+            "m12-intro",
+            "t12",
+            "Invented Sender <sender12@contractor-invented.example>",
+            f"{PROJECT}-{CONTRACTOR}-{OWNER}-TQ-00018 - MEC_Invented base plate grouting",
+            INTRO_BODY,
+            [
+                (
+                    "tq-form-18.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    docx(
+                        [
+                            "Technical Query TQ-00018",
+                            "Description of query:",
+                            INTRO_FORM_QUESTION,
+                            "Contractor proposal:",
+                            "Invented.",
+                        ]
+                    ),
+                )
+            ],
+            inline_pictures=1,
+        ),
         Message(
             "m11-header-field",
             "t11",

@@ -79,10 +79,24 @@ def test_a_passage_in_another_reading_order_is_quoted_by_its_longest_verbatim_ru
     reordered = "A B 12 14 Invented table: The invented pumps shall be of the invented centrifugal type with invented mechanical seals"
     with db.connect() as conn:
         got = _verbatim_quote(conn, "c1", 1, 2, reordered)
-    assert (
-        got
-        == "The invented pumps shall be of the invented centrifugal type with invented mechanical seals"
+    # widened on the page to its whole sentence (review of update 13, N4), across the page break
+    assert got == (
+        "4.2 Invented Pumps The invented pumps shall be of the invented centrifugal type with invented mechanical seals "
+        "and invented bearings."
     )
+
+
+def test_a_cut_quote_never_drops_the_negation_before_it():
+    from app.technical_query_match import whole_sentences
+
+    page = "Invented intro. The invented pump shall not be started before the invented grout has cured for seven days. Next."
+    run = "be started before the invented grout has cured for seven days."
+    assert whole_sentences(page, run) == (
+        "The invented pump shall not be started before the invented grout has cured for seven days."
+    )
+    # no sentence start within reach and a negation just before the run: no quote at all, never the inverted fragment
+    long_page = "x" * 700 + " the invented pump shall not " + run
+    assert whole_sentences(long_page, run) is None
 
 
 def test_a_passage_with_no_long_verbatim_run_is_not_quoted():

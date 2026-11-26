@@ -97,13 +97,13 @@ def test_the_import_reads_the_real_shapes(imported):
             "SELECT ref_type, ref_number, needs_person FROM technical_queries ORDER BY ref_number"
         ).fetchall()
     assert (
-        job["total"] == 11
+        job["total"] == 12
         and job["failed"] == 0
         and job["skipped"] == {technical_query_replies.ATTACHED: 1}
     )
     assert (
-        job["queries"] == 9 and job["imported"] == 10
-    )  # 6 messages in 5 queries: the forward of a forward joins TQ-11; ours too
+        job["queries"] == 10 and job["imported"] == 11
+    )  # the forward of a forward joins TQ-11; ours too
     assert {tuple(q) for q in queries} == {
         (None, None, 1),
         ("CFC", "4", 0),
@@ -114,6 +114,7 @@ def test_the_import_reads_the_real_shapes(imported):
         ("TQ", "16", 0),
         ("TQ", "17", 0),
         ("TQ", "13", 0),
+        ("TQ", "18", 0),
     }
     tq = _query("11")
     assert [m["is_inbound"] for m in tq["messages"]] == [
@@ -121,7 +122,7 @@ def test_the_import_reads_the_real_shapes(imported):
         1,
         0,
     ]  # the question, the forward of a forward, then ours ("sent by us")
-    assert inline == 7  # 5 + 2 signature pictures, none uploaded
+    assert inline == 8  # 5 + 2 + 1 signature pictures, none uploaded
     assert (
         kinds["tq-form-11.docx"] == "static_check_clean"
         and kinds["tq-form-11.pdf"] == "static_check_clean"
@@ -218,14 +219,14 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
         AccessScope("u1", frozenset(), capabilities=frozenset({"admin"}))
     )
     box = next(b for b in got["mailboxes"] if b["mailbox"] == "mb")
-    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (11, 1, 9)
+    assert (box["messages"], box["messages_sent_by_us"], box["queries"]) == (12, 1, 10)
     assert (
         box["tq"],
         box["cfc"],
         box["needs_a_person"],
         box["signature_pictures"],
-    ) == (7, 1, 1, 7)
-    assert box["attachments_read"] == 2 and box["attachments_not_read"] == {
+    ) == (8, 1, 1, 8)
+    assert box["attachments_read"] == 3 and box["attachments_not_read"] == {
         "PDF": 1,
         "active content found": 2,
     }
@@ -236,7 +237,7 @@ def test_the_count_only_view_of_the_same_mailbox(imported):
             conn.execute(
                 "SELECT COUNT(DISTINCT query_id) FROM query_evidence_jobs"
             ).fetchone()[0]
-            == 9
+            == 10
         )
 
 
@@ -263,3 +264,26 @@ def test_a_forwarded_query_and_a_ruled_query_still_give_their_question(
         "DISCLAIMER" not in prepared["extracted_question"]
         and "Original Message" not in prepared["extracted_question"]
     )
+
+
+def test_a_mail_that_only_introduces_its_form_gets_the_question_from_the_form(
+    imported, monkeypatch
+):
+    # lead-4's live walk on update 12 (26 Nov 2026): the introduction, a picture place-holder and a signature were proposed and searched for
+    monkeypatch.setattr("app.technical_query_questions._ask", lambda page_text: [])
+    searched: list[str] = []
+    monkeypatch.setattr(
+        "app.search.search", lambda q, **k: searched.append(q) or {"hits": []}
+    )
+    tq = _query("18")
+    allowed = frozenset(
+        a["document_id"]
+        for m in tq["messages"]
+        for a in m["attachments"]
+        if a["document_id"]
+    )
+    prepared = prepare_evidence(tq["id"], allowed | {CONTRACT}, "u1", True, True, "u1")
+    assert prepared["proposed_question"] == T.INTRO_FORM_QUESTION
+    assert prepared["extracted_question_main"] == ""
+    assert "tq-form-18.docx" in prepared["email_question_note"]
+    assert searched and all(q == T.INTRO_FORM_QUESTION for q in searched)

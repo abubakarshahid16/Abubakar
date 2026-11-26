@@ -260,7 +260,14 @@ def test_a_fetching_field_split_over_runs_is_read_as_one_code():
 
 def test_a_fetching_field_in_a_header_footer_or_footnote_is_flagged():
     field = f'<w:hdr {W}><w:p><w:fldSimple w:instr=" INCLUDETEXT &quot;http://invented.example/t.docx&quot; "/></w:p></w:hdr>'
-    for part in ("word/header1.xml", "word/footer2.xml", "word/footnotes.xml"):
+    # every XML part, a renamed or invented one too (review of update 13, N6)
+    for part in (
+        "word/header1.xml",
+        "word/footer2.xml",
+        "word/footnotes.xml",
+        "word/invented-part.xml",
+        "customXml/item9.xml",
+    ):
         got = S.check_before_library(_word({"word/document.xml": DOC, part: field}))
         assert got["findings"] == ["fetching_field"], part
 
