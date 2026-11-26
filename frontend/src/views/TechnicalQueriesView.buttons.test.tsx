@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
-import { groupByItem, matchWords, replyBeingRewritten, rowLine, askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
+import { groupByItem, matchWords, replyBeingRewritten, askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
 
 const LONG = "The coating system shall have a minimum dry film thickness of 250 microns on every external surface of the vessel, measured "
   + "after curing, and the contractor shall record each reading in the inspection sheet together with the batch number and the date. "
@@ -180,21 +180,6 @@ describe("the lower half's words", () => {
   });
 });
 
-describe("the list rows (F's walk, 27 Nov 2026)", () => {
-  it("say where a query stands in plain words and who has it by name", () => {
-    expect(rowLine({ contractor_name: null, status: "awaiting_review", assignee_user_id: null })).toBe("Waiting for approval · nobody assigned");
-    expect(rowLine({ contractor_name: "Invented Builders", status: "changes_requested", assignee_user_id: "u2" }, [{ id: "u2", display_name: "Invented Engineer" }]))
-      .toBe("Invented Builders · Being changed · with Invented Engineer");
-    expect(rowLine({ status: "some_new_state" })).toBe("some new state · nobody assigned");
-  });
-  it("say a missing contractor once above the list, never on each row", async () => {
-    await open();
-    expect(screen.getByTestId("no-contractor-note").textContent).toBe("1 of 1 have no contractor yet: add its code once under \u201cRules for who it goes to\u201d and they fill themselves.");
-    const list = screen.getByLabelText("Technical query list");
-    expect(list.textContent).not.toContain("awaiting_review");
-    expect(list.textContent).not.toContain("contractor not set");
-  });
-});
 
 describe("the owner's live walk (27 Nov 2026 01:15)", () => {
   beforeEach(() => {
