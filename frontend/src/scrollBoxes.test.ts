@@ -18,15 +18,18 @@ function files(dir: string): string[] {
   });
 }
 
-/** Each scroll box's opening tag and the text up to the end of the first table inside it. */
+/** Each scroll box's opening tag and the text up to the end of the first table inside it. A box written as an expression
+ *  (`className={on ? "... overflow-x-auto ..." : "..."}`, the new look's way) counts too: EVERY string in it that scrolls must be
+ *  relative (26 Nov 2026: a new-look Dashboard box had dropped `relative` in both strings and the literal-only reading missed it). */
 function boxes(source: string): { tag: string; inside: string }[] {
   const out: { tag: string; inside: string }[] = [];
-  const open = /<div className="([^"]*\boverflow-x-auto\b[^"]*)"[^>]*>/g;
+  const open = /<div className=(?:"([^"]*\boverflow-x-auto\b[^"]*)"|\{([^{}]*\boverflow-x-auto\b[^{}]*)\})[^>]*>/g;
   for (let m = open.exec(source); m; m = open.exec(source)) {
     const end = source.indexOf("</table>", m.index);
     const nextBox = source.indexOf("overflow-x-auto", m.index + m[0].length);
     if (end < 0 || (nextBox >= 0 && nextBox < end)) continue; // no table of its own
-    out.push({ tag: m[1], inside: source.slice(m.index, end) });
+    const tags = m[1] !== undefined ? [m[1]] : [...m[2].matchAll(/"([^"]*)"/g)].map((q) => q[1]).filter((t) => /\boverflow-x-auto\b/.test(t));
+    for (const tag of tags) out.push({ tag, inside: source.slice(m.index, end) });
   }
   return out;
 }
@@ -40,6 +43,11 @@ describe("scroll boxes", () => {
       }
     }
     expect(wrong).toEqual([]);
+  });
+
+  it("reads a box written as an expression, string by string", () => {
+    const wrong = '<div className={on ? "mt-3 overflow-x-auto" : "relative overflow-x-auto"}><table><th className="sr-only">x</th></table>';
+    expect(boxes(wrong).map((b) => /\brelative\b/.test(b.tag))).toEqual([false, true]);
   });
 
   it("the check sees the three tables it was written for", () => {
