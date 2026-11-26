@@ -328,8 +328,11 @@ export function ReviewDashboardPanel(
               <tbody>
                 {data.recent.map((run) => (
                   <tr key={run.review_run_id} className={NEW_LOOK ? "border-t border-ink-700/60" : "border-t border-ink-800"}>
-                    <td className={NEW_LOOK ? "px-4 py-3.5 text-slateish-200" : "px-3 py-2 text-slateish-200"}>
-                      {run.submittal_filename}
+                    <td className={NEW_LOOK ? "whitespace-nowrap px-3 py-3.5 text-slateish-200" : "px-3 py-2 text-slateish-200"}>
+                      {NEW_LOOK ? (
+                        // one line (owner): a long name stops at a set width with a visible "…", whole on hover
+                        <span className="inline-block max-w-[12rem] truncate align-bottom" title={run.submittal_filename ?? undefined}>{run.submittal_filename}</span>
+                      ) : run.submittal_filename}
                       <span className={NEW_LOOK ? "ms-2 whitespace-nowrap text-xs text-slateish-500" : "block text-slateish-500"}>
                         {formatWhen(run.created_at)}{run.method === "general" ? "" : " · earlier version"}
                       </span>
@@ -337,7 +340,7 @@ export function ReviewDashboardPanel(
                     <td className={CELL} title={run.equipment_tags.join(", ") || undefined}>
                       {equipmentLabel(run.equipment_tags)}
                     </td>
-                    <td className={CELL}>
+                    <td className={NEW_LOOK ? `${CELL} min-w-[10.5rem]` : CELL}>
                       {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. A general review says its own comments. */}
                       {run.method === "general" ? generalFindings(run) : run.findings_total.toLocaleString()}
                       {run.method !== "general" && run.by_status.NON_COMPLIANT ? (
@@ -357,10 +360,10 @@ export function ReviewDashboardPanel(
                         </span>
                       )}
                     </td>
-                    <td className={NEW_LOOK ? "px-4 py-3.5" : "px-3 py-2 text-slateish-300"}>
+                    <td className={NEW_LOOK ? "whitespace-nowrap px-3 py-3.5" : "px-3 py-2 text-slateish-300"}>
                       {NEW_LOOK ? <StatusChip tone={reviewStatusTone(rowStatus(run))}>{rowStatus(run)}</StatusChip> : rowStatus(run)}
                     </td>
-                    <td className={NEW_LOOK ? "px-4 py-3.5 text-right" : "px-3 py-2"}>
+                    <td className={NEW_LOOK ? "px-3 py-3.5 text-right" : "px-3 py-2"}>
                       <button
                         type="button" onClick={() => onOpenReview(run.review_run_id)}
                         className={NEW_LOOK
@@ -383,8 +386,8 @@ export function ReviewDashboardPanel(
 }
 
 /** The table cells: the classic padding, or the new look's taller rows (owner: "more row height"). */
-const CELL = NEW_LOOK ? "px-4 py-3.5 text-slateish-300" : "px-3 py-2 text-slateish-300";
-const HEAD = NEW_LOOK ? "px-4 py-2.5" : "px-3 py-2";
+const CELL = NEW_LOOK ? "px-3 py-3.5 text-slateish-300" : "px-3 py-2 text-slateish-300";
+const HEAD = NEW_LOOK ? "px-3 py-2.5" : "px-3 py-2";
 
 function Card({ label, value, detail, tone }: {
   label: string; value: number; detail: string; tone?: "warn";

@@ -369,7 +369,7 @@ export function Shell({
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex md:w-64 md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex ${NEW_LOOK ? "md:w-72" : "md:w-64"} md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
       >
         {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
             wrapped to two lines in a 256px rail, and with the tagline and a

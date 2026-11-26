@@ -60,6 +60,13 @@ describe("the new look on the Dashboard (owner's notes)", () => {
     expect(privacy).not.toBeNull();
   });
 
+  it("the page title says Dashboard, the menu's own name for it (owner)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const src = readFileSync(resolve(__dirname, "DashboardViewContent.tsx"), "utf8");
+    expect(src).toMatch(/\{NEW_LOOK \? "Dashboard" : "System"\}/);
+  });
+
   it("never cuts a long line: the whole text is in the fold", () => {
     render(<TileLine text={LONG} />);
     expect(screen.getByText(LONG)).toBeInTheDocument();

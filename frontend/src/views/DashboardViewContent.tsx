@@ -140,7 +140,7 @@ export function DashboardView({
       <div aria-hidden className="aurora-b" />
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h1 className="text-lg font-semibold text-slateish-200">System</h1>
+          <h1 className="text-lg font-semibold text-slateish-200">{NEW_LOOK ? "Dashboard" : "System"}</h1>
           <p className="text-xs text-slateish-500">
             Every value is measured. Anything unmeasured says so rather than
             showing a zero.
