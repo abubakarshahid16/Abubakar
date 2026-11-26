@@ -1754,7 +1754,7 @@ def decide(
             from .technical_query_auto import FALSE_QUOTE_MARK, stored_unsupported
 
             if stored_unsupported(latest, current):  # never approve a reply that credits a source with words it does not contain
-                raise ValueError(f"{FALSE_QUOTE_MARK} Generate the draft again or correct it before approval.")
+                raise ValueError(f"{FALSE_QUOTE_MARK} Press Write the reply again (under Redo), or write the reply yourself, before approval.")
     target = {
         "request_changes": "changes_requested",
         "approve": "approved",

@@ -40,10 +40,10 @@ PREPARABLE = ("received", "triage", "drafting", "changes_requested")
 
 NO_QUESTION = "no question was found to answer: write it in the question box and the draft follows"
 NO_PASSAGE = "no passage was found in the contract documents and standards you may read"
-TOO_WEAK = "no passage found answers the question closely enough: keep a source by hand, then press Generate draft"
+TOO_WEAK = "no passage found answers the question closely enough: keep a source by hand, then press Write the reply again (under Redo)"
 MODEL_DOWN = "the local drafting model is unavailable; the draft is written on the next preparation"
 OUTSIDE = "the draft cited passages outside the query's evidence, so it was not kept"
-TYPED_KEPT = "an engineer's own draft is kept; press Generate draft for a new one"
+TYPED_KEPT = "an engineer's own draft is kept; press Write the reply again (under Redo) for a new one"
 FOUND_NOT_KEPT = "Written by the local model from passages the system found; no engineer has kept them yet."
 
 
@@ -147,7 +147,7 @@ _QUOTED = re.compile(r'["\u201c]([^"\u201c\u201d\n]{4,}?)["\u201d]')
 _LABEL = re.compile(r"\[S(\d+)")
 FALSE_QUOTE = (
     "the draft put quotation marks round words that its cited source does not contain, so it is not shown: "
-    "press Generate draft to try again, or write the reply yourself"
+    "press Write the reply again (under Redo), or write the reply yourself"
 )
 FALSE_QUOTE_MARK = "A quote in this draft is not in its cited source."
 
