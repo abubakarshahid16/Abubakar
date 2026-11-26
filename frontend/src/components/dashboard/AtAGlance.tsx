@@ -1,0 +1,168 @@
+/**
+ * AT A GLANCE (owner, 26 Nov 2026, E5: "plain numbers: in, waiting, late, done; a one-line plain summary on every result; inside the
+ * existing Dashboard"). A manager's view of the three kinds of work: contractor documents (their reviews), technical queries and CFCs,
+ * and deliverables. Every number comes from a figure the app already serves (the review dashboard, the query counts, the deliverables
+ * register and its overdue alerts); a figure that could not be loaded is said to be unknown, never shown as 0, and "late" says what it
+ * is counted over (rule 4: every count states its boundary).
+ */
+import { useEffect, useState } from "react";
+
+import { deliverables as deliverablesApi, reviews as reviewsApi } from "../../api/client";
+import { technicalQueriesApi } from "../../api/technicalQueries";
+import type { Deliverable, ReviewDashboard } from "../../types/api";
+
+export interface GlanceRow {
+  label: string;
+  /** null = could not be loaded (said as such, never 0). */
+  inCount: number | null;
+  waiting: number | null;
+  /** A number only when it was counted over a stated, non-empty set (rule 4: a count over nothing is not a 0). */
+  late: number | null;
+  done: number | null;
+  /** counted: `late` is a real count over `lateNote`'s set; no_due_dates: nothing open has a due date, so nothing can be late;
+   *  not_tracked: this kind of work has no due date; unknown: a figure could not be loaded. */
+  lateStatus: "counted" | "no_due_dates" | "not_tracked" | "unknown";
+  /** What "late" is counted over, or why it is not counted. */
+  lateNote: string;
+}
+
+const UNKNOWN_ROW = (label: string): GlanceRow => ({
+  label, inCount: null, waiting: null, late: null, done: null, lateStatus: "unknown", lateNote: "could not be loaded",
+});
+
+export function reviewsRow(d: ReviewDashboard | null): GlanceRow {
+  // ONE UNIT PER ROW: reviews (a contract or a specification is reviewed too, so counting documents in one column and reviews in the
+  // next would not add up).
+  if (!d) return UNKNOWN_ROW("Document reviews");
+  const signed = typeof d.reviews_signed === "number" ? d.reviews_signed : null;
+  const waiting = d.reviews_awaiting_decision + d.reviews_running;
+  return {
+    label: "Document reviews",
+    inCount: signed === null ? null : waiting + signed,
+    waiting,
+    late: null,
+    done: signed,
+    lateStatus: "not_tracked",
+    lateNote: "a review has no due date; see Deliverables for due dates",
+  };
+}
+
+/** The query statuses that need nothing more from the team (the server's CLOSED_STATUSES: never waiting, never late). */
+const QUERY_DONE = ["resolved"];
+const QUERY_SET_ASIDE = ["duplicate", "cancelled"];
+
+export function queriesRow(m: Record<string, number> | null | "off"): GlanceRow | null {
+  if (m === "off") return null; // technical queries are switched off on this computer: no row
+  if (!m || typeof m.total !== "number") return UNKNOWN_ROW("Technical queries and CFCs");
+  const setAside = QUERY_SET_ASIDE.reduce((n, s) => n + (m[s] ?? 0), 0);
+  const inCount = m.total - setAside;
+  const done = QUERY_DONE.reduce((n, s) => n + (m[s] ?? 0), 0);
+  const row = { label: "Technical queries and CFCs", inCount, waiting: inCount - done, done };
+  // late only with BOTH the count and its boundary, and only over a set that is not empty
+  if (typeof m.overdue !== "number" || typeof m.open_with_due_date !== "number") {
+    return { ...row, late: null, lateStatus: "unknown", lateNote: "could not be loaded" };
+  }
+  if (m.open_with_due_date === 0) return { ...row, late: null, lateStatus: "no_due_dates", lateNote: "no open query has a due date" };
+  return { ...row, late: m.overdue, lateStatus: "counted", lateNote: `past the due date, of ${m.open_with_due_date} open with a due date` };
+}
+
+/** An overdue alert of the deliverables register (the server's own list; it also lists items due TODAY). */
+export interface OverdueAlert { days_overdue: number }
+
+export function deliverablesRow(items: Deliverable[] | null, alerts: OverdueAlert[] | null): GlanceRow {
+  if (!items) return UNKNOWN_ROW("Deliverables");
+  const done = items.filter((d) => d.status === "approved").length;
+  const open = items.filter((d) => d.status !== "approved" && d.status !== "superseded");
+  const row = { label: "Deliverables", inCount: items.length, waiting: open.length, done };
+  // a due date the server can read (YYYY-MM-DD...): its alerts skip any other, so only these can ever be late
+  const withDue = open.filter((d) => /^\d{4}-\d{2}-\d{2}/.test((d.due_date ?? "").trim())).length;
+  if (withDue === 0) return { ...row, late: null, lateStatus: "no_due_dates", lateNote: "no open deliverable has a due date" };
+  if (!alerts) return { ...row, late: null, lateStatus: "unknown", lateNote: "could not be loaded" };
+  // past the due date, as for queries: an item due today is not late yet
+  const late = alerts.filter((a) => a.days_overdue > 0).length;
+  return { ...row, late, lateStatus: "counted", lateNote: `past the due date, of ${withDue} open with a due date` };
+}
+
+/** The one plain line above the table: what is waiting and what is late, the manager's first question. A late count is said only where
+ *  it was counted; where nothing has a due date the line says so, never "nothing late" (rule 4). An unknown figure is said, never left out. */
+export function glanceLine(rows: GlanceRow[]): string {
+  const NAMES: Record<string, [string, string]> = {
+    "Document reviews": ["document review", "document reviews"],
+    "Technical queries and CFCs": ["query or CFC", "queries and CFCs"],
+    Deliverables: ["deliverable", "deliverables"],
+  };
+  const name = (r: GlanceRow, n?: number | null) => (NAMES[r.label] ?? [r.label.toLowerCase(), r.label.toLowerCase()])[n === 1 ? 0 : 1];
+  const waiting = rows.map((r) => (r.waiting === null ? `${name(r)}: unknown` : `${r.waiting} ${name(r, r.waiting)}`)).join(", ");
+  const counted = rows.filter((r) => r.lateStatus === "counted");
+  const noDue = rows.filter((r) => r.lateStatus === "no_due_dates");
+  const unknown = rows.filter((r) => r.lateStatus === "unknown");
+  const parts: string[] = [];
+  if (counted.length) {
+    const late = counted.filter((r) => (r.late ?? 0) > 0);
+    parts.push(late.length ? late.map((r) => `${r.late} ${name(r, r.late)}`).join(", ") : `none of the ${counted.map((r) => name(r)).join(" or ")} with a due date`);
+  }
+  if (noDue.length) parts.push(`not counted for ${noDue.map((r) => name(r)).join(" or ")}: none has a due date`);
+  if (unknown.length) parts.push(`unknown for ${unknown.map((r) => name(r)).join(" or ")}`);
+  return `Waiting: ${waiting}. Late: ${parts.length ? parts.join("; ") : "not counted"}.`;
+}
+
+function Cell({ value, tone, title }: { value: number | null; tone?: "late"; title?: string }) {
+  if (value === null) return <td className="px-3 py-2 text-slateish-400" title={title}>—</td>;
+  const late = tone === "late" && value > 0;
+  return <td className={`px-3 py-2 text-lg font-semibold ${late ? "text-danger-500" : "text-slateish-100"}`}>{value}</td>;
+}
+
+export function AtAGlance() {
+  const [review, setReview] = useState<ReviewDashboard | null | undefined>(undefined);
+  const [queries, setQueries] = useState<Record<string, number> | null | "off" | undefined>(undefined);
+  const [items, setItems] = useState<Deliverable[] | null | undefined>(undefined);
+  const [alerts, setAlerts] = useState<OverdueAlert[] | null | undefined>(undefined);
+
+  useEffect(() => {
+    void reviewsApi.dashboard().then((r) => setReview(r.ok ? r.data : null));
+    // switched off, the queries' routes answer "not found": no row, not an unknown one
+    void technicalQueriesApi.metrics().then((r) => setQueries(r.ok ? r.data : !r.disconnected && r.error.code === "not_found" ? "off" : null));
+    void deliverablesApi.list().then((r) => setItems(r.ok ? r.data.deliverables : null));
+    void deliverablesApi.alerts().then((r) => setAlerts(r.ok ? r.data.alerts : null));
+  }, []);
+
+  // drawn once every figure has answered: a figure still loading is never shown as "unknown"
+  if (review === undefined || queries === undefined || items === undefined || alerts === undefined) return null;
+  const rows = [reviewsRow(review), queriesRow(queries), deliverablesRow(items, alerts)].filter((r): r is GlanceRow => r !== null);
+
+  return (
+    <section aria-labelledby="at-a-glance-title" data-testid="at-a-glance"
+      className="mt-6 rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-4">
+      <h2 id="at-a-glance-title" className="text-sm font-semibold text-slateish-200">At a glance</h2>
+      <p data-testid="at-a-glance-summary" className="mt-1 text-sm text-slateish-200">{glanceLine(rows)}</p>
+      <div className="relative mt-3 overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs font-semibold text-slateish-400">
+            <tr>
+              <th scope="col" className="px-3 py-2"><span className="sr-only">Kind of work</span></th>
+              <th scope="col" className="px-3 py-2">In</th>
+              <th scope="col" className="px-3 py-2">Waiting</th>
+              <th scope="col" className="px-3 py-2">Late</th>
+              <th scope="col" className="px-3 py-2">Done</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.label} className="border-t border-ink-700/60" data-testid="at-a-glance-row">
+                <th scope="row" className="px-3 py-2 font-medium text-slateish-200">{r.label}</th>
+                <Cell value={r.inCount} />
+                <Cell value={r.waiting} />
+                <Cell value={r.late} tone="late" title={r.lateStatus === "counted" ? undefined : r.lateNote} />
+                <Cell value={r.done} />
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ul className="mt-2 space-y-0.5 text-xs text-slateish-400">
+        {rows.map((r) => <li key={r.label}>{r.label}, late: {r.lateNote}.</li>)}
+        <li>These counts cover only what you may open.</li>
+      </ul>
+    </section>
+  );
+}

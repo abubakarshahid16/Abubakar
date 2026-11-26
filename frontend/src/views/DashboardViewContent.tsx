@@ -1,3 +1,4 @@
+import { AtAGlance } from "../components/dashboard/AtAGlance";
 import { useCallback, useRef, useState } from "react";
 import { formatWhenDate } from "../format/when";
 import { api, classification, management } from "../api/client";
@@ -164,6 +165,9 @@ export function DashboardView({
           Four cards, one button, one Recent Reviews table - the rule names
           exactly that, and the whole block lives in one component so a fifth
           tile cannot appear here without editing the rule first. */}
+      {/* AT A GLANCE (owner's E5, 26 Nov 2026): in, waiting, late, done for each kind of work, in plain numbers, before the rest */}
+      <AtAGlance />
+
       {onOpenReview && onOpenDocuments && (
         <ReviewDashboardPanel
           onOpenReview={onOpenReview} onOpenDocuments={onOpenDocuments}
