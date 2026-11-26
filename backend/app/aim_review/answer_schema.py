@@ -84,7 +84,21 @@ _ITEM = {
         "stands_in_for": _text(120),
         "carried_by": _text(120),
     },
-    "required": ["topic", "what_to_check", "applies_when", "paper_fields", "kind"],
+    # book, clause, page, rule_quote and source are required too (F's 9B run on update 10, 91f40e4f: with them optional the
+    # model left them out, an item with no source counts as a held standard, and about 190 such items had no book and no
+    # quote to find: 117 were set aside unasked). A knowledge item gives them empty, as the task says.
+    "required": [
+        "topic",
+        "what_to_check",
+        "book",
+        "clause",
+        "page",
+        "rule_quote",
+        "applies_when",
+        "paper_fields",
+        "kind",
+        "source",
+    ],
 }
 _ITEMS = {
     "type": "object",

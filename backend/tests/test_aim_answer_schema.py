@@ -86,7 +86,9 @@ def test_the_judges_labels_are_the_methods_and_numbers_is_asked_on_every_item():
                                       "numbers": None, "comment": "Please state it.", "deferred": True, "ask": "confirm"}]}),
         ("aim_second_read", {"reads": [{"n": 3, "label": "Question", "page": 1, "quote": "q", "reason": "r"}]}),
         ("aim_checklist", {"items": [{"topic": "t", "what_to_check": "w", "applies_when": "always", "paper_fields": ["f"],
-                                      "kind": "limit", "paper_pages": [1], "book": "B1", "clause": "4.1", "page": 3}]}),
+                                      "kind": "limit", "paper_pages": [1], "book": "B1", "clause": "4.1", "page": 3,
+                                      "rule_quote": "invented rule words", "source": "held standard"}]}),
+        # rule_quote and source are required since F's 9B run 91f40e4f (left out, ~190 items had nothing to find)
     ],
 )  # fmt: skip
 def test_an_answer_of_the_methods_own_shape_passes_its_schema(step, answer):

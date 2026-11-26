@@ -323,3 +323,16 @@ def test_grammar_words_alone_never_make_a_match():
     with budget.using(budget.LOCAL):
         assert RT.by_code([words], BATCH, lambda it: True) == ([], [words])
     assert RT._words("The shall be for and of it") == set()
+
+
+def test_the_local_checklist_shape_requires_the_book_clause_page_quote_and_source_of_every_item():
+    """F's 9B run on update 10 (91f40e4f): optional keys were left out, so about 190 items had no book and no quote to find."""
+    from app.aim_review import answer_schema as A
+
+    for step in ("aim_checklist", "aim_checklist_retry", "aim_checklist_knowledge"):
+        item = A.for_step(step)["properties"]["items"]["items"]
+        assert (
+            {"book", "clause", "page", "rule_quote", "source"}
+            <= set(item["required"])
+            <= set(item["properties"])
+        )
