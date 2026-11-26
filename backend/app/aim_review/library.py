@@ -1,15 +1,13 @@
 """Read-only access to the library's own metadata and text, for the general review.
-
 What chooses books and rules here is LIBRARY METADATA only, never words shared between the paper and a rule:
   * `rule_label.paper_kind`         - which kind of paper each stored rule is checked on (two-model labels);
   * `rule_equipment_label`          - which equipment each rule is about (two-model labels; agreed rows);
   * `rule_label.reading_json`       - the subject each rule was read to be about (shown to the AI as a catalog);
   * `document_classification`       - role and committee of each held document;
-  * reference/governing_standards.json, standard_roles.json, equipment_taxonomy.json, equipment_mapping.json;
+  * reference/governing_standards.json, service_standards.json (update 13), standard_roles.json, equipment_taxonomy.json, equipment_mapping.json;
   * the paper's own citations, read by code (`standard_ids.cited_standards`) and resolved by identifier.
 
-Nothing here names an equipment type, a standard, a paper or a layout: those are the reference files' data (CLAUDE.md rule 13).
-Nothing here writes, and nothing here asks a model.
+Nothing here names an equipment type, a standard, a paper or a layout: those are the reference files' data (CLAUDE.md rule 13). Nothing here writes, and nothing here asks a model.
 """
 
 from __future__ import annotations
@@ -25,6 +23,7 @@ from pathlib import Path
 # The six reasons a book is on the plan's list, and the list's size: one home, the package (`app.aim_review`).
 from . import MAX_BOOKS as MAX_CANDIDATES
 from . import WHY_CITED, WHY_GOVERNS, WHY_LAST, WHY_METHOD, WHY_RULES, WHY_SAVED
+from . import service_books as SB
 from .citations import (  # noqa: F401 - one home of citation matching: citations
     NUMBER_MIN,
     _number_in,
@@ -428,7 +427,6 @@ def rule_pool(
     subjects: bool = True,
 ) -> list[dict]:
     """Stored rules a paper of this kind (and equipment) is checked on, by the library's labels only.
-
     In: the rule's kind label is one of the paper kind's labels (two models agreed); and, when the paper has an equipment type,
     the rule's agreed equipment tag is general, the type (or a type it applies as), the family with no type, or not agreed. A
     rule agreed to be about OTHER equipment is out. With `books`, every rule of those books passes the kind test (a governing
@@ -687,7 +685,6 @@ def candidates(
     earlier_unlisted: frozenset[str] = frozenset(),
 ):
     """PLAN TIME. The rule books the general review MAY use, by library metadata only. No model, no socket, no write.
-
     A saved checklist for the paper's key: its books, then the governing and method books now held and the books an earlier
     review of this paper wanted but could not send (so a book held after the checklist was saved is listed and "review again"
     is true for it; light check e1c61001). Otherwise: books governing the stored equipment
@@ -738,7 +735,8 @@ def _saved_order(
     not_held: list[dict] = []
     for e, name, why in [(e, n, WHY_GOVERNS) for e, n in governing_books(lib, type_id) if not e or role_applies(e, kind)] + [
         (e, n, WHY_METHOD) for e, n in method_books(lib, kind)
-    ] + [(e, n, WHY_CITED) for e, n in cited_rule_books(conn, paper_id, lib)]:  # fmt: skip
+    ] + [(e, n, SB.WHY_SERVICE) for e, n in SB.service_books(conn, paper_id, lib)] + [
+        (e, n, WHY_CITED) for e, n in cited_rule_books(conn, paper_id, lib)]:  # fmt: skip
         if e is None:
             not_held.append({"name": name, "why": f"{why}; not held"})
         elif e["id"] not in {d for d, _w in order}:
@@ -778,6 +776,8 @@ def _ordered_books(
             named(e, name, WHY_GOVERNS)
     for e, name in method_books(lib, kind):
         named(e, name, WHY_METHOD)
+    for e, name in SB.service_books(conn, paper_id, lib):  # update 13
+        named(e, name, SB.WHY_SERVICE)
     for b in sorted(earlier):
         if b in by_id:
             add(b, WHY_LAST)

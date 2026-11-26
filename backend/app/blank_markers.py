@@ -326,6 +326,40 @@ def is_provisional_figure(quote: str | None) -> bool:
     return names_who_supplies(quote) and not value_left_open(quote)
 
 
+#: The team note of a line the judge marked left open whose verified quote states the value (`states_value`, #1887).
+STATED_NOT_OPEN = "the paper states this value: it is not left open"
+
+
+def states_value(quote: str | None, field: str | None) -> bool:
+    """The quote STATES the field's value: it names the field (each word of 3 or more letters of the field's own label stands in it)
+    and holds other words or numbers than the label, and `value_left_open` does not read it as open. By the quote's structure only,
+    never the AI's wording (planner, 26 Nov 2026: a line never asks the contractor to state a value the paper states, #1887). Pure."""
+    text, label = " ".join(str(quote or "").split()), str(field or "")
+    words = re.findall(r"[a-z]{3,}", label.lower())
+    if (
+        not text
+        or not words
+        or value_left_open(text)
+        or not all(w in text.lower() for w in words)
+    ):
+        return False
+    from app.claims import is_unit
+
+    own = set(re.findall(r"\w+", label.lower()))
+    rest = [
+        w
+        for w in re.findall(r"\w+", re.sub(r"^\s*\d{1,3}\s+", "", text).lower())
+        if w not in own
+    ]
+    # a value is a number, or a word that is not a unit: "Set pressure barg" (a label and its unit) states nothing
+    return any(re.search(r"\d", w) or (len(w) >= 2 and not is_unit(w)) for w in rest)
+
+
+def stated_despite(judged: dict, quote: str | None) -> bool:
+    """The judge flagged the value left open (its "deferred"), yet the verified quote states it (`states_value`)."""
+    return bool(judged.get("deferred")) and states_value(quote, judged.get("field"))
+
+
 def value_left_open(quote: str | None) -> bool:
     """THE general review's question "does this paper quote leave the value open?" (the lead's decision of 18 Nov 2026).
 

@@ -220,13 +220,13 @@ def _compare(
 
 
 def _left_open(j: dict, quote: str, page, notes: list[str]) -> bool:
-    """Is the judged value left open? A figure the contractor FILLED IN beside a who-supplies note is a stated value, judged as
-    any value (owner, 18 Nov 2026 after live; the note says so on the line; Pass/Fail only when code compares it with a held
-    rule): never left open, whatever the judge's flag. Otherwise the judge's flag or code reading the quote as open."""
+    """Left open? Never a figure filled in by the contractor (owner, 18 Nov 2026) or a value the verified quote states (#1887)."""
+    from app.blank_markers import STATED_NOT_OPEN, stated_despite
+
     filled = page is not None and _provisional_figure(quote)
-    if filled:
-        notes.append(CONTRACTOR_FILLED)
-    return (bool(j.get("deferred")) and not filled) or _deferred(quote)
+    stated = page is not None and stated_despite(j, quote)
+    notes += [CONTRACTOR_FILLED] if filled else [STATED_NOT_OPEN] if stated else []
+    return (bool(j.get("deferred")) and not (filled or stated)) or _deferred(quote)
 
 
 def _deferred(quote: str) -> bool:

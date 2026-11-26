@@ -463,6 +463,8 @@ class Settings(SettingsExt, BaseSettings):
     aim_u6b_enabled: bool = False
     aim_u7b_enabled: bool = False
     aim_u8_enabled: bool = False
+    #: Update 13's method part (`aim_review.updates.u13`): the always-on items G2 and G3 read the app's own form and pair data.
+    aim_u13_enabled: bool = False
     #: The formula checks (`aim_review/formulas.py`), their own switch since update 9 (lead-4: proven by the free code-only replay,
     #: found unchanged, 3 new Not met lines all true, no comment duplicated). Off: no formula lines, as main 475adb91.
     aim_formula_checks_enabled: bool = True

@@ -68,12 +68,37 @@ def mark(decided: list[dict]) -> int:
         why = (
             NO_WORDS_REASON
             if has_no_words(d) or only_code_filler(d)
-            else (NO_ASK_REASON if asks_nothing(d) else "")
+            else (
+                NO_ASK_REASON
+                if asks_nothing(d)
+                else (FILLED_REASON if entry_filled(d) else "")
+            )
         )
         if why:
             d["code"] = "; ".join(x for x in (d.get("code"), f"{NO_ASK}: {why}") if x)
             marked += 1
     return marked
+
+
+#: Why a required-entries line (always-on G3) is not sent when the paper states that entry (update 13; planner, 26 Nov 2026).
+FILLED_REASON = "the paper states this entry"
+
+
+def entry_filled(line: dict) -> bool:
+    """Update 13 on: a G3 ("required entries left blank") Question whose VERIFIED quote states the value (`blank_markers.states_value`)
+    asks for nothing missing: only a real gap is sent. By the quote's structure, never the AI's words. Off: never (as main)."""
+    from app.blank_markers import states_value
+
+    from .updates import u13
+
+    return (
+        u13()
+        and str(line.get("item_id") or "") == "G3"
+        and line.get("label") == "Question"
+        and not line.get("quote_unverified")
+        and line.get("page") is not None
+        and states_value(line.get("quote"), line.get("field"))
+    )
 
 
 #: Why a line whose own comment has no words is not sent (update 5's quick score: the judge gave a pass as an empty comment and

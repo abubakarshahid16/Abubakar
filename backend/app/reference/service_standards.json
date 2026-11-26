@@ -1,0 +1,10 @@
+{
+  "_about": "Update 13 (planner, 26 Nov 2026; AIM_U13_ENABLED): the paper's SERVICE as a key for book choice. When the paper's own text DECLARES a service (any of its markers, whole words, case-insensitive), the held rule books of that service's standards are added to the review as required books (reason: required by the paper's service), on the plan's shown list like a governing book (CLAUDE.md rule 1: only held books on the shown list are ever sent). Markers are the paper's declaration of the service, never a bare chemical name (a sheet that states 'H2S content: 0' is not in sour service). Standards are public identifiers, found among the held books by the governing-book lookup (`applicability.find_standard`).",
+  "version": 1,
+  "services": {
+    "sour": {
+      "markers": ["sour\\s+service", "wet\\s+H2S", "H2S\\s+service", "sour\\s+(?:gas|crude|water|environment)", "NACE\\s*MR\\s*0175", "ISO\\s*15156"],
+      "standards": ["NACE MR0175", "ISO 15156-2", "ISO 15156-3"]
+    }
+  }
+}
