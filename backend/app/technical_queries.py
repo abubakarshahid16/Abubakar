@@ -1382,7 +1382,8 @@ def prepare_evidence(
         )
         listed = 0  # the best LISTED passages that stand on their pages are listed (from the fair-share pool of MAX_PASSAGES)
         for passage in hits[: technical_query_contracts.MAX_PASSAGES]:
-            if listed >= technical_query_contracts.LISTED:
+            floor = technical_query_contracts.below_floor(hits, listed, passage)
+            if listed >= technical_query_contracts.LISTED or floor:
                 break
             quote = (passage.get("text") or "").strip()
             if not quote:
@@ -1470,6 +1471,8 @@ def prepare_evidence(
                 ),
             )
         coverage.update(technical_query_match.coverage_of(terms, scores))  # counts, as information only
+        note = technical_query_contracts.floor_note(hits, listed)
+        coverage["line"] = (coverage.get("line") or "") + note
         top = max((h.get("rerank_score") for h in hits if h.get("rerank_score") is not None), default=None)
         coverage["top_rerank_score"] = None if top is None else round(float(top), 3)  # the best passage's own reranker score, a plain number
         conn.execute("UPDATE technical_queries SET evidence_coverage=? WHERE id=?", (json.dumps(coverage), query_id))

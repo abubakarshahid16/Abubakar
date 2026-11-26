@@ -28,6 +28,10 @@ MAX_PASSAGES = 30
 #: How many passages the engineer sees: the best LISTED of the fair-share pool, in the reranker's order (lead-4's score of run 4: the
 #: right page was at rank 1 in 8 of 9 hits and rank 2 in the ninth; 30 was more to read than the hits need).
 LISTED = 12
+#: A passage scoring more than SCORE_FLOOR below the best (the reranker's own score) is not listed once MIN_LISTED are (lead-4's measure
+#: on evidence run 14: the right passage was rank 1 or 2 for every answerable question; 144 listed passages become 57, every hit kept).
+SCORE_FLOOR = 3.0
+MIN_LISTED = 3
 ROLE = "CONTRACT_DOCUMENT"
 
 
@@ -132,3 +136,27 @@ def fair_share(per_part: list[list[dict]]) -> list[dict]:
             chosen.append(hit)
             held[part] = held.get(part, 0) + 1
     return sorted(chosen, key=_score, reverse=True)
+
+
+def below_floor(hits: list[dict], listed: int, hit: dict) -> bool:
+    """True when `hit` scores more than SCORE_FLOOR below the best of `hits` (sorted best first) and MIN_LISTED are already listed."""
+    return (
+        bool(hits)
+        and listed >= MIN_LISTED
+        and _score(hit) < _score(hits[0]) - SCORE_FLOOR
+    )
+
+
+def floor_note(hits: list[dict], listed: int) -> str:
+    """The sentence that says how many found passages the floor left out (counted, never silent); "" when none."""
+    pool = hits[:MAX_PASSAGES]
+    left = sum(
+        1
+        for n, hit in enumerate(pool)
+        if n >= listed and below_floor(pool, max(listed, MIN_LISTED), hit)
+    )
+    return (
+        f" {left} more found passage(s) scored more than {SCORE_FLOOR:g} below the best and are not listed."
+        if left
+        else ""
+    )

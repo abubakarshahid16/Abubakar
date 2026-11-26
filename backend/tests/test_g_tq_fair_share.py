@@ -152,3 +152,23 @@ def test_the_engineer_sees_the_best_listed_passages_of_the_fair_share_pool(monke
     assert (
         len({e["document_id"] for e in got["evidence"]}) == C.LISTED
     )  # 20 parts each scoring the same: one passage each, the best 12
+
+
+def test_a_passage_far_below_the_best_is_not_listed_and_the_page_counts_it():
+    # lead-4's measure on evidence run 14: the right passage was rank 1 or 2; a floor 3 below the best keeps every hit
+    hits = [hit(f"p{n}", s) for n, s in enumerate((5.0, 4.0, 2.5, 2.1, 1.0, -3.0))]
+    kept = [h for n, h in enumerate(hits) if not C.below_floor(hits, n, h)]
+    assert [h["rerank_score"] for h in kept] == [
+        5.0,
+        4.0,
+        2.5,
+        2.1,
+    ]  # at least MIN_LISTED, then only within SCORE_FLOOR of the best
+    assert (
+        C.floor_note(hits, 4)
+        == " 2 more found passage(s) scored more than 3 below the best and are not listed."
+    )
+    low = [hit(f"q{n}", s) for n, s in enumerate((-5.0, -9.0, -9.5))]
+    assert not any(
+        C.below_floor(low, n, h) for n, h in enumerate(low)
+    )  # never fewer than MIN_LISTED
