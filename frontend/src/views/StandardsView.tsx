@@ -90,7 +90,7 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-medium">Standards Library</h2>
+          <h1 className="text-lg font-medium">Standards Library</h1>
           {NEW_LOOK && (
             <p data-testid="standards-summary" className="mt-1 text-sm text-slateish-300">
               The rule books the reviews check against. Search for one and open it to see its requirements.
