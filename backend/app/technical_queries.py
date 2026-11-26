@@ -1317,7 +1317,15 @@ def prepare_evidence(
         invalidate_attachment_evidence(conn, query_id)
     from .technical_query_mail import shown_question
 
-    message = (current.get("messages") or [{}])[0]
+    # the attachments of EVERY mail the contractor sent, oldest first, each paper once (lead-4, 26 Nov 2026: a paper sent with a later
+    # mail of the thread was never read); our own replies' attachments are not the contractor's query
+    attachments_in: list[dict[str, Any]] = []
+    for message_row in current.get("messages") or []:
+        if message_row.get("is_inbound", 1) in (0, False):
+            continue
+        for attachment in message_row.get("attachments", []):
+            if not any(seen.get("document_id") and seen.get("document_id") == attachment.get("document_id") for seen in attachments_in):
+                attachments_in.append(attachment)
     # the email's question by the CURRENT rules: never its headers, people lists, signatures, notices or an older stored copy
     email_question = shown_question(current)["extracted_question_main"]
     attachment_ids = {
@@ -1330,7 +1338,7 @@ def prepare_evidence(
     context: list[dict[str, Any]] = []
     reading: list[dict[str, Any]] = []
     with connect() as conn:
-        for attachment in message.get("attachments", []):
+        for attachment in attachments_in:
             document_id = attachment.get("document_id")
             if (
                 not document_id
@@ -1377,7 +1385,7 @@ def prepare_evidence(
     question = current.get("confirmed_question") or proposal
     # no question but an attachment: what was read, the pages not read and why nothing was proposed are stored for the engineer to write
     # the question; nothing is searched for (lead-4, 26 Nov 2026: the mail's introduction is never searched for instead)
-    if not question and not message.get("attachments"):
+    if not question and not attachments_in:
         raise ValueError("the query contains no extractable question")
     from . import technical_query_contracts, technical_query_match
 

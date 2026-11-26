@@ -41,6 +41,9 @@ function Folded({ text }: { text?: string | null }) {
   );
 }
 
+/** How many found questions start in the question box; the rest are folded under "N more found", to be ticked (lead-4, 26 Nov 2026). */
+export const BOX_FOUND = 6;
+
 export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
   const [selected, setSelected] = useState<TechnicalQuery | null>(null);
@@ -109,7 +112,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
     // the questions found on a form were listed but never placed in the box, which opened empty). Still a proposal: the engineer deletes
     // what is not a real question and confirms; nothing is confirmed by itself.
     const email = selected?.extracted_question_main ?? selected?.extracted_question; // the email's question by the current rules
-    const found = (selected?.proposed_questions ?? []).map((part) => part.question.trim()).filter((q) => q && !(email ?? "").includes(q));
+    // the first BOX_FOUND only (lead-4, 26 Nov 2026: a 41-page attachment put ~20 lines in the box); the rest wait, folded, to be ticked
+    const found = (selected?.proposed_questions ?? []).slice(0, BOX_FOUND).map((part) => part.question.trim()).filter((q) => q && !(email ?? "").includes(q));
     const proposed = selected?.proposed_questions?.length ? [(email ?? "").trim(), ...new Set(found)].filter(Boolean).join("\n") : selected?.proposed_question;
     setQuestionDraft(selected?.confirmed_question || proposed || email || "");
     setTicked([]);
@@ -117,6 +121,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
 
   /** A found question already in the question text (as typed or as proposed): its tick box shows it and cannot add it twice. */
   const inText = (question: string) => Boolean(question.trim()) && questionDraft.includes(question.trim());
+  const foundRow = (part: { question: string; filename: string | null; page: number | null }, index: number) => <label key={`${part.filename}-${part.page}-${index}`} className="mt-1 flex items-start gap-2 text-sm text-slateish-300"><input type="checkbox" checked={inText(part.question) || ticked.includes(index)} disabled={inText(part.question)} onChange={(event) => setTicked((current) => event.target.checked ? [...current, index] : current.filter((i) => i !== index))} className="mt-1" /><span>{part.question}<span className="block text-xs text-slateish-500">{part.filename}, page {part.page}{inText(part.question) ? " · in the text below" : ""}</span></span></label>;
   const addTicked = () => {
     const picked = (selected?.proposed_questions ?? []).filter((part, index) => ticked.includes(index) && !inText(part.question)).map((part) => part.question);
     if (picked.length) setQuestionDraft((current) => [current.trim(), ...picked].filter(Boolean).join("\n"));
@@ -412,8 +417,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             : <p className="mt-1 text-xs text-warn-500">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
           {proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question)) && <p className="mt-1 text-xs text-warn-500" data-testid="proposal-note">{proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question))}</p>}
           {!selected.confirmed_question && selected.proposed_questions?.length ? <div className="mt-2 rounded border border-ink-700 p-2" aria-label="Questions found in the attachment">
-            <p className="text-xs text-slateish-400">Questions the AI on this computer found in the attachment, each as printed, with its page. They are placed in the text below as a proposal: delete any that is not a real question. One taken out can be ticked and added back.</p>
-            {selected.proposed_questions.map((part, index) => <label key={`${part.filename}-${part.page}-${index}`} className="mt-1 flex items-start gap-2 text-sm text-slateish-300"><input type="checkbox" checked={inText(part.question) || ticked.includes(index)} disabled={inText(part.question)} onChange={(event) => setTicked((current) => event.target.checked ? [...current, index] : current.filter((i) => i !== index))} className="mt-1" /><span>{part.question}<span className="block text-xs text-slateish-500">{part.filename}, page {part.page}{inText(part.question) ? " · in the text below" : ""}</span></span></label>)}
+            <p className="text-xs text-slateish-400">Questions the AI on this computer found in the attachment, each as printed, with its page. The first {BOX_FOUND} are placed in the text below as a proposal: delete any that is not a real question. One taken out can be ticked and added back.</p>
+            {selected.proposed_questions.slice(0, BOX_FOUND).map((part, index) => foundRow(part, index))}
+            {selected.proposed_questions.length > BOX_FOUND ? <details className="mt-1" data-testid="found-more"><summary className="cursor-pointer text-xs text-slateish-300">{selected.proposed_questions.length - BOX_FOUND} more found: show, tick to add</summary>{selected.proposed_questions.slice(BOX_FOUND).map((part, index) => foundRow(part, index + BOX_FOUND))}</details> : null}
             <button type="button" disabled={!ticked.length} onClick={addTicked} className="mt-2 rounded bg-ink-700 px-2 py-1 text-xs text-slateish-100 disabled:opacity-50">Add ticked questions to the text</button>
           </div> : null}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-2">

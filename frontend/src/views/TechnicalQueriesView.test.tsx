@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
 import { formatWhen } from "../format/when";
-import { TechnicalQueriesView } from "./TechnicalQueriesView";
+import { BOX_FOUND, TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
   id: "q1",
@@ -74,6 +74,21 @@ describe("Technical Queries screen", () => {
     fireEvent.click(box);
     fireEvent.click(screen.getByText("Add ticked questions to the text"));
     expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
+  });
+
+  it("puts only the first few found questions in the box and folds the rest under 'N more found', to tick", async () => {
+    const many = Array.from({ length: BOX_FOUND + 3 }, (_, i) => ({ question: `Please confirm invented item ${i + 1}?`, filename: "long.pdf", page: i + 1 }));
+    api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: many } });
+    render(<TechnicalQueriesView />);
+    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
+    await waitFor(() => expect(text.value.split("\n")).toHaveLength(BOX_FOUND));
+    expect(text.value).not.toContain(`item ${BOX_FOUND + 1}?`);
+    const more = screen.getByTestId("found-more");
+    expect(within(more).getByText("3 more found: show, tick to add")).toBeTruthy();
+    fireEvent.click(within(more).getAllByRole("checkbox")[0]);
+    fireEvent.click(screen.getByText("Add ticked questions to the text"));
+    expect(text.value.split("\n")).toHaveLength(BOX_FOUND + 1);
+    expect(text.value).toContain(`item ${BOX_FOUND + 1}?`);
   });
 
   it("opens the box with the found questions when the mail itself asks nothing (a forward of a form)", async () => {
