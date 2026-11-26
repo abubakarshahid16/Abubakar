@@ -71,6 +71,11 @@ class FakeApp:
         self.requests: list[tuple[str, str, str]] = []  # (method, path, authorization)
         self.starts: list[dict] = []
         self.fail_runs = False
+        # Local only today: offered and labelled unscored (the gate's switches row; before update 9 it had to be unavailable)
+        self.local_available, self.local_words = (
+            True,
+            "Local only: rough draft, not scored as reliable.",
+        )
         self.extra_comment_keys: dict = {}
         self.history_word = "running"
         self.peek_dir = None
@@ -114,7 +119,8 @@ class FakeApp:
             return 200, {
                 "method": self.method,
                 "old_engine": self.method == "earlier",
-                "local_available": False,
+                "local_available": self.local_available,
+                "local_words": self.local_words,
                 "mark": "AI, to be checked",
             }
         if p == "/api/documents/upload-disciplines":
@@ -986,3 +992,33 @@ def test_one_comment_per_point_keeps_pages_and_lines_and_counts_rows_by_the_head
     buf = io.BytesIO()
     wb.save(buf)
     assert driver.xlsx_rows(buf.getvalue(), "Comments") == 2
+
+
+@pytest.mark.parametrize(
+    ("available", "words"),
+    [
+        (False, "Local only is switched off."),
+        (True, "Local only runs on this computer."),
+    ],
+)
+def test_switches_fail_when_local_only_is_not_offered_or_not_labelled_unscored(
+    app, setup, available, words, capsys
+):
+    """Today's rule (planner, 26 Nov 2026): Local only is offered and labelled a rough draft; the row "Local only not available"
+    was the rule before update 9."""
+    app.local_available, app.local_words = available, words
+    argv = [
+        "switches",
+        "--base-url",
+        app.base,
+        "--token-file",
+        str(setup["token"]),
+        "--datasheet-id",
+        "doc_fake_9",
+    ]
+    assert gate.main(argv) == 1
+    out = capsys.readouterr().out
+    assert (
+        "Local only offered, labelled a rough draft" in out
+        and "SWITCHES GATE: FAIL" in out
+    )
