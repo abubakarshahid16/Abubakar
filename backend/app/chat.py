@@ -673,7 +673,7 @@ _PAYLOAD_KEYS = (
 #: shape for a fresh answer and a reopened one.
 _LIFTED = ("answer_kind", "used_line", "sources", "verification", "steps",
            "suggestions", "draft", "notices", "model", "provider", "seconds", "cost_usd",
-           "requested_provider", "provider_note")
+           "requested_provider", "provider_note", "paper_coverage", "review_offer")
 
 
 def _payload(result: dict) -> dict:

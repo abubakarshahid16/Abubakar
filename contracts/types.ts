@@ -1273,6 +1273,10 @@ export interface ChatPresentation {
   suggestions?: string[];
   draft?: Record<string, unknown> | null;
   notices?: string[];
+  /** Several selected papers (`chat_coverage`): how many were read, counted by code from what the tools returned. */
+  paper_coverage?: { selected: number; read: number; processing: number; not_read: string[]; sentence: string } | null;
+  /** "Review these": the real Review offered for each selected paper (never a chat summary in its place). */
+  review_offer?: { document_id: string; title: string; status: string }[];
   provider?: string | null;
   /** audit 101: "claude" when the reader chose Claude and the local model answered */
   requested_provider?: string | null;

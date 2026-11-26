@@ -153,6 +153,9 @@ def test_review_these_offers_the_real_review_for_each_selected_paper(
     ).json()
     assert sorted(o["document_id"] for o in got["review_offer"]) == sorted(ids)
     assert chat_coverage.REVIEW_WORDS in got["notices"]
+    reopened = client.get(f"/api/conversations/{convo}").json()["messages"][-1]  # a reopened answer keeps the offer
+    assert sorted(o["document_id"] for o in reopened["review_offer"]) == sorted(ids)
+    assert reopened["paper_coverage"]["selected"] == 3
 
 
 def test_one_selected_paper_is_unchanged(monkeypatch, tmp_path):
