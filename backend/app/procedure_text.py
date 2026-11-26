@@ -80,16 +80,19 @@ def key_words(text: str | None) -> frozenset[str]:
 
 def document_kind(document_id: str, conn=None) -> str | None:
     """The router's kind (`document_kinds`, #1474/#1488): a confirmed kind, or a
-    suggestion. `needs_engineer`, no row or no kind = None: no procedure path."""
+    suggestion. `needs_engineer`, no row or no kind = None: no procedure path. A suggestion made from page shapes
+    (`doc_router.BY_PAGE_SHAPE`, a guess) decides nothing until an engineer confirms it."""
     row = (
         (conn or connect())
         .execute(
-            "SELECT kind, state FROM document_kinds WHERE document_id = ?",
+            "SELECT kind, state, evidence FROM document_kinds WHERE document_id = ?",
             (document_id,),
         )
         .fetchone()
     )
     if row is None or row["state"] == "needs_engineer":
+        return None
+    if row["state"] != "confirmed" and '"by": "page_shape"' in str(row["evidence"] or ""):
         return None
     return (row["kind"] or "").lower() or None
 
