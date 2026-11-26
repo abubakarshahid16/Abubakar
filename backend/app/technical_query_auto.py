@@ -461,7 +461,25 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "draft_fresh": bool(latest) and (latest.get("question") or "") == question,
         "draft_note": None if busy else item.get("draft_note"),
         "marks": found_marks,
+        "cited": cited_by_contractor(item),
     }
+
+
+def cited_by_contractor(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """What the contractor's form itself cites, one plain line each, and whether we hold it (lead-4, the owner's note of 26 Nov 2026,
+    item 4: shown FIRST, because a cited document we do not hold is the real answer). Read from the preparation's own lines
+    (`technical_query_cited.cited_first`, stored as evidence_coverage.cited_first); "held" is False for "not held" and for a lookup
+    that failed."""
+    lines = (item.get("evidence_coverage") or {}).get("cited_first") or []
+    return [
+        {
+            "line": str(line),
+            "held": "not held" not in str(line)
+            and "could not be looked up" not in str(line),
+        }
+        for line in lines
+        if str(line).strip()
+    ]
 
 
 def backlog(conn) -> list[str]:

@@ -129,3 +129,10 @@ def test_an_older_draft_with_a_false_quote_is_marked_and_never_approved(query):
             False,
             reviewer=True,
         )
+
+
+def test_what_the_contractors_form_cites_is_said_held_or_not_held():
+    item = {"evidence_coverage": {"cited_first": ["Schedule B, 4.2: found", "ZQ-STD-9: not held among the standards you may read",
+                                                  "the form's citations could not be looked up"]}}  # fmt: skip
+    assert [c["held"] for c in auto.cited_by_contractor(item)] == [True, False, False]
+    assert auto.cited_by_contractor({}) == []
