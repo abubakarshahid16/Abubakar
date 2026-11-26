@@ -714,12 +714,21 @@ def list_queries(
     )
     with connect() as conn:
         return [
-            dict(row)
+            {**dict(row), "contractor_code": contractor_code_of(row["subject"])}
             for row in conn.execute(
                 "SELECT * FROM technical_queries" + where + " ORDER BY updated_at DESC",
                 args,
             ).fetchall()
         ]
+
+
+def contractor_code_of(subject: str | None) -> str | None:
+    """The contractor CODE printed in the query's reference number ("<project>-<contractor>-<company>-<TYPE>-<n>"), or None. Shown when
+    no rule names the contractor yet, so the queue says which code to name instead of "not set" (lead-4, 26 Nov 2026: all 33 said
+    "contractor not set" while 32 carried the code). A code read from the number, never a guessed name; it fills no field."""
+    from .technical_query_subject import parse
+
+    return (parse(subject) or {}).get("contractor_code")
 
 
 def metrics(

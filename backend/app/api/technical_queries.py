@@ -248,7 +248,7 @@ def _visible(scope: access.AccessScope) -> tuple[str | None, bool, bool]:
 LIST_COLUMNS = (
     "id", "subject", "status", "priority", "contractor_name", "department", "assignee_user_id",
     "received_at", "due_at", "routing_source", "confirmed_question_at",
-    "ref_type", "ref_number", "discipline_code", "title_short", "needs_person",
+    "ref_type", "ref_number", "discipline_code", "title_short", "needs_person", "contractor_code",
 )  # fmt: skip
 
 
