@@ -79,11 +79,22 @@ def items(
     required = "\n".join(
         x for x in (_required([it for it, _b in listed]), entries) if x
     )
+    facts = "\n".join(
+        x for x in (facts, G1_LIST if pairs else "") if x
+    )  # update 13 only
     return [
         _item("G1", G1_CHECK, "presence", facts, named),
         _item("G2", G2_CHECK, "limit", pairs, {}),
         _item("G3", G3_CHECK, "presence", required, g3_named),
     ]  # fmt: skip
+
+
+#: Update 13 (planner, 26 Nov 2026: a required standards list left blank, and one entry of a kind left unchecked among several).
+G1_LIST = (
+    "Also: does the paper carry the list of applicable codes and standards its kind of paper requires, and is any entry of "
+    "that list left blank?"
+)
+EACH_ENTRY = "Where the paper prints several entries of one kind (one per part or per side), check EACH of them: one finding per entry."
 
 
 def form_context(identity: dict) -> tuple[str, str]:
@@ -120,7 +131,8 @@ def form_context(identity: dict) -> tuple[str, str]:
         (
             "THE FORM OF THIS KIND OF PAPER requires these entries: "
             + "; ".join(names)
-            + "."
+            + ". "
+            + EACH_ENTRY
         )
         if names
         else "",

@@ -27,6 +27,7 @@ from . import library as L
 from . import prompts as P
 from . import retry as RT
 from . import scope_books as SB
+from . import service_books as SVC
 from .answer_schema import items_at_most
 from .budget import is_local
 from .carried import knowledge_rows, say_none, set_aside
@@ -206,6 +207,13 @@ def wanted(
         elif e["id"] in allowed_books:
             listed.setdefault(e["id"], L.WHY_METHOD)
         elif e["id"] not in unlisted:
+            unlisted.append(e["id"])
+    for e, _name in SVC.service_books(
+        conn, str(paper_id), lib
+    ):  # update 13: the service the paper declares
+        if e and e["id"] in allowed_books:
+            listed.setdefault(e["id"], SVC.WHY_SERVICE)
+        elif e and e["id"] not in unlisted:
             unlisted.append(e["id"])
     return {"listed": listed, "unlisted": unlisted, "not_held": not_held}
 

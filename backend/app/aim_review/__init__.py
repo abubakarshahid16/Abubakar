@@ -31,7 +31,8 @@ WHY_METHOD = "method book of this kind"
 WHY_RULES = "rules of this kind"
 WHY_LAST = "applied in the last review of this paper"
 WHY_SAVED = "in the saved checklist"
-WHYS = (WHY_CITED, WHY_GOVERNS, WHY_METHOD, WHY_RULES, WHY_LAST, WHY_SAVED)
+WHY_SERVICE = "required by the paper's service"  # update 13 (`service_books`)
+WHYS = (WHY_CITED, WHY_GOVERNS, WHY_METHOD, WHY_RULES, WHY_LAST, WHY_SAVED, WHY_SERVICE)
 #: At most this many rule books on a plan's list.
 MAX_BOOKS = 20
 
@@ -216,6 +217,7 @@ __all__ = [
     "WHY_METHOD",
     "WHY_RULES",
     "WHY_SAVED",
+    "WHY_SERVICE",
     "Candidates",
     "ChecklistStore",
     "Result",
