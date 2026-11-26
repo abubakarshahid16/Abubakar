@@ -6,6 +6,8 @@
  *   - WRAPPING: a short label (a button, link, tab, chip or label of at most four words) that breaks onto a second line.
  *   - TITLE: the page's main heading differs from its name in the side menu.
  *   - ALL CAPS: a label written in capitals by style (the spec: sentence case, bold).
+ * Every fold (<details>) on the page is opened first, so the text a reader sees after one click is measured too; set
+ * LOOK_CHECK_FOLDS=closed to measure only what shows on arrival.
  * It reads only what is on screen; it changes nothing. Run it against a practice copy, never the live app:
  *
  *   node frontend/scripts/look-check.mjs http://127.0.0.1:5191 out.json
@@ -27,6 +29,7 @@ export const PAGES = [
   ["/ingestion", "Ingestion"], ["/technicalQueries", "Technical Queries and CFCs"], ["/admin", "Administration"],
 ];
 export const MIN_CONTRAST = 4.5;
+const OPEN_FOLDS = process.env.LOOK_CHECK_FOLDS !== "closed";
 
 /** Runs in the page: every visible text with its contrast, the short labels that wrap, and the main heading. */
 function readPage() {
@@ -105,6 +108,10 @@ for (const mode of ["light", "dark"]) {
   for (const [path, menu] of PAGES) {
     await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" }).catch(() => {});
     await page.waitForTimeout(1500);
+    if (OPEN_FOLDS) {  // a fold opened shows text a reader sees after one click: measure it too (twice: a fold may hold folds)
+      for (let i = 0; i < 2; i++) await page.evaluate(() => document.querySelectorAll("details:not([open])").forEach((d) => { d.open = true; }));
+      await page.waitForTimeout(300);
+    }
     const r = await page.evaluate(readPage);
     const titleOk = r.h1 !== null && r.h1.toLowerCase().includes(menu.toLowerCase().replace(" & ", " ").split(" ")[0]);
     // every failure grouped by colour pair: one shared colour token usually explains many
@@ -125,6 +132,7 @@ const summary = {
   titleMismatches: report.filter((p) => !p.titleMatchesMenu).length,
   allCapsLabels: report.reduce((n, p) => n + p.allCaps.length, 0),
   fontSizesInUse: sizes,
+  foldsOpened: OPEN_FOLDS,
 };
 console.log(JSON.stringify(summary));
 for (const p of report) console.log(`${p.mode.padEnd(5)} ${p.menu.padEnd(28)} low contrast ${String(p.lowContrast).padStart(3)} · wraps ${p.wraps.length} · all caps ${p.allCaps.length} · title ${p.titleMatchesMenu ? "ok" : `"${p.title}"`}`);
