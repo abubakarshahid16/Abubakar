@@ -330,6 +330,11 @@ def write_draft(
     unresolved = ([result["reason"]] if result.get("reason") else []) + marks(
         item, {c["evidence_id"] for c in citations}
     )
+    gap = unanswered_mark(
+        result["answer"], question
+    )  # an item the draft leaves unanswered is said, never silently dropped
+    if gap:
+        unresolved.append(gap)
     tq.add_draft(query_id, result["answer"], [], unresolved, None, user_id, is_admin, unrestricted, citations=citations,
                  model=result.get("model"), prompt_version=SYSTEM_DRAFT, question=question)  # fmt: skip
     _note(query_id, None)
@@ -456,6 +461,15 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         latest, item
     ):  # an older draft (written before this check) with a false quote says so
         found_marks.append(FALSE_QUOTE_MARK)
+    gap = (
+        unanswered_mark(latest.get("answer") or "", latest.get("question") or question)
+        if latest and latest.get("model")
+        else None
+    )
+    if gap and gap not in found_marks:
+        found_marks.append(gap)
+    if evidence_outdated(item):  # an older search found these sources: said, and "Find the sources again" is offered
+        found_marks.append(OUTDATED_MARK)
     return {
         "question": question,
         "question_source": source,
@@ -467,7 +481,11 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         if has_evidence
         else "none",
         "evidence_fresh": bool(question)
-        and (item.get("evidence_question") or "") == question,
+        and (item.get("evidence_question") or "") == question
+        and not evidence_outdated(
+            item
+        ),  # found by an older search: not fresh, so the page offers "Find the sources again"
+        "evidence_outdated": evidence_outdated(item),
         "draft": "refreshing"
         if busy
         else "ready"
@@ -481,6 +499,45 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "cited": cited_by_contractor(item),
         "items": items_of_question(question),
     }
+
+
+_NUMBER_WORDS = re.compile(
+    r"\b(?:items?|requests?|points?)\s+((?:\d{1,2})(?:\s*(?:,|and|&|to|-|\u2013)\s*\d{1,2})*)",
+    re.IGNORECASE,
+)
+_NUMBERED_LINE = re.compile(r"(?m)^\s*(?:[-*]\s*)?(?:\*\*)?\(?(\d{1,2})[.):]")
+
+
+def answered_items(answer: str) -> set[int]:
+    """The request item numbers a draft answers: a line numbered n ("1.", "**2)", "(3)") or words naming them ("Items 1 and 2",
+    "request 3", "items 4 to 6")."""
+    found = {int(n) for n in _NUMBERED_LINE.findall(answer or "")}
+    for group in _NUMBER_WORDS.findall(answer or ""):
+        numbers = [int(n) for n in re.findall(r"\d{1,2}", group)]
+        if (
+            re.search(r"\bto\b|-|\u2013", group)
+            and len(numbers) == 2
+            and numbers[0] <= numbers[1] <= 30
+        ):
+            found.update(range(numbers[0], numbers[1] + 1))
+        else:
+            found.update(numbers)
+    return found
+
+
+def unanswered_mark(answer: str, question: str) -> str | None:
+    """An honest mark when a draft of a request with numbered items leaves some unanswered (lead-4's blind re-score, 27 Nov 2026: a
+    draft silently dropped item 3 instead of saying "Not found"). Never a block: the engineer checks those items."""
+    items = items_of_question(question)
+    if len(items) < 2:
+        return None
+    missing = [n for n in range(1, len(items) + 1) if n not in answered_items(answer)]
+    if not missing:
+        return None
+    if len(missing) == len(items):
+        return "The draft does not say which of the numbered requests it answers; check each one by hand."
+    plural = len(missing) > 1
+    return f"The draft does not answer request item{'s' if plural else ''} {', '.join(map(str, missing))}; check {'them' if plural else 'it'} by hand."
 
 
 def items_of_question(question: str) -> list[str]:
@@ -531,20 +588,54 @@ def backlog(conn) -> list[str]:
     return ids
 
 
+OUTDATED_MARK = "These sources were found by an older search: press Find the sources again (under Redo), or they are found again at the next start."
+
+
+def _search_version(row) -> int:
+    try:
+        return int(row["evidence_search_version"] or 1)
+    except (TypeError, ValueError, KeyError, IndexError):
+        return 1
+
+
+def evidence_outdated(item: dict[str, Any]) -> bool:
+    """The query's evidence was found by an older SEARCH than today's (technical_query_items.SEARCH_VERSION): one prepared at all
+    (evidence_question set) and stamped with an older version, or never stamped (the search before stamps: version 1)."""
+    from .technical_query_items import SEARCH_VERSION
+
+    return (
+        bool(item.get("evidence_question")) and _search_version(item) < SEARCH_VERSION
+    )
+
+
 def stale_system_drafts(conn) -> list[str]:
-    """The queries awaiting review whose latest draft is a SYSTEM draft of an older version (no engineer typed it, no decision names it):
-    they are drafted again with the current prompt and floor. Oldest first."""
+    """The queries to prepare and draft again with today's search and prompt, nothing an engineer did being undone. Oldest first:
+    - awaiting review on a SYSTEM draft (a model wrote it, no decision names it) whose draft version or evidence SEARCH is older;
+    - not yet drafted or still drafting (no decision, no engineer-typed draft) whose evidence an older search found."""
+    from .technical_query_items import SEARCH_VERSION
+
     out = []
     for row in conn.execute(
-        "SELECT q.id, (SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
-        "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model FROM technical_queries q "
-        "WHERE q.status='awaiting_review' AND NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
+        "SELECT q.id, q.status, q.evidence_question, q.evidence_search_version, "
+        "(SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
+        "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model, "
+        "(SELECT COUNT(*) FROM query_drafts d WHERE d.query_id=q.id) AS drafts FROM technical_queries q "
+        "WHERE NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
         "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at"
     ):
-        if (
-            row["model"]
-            and (row["pv"] or "").startswith("system-draft-")
-            and row["pv"] != SYSTEM_DRAFT
+        older_search = (
+            bool(row["evidence_question"]) and _search_version(row) < SEARCH_VERSION
+        )
+        system_draft = bool(row["model"]) and (row["pv"] or "").startswith(
+            "system-draft-"
+        )
+        if row["status"] == "awaiting_review":
+            if system_draft and (row["pv"] != SYSTEM_DRAFT or older_search):
+                out.append(row["id"])
+        elif (
+            row["status"] in PREPARABLE
+            and older_search
+            and (not row["drafts"] or system_draft)
         ):
             out.append(row["id"])
     return out

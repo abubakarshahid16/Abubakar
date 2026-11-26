@@ -48,8 +48,10 @@ def query(monkeypatch):
             or "1. What flange rating applies?"
         )
         with db.connect() as conn:
-            conn.execute("UPDATE technical_queries SET proposed_question=?,evidence_question=?,status='drafting' WHERE id=?",
-                         ("1. What flange rating applies?", question, query_id))  # fmt: skip
+            from app.technical_query_items import SEARCH_VERSION  # stamped as the real preparation stamps it
+
+            conn.execute("UPDATE technical_queries SET proposed_question=?,evidence_question=?,evidence_search_version=?,status='drafting' WHERE id=?",
+                         ("1. What flange rating applies?", question, str(SEARCH_VERSION), query_id))  # fmt: skip
             conn.execute(
                 "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,exact_quote,quote_hash,evidence_state,"
                 "supersession_state,created_at,found_for,rank_score) VALUES (?,?,'d1',3,3,?,?,'proposed','unknown','x',?,1.0)",
@@ -104,7 +106,7 @@ def test_one_job_proposes_finds_and_drafts_with_no_click_and_the_local_model_onl
         and draft["question"] == "1. What flange rating applies?"
     )
     assert ready["ready"] == {
-        "question": "1. What flange rating applies?", "question_source": "proposed", "evidence": "ready", "evidence_fresh": True,
+        "question": "1. What flange rating applies?", "question_source": "proposed", "evidence": "ready", "evidence_fresh": True, "evidence_outdated": False,
         "draft": "ready", "draft_fresh": True, "draft_note": None,
         "marks": ["The question was proposed by the system; no engineer has confirmed it yet.", auto.FOUND_NOT_KEPT,
                   "The revision of contract is not confirmed yet (Documents, Details, Save metadata)."],

@@ -214,3 +214,82 @@ def test_an_item_too_long_is_cut_with_a_visible_mark_never_silently():
         and len(first) <= items.ITEM_CAP + len(items.ITEM_CUT)
         and second == "the next"
     )
+
+
+def test_a_draft_that_leaves_a_numbered_item_unanswered_says_so():
+    """Lead-4's blind re-score (27 Nov 2026): a draft silently dropped item 3 instead of writing "Not found" for it."""
+    q = "Please confirm each item:\n\n1. first\n2. second\n3. third"
+    assert auto.unanswered_mark(
+        "**1.** COMPANY confirms ... [S1]\n**2.** COMPANY ... [S2]", q
+    ) == ("The draft does not answer request item 3; check it by hand.")
+    assert (
+        auto.unanswered_mark(
+            "Items 1 and 2: ... Item 3: Not found in the documents searched.", q
+        )
+        is None
+    )
+    assert (
+        auto.unanswered_mark("Items 1 to 3 are answered together: ...", q) is None
+    )  # grouped, as COMPANY does
+    assert "does not say which" in auto.unanswered_mark(
+        "COMPANY confirms the rule applies.", q
+    )
+    assert (
+        auto.unanswered_mark("anything", "Please confirm the coating.") is None
+    )  # a single request: nothing to count
+
+
+def test_each_item_is_searched_with_its_lead_line_so_the_search_carries_the_subject(
+    monkeypatch,
+):
+    """Lead-4's re-score (27 Nov 2026): an option "Position 1: handled as ..." searched alone found a higher-scoring, unrelated contract
+    clause; the request's subject is in its lead line."""
+    from app import technical_query_contracts as tqc
+
+    asked = []
+    monkeypatch.setattr(
+        tqc,
+        "search_all",
+        lambda q, *a, **k: asked.append(q) or {"hits": [], "coverage": {}},
+    )
+    q = "Please confirm which of the following positions shall apply to the invented flare material:\n\n1) Position one\n2) Position two"
+    items.search(q, frozenset(), None, [])
+    lead = "Please confirm which of the following positions shall apply to the invented flare material:"
+    assert asked == [
+        q,
+        f"{lead} Position one",
+        f"{lead} Position two",
+    ]  # the whole request once, then each item with its lead
+    assert (
+        items.lead_of("1. a\n2. b") == ""
+    )  # no lead line: the item is searched on its own
+
+
+def test_evidence_found_by_an_older_search_is_out_of_date_and_is_searched_again_at_the_next_start(
+    monkeypatch,
+):
+    """Lead-4 (27 Nov 2026): after the per-item search changed, the live queries kept the old single search's evidence and nothing on
+    the page said so, nor offered "Find the sources again". The search version is stamped like a draft's prompt version."""
+    from app.technical_query_items import SEARCH_VERSION
+
+    q = "Please confirm the coating."
+    old = {
+        "proposed_question": q,
+        "evidence_question": q,
+        "evidence_search_version": None,
+        "evidence": [],
+        "drafts": [],
+    }
+    ready = auto.ready(old)
+    assert (
+        ready["evidence_outdated"]
+        and not ready["evidence_fresh"]
+        and auto.OUTDATED_MARK in ready["marks"]
+    )
+    now = {**old, "evidence_search_version": str(SEARCH_VERSION)}
+    assert (
+        not auto.ready(now)["evidence_outdated"] and auto.ready(now)["evidence_fresh"]
+    )
+    assert not auto.evidence_outdated(
+        {**old, "evidence_question": None}
+    )  # never prepared: nothing out of date

@@ -20,6 +20,11 @@ _ITEM_START = re.compile(rf"^\s*{ITEM_MARK}\s+(?=\S)")
 #: An item's own text, wrapped lines included, is cut past this with a visible mark (never silently).
 ITEM_CAP = 2000
 ITEM_CUT = " [cut here: the rest of this item is in the request]"
+#: The version of the evidence SEARCH, stamped on each preparation (technical_queries.evidence_search_version), like a draft's
+#: prompt version: 1 = one search for the whole request; 2 = each numbered item searched on its own (o14 update 21); 3 = each item
+#: searched with its request's lead line. Evidence from an older search is marked out of date, the page offers "Find the sources
+#: again", and the next server start searches it again by itself (lead-4, 27 Nov 2026).
+SEARCH_VERSION = 3
 #: Per item, its best passages listed before the rest.
 PER_ITEM = 3
 #: At most this many items are searched one by one (a longer list: the rest are covered by the whole-question search, and counted).
@@ -46,6 +51,25 @@ def items_of(question: str) -> list[str]:
     return items if len(items) >= 2 else []
 
 
+#: How much of the request's lead line goes with each item's search (search text only, never shown).
+LEAD_CHARS = 300
+
+
+def lead_of(question: str) -> str:
+    """The request's lead line: the paragraph just before its numbered list ("Please confirm which of the following positions shall
+    apply to <the subject>:"), at most LEAD_CHARS (cut at a word). It carries the SUBJECT an item's own words may lack (lead-4's
+    re-score, 27 Nov 2026: an option "Position 1: handled as ..." searched alone found a higher-scoring, unrelated contract clause)."""
+    lines = (question or "").splitlines()
+    first = next((n for n, line in enumerate(lines) if _ITEM_START.match(line)), None)
+    if not first:
+        return ""
+    paragraphs = [
+        p.strip() for p in "\n".join(lines[:first]).split("\n\n") if p.strip()
+    ]
+    lead = " ".join(paragraphs[-1].split()) if paragraphs else ""
+    return lead if len(lead) <= LEAD_CHARS else lead[:LEAD_CHARS].rsplit(" ", 1)[0]
+
+
 def search(
     question: str, allowed: frozenset[str], progress, form_texts: list[str]
 ) -> dict[str, Any]:
@@ -69,7 +93,13 @@ def search(
                 min(len(items), MAX_ITEMS),
                 f"searching item {n} of {min(len(items), MAX_ITEMS)}",
             )
-        found = tqc.search_all(item, allowed, None, None).get("hits") or []
+        # each item is searched WITH its lead line, so the search carries the request's subject
+        found = (
+            tqc.search_all(
+                f"{lead_of(question)} {item}".strip(), allowed, None, None
+            ).get("hits")
+            or []
+        )
         taken = 0
         for hit in found:
             if taken >= PER_ITEM:
