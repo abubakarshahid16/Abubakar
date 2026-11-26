@@ -272,8 +272,7 @@ def general_plan(
         )
         out["notes"] = [
             *out["notes"],
-            _review_model_line(),
-            aim_review_gate.LOCAL_TEST_NOTE,
+            *_review_model_lines(),
         ]
     else:
         out["sentence"] = (
@@ -282,9 +281,15 @@ def general_plan(
     return out
 
 
-def _review_model_line() -> str:
-    """The Local only plan's line naming its models, with `aim_review_gate.LOCAL_NOT_SCORED` (`review_model_setting.plan_line`)."""
-    from . import review_model_setting
+def _review_model_lines() -> list[str]:
+    """The Local only plan's two lines: the models it will use (`review_model_setting.plan_line`, with
+    `aim_review_gate.LOCAL_NOT_SCORED`) and their measured note (`aim_review_gate.local_measured_note`: a model's own numbers
+    only when every step uses that model)."""
+    from . import aim_review_gate, review_model_setting
     from .aim_review import local_model
 
-    return review_model_setting.plan_line(local_model.model_name())
+    default, per_step = local_model.model_name(), local_model.step_models()
+    return [
+        review_model_setting.plan_line(default, per_step),
+        aim_review_gate.local_measured_note({default, *per_step.values()}),
+    ]
