@@ -204,3 +204,12 @@ def test_a_file_name_whose_family_word_is_followed_by_an_underscore_or_a_digit_h
     assert standards_lane.family_of(conn, "no_record", "NACE_MR0175_ISO_15156_2_2020.pdf") == "NACE"
     assert standards_lane.family_of(conn, "no_record", "API650.pdf") == "API"
     assert standards_lane.family_of(conn, "no_record", "Notes on API pumps.pdf") == FAMILY_OTHER
+
+
+def test_an_accented_letter_after_a_family_word_makes_a_longer_word_with_no_family(conn):
+    """Review of update 13, N1: "APIé..." is not the API family (the old look-ahead saw only A to Z)."""
+    from app.standards_inventory import FAMILY_OTHER
+
+    for name in ("APIé-notes.pdf", "NACEñ_2020.pdf", "ISOü 9.pdf"):
+        assert standards_lane.family_of(conn, "no_record", name) == FAMILY_OTHER, name
+    assert standards_lane.family_of(conn, "no_record", "ISO-15156.pdf") == "ISO"
