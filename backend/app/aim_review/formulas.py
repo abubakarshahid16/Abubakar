@@ -15,6 +15,7 @@ No model, no network, no write.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
@@ -523,9 +524,15 @@ def _existing(decided: list[dict], line: dict) -> dict | None:
     return None
 
 
-#: The note that keeps the words an upgrade replaced (completeness: no text is cut without a mark and the full text beside it).
+#: The note that keeps the words an upgrade replaced (completeness: no text is cut without a mark and the full text beside it). The text is
+#: stored encoded (URL-safe base64): the view splits a code note on ";" and looks for state words in it, and an AI comment holding
+#: "; answered: ..." must never be read as one of code's own notes (it would hide a firm finding as "not sent").
 REPLACED = "the AI comment this line replaced read"
-_REPLACED = re.compile(re.escape(REPLACED) + r': ("(?:[^"\\]|\\.)*")')
+_REPLACED = re.compile(re.escape(REPLACED) + r": ([A-Za-z0-9_-]+={0,2})(?=;|$)")
+
+
+def _encode(text: str) -> str:
+    return base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii")
 
 
 def replaced_of(code_note) -> list[dict]:
@@ -533,9 +540,10 @@ def replaced_of(code_note) -> list[dict]:
     out = []
     for m in _REPLACED.finditer(str(code_note or "")):
         try:
-            out.append({"kind": "replaced", "before": json.loads(m.group(1))})
+            text = base64.urlsafe_b64decode(m.group(1).encode("ascii")).decode("utf-8")
         except ValueError:
             continue
+        out.append({"kind": "replaced", "before": text})
     return out
 
 
@@ -558,7 +566,7 @@ def join_into(decided: list[dict], new: list[dict]) -> list[dict]:
         )  # fmt: skip
         notes = [line.get("code") or line.get("code_note") or "", JOINED]
         if before:
-            notes.append(f"{REPLACED}: {json.dumps(before, ensure_ascii=False)}")
+            notes.append(f"{REPLACED}: {_encode(before)}")
         target[key] = "; ".join(notes).strip("; ")
     return appended
 

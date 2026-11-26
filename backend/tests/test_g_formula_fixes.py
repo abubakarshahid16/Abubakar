@@ -159,3 +159,22 @@ def test_an_unreadable_table_of_checks_is_recorded_and_worded(monkeypatch, tmp_p
 @pytest.mark.parametrize("cell", ["NA / 8 barg", "- / 10 barg"])
 def test_parse_value_keeps_the_dash_as_no_value(cell):
     assert F.parse_value(cell)[0] is None
+
+
+# ---- R1 (recheck): the kept AI words never change how the line's note is read
+def test_an_ai_comment_holding_a_state_note_does_not_hide_the_upgraded_firm_line():
+    from app import aim_review_view as V
+    from app.aim_review import ANSWERED
+
+    words = 'The AI says so; answered: the paper covers it; edited: repeats line 3; "ai_met_unproven"'
+    decided = [ai(1, comment=words)]
+    F.join_into(decided, [firm()])
+    note = decided[0].get("code") or decided[0].get("code_note")
+    assert ANSWERED not in V._note_words(note) and "edited" not in V._note_words(
+        note
+    )  # the view still reads it as sent
+    assert V._state_words(note) == ""
+    assert F.replaced_of(note) == [
+        {"kind": "replaced", "before": words}
+    ]  # the whole text comes back, with its ";"
+    assert F.JOINED in note and "formula check" in note
