@@ -1,3 +1,4 @@
+import { draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { querySummary } from "./technicalQuerySummary";
@@ -88,7 +89,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const [numberFilter, setNumberFilter] = useState("");
   const [needsPersonFilter, setNeedsPersonFilter] = useState(false);
   const [claudeDocs, setClaudeDocs] = useState<string[]>([]);
-  const [ticked, setTicked] = useState<number[]>([]);
+  const [editingQuestion, setEditingQuestion] = useState(false);
   const [handOpen, setHandOpen] = useState(false);
   const [handSubject, setHandSubject] = useState("");
   const [handContractor, setHandContractor] = useState("");
@@ -114,22 +115,10 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     // With model proposals the text starts as the email's own question AND every question found in the attachment (owner, 26 Nov 2026:
     // the questions found on a form were listed but never placed in the box, which opened empty). Still a proposal: the engineer deletes
     // what is not a real question and confirms; nothing is confirmed by itself.
-    const email = selected?.extracted_question_main ?? selected?.extracted_question; // the email's question by the current rules
-    // the first BOX_FOUND only (lead-4, 26 Nov 2026: a 41-page attachment put ~20 lines in the box); the rest wait, folded, to be ticked
-    const found = (selected?.proposed_questions ?? []).slice(0, BOX_FOUND).map((part) => part.question.trim()).filter((q) => q && !(email ?? "").includes(q));
-    const proposed = selected?.proposed_questions?.length ? [(email ?? "").trim(), ...new Set(found)].filter(Boolean).join("\n") : selected?.proposed_question;
-    setQuestionDraft(selected?.confirmed_question || proposed || email || "");
-    setTicked([]);
+    // the readable ask (owner, 26 Nov 2026 21:29): a lead-in and the requests found on the form, numbered (technicalQueryQuestion)
+    setQuestionDraft(selected ? startingText(selected) : "");
+    setEditingQuestion(false);
   }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.proposed_questions, selected?.extracted_question, selected?.extracted_question_main]);
-
-  /** A found question already in the question text (as typed or as proposed): its tick box shows it and cannot add it twice. */
-  const inText = (question: string) => Boolean(question.trim()) && questionDraft.includes(question.trim());
-  const foundRow = (part: { question: string; filename: string | null; page: number | null }, index: number) => <label key={`${part.filename}-${part.page}-${index}`} className="mt-1 flex items-start gap-2 text-sm text-slateish-300"><input type="checkbox" checked={inText(part.question) || ticked.includes(index)} disabled={inText(part.question)} onChange={(event) => setTicked((current) => event.target.checked ? [...current, index] : current.filter((i) => i !== index))} className="mt-1" /><span>{part.question}<span className="block text-xs text-slateish-500">{part.filename}, page {part.page}{inText(part.question) ? " · in the text below" : ""}</span></span></label>;
-  const addTicked = () => {
-    const picked = (selected?.proposed_questions ?? []).filter((part, index) => ticked.includes(index) && !inText(part.question)).map((part) => part.question);
-    if (picked.length) setQuestionDraft((current) => [current.trim(), ...picked].filter(Boolean).join("\n"));
-    setTicked([]);
-  };
 
   const createByHand = () => {
     const form = new FormData();
@@ -151,10 +140,13 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const confirmQuestion = () => act(async () => {
     const confirmed = await technicalQueriesApi.confirmQuestion(selected!.id, questionDraft.trim());
     if (!confirmed.ok) return confirmed;
-    // Evidence is then found for the confirmed wording, not for the first proposal.
+    // a server that reports `ready` finds the sources again by itself when the wording changed (builder A); an older one is asked
+    if (confirmed.data.ready) return confirmed;
     const prepared = await technicalQueriesApi.prepareEvidence(selected!.id);
     return prepared.ok ? prepared : confirmed;
   });
+  /** Save the wording without confirming it: the sources and a draft follow by themselves (builder A's POST /question). */
+  const saveQuestion = () => act(() => technicalQueriesApi.saveQuestion(selected!.id, questionDraft.trim()));
 
   useEffect(() => {
     setTriageContractor(selected?.contractor_name || "");
@@ -196,6 +188,11 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     return technicalQueriesApi.get(selected!.id);
   });
 
+  const questionMarks = selected ? [...new Set([...honestMarks(selected, questionDraft).question, ...(selected.ready?.marks ?? [])])] : [];
+  const searching = selected?.evidence_job?.state === "queued" || selected?.evidence_job?.state === "running";
+  // the ask as shown differs from what the sources were found for (the confirmed wording, else the proposal)
+  const questionEdited = Boolean(selected) && questionDraft.trim() !== (selected ? startingText(selected) : "").trim();
+
   const act = (action: () => Promise<Result<TechnicalQuery>>) => {
     if (!selected) return;
     setBusy(true);
@@ -235,9 +232,10 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   }, [importing]);
 
   const jobState = selected?.evidence_job?.state;
+  const refreshing = selected?.ready?.evidence === "refreshing" || selected?.ready?.draft === "refreshing";
   useEffect(() => {
-    // The evidence is prepared by a background job: ask again every few seconds while it is queued or running, then show what it found.
-    if (!selected || (jobState !== "queued" && jobState !== "running")) return;
+    // The evidence (and now the draft) is prepared by a background job: ask again every few seconds while it is under way, then show it.
+    if (!selected || (jobState !== "queued" && jobState !== "running" && !refreshing)) return;
     const id = selected.id;
     const timer = window.setInterval(() => {
       void technicalQueriesApi.get(id).then((detail) => {
@@ -245,7 +243,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
       });
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [selected?.id, jobState]);
+  }, [selected?.id, jobState, refreshing]);
 
   useEffect(() => {
     // Google sends the person to /technicalQueries/gmail-return: read what it sent, clear it from the address bar at once, then post it on
@@ -291,6 +289,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     <>
           <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-evidence">
             <summary className="cursor-pointer text-sm font-semibold text-slateish-200">{NEW_LOOK ? "Where the answer comes from" : "Evidence"}</summary>
+            {honestMarks(selected, questionDraft).evidence.map((mark) => <p key={mark} data-testid="evidence-mark" className="mt-1 text-xs text-warn-500">{mark}</p>)}
             {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
             {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
             {selected.evidence?.length ? selected.evidence.map((evidence) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500">{evidence.source_name || evidence.source_kind ? <span data-testid="evidence-source">{evidence.source_name || "Unnamed document"}{evidence.source_kind ? ` (${evidence.source_kind})` : ""} · </span> : null}<a className="underline" href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} target="_blank" rel="noreferrer">Open source, {evidence.locator ? `${evidence.locator}, ` : ""}page {evidence.page_start ?? "unknown"}</a>{evidence.match_terms ? <> · <span data-testid="evidence-match">{evidence.match_count} of {evidence.match_terms} key terms</span></> : null} · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state === "proposed" ? "found by the system, not yet kept" : evidence.evidence_state} · {evidence.supersession_state}{evidence.supersession_state === "unknown" && ["verified", "proposed", "needs_review", "conflicting", "ambiguous"].includes(evidence.evidence_state) ? <span data-testid="evidence-needs-confirm" className="block text-warn-500">{evidence.evidence_state === "verified" ? (isAdmin ? "Counts for a draft once its source document is confirmed." : "Counts for a draft once its source document is confirmed: Documents, Details, Save metadata.") : (isAdmin ? "To count for a draft: keep it as evidence, and confirm its source document." : "To count for a draft: keep it as evidence, and confirm its source document (Documents, Details, Save metadata).")}{isAdmin && <button type="button" data-testid="confirm-source" disabled={busy} onClick={() => confirmSource(evidence.document_id)} className="ml-2 rounded border border-ink-500 px-2 py-0.5 text-xs text-slateish-100 disabled:opacity-50">Confirm source document</button>}</span> : null}</footer>
@@ -427,24 +426,43 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {selected.can_review === false && <p className="mt-3 text-xs text-slateish-500">You can prepare evidence and write drafts. Confirming the question, deciding on evidence, approving and sending need the technical-query reviewer role.</p>}
           {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the question, the proposed response and the decisions
               come first; the email, its attachments and the evidence are folded below. Reorder only: the same parts, words and actions. */}
-          <h3 className="mt-6 text-sm font-semibold text-slateish-200">{NEW_LOOK ? "The contractor asks" : "Question for the draft"}</h3>
+          {/* WHAT THE CONTRACTOR IS ASKING (owner, 26 Nov 2026 21:29 and 21:36): one readable ask, already filled, with where each
+              request was found; edit only if a line is wrong; confirming is a check, it sends nothing. Honest marks, never a gate. */}
+          <h3 className="mt-6 text-sm font-semibold text-slateish-200">What the contractor is asking</h3>
           {selected.confirmed_question
-            ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${formatWhen(selected.confirmed_question_at)}` : ""}. The draft answers exactly this wording.</p>
-            : <p className="mt-1 text-xs text-warn-500">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
+            ? <p className="mt-1 text-xs text-slateish-400">Checked by an engineer{selected.confirmed_question_at ? ` on ${formatWhen(selected.confirmed_question_at)}` : ""}.</p>
+            : <p className="mt-1 text-xs text-warn-500">{questionDraft.trim() ? "Proposed by the system from the mail and its attachments, not yet checked by an engineer." : "No question was found: write it below."}</p>}
           {proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question)) && <p className="mt-1 text-xs text-warn-500" data-testid="proposal-note">{proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question))}</p>}
-          {!selected.confirmed_question && selected.proposed_questions?.length ? <div className="mt-2 rounded border border-ink-700 p-2" aria-label="Questions found in the attachment">
-            <p className="text-xs text-slateish-400">Questions the AI on this computer found in the attachment, each as printed, with its page. The first {BOX_FOUND} are placed in the text below as a proposal: delete any that is not a real question. One taken out can be ticked and added back.</p>
-            {selected.proposed_questions.slice(0, BOX_FOUND).map((part, index) => foundRow(part, index))}
-            {selected.proposed_questions.length > BOX_FOUND ? <details className="mt-1" data-testid="found-more"><summary className="cursor-pointer text-xs text-slateish-300">{selected.proposed_questions.length - BOX_FOUND} more found: show, tick to add</summary>{selected.proposed_questions.slice(BOX_FOUND).map((part, index) => foundRow(part, index + BOX_FOUND))}</details> : null}
-            <button type="button" disabled={!ticked.length} onClick={addTicked} className="mt-2 rounded bg-ink-700 px-2 py-1 text-xs text-slateish-100 disabled:opacity-50">Add ticked questions to the text</button>
-          </div> : null}
+          {!editingQuestion && questionDraft.trim() ? (
+            <div data-testid="question-readable" className="mt-2 rounded border border-ink-700 p-3 text-sm text-slateish-100">
+              {(() => {
+                const lines = readableLines(questionDraft, selected.proposed_questions);
+                const lead = lines.filter((l) => l.kind === "lead");
+                const items = lines.filter((l) => l.kind === "item");
+                return <>
+                  {lead.map((l, i) => <p key={`lead-${i}`} className="whitespace-pre-wrap">{l.text}</p>)}
+                  {items.length > 0 && <ol className="mt-2 space-y-1">{items.map((l) => <li key={`item-${l.n}-${l.text}`} className="flex gap-2"><span className="w-6 shrink-0 whitespace-nowrap text-right font-semibold">{l.n}.</span><span>{l.text}{l.source && <span className="block text-xs text-slateish-400">found in {l.source}</span>}</span></li>)}</ol>}
+                </>;
+              })()}
+            </div>
+          ) : null}
+          {questionMarks.map((mark) => <p key={mark} data-testid="question-mark" className="mt-1 text-xs text-warn-500">{mark}</p>)}
+          {!selected.confirmed_question && notInText(questionDraft, selected.proposed_questions).length > 0 && <details className="mt-1" data-testid="found-more"><summary className="cursor-pointer text-xs text-slateish-300">Show the other lines found on the form</summary>
+            {notInText(questionDraft, selected.proposed_questions).map((part, index) => <p key={`${part.filename}-${part.page}-${index}`} className="mt-1 text-sm text-slateish-300">{part.question}<span className="block text-xs text-slateish-500">found in {part.filename}, page {part.page} · <button type="button" className="underline" onClick={() => setQuestionDraft((current) => withRequest(current, part.question))}>Add to the list</button></span></p>)}
+          </details>}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-2">
-            <label htmlFor="technical-query-question" className="block text-xs text-slateish-300">Question the draft will answer</label>
-            <textarea id="technical-query-question" value={questionDraft} onChange={(event) => setQuestionDraft(event.target.value)} rows={4} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-            <button type="button" disabled={busy || !selected.can_review || !questionDraft.trim() || questionDraft.trim() === (selected.confirmed_question || "")} title={selected.can_review ? undefined : "Only a qualified reviewer can confirm the question"} onClick={confirmQuestion} className="mt-2 rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Confirm question</button>
+            {editingQuestion || !questionDraft.trim() ? <>
+              <label htmlFor="technical-query-question" className="block text-xs text-slateish-300">Edit what the contractor is asking (one request per numbered line)</label>
+              <textarea id="technical-query-question" value={questionDraft} onChange={(event) => setQuestionDraft(event.target.value)} rows={6} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
+            </> : <button type="button" onClick={() => setEditingQuestion(true)} className="rounded border border-ink-500 px-3 py-1.5 text-xs text-slateish-100">Edit</button>}
+            {selected.ready && questionDraft.trim() && questionDraft.trim() !== selected.ready.question.trim() && <button type="button" disabled={busy} onClick={saveQuestion} className="ml-2 mt-2 rounded border border-signal-500 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Save and find the sources again</button>}
+            <button type="button" disabled={busy || !selected.can_review || !questionDraft.trim() || questionDraft.trim() === (selected.confirmed_question || "")} title={selected.can_review ? undefined : "Only a qualified reviewer can confirm the question"} onClick={confirmQuestion} className="ml-2 mt-2 rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Confirm</button>
+            <p className="mt-1 text-xs text-slateish-400">Confirm means you have checked this is what the contractor is asking. It does not send anything to the contractor.</p>
             {!selected.can_review && <p className="mt-1 text-xs text-slateish-500">Only a qualified reviewer can confirm the question.</p>}
           </div>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed response{selected.status !== "approved" && selected.drafts?.length ? <span className="ml-2 rounded border border-warn-500 px-2 py-0.5 text-xs font-normal text-warn-500">AI, to be checked</span> : null}</h3>
+          {readyLine(selected.ready) && <p role="status" data-testid="ready-line" className="mt-1 text-xs text-slateish-300">{readyLine(selected.ready)}</p>}
+          {draftAuthor(selected.drafts?.at(-1)) && <p data-testid="draft-author" className="mt-1 text-xs text-slateish-400">{draftAuthor(selected.drafts?.at(-1))}</p>}
           {selected.drafts?.length ? <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.drafts.at(-1)?.answer}</p> : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
           {draftCitations(selected.drafts?.at(-1)?.citations_json).map((citation) => <p key={citation.label} className="mt-2 text-xs text-slateish-400">[{citation.label}] <a className="underline" href={`/api/documents/${encodeURIComponent(citation.document_id)}/original#page=${citation.page}`} target="_blank" rel="noreferrer">Source page {citation.page}</a>: {citation.exact_quote}</p>)}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-3">
@@ -453,13 +471,15 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <button type="button" disabled={busy || !editedAnswer.trim()} onClick={() => act(() => technicalQueriesApi.createDraft(selected.id, editedAnswer.trim()))} className="mt-2 rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Submit draft for review</button>
           </div>}
           <div className="mt-4 flex flex-wrap gap-2">
-            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Prepare evidence</button>
+            {/* not on the happy path (owner, 26 Nov 2026): the sources are found by themselves; this is for a query with none yet, or
+                when the ask was edited since they were found */}
+            {!searching && !refreshing && (!(selected.evidence?.length) || questionEdited || staleSources(selected) || selected.ready?.evidence_fresh === false || selected.ready?.evidence === "failed") && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">{selected.evidence?.length ? "Find the sources again for this question" : "Find the sources"}</button>}
             <label className="flex items-center gap-1 text-xs text-slateish-300">Written by
               <select value={engine} onChange={(event) => setEngine(event.target.value as "local" | "claude")} className="rounded border border-ink-600 bg-ink-900 p-1.5 text-xs text-slateish-100"><option value="local">The AI on this computer</option><option value="claude">Claude (the documents you choose go to Claude)</option></select></label>
             {engine === "claude" && <fieldset className="w-full rounded border border-ink-700 p-2 text-xs text-slateish-300" aria-label="Documents Claude may read for this query"><legend className="px-1">Contract documents Claude may read for this one query</legend>
               {[...new Set((selected.evidence ?? []).filter((e) => e.evidence_state === "verified").map((e) => e.document_id))].map((documentId) => <label key={documentId} className="mr-4 inline-flex items-center gap-1"><input type="checkbox" checked={claudeDocs.includes(documentId)} onChange={(event) => setClaudeDocs((current) => event.target.checked ? [...current, documentId] : current.filter((d) => d !== documentId))} />{documentId}</label>)}
               <p className="mt-1 text-slateish-400">Only the ticked documents and this query's question are sent. Choose none and nothing is sent.</p></fieldset>}
-            <button type="button" disabled={busy || !selected.confirmed_question} title={selected.confirmed_question ? undefined : "Confirm the question first"} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine, engine === "claude" ? claudeDocs : []))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
+            <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine, engine === "claude" ? claudeDocs : []))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Generate draft</button>
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "approve", selected.drafts?.at(-1)?.id))} className="rounded bg-signal-500 px-3 py-1.5 text-xs text-white disabled:opacity-50">Approve latest draft</button>}
             {selected.status === "awaiting_review" && selected.can_review && <button type="button" disabled={busy} onClick={() => act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Request changes</button>}
             {selected.status === "approved" && <span className="text-xs text-warn-500">Sending is not approved by the owner: download the Word response, send it yourself, then confirm it resolved.</span>}
@@ -480,7 +500,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             {assignees.length > 0 && <button type="button" disabled={busy || !chosenAssignee} onClick={() => act(() => technicalQueriesApi.assign(selected.id, chosenAssignee))} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Assign person</button>}
           </div>
           <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-email-question">
-            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Question in the email</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Show original: the question as written in the email</summary>
             <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{(selected.extracted_question_main ?? selected.extracted_question) || selected.email_question_note || "Not stated in the email text."}</p>
             <Folded text={selected.extracted_question_folded} />
             {selected.attachment_reading?.map((part) => <p key={part.filename} className="mt-6 text-xs text-slateish-400" data-testid="attachment-reading">{part.line}</p>)}
@@ -491,7 +511,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             </> : null}
           </details>
           <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-mail">
-            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Original email and attachments</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Show original: the email and its attachments</summary>
             {(() => {
               const read = attachmentsRead(selected.messages);
               return read && <div className="mt-2 text-xs text-slateish-300" data-testid="attachments-read"><p>{read.line}.</p>
