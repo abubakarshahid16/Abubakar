@@ -2,13 +2,14 @@
  * HOME: the three jobs first (owner, 26 Nov 2026, G9: "we want an app that is very easy to use; ... some features are not even
  * understandable"). Three big buttons in everyday words, one line each on what the job does, the open work beside it, and one obvious
  * next button. Counts come from the screens' own calls (the review dashboard and the query counts by status); a count that could not be
- * read is not shown (never a 0), and each count says whose work it counts.
+ * read is not shown (never a 0), and each count says whose work it counts. Built from the shared component set (components/ui).
  */
 import { useEffect, useState } from "react";
 
 import { reviews as reviewsApi } from "../api/client";
 import { technicalQueriesApi } from "../api/technicalQueries";
 import type { ViewId } from "../components/Shell";
+import { Button, Card, PageHeader } from "../components/ui";
 import type { AuthStatus } from "../types/api";
 
 /** The query states that wait for our side: read, prepared, drafted or sent back for changes, not yet approved. */
@@ -32,27 +33,8 @@ export function nextStep(counts: HomeCounts, queriesOn: boolean): { label: strin
   return { label: "Review a contractor document", view: "review" };
 }
 
-export function HomeView({ auth, onNavigate }: { auth: AuthStatus | null; onNavigate: (view: ViewId) => void }) {
-  const queriesOn = auth?.technical_queries === true;
-  const [counts, setCounts] = useState<HomeCounts>({ reviewsWaiting: null, queriesWaiting: null });
-
-  useEffect(() => {
-    let live = true;
-    void reviewsApi.dashboard().then((result) => {
-      if (live && result.ok) setCounts((c) => ({ ...c, reviewsWaiting: result.data.reviews_awaiting_decision }));
-    });
-    if (queriesOn) {
-      void technicalQueriesApi.metrics().then((result) => {
-        if (!live || !result.ok) return;
-        const waiting = QUERY_STATES_WAITING.reduce((sum, state) => sum + (result.data[state] ?? 0), 0);
-        setCounts((c) => ({ ...c, queriesWaiting: waiting }));
-      });
-    }
-    return () => {
-      live = false;
-    };
-  }, [queriesOn]);
-
+/** The Home page itself, from its counts: the live Home and the preview (invented counts) draw the same thing. */
+export function HomeJobs({ counts, queriesOn, onNavigate }: { counts: HomeCounts; queriesOn: boolean; onNavigate: (view: ViewId) => void }) {
   const next = nextStep(counts, queriesOn);
   const jobs: Array<{ view: ViewId; title: string; line: string; count: string | null; off?: string }> = [
     {
@@ -77,27 +59,46 @@ export function HomeView({ auth, onNavigate }: { auth: AuthStatus | null; onNavi
   ];
 
   return (
-    <section className="mx-auto w-full max-w-4xl px-4 py-8" aria-labelledby="home-title">
-      <h1 id="home-title" className="text-2xl font-semibold text-slateish-100">What do you want to do?</h1>
-      <p className="mt-1 text-sm text-slateish-300" data-testid="screen-purpose">
-        Pick one of the three jobs below. Each button opens the screen where you do it.
-      </p>
-      <button type="button" onClick={() => onNavigate(next.view)} data-testid="home-next"
-        className="mt-4 rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-white">
+    <section className="mx-auto w-full max-w-5xl px-4 py-8 md:px-8" aria-labelledby="home-title">
+      <PageHeader id="home-title" title="What do you want to do?" purpose="Pick one of the three jobs below. Each button opens the screen where you do it." />
+      <Button tone="primary" size="lg" onClick={() => onNavigate(next.view)} data-testid="home-next" className="mt-6">
         {next.label}
-      </button>
-      <ul className="mt-6 grid gap-4 md:grid-cols-3">
+      </Button>
+      <ul className="mt-8 grid gap-4 md:grid-cols-3">
         {jobs.map((job) => (
-          <li key={job.view} className="flex flex-col rounded-lg border border-ink-700 bg-ink-850 p-4" data-testid={`home-job-${job.view}`}>
-            <button type="button" disabled={Boolean(job.off)} onClick={() => onNavigate(job.view)}
-              className="rounded-[var(--radius-sm)] bg-ink-700 px-3 py-3 text-left text-base font-semibold text-slateish-100 hover:bg-ink-600 disabled:opacity-50">
+          <Card as="li" key={job.view} className="flex flex-col" data-testid={`home-job-${job.view}`}>
+            <Button size="lg" disabled={Boolean(job.off)} onClick={() => onNavigate(job.view)} className="w-full justify-start text-left">
               {job.title}
-            </button>
-            <p className="mt-2 text-sm text-slateish-300">{job.off ?? job.line}</p>
-            {job.count && <p className="mt-2 text-sm font-semibold text-signal-300">{job.count}</p>}
-          </li>
+            </Button>
+            <p className="mt-3 text-sm text-slateish-300">{job.off ?? job.line}</p>
+            {job.count && <p className="mt-3 text-sm font-semibold text-signal-300">{job.count}</p>}
+          </Card>
         ))}
       </ul>
     </section>
   );
+}
+
+export function HomeView({ auth, onNavigate }: { auth: AuthStatus | null; onNavigate: (view: ViewId) => void }) {
+  const queriesOn = auth?.technical_queries === true;
+  const [counts, setCounts] = useState<HomeCounts>({ reviewsWaiting: null, queriesWaiting: null });
+
+  useEffect(() => {
+    let live = true;
+    void reviewsApi.dashboard().then((result) => {
+      if (live && result.ok) setCounts((c) => ({ ...c, reviewsWaiting: result.data.reviews_awaiting_decision }));
+    });
+    if (queriesOn) {
+      void technicalQueriesApi.metrics().then((result) => {
+        if (!live || !result.ok) return;
+        const waiting = QUERY_STATES_WAITING.reduce((sum, state) => sum + (result.data[state] ?? 0), 0);
+        setCounts((c) => ({ ...c, queriesWaiting: waiting }));
+      });
+    }
+    return () => {
+      live = false;
+    };
+  }, [queriesOn]);
+
+  return <HomeJobs counts={counts} queriesOn={queriesOn} onNavigate={onNavigate} />;
 }
