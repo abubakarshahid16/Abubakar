@@ -352,6 +352,8 @@ export interface AdminViewProps {
   databaseSection?: React.ReactNode;
   /** The Review model section (local default and one model per step), passed in already built. */
   reviewModelSection?: React.ReactNode;
+  /** Who holds the technical-query reviewer role (owner, 26 Nov 2026), passed in already built; absent when not wanted. */
+  technicalQueryReviewersSection?: React.ReactNode;
 }
 
 export function AdminView(props: AdminViewProps) {
@@ -727,6 +729,8 @@ export function AdminView(props: AdminViewProps) {
       {props.companyStandardsSection}
 
       {props.reviewModelSection}
+
+      {props.technicalQueryReviewersSection}
 
       {NEW_LOOK ? <InfoFold title="Database (technical)">{props.databaseSection}</InfoFold> : props.databaseSection}
 
