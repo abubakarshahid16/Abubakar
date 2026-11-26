@@ -82,3 +82,13 @@ def decided(
         return None
     notes.extend([*tried, NOTE])
     return new, cmp_
+
+
+def needs_own_quote(limit_quote: str) -> bool:
+    """Update 14 (builder H's second look at G2_SCALE, behind `u13`): a second number is paired with the paper value only when the
+    AI quotes where it stands (`limit_quote`). Without a quote of its own it came from the AI (a plausible bound from engineering
+    knowledge), and an unrelated value on the judged line that carries the same number is never paired with it: two intervals of
+    two tasks on one line were sent as a conflict. Off: as main (the judged line is searched)."""
+    from .updates import u13
+
+    return u13() and not str(limit_quote or "").strip()

@@ -243,14 +243,14 @@ def _paper_limit(
 ) -> tuple[dict | None, int | None]:
     """The limit when the PAPER states it (a value and its limit both on the paper): read by code from the judged quote itself (a
     number other than the paper value), else from the judge's `limit_quote`, which must be found on a page of the paper first."""
-    wanted = nums.get("rule_value")
-    here = value_in(wanted, nums.get("rule_unit"), quote)
+    wanted, unit = nums.get("rule_value"), nums.get("rule_unit")
+    second = str(nums.get("limit_quote") or "")
+    here = None if CN.needs_own_quote(second) else value_in(wanted, unit, quote)
     if here is not None and here["value"] != paper["value"]:
         return here, None
-    second = str(nums.get("limit_quote") or "")
     hint = nums.get("limit_page") if isinstance(nums.get("limit_page"), int) else None
     page = find_page(second, paper_doc.pages, hint) if second else None
-    found = value_in(wanted, nums.get("rule_unit"), second)
+    found = value_in(wanted, unit, second)
     return (found, page) if page is not None else (None, None)
 
 
