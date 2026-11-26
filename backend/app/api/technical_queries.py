@@ -904,6 +904,26 @@ def confirm_query_question(
     return _safe_item(item, scope)
 
 
+def _no_usable_evidence(current: dict, attachment_documents, scope) -> str:
+    """Why no draft can be made yet, and what the engineer does about it (F's live check, 26 Nov 2026: the page never said that a kept
+    passage counts as current only once its source document is confirmed)."""
+    kept = [e for e in current.get("evidence", []) if e["evidence_state"] == "verified" and e["document_id"] not in attachment_documents
+            and e["document_id"] in scope.allowed_document_ids]  # fmt: skip
+    head = "verified, current evidence is required before drafting"
+    if not kept:
+        return f"{head}: keep at least one passage as evidence first"
+    ids = sorted(
+        {e["document_id"] for e in kept if e["supersession_state"] != "superseded"}
+    )
+    with connect() as conn:
+        named = {r["id"]: r["filename"] for r in conn.execute(
+            f"SELECT id, filename FROM documents WHERE id IN ({','.join('?' for _ in ids)})", tuple(ids)).fetchall()} if ids else {}  # fmt: skip
+    names = [named.get(d) or d for d in ids]
+    if not names:
+        return f"{head}: every kept passage's source has been superseded"
+    return f"{head}: a kept passage counts as current once its source document is confirmed (Documents, Details, Save metadata): {', '.join(names)}"
+
+
 @router.post("/api/technical-queries/{query_id}/generate-draft", response_model=QueryOut)
 def generate_query_draft(
     query_id: str,
@@ -934,7 +954,7 @@ def generate_query_draft(
         and item["document_id"] in scope.allowed_document_ids
     ]
     if not usable_evidence:
-        raise _refuse(409, "verified, current evidence is required before drafting")
+        raise _refuse(409, _no_usable_evidence(current, attachment_documents, scope))
     question = (current.get("confirmed_question") or "").strip()
     if not question:
         raise _refuse(
