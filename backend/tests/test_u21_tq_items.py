@@ -94,12 +94,12 @@ def test_each_item_is_searched_on_its_own_and_its_best_passages_come_first(monke
     out = items.search(email_question(LIST_MAIL), frozenset({"c", "g", "s"}), None, [])
     texts = [(h["text"], h.get("item")) for h in out["hits"]]
     assert texts[0] == ("cited clause", None)  # the form's citation first, as before
-    assert texts[1:4] == [
-        ("spacing 1", 1),
-        ("spacing 2", 1),
-        ("spacing 3", 1),
-    ] and texts[4:7] == [("nozzle 1", 2), ("nozzle 2", 2), ("nozzle 3", 2)]
-    assert texts[-1] == ("generic", None)
+    assert texts[1] == (
+        "generic",
+        None,
+    )  # then the WHOLE request's own best (never crowded out by the items' lists)
+    assert texts[2:5] == [("spacing 1", 1), ("spacing 2", 1), ("spacing 3", 1)]
+    assert texts[5:8] == [("nozzle 1", 2), ("nozzle 2", 2), ("nozzle 3", 2)]
     assert (
         "The 2 numbered items were also searched one by one." in out["coverage"]["line"]
     )
@@ -293,3 +293,41 @@ def test_evidence_found_by_an_older_search_is_out_of_date_and_is_searched_again_
     assert not auto.evidence_outdated(
         {**old, "evidence_question": None}
     )  # never prepared: nothing out of date
+
+
+def test_many_items_never_crowd_out_the_whole_requests_best_passages(monkeypatch):
+    """F's live redo (27 Nov 2026): 7 items x 3 passages filled the listing and cut the whole request's best, the passages its earlier
+    draft rested on."""
+    from app import technical_query_contracts as tqc
+
+    q = "Please confirm each item:\n\n" + "\n".join(
+        f"{n}. invented item {n}" for n in range(1, 8)
+    )
+
+    def search_all(question, allowed, progress=None, cited_from=None):
+        if question == q:
+            return {
+                "hits": [
+                    {"document_id": "w", "page_start": n, "text": f"whole {n}"}
+                    for n in range(1, 6)
+                ],
+                "coverage": {},
+            }
+        return {
+            "hits": [
+                {"document_id": "i", "page_start": n, "text": f"{question[-6:]} {n}"}
+                for n in range(1, 4)
+            ],
+            "coverage": {},
+        }
+
+    monkeypatch.setattr(tqc, "search_all", search_all)
+    hits = items.search(q, frozenset(), None, [])["hits"]
+    assert [h["text"] for h in hits[:3]] == [
+        "whole 1",
+        "whole 2",
+        "whole 3",
+    ]  # first, so under the listing limit
+    assert sum(1 for h in hits if h.get("item")) == 21 and [
+        h["text"] for h in hits[-2:]
+    ] == ["whole 4", "whole 5"]
