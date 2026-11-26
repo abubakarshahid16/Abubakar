@@ -246,6 +246,34 @@ describe("Technical Queries screen", () => {
     expect(notReadWhy({ filename: "x.docx", document_id: null, parse_status: "pending", scan_status: "static_check_flagged" })).toBe("Word with active content, its text is not used");
   });
 
+  it("folds a mail's signature and notices behind 'show', and says each attachment's true state (never 'pending upload' for a picture)", async () => {
+    const message = { id: "m", from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", raw_message_hash: null,
+      body: "Invented question?\n\nBest regards,\nInvented notice", body_main: "Invented question?", body_folded: "Best regards,\nInvented notice",
+      attachments: [{ id: "a", filename: "logo.png", media_type: "image/png", size_bytes: 1, document_id: null, scan_status: "pending", parse_status: "pending" }] };
+    api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message] } });
+    render(<TechnicalQueriesView />);
+    const folded = await screen.findByTestId("mail-folded");
+    expect(folded.tagName).toBe("DETAILS");
+    expect(folded.hasAttribute("open")).toBe(false);
+    expect(folded.textContent).toContain("Invented notice");
+    expect(screen.getByTestId("attachment-state").textContent).toBe("not read: picture, not read");
+    expect(document.body.textContent).not.toContain("pending upload");
+  });
+
+  it("keeps the detail inside the window and brings it into view on a narrow screen when a query is clicked", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    const narrow = vi.fn().mockReturnValue({ matches: true });
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: narrow });
+    api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "First" }, { ...query, id: "q2", subject: "Second" }] } });
+    render(<TechnicalQueriesView />);
+    fireEvent.click(await screen.findByText("Second"));
+    await waitFor(() => expect(narrow).toHaveBeenCalledWith("(max-width: 1023px)"));
+    expect(scroll.mock.calls.length).toBeGreaterThanOrEqual(2); // the page top on arrival, then the detail
+    const region = screen.getByRole("region", { name: "Technical Queries" });
+    expect(region.className).toContain("minmax(0,1fr)");
+  });
+
   it("marks our own reply in a query's thread 'Sent by us'", async () => {
     const message = (id: string, inbound: number) => ({ id, is_inbound: inbound, from_address: "x@example.test", to_addresses: [], cc_addresses: [], sent_at: null, received_at: "x", subject: "s", body: "b", raw_message_hash: null, attachments: [] });
     api.get.mockResolvedValue({ ok: true, data: { ...query, messages: [message("in", 1), message("ours", 0)] } });

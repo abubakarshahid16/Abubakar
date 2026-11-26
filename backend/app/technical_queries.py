@@ -808,7 +808,15 @@ def get(
                 (query_id,),
             )
         ]
+        from .technical_query_mail import split_body
+
+        main, folded = split_body(result.get("extracted_question"))
+        result["extracted_question_main"] = main
+        result["extracted_question_folded"] = folded
         for message in result["messages"]:
+            # the message itself and, folded on the page, its signature, notices and quoted mail (the stored body is unchanged)
+            main, folded = split_body(message.get("body"))
+            message["body_main"], message["body_folded"] = main, folded
             message["to_addresses"], message["cc_addresses"] = (
                 json.loads(message["to_addresses"] or "[]"),
                 json.loads(message["cc_addresses"] or "[]"),
@@ -1199,9 +1207,13 @@ def prepare_evidence(
         raise ValueError("evidence cannot be prepared in the current query state")
     with connect() as conn:
         invalidate_attachment_evidence(conn, query_id)
+    from .technical_query_mail import message_itself
+
     message = (current.get("messages") or [{}])[0]
-    body = (message.get("body") or "").strip()
-    saved_question = original_email_question(current.get("extracted_question"))
+    # the question finder reads the message itself: never its signature, legal notices or quoted earlier mail
+    body = message_itself(message.get("body")).strip()
+    saved = original_email_question(current.get("extracted_question"))
+    saved_question = message_itself(saved).strip() or None
     email_question = saved_question or body
     marker = body.upper().find("QUESTION")
     if not saved_question and marker >= 0:

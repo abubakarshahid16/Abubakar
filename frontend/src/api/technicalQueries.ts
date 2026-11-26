@@ -36,7 +36,9 @@ export interface TechnicalQuery {
   priority: string;
   received_at: string;
   due_at: string | null;
-  messages?: Array<{ id: string; is_inbound?: number | boolean; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
+  extracted_question_main?: string | null;
+  extracted_question_folded?: string | null;
+  messages?: Array<{ id: string; is_inbound?: number | boolean; body_main?: string; body_folded?: string; from_address: string; to_addresses: string[]; cc_addresses: string[]; sent_at: string | null; received_at: string; subject: string; body: string; raw_message_hash: string | null; attachments: Array<{ id: string; filename: string; media_type?: string | null; size_bytes: number; document_id: string | null; filed_at?: string | null; scan_status: string; scan_detail?: string | null; parse_status: string }> }>;
   evidence?: Array<{ id: string; document_id: string; page_start: number | null; /** The clause heading the passage stands under ("6.1 Painting"), read by code; null when none was found. */ locator?: string | null; /** How many of the question's key terms the passage holds, out of `match_terms`; `match_ok` 1 when at least half. */ match_count?: number | null; match_terms?: number | null; match_ok?: number | null; exact_quote: string; evidence_state: string; supersession_state: string }>;
   /** True when the signed-in person holds the technical-query reviewer role. The server enforces it. */
   can_review?: boolean;

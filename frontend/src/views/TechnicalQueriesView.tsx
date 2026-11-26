@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
-import { attachmentsRead, importDoneWords } from "../api/technicalQueries";
+import { attachmentsRead, importDoneWords, notReadWhy } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
@@ -20,6 +20,17 @@ const SCAN_LABELS: Record<string, string> = {
   not_scanned: "not checked",
   pending: "not checked yet",
 };
+
+/** A mail's signature, legal notices and quoted earlier mail, folded behind "show" (the server decides the cut; the full text stays stored). */
+function Folded({ text }: { text?: string | null }) {
+  if (!text) return null;
+  return (
+    <details className="mt-1 text-xs text-slateish-500" data-testid="mail-folded">
+      <summary className="cursor-pointer">show signature, notices and earlier mail</summary>
+      <p className="mt-1 whitespace-pre-wrap">{text}</p>
+    </details>
+  );
+}
 
 export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
@@ -72,6 +83,11 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   const [filtersOpen, setFiltersOpen] = useState(false); // the filters are folded by default: the mailbox and the list come first
   const activeFilters = [statusFilter, contractorFilter.trim(), departmentFilter.trim(), assigneeFilter, fromFilter, toFilter, evidenceFilter, typeFilter, disciplineFilter.trim(), numberFilter.trim()].filter(Boolean).length + (needsPersonFilter ? 1 : 0);
   const topRef = useRef<HTMLDivElement>(null);
+  const detailRef = useRef<HTMLElement>(null);
+  // On a narrow window the detail sits below the list: a click on a query brings it into view (otherwise the click seems to do nothing).
+  const showDetail = () => {
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1023px)").matches) detailRef.current?.scrollIntoView?.({ block: "start" });
+  };
 
   useEffect(() => {
     // The page always opens at its top (the shared scroll area can arrive halfway down from the page before).
@@ -227,8 +243,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
   }, [queryId]);
 
   return (
-    <div ref={topRef} className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_1fr]" aria-labelledby="technical-queries-title" role="region">
-      <section>
+    <div ref={topRef} className="mx-auto grid w-full min-w-0 max-w-7xl gap-5 px-4 py-6 lg:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
+      <section className="min-w-0 [overflow-wrap:anywhere]">
         <h1 id="technical-queries-title" className="text-xl font-semibold text-slateish-100">Technical Queries</h1>
         <p className="mt-1 text-sm text-slateish-400">Incoming questions, evidence and engineer decisions.</p>
         <p className="mt-2 text-xs text-slateish-400">{visibleTotal === null ? "Loading queries" : `${items.length} matching · ${visibleTotal} in selected contractor and department`}</p>
@@ -308,7 +324,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
         <div className="mt-5 space-y-2" aria-label="Technical query queue">
           {items.length === 0 && <p className="text-sm text-slateish-500">{importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</p>}
           {items.map((item) => (
-            <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
+            <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border p-3 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
               <span className="block text-sm font-medium text-slateish-100">{item.ref_type ? `${item.ref_type}-${item.ref_number}${item.discipline_code ? ` · ${item.discipline_code}` : ""} · ${item.title_short ?? item.subject}` : item.subject}</span>
               {item.needs_person ? <span className="mt-1 inline-block rounded border border-warn-500 px-1 text-xs text-warn-500" data-testid="needs-person">Needs a person: no full TQ or CFC number in the subject</span> : null}
               <span className="mt-1 block text-xs text-slateish-400">{item.contractor_name || "Unknown contractor"} · {item.status}{item.assignee_user_id ? ` · assigned to ${item.assignee_user_id}` : " · unassigned"}</span>
@@ -326,7 +342,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
               <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>
             </div></details>}
       </section>
-      <section className="rounded border border-ink-700 bg-ink-850 p-5">
+      {/* min-w-0 + wrapping anywhere: a long unbroken line in a mail (a link, a disclaimer) can never widen the page past the window */}
+      <section ref={detailRef} className="min-w-0 overflow-x-hidden rounded border border-ink-700 bg-ink-850 p-5 [overflow-wrap:anywhere]">
         {!selected ? <p className="text-sm text-slateish-500">Select a query to inspect its original message and review history.</p> : <>
           <h2 className="text-lg font-semibold text-slateish-100">{selected.subject}</h2>
           <p className="mt-1 text-xs uppercase tracking-wide text-slateish-500">{selected.status} · {selected.priority}</p>
@@ -359,7 +376,8 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
           {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Question in the email</h3>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.extracted_question || "Not stated in the email text."}</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{(selected.extracted_question_main ?? selected.extracted_question) || "Not stated in the email text."}</p>
+          <Folded text={selected.extracted_question_folded} />
           {selected.attachment_reading?.map((part) => <p key={part.filename} className="mt-6 text-xs text-slateish-400" data-testid="attachment-reading">{part.line}</p>)}
           {selected.attachment_text_hidden && <p className="mt-6 text-xs text-warn-500">The attachment text is hidden: you may not read that attachment.</p>}
           {selected.attachment_context?.length ? <>
@@ -394,8 +412,9 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
             {message.cc_addresses.length > 0 && <p>CC: {message.cc_addresses.join(", ")}</p>}
             <p>Received: {message.received_at}</p>
             {message.raw_message_hash && <a className="mt-1 inline-block text-xs text-signal-300 underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/messages/${encodeURIComponent(message.id)}/original.eml`}>Download original email</a>}
-            <p className="mt-2 whitespace-pre-wrap">{message.body}</p>
-            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/attachments/${encodeURIComponent(attachment.id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · {attachment.document_id ? attachment.parse_status : "pending upload"} · {SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}
+            <p className="mt-2 whitespace-pre-wrap">{message.body_main ?? message.body}</p>
+            <Folded text={message.body_folded} />
+            {message.attachments.length > 0 && <ul className="mt-2 list-disc pl-5">{message.attachments.map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/attachments/${encodeURIComponent(attachment.id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · <span data-testid="attachment-state">{notReadWhy(attachment) ? `not read: ${notReadWhy(attachment)}` : `read · ${SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}`}</span>
               {attachment.document_id && !attachment.filed_at && <span data-testid="attachment-unfiled"> · kept out of the library: not found by search, Chat or the review list{selected.can_review ? <> <select aria-label="Role to file this attachment under" value={fileRole} onChange={(event) => setFileRole(event.target.value)} className="ml-1 rounded border border-ink-600 bg-ink-900 p-1 text-xs"><option value="SUPPORTING_DOCUMENT">Supporting document</option><option value="CONTRACTOR_SUBMITTAL">Contractor submittal</option><option value="SPECIFICATION">Specification</option><option value="CONTRACT_DOCUMENT">Contract document</option><option value="COMPANY_STANDARD">Company standard</option></select> <button type="button" disabled={busy} onClick={() => setConfirming({ kind: "file", attachmentId: attachment.id })} className="ml-1 rounded bg-ink-700 px-2 py-0.5 text-xs text-slateish-100 disabled:opacity-50">File into the library</button>{confirming?.kind === "file" && confirming.attachmentId === attachment.id && <span role="alertdialog" aria-label="Confirm filing" className="ml-2 rounded border border-warn-500 p-1" data-testid="confirm-file">File this attachment into the library? It then appears in search, Chat and the review list under the chosen role. <button type="button" disabled={busy} onClick={() => { setConfirming(null); act(() => technicalQueriesApi.fileIntoLibrary(selected.id, attachment.id, fileRole)); }} className="ml-1 rounded bg-signal-500 px-2 py-0.5 text-white">Yes, file it</button> <button type="button" onClick={() => setConfirming(null)} className="ml-1 rounded bg-ink-700 px-2 py-0.5 text-slateish-100">Cancel</button></span>}</> : null}</span>}
             </li>)}</ul>}
           </article>)}
