@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import type { Health } from "../api/client";
+import { NEW_LOOK } from "../look";
 import type { AnswerPassage, Conversation, Message } from "../types/api";
 
 const health: Health = {
@@ -223,7 +224,9 @@ describe("the first screen", () => {
     await openChat();
     expect(await screen.findByText("What can I help with?")).toBeInTheDocument();
     const nav = screen.getByRole("navigation", { name: "Main" });
-    expect(within(nav).getByRole("button", { name: /^Chat\s*Ask anything, with sources/ })).toBeInTheDocument();
+    // the new look names the menu entry by its label alone and gives the hint as its tooltip; the classic look shows both
+    const chatEntry = within(nav).getByRole("button", { name: NEW_LOOK ? /^Chat$/ : /^Chat\s*Ask anything, with sources/ });
+    if (NEW_LOOK) expect(chatEntry).toHaveAttribute("title", "Ask anything, with sources");
     expect(screen.getByText(/AI can be wrong\. Open a source to check the page it came from\./)).toBeInTheDocument();
     // the conversation column is gone from the chat itself
     expect(screen.queryByRole("complementary", { name: "Recent conversations" })).toBeNull();
