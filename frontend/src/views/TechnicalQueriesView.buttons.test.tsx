@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
-import { rowLine, askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
+import { groupByItem, matchWords, replyBeingRewritten, rowLine, askWords, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot } from "./technicalQueryQuestion";
 
 const LONG = "The coating system shall have a minimum dry film thickness of 250 microns on every external surface of the vessel, measured "
   + "after curing, and the contractor shall record each reading in the inspection sheet together with the batch number and the date. "
@@ -193,5 +193,66 @@ describe("the list rows (F's walk, 27 Nov 2026)", () => {
     const list = screen.getByLabelText("Technical query list");
     expect(list.textContent).not.toContain("awaiting_review");
     expect(list.textContent).not.toContain("contractor not set");
+  });
+});
+
+describe("the owner's live walk (27 Nov 2026 01:15)", () => {
+  beforeEach(() => {
+    api.metrics.mockResolvedValue({ ok: true, data: { total: 1 } });
+    api.mailboxes.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.assignees.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.routingRules.mockResolvedValue({ ok: false, error: { message: "no" } });
+  });
+  const ready = { question: "1. What is the minimum coating thickness?", question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "ready", draft_fresh: true };
+  it("the old reply is greyed and said while the sources or the reply are prepared again, and shown normally after", async () => {
+    await open({ ready: { ...ready, evidence: "refreshing" } });
+    const old = screen.getByTestId("reply-being-rewritten");
+    expect(old.textContent).toContain("Old reply, being rewritten");
+    expect(old.textContent).toContain("250 microns");
+  });
+  it("is shown as the reply when nothing is being prepared", async () => {
+    await open({ ready });
+    expect(screen.queryByTestId("reply-being-rewritten")).toBeNull();
+    expect(screen.getByText("Yes. The minimum dry film thickness is 250 microns.")).toBeTruthy();
+  });
+  it("says when a reply is rewritten, from either half", () => {
+    expect(replyBeingRewritten({ evidence: "ready", draft: "refreshing" })).toBe(true);
+    expect(replyBeingRewritten({ evidence: "refreshing", draft: "ready" })).toBe(true);
+    expect(replyBeingRewritten({ evidence: "ready", draft: "ready" })).toBe(false);
+    expect(replyBeingRewritten(null)).toBe(false);
+  });
+  it("says a passage's match in plain words, the counts one hover away", () => {
+    expect(matchWords({ match_count: 8, match_terms: 22, match_ok: 0 })).toEqual({ words: "Weak match: this quote shares few words with the question", counts: "8 of 22 of the question's key words" });
+    expect(matchWords({ match_count: 4, match_terms: 6, match_ok: 1 })?.words).toBe("Shares many words with the question");
+    expect(matchWords({ match_count: 3, match_terms: 4 })?.words).toBe("Shares many words with the question");
+    expect(matchWords({})).toBeNull();
+  });
+});
+
+describe("the sources by request (builder A's per-item search, 27 Nov 2026)", () => {
+  beforeEach(() => {
+    api.metrics.mockResolvedValue({ ok: true, data: { total: 1 } });
+    api.mailboxes.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.assignees.mockResolvedValue({ ok: false, error: { message: "no" } });
+    api.routingRules.mockResolvedValue({ ok: false, error: { message: "no" } });
+  });
+  it("groups each request's sources under it, the rest for the whole request, and a request with none says so", () => {
+    const rows = [{ id: "a", item_no: 1 }, { id: "b", item_no: null }, { id: "c", item_no: 1 }, { id: "d", item_no: 9 }];
+    expect(groupByItem(rows, ["Thickness?", "Colour?"]).map((g) => [g.title, g.rows.map((r) => r.id)])).toEqual([
+      ["1. Thickness?", ["a", "c"]], ["2. Colour?", []], ["For the whole request", ["b", "d"]]]);
+  });
+  it("keeps one list with no heading when there are no items or no numbers", () => {
+    const plain: Array<{ id: string; item_no?: number | null }> = [{ id: "a" }];
+    expect(groupByItem(plain, [])).toEqual([{ title: null, rows: [{ id: "a" }] }]);
+    expect(groupByItem([{ id: "a", item_no: null }], ["One?", "Two?"])).toEqual([{ title: null, rows: [{ id: "a", item_no: null }] }]);
+  });
+  it("shows the groups on the page", async () => {
+    const e = (id: string, item_no: number | null) => ({ id, document_id: "doc-1", page_start: 4, exact_quote: `Invented quote ${id}.`, evidence_state: "proposed", supersession_state: "current", for_current_question: true, item_no });
+    await open({ ready: { question: "1. Thickness?\n2. Colour?", question_source: "proposed", evidence: "ready", evidence_fresh: true, draft: "ready", draft_fresh: true, items: ["Thickness?", "Colour?"] },
+      evidence: [e("e1", 1), e("e2", null)] });
+    const groups = screen.getAllByTestId("evidence-group");
+    expect(groups.map((g) => g.querySelector("h4")?.textContent)).toEqual(["1. Thickness? (1 source)", "2. Colour? (0 sources)", "For the whole request (1 source)"]);
+    expect(groups[1].textContent).toContain("No source found for this request yet.");
+    expect(groups[0].textContent).toContain("Invented quote e1.");
   });
 });

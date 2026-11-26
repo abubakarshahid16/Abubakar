@@ -33,7 +33,7 @@ describe("honest marks", () => {
   it("says when no source was found, when the sources are weak, and when a cited book is not held; never while still searching", () => {
     expect(honestMarks({ evidence: [] }, "").evidence).toEqual(["No source was found for this question yet: the answer has nothing to stand on."]);
     expect(honestMarks({ evidence: [], evidence_job: { state: "running" } }, "").evidence).toEqual([]);
-    expect(honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 1, match_terms: 5 }] }, "").evidence[0]).toMatch(/only weakly \(the best holds 1 of 5 key words\)/);
+    expect(honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 1, match_terms: 5 }] }, "").evidence[0]).toBe("Weak match: the sources found share few words with the question. Read them before relying on the reply."); // plain words (owner, 27 Nov 2026)
     expect(honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 4, match_terms: 5 }] }, "").evidence).toEqual([]);
     const cited = honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 4, match_terms: 5 }], evidence_coverage: { cited_first: ["Schedule F clause 1.1: not held among the contracts you may read", "Schedule B clause 2.1: found on page 3"] } }, "");
     expect(cited.evidence).toEqual(["The form cites schedule F clause 1.1: not held among the contracts you may read."]);

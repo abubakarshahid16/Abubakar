@@ -254,6 +254,8 @@ def _ensure_schema() -> None:
         }
         if "attachment_checked_at" not in evidence_columns:
             conn.execute("ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT")
+        if "item_no" not in evidence_columns:  # the numbered item of the request a passage was found for (technical_query_items)
+            conn.execute("ALTER TABLE query_evidence ADD COLUMN item_no INTEGER")
         if "found_for" not in evidence_columns:  # the fingerprint of the wording that last found the passage (technical_query_auto.key)
             conn.execute("ALTER TABLE query_evidence ADD COLUMN found_for TEXT")
         if "rank_score" not in evidence_columns:
@@ -1447,8 +1449,10 @@ def prepare_evidence(
     cut = question[:MAX_PROPOSED_QUESTION]
     # the form's own citations (its reference lines: part and clause) are looked up first (owner's fault 4)
     form_texts = [c["text"] for c in context]
-    field = (
-        technical_query_contracts.search_all(cut, allowed, progress, form_texts)
+    from . import technical_query_items
+
+    field = (  # a request of many numbered items: each item is also searched on its own (technical_query_items)
+        technical_query_items.search(cut, allowed, progress, form_texts)
         if question
         else {"coverage": {"line": NOT_SEARCHED}}
     )
@@ -1475,7 +1479,7 @@ def prepare_evidence(
         )
         listed = 0  # the best LISTED passages that stand on their pages are listed (from the fair-share pool of MAX_PASSAGES)
         for passage in hits:  # the cited clauses first (never held back), then the fair-share pool of MAX_PASSAGES
-            if technical_query_contracts.held_back(hits, listed, passage):
+            if not passage.get("item") and technical_query_contracts.held_back(hits, listed, passage):
                 break
             quote = (passage.get("text") or "").strip()
             if not quote:
@@ -1538,13 +1542,13 @@ def prepare_evidence(
                         (standing, known["id"]),
                     )
                 conn.execute(  # the match for THIS question and a locator when there was none; never an overwrite of a locator
-                    "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,rank_score=?,locator=COALESCE(locator,?),found_for=? WHERE id=?",
-                    (sc["count"], sc["terms"], int(sc["matches"]), passage.get("rerank_score"), locator, found_for, known["id"]),
+                    "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,rank_score=?,locator=COALESCE(locator,?),found_for=?,item_no=? WHERE id=?",
+                    (sc["count"], sc["terms"], int(sc["matches"]), passage.get("rerank_score"), locator, found_for, passage.get("item"), known["id"]),
                 )
                 continue
             evidence_id = str(uuid.uuid4())
             conn.execute(
-                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at,match_count,match_terms,match_ok,rank_score,found_for) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?,?,?,?,?,?)",
+                "INSERT INTO query_evidence(id,query_id,document_id,page_start,page_end,locator,exact_quote,quote_hash,evidence_state,supersession_state,created_at,match_count,match_terms,match_ok,rank_score,found_for,item_no) VALUES (?,?,?,?,?,?,?,?,'proposed',?,?,?,?,?,?,?,?)",
                 (
                     evidence_id,
                     query_id,
@@ -1561,6 +1565,7 @@ def prepare_evidence(
                     int(sc["matches"]),
                     passage.get("rerank_score"),
                     found_for,
+                    passage.get("item"),
                 ),
             )
         coverage.update(technical_query_match.coverage_of(terms, scores))  # counts, as information only

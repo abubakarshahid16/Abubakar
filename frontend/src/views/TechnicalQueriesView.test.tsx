@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { attachmentsRead, notReadWhy, peopleLine, proposalNoteWords } from "../api/technicalQueries";
 import { formatWhen } from "../format/when";
-import { BOX_FOUND, TechnicalQueriesView } from "./TechnicalQueriesView";
+import { BOX_FOUND, CONFIRM_SOURCE_HINT, TechnicalQueriesView } from "./TechnicalQueriesView";
 
 const query = {
   id: "q1",
@@ -120,8 +120,10 @@ describe("Technical Queries screen", () => {
     expect((await screen.findByTestId("evidence-top-score")).textContent).toContain("relevance score");
     expect(screen.getByTestId("evidence-top-score").textContent).toContain("0.412");
     expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
-    expect(screen.getByTestId("evidence-match").textContent).toBe("1 of 5 key terms");
-    expect(container.textContent).not.toMatch(/not covered|weak match/i);
+    expect(screen.getByTestId("evidence-match").textContent).toBe("Weak match: this quote shares few words with the question"); // plain words (owner, 27 Nov 2026)
+    expect(screen.getByTestId("evidence-match").getAttribute("title")).toBe("1 of 5 of the question's key words"); // the counts, one hover away
+    // the owner asked for "weak match" in plain words (live walk, 27 Nov 2026 01:15); "not covered" is still never said from a count
+    expect(container.textContent).not.toMatch(/not covered/i);
   });
 
   it("says which source each passage comes from: the contract document or the standard, by name (owner, 26 Nov 2026)", async () => {
@@ -132,8 +134,11 @@ describe("Technical Queries screen", () => {
       ] } });
     render(<TechnicalQueriesView />);
     const sources = (await screen.findAllByTestId("evidence-source")).map((node) => node.textContent);
-    expect(sources).toEqual(["ZQ-INVENTED-SCHEDULE-B (contract document) · ", "ZQ-STD-001 (company standard) · "]);
-    expect(screen.getByText(/Open source, 6\.1 Invented Coating, page 9/)).toBeTruthy();
+    // the name now sits INSIDE the link's own words (owner, 27 Nov 2026: a copied link must read as the document, not a raw address)
+    expect(sources).toEqual(["ZQ-INVENTED-SCHEDULE-B (contract document)", "ZQ-STD-001 (company standard)"]);
+    const link = screen.getAllByRole("link").find((a) => a.textContent?.includes("ZQ-STD-001"));
+    expect(link?.textContent).toBe("ZQ-STD-001 (company standard), 6.1 Invented Coating, page 9");
+    expect(link?.getAttribute("title")).toBe("Open ZQ-STD-001, page 9");
   });
 
   it("tells the engineer, before and after keeping, that a passage counts once its source document is confirmed (F's live check, 26 Nov 2026)", async () => {
@@ -519,6 +524,8 @@ describe("Technical Queries screen", () => {
     cls.ofDocument.mockResolvedValue({ ok: true, data: { document_role: "CONTRACT_DOCUMENT", title: " Invented Schedule ", equipment_tags: ["P-1"], doc_type: null, discipline: null, doc_class: null, subjects: [] } });
     cls.confirm.mockResolvedValue({ ok: true, data: {} });
     render(<TechnicalQueriesView queryId="q1" isAdmin />);
+    // the button says what it does and why, in one line beside it (owner, 27 Nov 2026)
+    expect((await screen.findByTestId("confirm-source-hint")).textContent).toBe(CONFIRM_SOURCE_HINT);
     fireEvent.click(await screen.findByTestId("confirm-source"));
     await waitFor(() => expect(cls.confirm).toHaveBeenCalledTimes(1));
     const [id, body] = cls.confirm.mock.calls[0];
@@ -532,6 +539,7 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView queryId="q1" />);
     expect((await screen.findByTestId("evidence-needs-confirm")).textContent).toContain("Documents, Details, Save metadata");
     expect(screen.queryByTestId("confirm-source")).toBeNull();
+    expect(screen.queryByTestId("confirm-source-hint")).toBeNull(); // no button, so no hint for it
   });
 
   it("with the server's ready state: says where the sources and the draft stand, who wrote the draft, and saves an edit without confirming", async () => {

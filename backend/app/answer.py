@@ -760,11 +760,28 @@ def _build_prompt(question: str, passages: list[dict], history: str = "") -> str
 _CHAT_LEAD = """- Lead with a short direct answer ("Yes.", "No.", "Partly."), then bullet
   points, then "What I'd do:" with the practical next step when there is one.
   Use markdown (**bold**, bullets). Never a dense wall of text."""
-_QUERY_REPLY_LEAD = """- This is the draft of a reply to a contractor's technical query. Do not open
-  with "Yes" or "No". Take the contractor's numbered requests in order: for each,
-  say what the sources require, with its citation. Where the sources do not cover
-  a request, write for it: "Not found in the documents searched." Then "What I'd
-  do:" with the practical next step when there is one.
+_QUERY_REPLY_LEAD = """- This is the draft of COMPANY's reply to a contractor's technical query or
+  clarification request. Write as COMPANY: formal, declarative, third person
+  ("COMPANY has reviewed ..."). Never write "I" and never "What I'd do".
+- A single question that is genuinely yes or no (for example, whether a standard
+  applies) is answered directly as COMPANY, with its citation ("COMPANY confirms
+  that ... applies [S1]."), never with a bare "Yes." or "No.".
+- Otherwise take the contractor's numbered requests in order. Requests the
+  sources answer the same way may be answered together, naming their numbers.
+  When a source states the fact, state it plainly with its clause and citation.
+  Write "Not found in the documents searched." only for a request no source
+  answers.
+- Where a source leaves the matter to the contractor's own design or layout
+  development, say so, with its citation.
+- Where a source shows that a clause or reference the contractor cites is wrong,
+  or that the contractor's submission lacks something a source requires (for
+  example a technical assessment), say so and cite the source.
+- Where a source points to another reference for the answer (another
+  clarification or technical query number, a question-and-answer serial number,
+  another document), name that reference instead of repeating its content.
+- State a position on cost or schedule impact only when a source supports it;
+  otherwise, if the contractor asks, write: "COMPANY to confirm the cost and
+  schedule position."
   Use markdown (**bold**, bullets). Never a dense wall of text."""
 _QUERY_REPLY: contextvars.ContextVar[bool] = contextvars.ContextVar("answer_query_reply", default=False)
 
@@ -777,6 +794,21 @@ def query_reply():
         yield
     finally:
         _QUERY_REPLY.reset(token)
+
+
+#: How a query draft is packed on the LOCAL lane (lead-4's blind test, 27 Nov 2026): Chat's local packing (3 passages, a 4,096-token
+#: window, 250 output tokens) was set for a 4B model and one short answer; a contractor's request of many items was answered from 3
+#: passages in about 1,000 characters. Inside `query_reply()` only; Chat's packing is unchanged.
+QUERY_REPLY_PASSAGES = 8
+QUERY_REPLY_NUM_CTX = 12288
+QUERY_REPLY_MAX_OUTPUT = 1200
+
+
+def query_reply_sizes() -> dict | None:
+    """The local lane's window and output cap for a query draft, or None outside `query_reply()` (Chat's settings then)."""
+    if not _QUERY_REPLY.get():
+        return None
+    return {"num_ctx": max(settings.num_ctx, QUERY_REPLY_NUM_CTX), "num_predict": max(settings.max_output_tokens, QUERY_REPLY_MAX_OUTPUT)}
 
 
 def _fit(system: str) -> str:
@@ -1571,6 +1603,11 @@ def context_budget_for_lane() -> dict:
                 "chars": settings.claude_context_chars,
                 "tokens": settings.claude_context_tokens,
                 "system": _fit(SYSTEM_PROMPT_VERIFIED)}
+    sizes = query_reply_sizes()
+    if sizes:  # a query draft: more passages in a larger window (see QUERY_REPLY_PASSAGES)
+        return {"lane": "local", "passages": max(settings.generated_context_passages, QUERY_REPLY_PASSAGES),
+                "chars": settings.generated_context_chars, "tokens": sizes["num_ctx"] - sizes["num_predict"],
+                "system": _fit(SYSTEM_PROMPT)}  # fmt: skip
     return {"lane": "local", "passages": settings.generated_context_passages,
             "chars": settings.generated_context_chars,
             "tokens": context_budget.evidence_budget(),

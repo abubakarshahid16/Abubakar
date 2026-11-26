@@ -136,7 +136,7 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
   } else if (scored.length) {
     const best = scored.reduce((a, b) => ((b.match_count ?? 0) / (b.match_terms ?? 1) > (a.match_count ?? 0) / (a.match_terms ?? 1) ? b : a));
     if ((best.match_count ?? 0) / (best.match_terms ?? 1) < 0.5) {
-      evidence.push(`The sources found match the question only weakly (the best holds ${best.match_count ?? 0} of ${best.match_terms} key words): read them before relying on the answer.`);
+      evidence.push("Weak match: the sources found share few words with the question. Read them before relying on the reply.");
     }
   }
   for (const line of q.evidence_coverage?.cited_first ?? []) {
@@ -358,4 +358,31 @@ export function rowLine(item: { contractor_name?: string | null; status: string;
   };
   const who = item.assignee_user_id ? `with ${people.find((p) => p.id === item.assignee_user_id)?.display_name ?? "a person"}` : "nobody assigned";
   return [item.contractor_name || "", word[item.status] ?? item.status.replaceAll("_", " "), who].filter(Boolean).join(" · ");
+}
+
+/** A passage's match in plain words (owner's live walk, 27 Nov 2026 01:15: "8 of 22 key words" reads as machine talk); the counts stay
+ *  one hover away, so nothing is hidden. Null when the passage carries no count. */
+export function matchWords(e: { match_count?: number | null; match_terms?: number | null; match_ok?: number | null }): { words: string; counts: string } | null {
+  if (!e.match_terms) return null;
+  const counts = `${e.match_count ?? 0} of ${e.match_terms} of the question's key words`;
+  const ok = e.match_ok ?? ((e.match_count ?? 0) * 2 >= e.match_terms ? 1 : 0);
+  return { words: ok ? "Shares many words with the question" : "Weak match: this quote shares few words with the question", counts };
+}
+
+/** While the sources or the reply are being prepared again, the reply on screen is the OLD one (owner's live walk, 27 Nov 2026 01:15). */
+export function replyBeingRewritten(ready: { evidence?: string; draft?: string } | null | undefined): boolean {
+  return ready?.evidence === "refreshing" || ready?.draft === "refreshing";
+}
+
+/** The sources grouped under the request they were found for (builder A's per-item search, 27 Nov 2026: `item_no`, 1-based into
+ *  `ready.items`; null = found for the whole request). No items, or no source carries a number: one group with no heading, as before.
+ *  A request with no source keeps its heading and says so; a number past the list joins "For the whole request". */
+export interface SourceGroup<T> { title: string | null; rows: T[] }
+export function groupByItem<T extends { item_no?: number | null }>(rows: T[], items: string[] | null | undefined): SourceGroup<T>[] {
+  const list = items ?? [];
+  if (!list.length || !rows.some((r) => typeof r.item_no === "number")) return [{ title: null, rows }];
+  const groups: SourceGroup<T>[] = list.map((item, i) => ({ title: `${i + 1}. ${item}`, rows: rows.filter((r) => r.item_no === i + 1) }));
+  const whole = rows.filter((r) => typeof r.item_no !== "number" || r.item_no < 1 || r.item_no > list.length);
+  if (whole.length) groups.push({ title: "For the whole request", rows: whole });
+  return groups;
 }

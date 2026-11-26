@@ -892,6 +892,11 @@ async def new_query_by_hand(
     for upload, row in zip(files, rows, strict=False):
         _ingest_query_attachment(item["id"], row, upload, scope)
         uploaded += 1
+    from .. import gmail_worker
+
+    # a query typed in by hand opens READY too: its evidence and local draft are prepared in the background, as for an imported mail
+    # (the job waits for its papers to be read); a fault here never stops the query from being saved
+    gmail_worker.auto_prepare(item["id"], scope.user_id)
     refreshed = technical_queries.get(item["id"], *_visible(scope)) or item
     return {"item": _safe_item(refreshed, scope), "uploaded": uploaded}
 
