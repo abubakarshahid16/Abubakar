@@ -170,16 +170,17 @@ def _mark(conn, document_id: str, page_no: int, state: str, reason: str) -> None
     )
 
 
-def run(document_id: str, provider=None) -> dict:
-    """Read the document's unread pages as pictures. Returns the counts `{read, no_text, failed, refused, capped}`. Never raises: a break
-    is recorded per page ("failed") and logged by type."""
+def run(document_id: str, provider=None, pages: list[int] | None = None) -> dict:
+    """Read the document's unread pages as pictures (`pages`: these pages instead of `targets`, for a review's own reading,
+    `aim_review.pictures`). Returns the counts `{read, no_text, failed, refused, capped}`. Never raises: a break is recorded per page
+    ("failed") and logged by type."""
     from . import agent_review_pages, claude_approved, vision_reader
 
     counts = dict.fromkeys((READ, NO_TEXT, FAILED, REFUSED, CAPPED), 0)
     conn = connect()
     if provider is None:
         provider, _why = vision_reader.provider()
-    todo = targets(conn, document_id)
+    todo = targets(conn, document_id) if pages is None else list(pages)
     if provider is None or not todo:
         return counts
     row = conn.execute(

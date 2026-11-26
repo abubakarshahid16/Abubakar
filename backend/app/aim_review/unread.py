@@ -4,7 +4,8 @@ A page counts as read only when text came back for it: the PDF's text layer, or 
 `ocr`, of a scan or of a page that is a picture). A page with neither is NOT read, and the review says so on the results page and
 on the team file; it is never silently left out. A page whose picture reading has not run yet is only NAMED as waiting (the upload's
 own recognition reads it; the review never runs recognition itself). A Word file's pictures count the same way: a picture with no
-stored reading is a picture not read.
+stored reading is a picture not read. With the page-pictures switch on (`aim_review.pictures`, owner 26 Nov 2026), a review on
+Claude first reads the paper's no-text pages as pictures inside its run; this list then names only what is still not read.
 
 The record is ids and codes only ("page 7: no_text"), never document text. No model, no network.
 """

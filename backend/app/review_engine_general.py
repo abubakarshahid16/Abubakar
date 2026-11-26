@@ -12,6 +12,7 @@ import sqlite3
 from dataclasses import replace
 
 from . import review_leaving
+from .aim_review import pictures
 from .review_engine import (
     AI_REVIEW,
     AUTOMATIC,
@@ -276,6 +277,10 @@ def general_plan(
         out["sentence"] = (
             f"The general review runs on Claude. {GENERAL_LEAVES} {aim_review_gate.AI_MARK}."
         )
+        if leaves and (
+            pics := pictures.plan_block(conn, document_id)
+        ):  # switch on: the pages whose pictures leave
+            out["page_pictures"], out["notes"] = pics, [*out["notes"], pics["sentence"]]
     return out
 
 

@@ -3,13 +3,11 @@
 ClaudeModel: every call is declared with `claude_approved.carrying(<the documents the prompt carries>)`, sent by the app's one
 Claude socket `reader_transport.transport()` through `agent_claude._send_once`, which wraps it in `claude_spend.metered(step=...)`
 (the approved-document gate, the step / run / day caps, the ledger); the request is built by `agent_claude._request` (both egress
-flags, https, the allowed host, the key from the app's settings, never kept). The run calls them inside
-`claude_spend.for_run(run_id)` and `claude_approved.reviewing(run_id)`. The run's own meter (`max_usd`) stops before a call whose
-worst case would cross it. Nothing here reads backend/.env or logs a key or any document text: errors are codes.
+flags, https, the allowed host, the key from the app's settings, never kept), inside `claude_spend.for_run(run_id)` and
+`claude_approved.reviewing(run_id)`; the run's meter (`max_usd`) stops a call whose worst case would cross it; never reads backend/.env, logs no key or text.
 
-LocalModel (`local_model`): the same ask() on the local model (`model_transport` only, USD 0, the sizes of `budget.LOCAL`).
-FakeModel: no network. It answers each step with fixed JSON built from the prompt's own material (so quotes verify) and asks the
-gate the same question (`claude_approved.refusal()` inside the same declaration). Tests use it; it costs nothing.
+LocalModel (`local_model`): the same ask() on the local model (`model_transport` only, USD 0, the sizes of `budget.LOCAL`). FakeModel:
+no network; fixed JSON per step from the prompt's own material (quotes verify); asks the gate the same question. Tests; USD 0.
 """
 
 from __future__ import annotations
@@ -444,12 +442,14 @@ def _steps(
     conn, state: _RunState, mdl, allowed_books: frozenset[str], store, say, cancelled
 ) -> None:
     from . import library as L
+    from . import pictures as PIC
     from . import steps as S
     from . import unread as U
     from .paper import load_paper, windows
 
     lead, strong = _models()
     say(0, "read the paper")
+    PIC.read(conn, state.paper_id, mdl.meter)  # page pictures first (switch on)
     paper = load_paper(conn, state.paper_id)
     # The trace says where each page's text came from (counts only, no text): a row of the run's calls, no model, no cost.
     paper = U.with_unread(conn, state.paper_id, paper, load_paper)
