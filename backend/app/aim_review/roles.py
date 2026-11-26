@@ -99,7 +99,16 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def ensure_schema(conn) -> None:
+def ensure_schema(conn=None) -> None:
+    """The record's tables exist afterwards. With no connection (the app's schema sweep calls every module's `ensure_schema()` bare),
+    one is opened and committed, like the other stores."""
+    if conn is None:
+        from app import db
+
+        own = db.connect()
+        ensure_schema(own)
+        own.commit()
+        return
     conn.execute(
         f"""CREATE TABLE IF NOT EXISTS {ROLES} (
             run_id TEXT NOT NULL, role_no INTEGER NOT NULL CHECK (role_no BETWEEN 1 AND 9), role TEXT NOT NULL,
