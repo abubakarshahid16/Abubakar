@@ -104,6 +104,18 @@ def test_a_numbered_list_item_is_an_item_with_the_clause_it_refers_to():
     )  # a title is still a clause heading
 
 
+def test_a_dotted_number_before_a_long_sentence_is_a_wrapped_reference_not_a_heading():
+    page = (
+        "3.4.1.2\nInvented Seal Flush\nThe invented flush plan applies.\n3.4.1\n"
+        "And the invented requirements of the invented annex (42) shall also apply to every invented seal of the package\n"
+        "The invented seal answer sits here."
+    )
+    assert (
+        heading_above(page, "The invented seal answer sits here.")
+        == "3.4.1.2 Invented Seal Flush"
+    )
+
+
 def test_the_clause_holding_the_matched_words_wins_over_the_label_the_search_gave_the_passage_start(
     monkeypatch,
 ):

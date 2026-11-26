@@ -128,10 +128,17 @@ _TITLE_LINE = re.compile(
 _ITEM_TEXT = re.compile(r"[.;:)]\s*$|\(|\S+(\s+\S+){7,}")
 
 
-def _item_or_title(number: str, nxt: str, after: str) -> str:
+def _item_or_title(number: str, nxt: str, after: str) -> str | None:
     """A number standing alone ("4.2.1", "7.") with the next line: a clause heading "4.2.1 Title", or for a single number before a sentence
     a numbered LIST ITEM "Item 7", with the clause it refers to beside it when its text names one ("Item 7 (refers to 3.2.1)")."""
-    if "." in number.rstrip(".") or not _ITEM_TEXT.search(nxt.strip()):
+    if "." in number.rstrip("."):
+        # a clause heading's title is heading-length: a dotted number before a long sentence is a wrapped reference, not a heading
+        return (
+            f"{number.rstrip('.')} {_squash(nxt)}"[:100].strip()
+            if len(nxt.strip()) <= 80
+            else None
+        )
+    if not _ITEM_TEXT.search(nxt.strip()):
         return f"{number.rstrip('.')} {_squash(nxt)}"[:100].strip()
     ref = CLAUSE_NUMBER.search(f"{nxt} {after}")
     return f"Item {number.rstrip('.')}" + (
@@ -156,7 +163,7 @@ def _headings(lines: list[str]) -> list[tuple[int, str]]:
             found = _item_or_title(m.group("num"), lines[i + 1], after)
             heading = (
                 f"{kw.capitalize()} {found}"
-                if kw and not found.startswith("Item")
+                if found and kw and not found.startswith("Item")
                 else found
             )
         if heading:
