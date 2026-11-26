@@ -125,7 +125,9 @@ def _nameable(allowed: frozenset[str]) -> tuple[frozenset[str], int]:
     return frozenset(r["id"] for r in rows), withheld
 
 
-def _completed(allowed: frozenset[str], *, newest_only: bool = False) -> tuple[list[dict], int]:
+def _completed(
+    allowed: frozenset[str], *, newest_only: bool = False
+) -> tuple[list[dict], int]:
     """(the finished general reviews of the papers an answer may name, how many reviews were left out by the block list)."""
     from . import aim_review_runs
 
@@ -152,7 +154,9 @@ def signed_reviews(allowed: frozenset[str]) -> tuple[str, list[str]]:
         f"{_day(e.get('completed_at'))}; {_counts(e)}"
         for e in signed
     ]
-    return head + ("\n" + _listed(lines) if lines else ""), [e["submittal_document_id"] for e in signed]
+    return head + ("\n" + _listed(lines) if lines else ""), [
+        e["submittal_document_id"] for e in signed
+    ]
 
 
 def _named(question: str, faces: list[dict]) -> list[dict]:
@@ -207,7 +211,10 @@ def queries_waiting(user_id: str | None, is_admin: bool) -> tuple[str, list[str]
     from . import technical_queries
 
     if not technical_queries.enabled():
-        return f"{CANNOT} Technical queries are switched off in this app, so there is no record of them to read.", []
+        return (
+            f"{CANNOT} Technical queries are switched off in this app, so there is no record of them to read.",
+            [],
+        )
     from . import technical_query_jobs
 
     conn = connect()
@@ -232,7 +239,9 @@ def queries_waiting(user_id: str | None, is_admin: bool) -> tuple[str, list[str]
         f"{(str(r['ref_type'] or '') + ' ' + str(r['ref_number'] or '')).strip() or 'query ' + str(r['id'])[:8]}: {str(r['status']).replace('_', ' ')}, evidence {states[r['id']]}"
         for r in waiting
     ]  # fmt: skip
-    return head + ("\n" + _listed(lines) if lines else ""), []  # queries are not documents
+    return head + (
+        "\n" + _listed(lines) if lines else ""
+    ), []  # queries are not documents
 
 
 def papers_by_kind(question: str, allowed: frozenset[str]) -> tuple[str, list[str]]:
@@ -245,7 +254,9 @@ def papers_by_kind(question: str, allowed: frozenset[str]) -> tuple[str, list[st
     tail = f" {unknown} {BOUNDARY} have no kind recorded yet." if unknown else ""
     tail += f" {withheld} withheld by the block list." if withheld else ""
     lines = [f"{r.get('title') or r['filename']}" + (f" ({r['filename']})" if r.get("title") and r["title"] != r["filename"] else "") for r in picked]  # fmt: skip
-    return head + tail + ("\n" + _listed(lines) if lines else ""), [r["id"] for r in picked]
+    return head + tail + ("\n" + _listed(lines) if lines else ""), [
+        r["id"] for r in picked
+    ]
 
 
 def result(

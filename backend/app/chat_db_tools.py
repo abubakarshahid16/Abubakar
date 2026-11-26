@@ -120,7 +120,11 @@ def withheld_names(conn) -> list[str]:
     out: set[str] = set()
     for r in rows:
         if r["id"] in gone:
-            for name in (r.get("filename"), str(r.get("filename") or "").rsplit(".", 1)[0], r.get("title")):
+            for name in (
+                r.get("filename"),
+                str(r.get("filename") or "").rsplit(".", 1)[0],
+                r.get("title"),
+            ):
                 if name and len(str(name).strip()) >= 4:
                     out.add(" ".join(str(name).lower().split()))
     return sorted(out)
@@ -262,7 +266,12 @@ def latest_review(input: dict, *, allowed: frozenset[str]) -> dict:
         }
         for c in view.get("comments") or []
         # a comment that names a withheld document (a cross-reference to another paper, any field) never goes to the model
-        if not names_withheld(" ".join(str(c.get(k) or "") for k in ("comment", "quote", "standard", "field")), hidden_names)
+        if not names_withheld(
+            " ".join(
+                str(c.get(k) or "") for k in ("comment", "quote", "standard", "field")
+            ),
+            hidden_names,
+        )
     ][:TOP_COMMENTS]
     out = {
         "found": True,
