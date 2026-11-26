@@ -53,7 +53,13 @@ def test_a_claude_route_review_sends_and_decides_exactly_as_main(
     monkeypatch.setattr(settings, "aim_answered_check_enabled", True)
     monkeypatch.setattr(settings, "aim_discipline_reviewers_enabled", False)
     conn = next(open_aim_db(tmp_path, monkeypatch))
-    model = E.FakeModel(kind=kind, subject_key=f"test_{kind}")
+    # an entry may name its own kind and subject: `other_with_a_group_word` is a paper the AI calls "other" whose subject names a
+    # document group (update 12, review B1: the family routing must not change a Claude review while its switch is off)
+    entry = MAIN[kind]
+    model = E.FakeModel(
+        kind=entry.get("kind", kind),
+        subject_key=entry.get("subject_key", f"test_{kind}"),
+    )
     r = aim_review.run(conn, run_id=f"run_{kind}", paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}),
                        store=MemoryStore(), max_usd=5.0, model=model)  # fmt: skip
     calls = [{"step": a["step"], "prompt": _sha(a["prompt"]), "paper": _sha(a["cached_text"]), "carries": sorted(a["carries"])}
@@ -66,3 +72,7 @@ def test_a_claude_route_review_sends_and_decides_exactly_as_main(
         and lines == MAIN[kind]["lines"]
         and r.status == MAIN[kind]["status"]
     )
+    if (
+        "checklist_key" in entry
+    ):  # the saved checklist a review reuses is the same one main used
+        assert r.checklist_key == entry["checklist_key"]

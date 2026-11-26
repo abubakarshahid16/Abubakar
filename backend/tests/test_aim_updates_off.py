@@ -56,7 +56,13 @@ def _record(tmp_path, monkeypatch, kind: str) -> dict:
         settings, "aim_answered_check_enabled", True
     )  # live has the whole-paper check on: 6b is exercised
     conn = next(open_aim_db(tmp_path, monkeypatch))
-    model = E.FakeModel(kind=kind, subject_key=f"test_{kind}")
+    entry = MAIN.get(
+        kind, {}
+    )  # an entry may name its own kind and subject (`other_with_a_group_word`, update 12 review B1)
+    model = E.FakeModel(
+        kind=entry.get("kind", kind),
+        subject_key=entry.get("subject_key", f"test_{kind}"),
+    )
     r = aim_review.run(conn, run_id=f"run_{kind}", paper_id=PAPER, allowed_books=frozenset({BOOK_A, BOOK_B}),
                        store=MemoryStore(), max_usd=5.0, model=model)  # fmt: skip
     return {

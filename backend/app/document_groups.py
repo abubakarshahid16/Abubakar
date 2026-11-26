@@ -14,9 +14,9 @@ A paper not placed by its kind is labelled "not yet scored for this kind" on its
 family's scores: no table and no switch makes it scored.
 
 ROUTING (`route`, the engine's one hook after it names the paper). The run's identity record gains `family`, `document_group`,
-`kind_placed` and `new_kind_seen` (codes and ids only, never the paper's words). With the way-back switch KIND_FAMILY_ROUTE_ENABLED on
-(the default), a paper the method calls `other` is reviewed with its family's `route_kind` (its rule labels, method books and checklist
-floor); off, it is reviewed as `other`, as before. A table that cannot be read places nothing and routes nothing: the review goes on as
+`kind_placed` and `new_kind_seen` (codes and ids only, never the paper's words). With the switch KIND_FAMILY_ROUTE_ENABLED on,
+a paper the method calls `other` is reviewed with its family's `route_kind` (its rule labels, method books and checklist floor); OFF
+(the default, update 12 review B1: a Claude review stays exactly as before until a scored read), it is reviewed as `other`. A table that cannot be read places nothing and routes nothing: the review goes on as
 before and its record says the step did not run (`aim_review.faults`).
 """
 
@@ -221,7 +221,7 @@ def _title(conn, paper_id: str) -> str:
 def enabled() -> bool:
     from .config import settings
 
-    return bool(getattr(settings, "kind_family_route_enabled", True))
+    return bool(getattr(settings, "kind_family_route_enabled", False))
 
 
 def route(conn, state, ident: dict, record) -> dict:
