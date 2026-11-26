@@ -53,7 +53,22 @@ NOTICE = (
     "If you received it by mistake, delete it.\n"
     "HAFTUNGSAUSSCHLUSS: Diese erfundene E-Mail ist vertraulich und nur fuer den erfundenen Empfaenger bestimmt."
 )
-SIGNATURE = "Best regards,\nInvented Engineer\nInvented Contractor Company\nInvented Street 1, Invented City"
+#: A footer every mail of the mailbox carries (live shape, 26 Nov 2026): it holds "please" but asks nothing; repeated, it is boilerplate.
+FOOTER = "Please be aware that this invented mailbox is watched and the safety of our invented systems is in our hands."
+SIGNATURE = (
+    "Best regards,\nInvented Engineer\nInvented Contractor Company\nInvented Street 1, Invented City\n\n"
+    + FOOTER
+)
+#: The live shape of lead-4's walk on update 13: a forward whose own words only introduce the form ("Please, find attached our TQ: ..."),
+#: a link wrapper holding "?", the footer; the form holds a "Question" heading, a references block, and requests with no question mark.
+LIVE_FORM_REQUEST = "Confirm that the invented coupling guard may be made of invented aluminium instead."
+LIVE_BODY = (
+    "Subject: FW: TQ-00019 invented\n________________________________\nFrom: Invented Sender <sender13@contractor-invented.example>\n"
+    "Sent: Monday, 2 November 2026 09:00\nTo: Invented Desk <desk@owner-invented.example>\n"
+    "Cc: Invented A <a@contractor-invented.example>; Invented B <b@contractor-invented.example>\n\nDear All,\n\n"
+    "Please, find attached our TQ: TQ-00019 - MEC_Invented pump coupling guard\n\n<https://invented-link.example/?u=1&d=2>\n"
+    "Thanks & Best Regards,\nInvented Engineer\n\n" + FOOTER
+)
 
 
 def _b64(data: bytes) -> str:
@@ -213,6 +228,34 @@ def _mail() -> list[Message]:
         "Requested reply date: invented",
     ]
     return [
+        Message(
+            "m13-live",
+            "t13",
+            "Invented Coordinator <coordinator@contractor-invented.example>",
+            f"FW: {PROJECT}-{CONTRACTOR}-{OWNER}-TQ-00019 - MEC_Invented pump coupling guard",
+            LIVE_BODY,
+            [
+                (
+                    "tq-form-19.docx",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    docx(
+                        [
+                            "Technical Query",
+                            "Rev. 01",
+                            "Question",
+                            "References:",
+                            "1.",
+                            "Invented spec XS-100 clause 4.2",
+                            "",
+                            "The invented coupling guard is shown in invented steel.",
+                            LIVE_FORM_REQUEST,
+                            "Approved",
+                            "Name: Invented",
+                        ]
+                    ),
+                )
+            ],
+        ),
         Message(
             "m12-intro",
             "t12",

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
-import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, peopleLine, prepareAllWords, type PrepareAll } from "../api/technicalQueries";
+import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, peopleLine, prepareAllWords, proposalNoteWords, type PrepareAll } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
@@ -395,7 +395,7 @@ export function TechnicalQueriesView({ queryId }: { queryId?: string }) {
           {selected.confirmed_question
             ? <p className="mt-1 text-xs text-slateish-400">Confirmed by an engineer{selected.confirmed_question_at ? ` on ${selected.confirmed_question_at}` : ""}. The draft answers exactly this wording.</p>
             : <p className="mt-1 text-xs text-warn-500">{selected.proposed_question ? "Proposed by the system and not yet confirmed. Edit it, then confirm." : "Prepare evidence to get a proposed question, or write one."}</p>}
-          {selected.proposal_note === "model_unavailable" && <p className="mt-1 text-xs text-warn-500">The local model was not available, so no questions were proposed from the attachment. Read the attachment text below and write the question.</p>}
+          {proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question)) && <p className="mt-1 text-xs text-warn-500" data-testid="proposal-note">{proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question))}</p>}
           {!selected.confirmed_question && selected.proposed_questions?.length ? <div className="mt-2 rounded border border-ink-700 p-2" aria-label="Questions found in the attachment">
             <p className="text-xs text-slateish-400">Questions the model found in the attachment, each as printed. Tick the ones that are real questions, then add them.</p>
             {selected.proposed_questions.map((part, index) => <label key={`${part.filename}-${part.page}-${index}`} className="mt-1 flex items-start gap-2 text-sm text-slateish-300"><input type="checkbox" checked={ticked.includes(index)} onChange={(event) => setTicked((current) => event.target.checked ? [...current, index] : current.filter((i) => i !== index))} className="mt-1" /><span>{part.question}<span className="block text-xs text-slateish-500">{part.filename}, page {part.page}</span></span></label>)}
