@@ -302,7 +302,8 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
     busy = job.get("state") in ("queued", "running")
     now_key = key(question)
     has_evidence = any(
-        e.get("found_for") == now_key or e["evidence_state"] == "verified"
+        (now_key is not None and e.get("found_for") == now_key)
+        or e["evidence_state"] == "verified"  # no wording: none found for it
         for e in item.get("evidence", [])
     )
     drafts = item.get("drafts") or []
