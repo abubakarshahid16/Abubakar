@@ -1,6 +1,6 @@
 """THE NINE ROLES ON THE GENERAL REVIEW: the stored record of what each role SENT and PRODUCED (owner order of 15 Nov 2026, the
 nine-role senior reviewer; lead-4, 26 Nov 2026: built on the general method, not on the old engine, whose spec
-`order13/nine/SPEC.md` sections B and F carry over unchanged). Behind AGENT_REVIEW_NINE_ROLES_ENABLED (off). Off: this module is
+`order13/nine/SPEC.md` sections B and F carry over unchanged). Behind AIM_U13_ENABLED (off; no new switch). Off: this module is
 never imported, no table is made, every request and every stored byte is main's (`updates.nine_wrap` returns the model as given).
 
 The nine roles are the general review's own steps (C's map, lead-4 26 Nov):
