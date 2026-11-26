@@ -125,7 +125,8 @@ function readPage(EXEMPT_DISABLED) {
   // a button's look is its fill, edge, corner, weight and words' colour (its size, small or normal, is not a different look); a tile
   // is a card that opens a list, counted with the cards, not the buttons. The kit's target: 2 (one primary, one secondary).
   const btnKeys = ["backgroundColor", "borderTopColor", "borderTopWidth", "borderTopLeftRadius", "fontWeight", "color"];
-  const buttons = [...document.querySelectorAll("main button, main a.kit-btn")].filter((el) => shown(el) && !el.matches(":disabled, [aria-disabled=true], [role=tab], summary, .kit-tile"));
+  const buttons = [...document.querySelectorAll("main button, main a.kit-btn")].filter((el) => shown(el) && !el.matches(":disabled, [aria-disabled=true], [role=tab], summary, .kit-tile, .kit-row-btn, .kit-chip-btn"));
+  // a list row, a tile and a chip button are kit parts of their own (one look each by construction), not action buttons
   const buttonLooks = new Set(buttons.map((el) => look(el, btnKeys)));
   const chips = [...document.querySelectorAll("main span, main a")].filter((el) => { const st = getComputedStyle(el); return shown(el) && parseFloat(st.borderTopLeftRadius) >= 9 && parseFloat(st.borderTopWidth) > 0 && el.getBoundingClientRect().height < 32; });
   const chipShapes = new Set(chips.map((el) => look(el, ["borderTopLeftRadius", "borderTopWidth", "fontSize", "fontWeight", "paddingLeft"])));

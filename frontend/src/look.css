@@ -149,7 +149,7 @@
 }
 
 /* Controls: 44-48px tall, 12px radius (buttons and inputs of every page; chips keep their own small size). */
-:root[data-look="new"] main button:not([role="tab"]):not([aria-label="Close"]):not(.kit-btn):not(.kit-tile),
+:root[data-look="new"] main button:not([role="tab"]):not([aria-label="Close"]):not(.kit-btn):not(.kit-tile):not(.kit-link):not(.kit-row-btn):not(.kit-chip-btn),
 :root[data-look="new"] main select:not(.kit-select),
 :root[data-look="new"] main input:not([type="checkbox"]):not([type="radio"]):not(.kit-input) {
   min-height: 2.75rem;
