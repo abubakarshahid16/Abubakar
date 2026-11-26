@@ -1,3 +1,5 @@
+import { InfoFold } from "../components/look/LookParts";
+import { NEW_LOOK } from "../look";
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 
 import { usePoll } from "../hooks/usePoll";
@@ -471,17 +473,7 @@ export function DocumentsView({
     [selectedTypes, classifications],
   );
 
-  return (
-    <div className="aurora-field space-y-6">
-      <div aria-hidden className="aurora-a" />
-      <div aria-hidden className="aurora-b" />
-      <header>
-        <h1 className="text-xl font-semibold text-slateish-200">Documents</h1>
-        <p className="mt-1 text-sm text-slateish-400">
-          Upload, inspect, and verify what the system can actually search.
-        </p>
-      </header>
-
+  const finder = (
       <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
         <label className="min-w-56 flex-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
           Find documents
@@ -494,7 +486,9 @@ export function DocumentsView({
         </label>
         <button type="button" className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm" onClick={() => setDirection((d) => d === "asc" ? "desc" : "asc")}>Order: {direction === "asc" ? "A–Z" : "Newest"}</button>
       </div>
-
+  );
+  const workerPanel = (
+    <>
       {/* The worker DETAIL comes from /api/metrics, scoped as of the commit
           that corrected this comment - it previously discarded the scope it
           resolved, so this sentence was a belief rather than a fact. Health
@@ -506,8 +500,39 @@ export function DocumentsView({
         documents={load.state === "ready" ? load.documents : []}
         worker={worker}
       />
+    </>
+  );
+  const uploader = <Uploader onUploaded={refresh} />;
 
-      <Uploader onUploaded={refresh} />
+  return (
+    <div className="aurora-field space-y-6">
+      <div aria-hidden className="aurora-a" />
+      <div aria-hidden className="aurora-b" />
+      <header>
+        <h1 className="text-xl font-semibold text-slateish-200">Documents</h1>
+        <p className="mt-1 text-sm text-slateish-400">
+          Add documents to the library and check that each one was read.
+        </p>
+        {NEW_LOOK && (
+          <p data-testid="documents-summary" className="mt-1 text-sm text-slateish-200">
+            Upload a contractor document, a standard or a contract first; then find any document in the list below.
+          </p>
+        )}
+      </header>
+
+      {NEW_LOOK ? (
+        <>
+          {uploader}
+          {finder}
+          <InfoFold title="Background reader: what is being read now">{workerPanel}</InfoFold>
+        </>
+      ) : (
+        <>
+          {finder}
+          {workerPanel}
+          {uploader}
+        </>
+      )}
 
       {notice && (
         <p role="status" aria-live="polite" className="text-xs text-slateish-400">
