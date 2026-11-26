@@ -69,7 +69,6 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
     ? `General review: ${counts.general.comments.toLocaleString("en-US")} comment${counts.general.comments === 1 ? "" : "s"}${counts.general.stopped ? " (stopped early)" : ""}`
     : "";
   const moving = row.state.kind === "queued" || row.state.kind === "running";
-  const step = row.state.kind === "running" && row.state.label ? row.state.label : "";
 
   // A reviewed file shows when its latest review STARTED (the run's own start, as the history says it); a file never reviewed
   // shows when it was added. The list is still ordered by the newest activity.
@@ -86,7 +85,6 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
               earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
             {generalChip && <span data-testid="row-general-chip" className="rounded-full border border-ink-500 px-2 py-0.5 text-slateish-200">{generalChip}</span>}
             {detail && <span data-testid="row-counts">{detail}</span>}
-            {step && <span data-testid="row-step">Now: {step}</span>}
             {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
             {shownWhen && <span data-testid="row-date">{shownWhen}</span>}
           </p>

@@ -126,3 +126,67 @@ def measured(identity: dict | None, local: dict) -> dict | None:
     return aim_review_measured.for_run(
         {k: _blank(identity.get(k)) for k in ("kind", "equipment_type")}
     )
+
+
+# ---- the progress page of a running local review (lead-4, 26 Nov 2026: a long step must not look stuck)
+
+#: How many of the latest finished general runs are looked at for the last measured run of a model and kind.
+MEASURED_LOOK = 200
+NOT_MEASURED = "not yet measured"
+
+
+def _local_models_of(run: dict) -> set[str]:
+    return {
+        str(c.get("model") or "") for c in _calls(run) if c.get("engine") == "local"
+    } - {""}
+
+
+def measured_minutes(conn, kind: str | None, model: str) -> int | None:
+    """Whole minutes the LAST finished review of this kind took on this model on this Mac (a run whose local calls all used that one model,
+    which ended `done` with no stop reason), or None when there is none. Read from the stored runs, never from a table of its own."""
+    if not kind:
+        return None
+    rows = conn.execute(
+        "SELECT identity_json, calls_json, seconds, stop_reason FROM aim_runs WHERE status = 'done' AND seconds > 0"
+        " ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ?",
+        (MEASURED_LOOK,),
+    ).fetchall()
+    for row in rows:
+        run = dict(row)
+        try:
+            identity = json.loads(run.get("identity_json") or "{}")
+        except ValueError:
+            continue
+        if (
+            isinstance(identity, dict)
+            and identity.get("kind") == kind
+            and not run.get("stop_reason")
+            and _local_models_of(run) == {model}
+        ):
+            return max(1, round(float(run["seconds"]) / 60))
+    return None
+
+
+def progress_note(conn, run_id: str) -> str | None:
+    """The one sentence a running LOCAL review's progress page adds: the model it runs on, and the minutes the last measured run of that
+    model and kind took on this Mac ("not yet measured" when there is none, or the kind is not named yet). None for a Claude run."""
+    from . import aim_review_jobs
+    from .aim_review import local_model
+
+    if not aim_review_jobs.on_local(conn, run_id):
+        return None
+    models = sorted(
+        {local_model.model_name(), *local_model.step_models().values()} - {""}
+    )
+    row = conn.execute(
+        "SELECT identity_json FROM aim_runs WHERE run_id = ?", (run_id,)
+    ).fetchone()
+    try:
+        kind = (json.loads(row["identity_json"] or "{}") if row else {}).get("kind")
+    except (ValueError, AttributeError):
+        kind = None
+    minutes = measured_minutes(conn, kind, models[0]) if len(models) == 1 else None
+    named = ", ".join(models) or "the local default"
+    if minutes is None:
+        return f"Local model {named}: {NOT_MEASURED} for this kind on this Mac."
+    return f"Local model {named}: about {minutes} min for this kind on this Mac (the last measured run of this model and kind)."

@@ -15,12 +15,13 @@
  *   any other status                -> shown as itself, never Ready
  */
 import type { ReviewRunSummary } from "../../../types/api";
-import { whenLabel } from "../reviewFormat";
+import { progressLine, whenLabel } from "../reviewFormat";
+import { shown } from "../progress/reviewProgress";
 
 export type InboxState =
   | { kind: "not_reviewed" }
   | { kind: "queued" }
-  | { kind: "running"; step: number | null; of: number | null; label: string | null }
+  | { kind: "running"; step: number | null; of: number | null; label: string | null; words: string | null }
   | { kind: "ready" }
   | { kind: "signed"; at: string }
   | { kind: "failed"; reason: string | null }
@@ -52,16 +53,19 @@ export function inboxStateOf(run: ReviewRunSummary | undefined): InboxState {
   if (status === "cancelled") return { kind: "cancelled" };
   if (status === "completed") return { kind: "ready" };
   const job = run.job ?? null;
-  if (QUEUED.has(status) || (job !== null && QUEUED.has(job.state))) return { kind: "queued" };
+  // ONE rule with the review's own page (`ReviewWorkspace`): only the RUN's status says "waiting"; a running run whose job row still reads
+  // queued is shown by the same step line and clock as its page (a list that said "Waiting to start" beside a page on step 3 was the fault).
+  if (QUEUED.has(status) || (status !== "running" && job !== null && QUEUED.has(job.state))) return { kind: "queued" };
   if (status === "running" || job?.state === "running") {
-    // `progress_done` is the index of the step now running (0-based), out of
-    // `progress_total` named steps; unknown stays unknown, never "step 0".
-    // A job finishing its last step can read done == total for a moment:
-    // no "step 4 of 3" - the step is dropped, the label stays.
+    // `progress_done` is the index of the step now running (0-based), out of `progress_total` named steps; unknown stays unknown, never
+    // "step 0". The words are the page's own (`progressLine`), the clock the page's own (`shown`): both from the job, never two sources.
     const of = isCount(job?.progress_total) ? job!.progress_total! : null;
+    const known = isCount(job?.progress_done) || of !== null || job?.progress_label != null;
     const next = isCount(job?.progress_done) ? job!.progress_done! + 1 : null;
-    const step = next !== null && (of === null || next <= of) ? next : null;
-    return { kind: "running", step, of: step === null ? null : of, label: job?.progress_label ?? null };
+    const step = next !== null ? (of !== null ? Math.min(next, of) : next) : null;
+    const clock = job?.progress_detail ? shown(job.progress_detail).elapsed : null;
+    const words = known && job ? progressLine(job.progress_done, job.progress_total, job.progress_label) : null;
+    return { kind: "running", step, of: step === null ? null : of, label: job?.progress_label ?? null, words: words && clock ? `${words} · ${clock}` : words };
   }
   return { kind: "other", status: status || "unknown" };
 }
@@ -129,10 +133,8 @@ export function stateLabel(state: InboxState, counts: ReadyCounts | null = null)
       return "Not reviewed";
     case "queued":
       return "Queued";
-    case "running": {
-      const where = state.step !== null && state.of !== null ? ` · step ${state.step} of ${state.of}` : "";
-      return `Running${where}${state.label ? `: ${state.label}` : ""}`;
-    }
+    case "running":
+      return state.words ? `Running: ${state.words}` : "Running";
     case "ready":
       // v2.1 round 2: the server's counts are what the review FOUND, not
       // what is left to decide (only the comment sheet knows that), so they

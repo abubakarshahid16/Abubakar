@@ -191,7 +191,21 @@ def job_for_run(review_run_id: str) -> dict | None:
         (review_run_id,)).fetchone()
     job = dict(row) if row else None
     block = review_progress.for_job(job) if job else None  # #1494, switch off: None
-    return {**job, "progress_detail": block} if block else job
+    job = {**job, "progress_detail": block} if block else job
+    note = _local_note(review_run_id) if job else None
+    return {**job, "local_note": note} if note else job
+
+
+def _local_note(review_run_id: str) -> str | None:
+    """A running general review on the local model names its model and its measured minutes (`aim_review_local_view.progress_note`); None
+    for any other run and when it cannot be read (the page then shows what it showed before)."""
+    try:
+        from . import aim_review_local_view
+
+        return aim_review_local_view.progress_note(connect(), review_run_id)
+    except Exception:  # noqa: BLE001 - a note that cannot be made is left out; never stops the page; logged below
+        logging.getLogger(__name__).info("local progress note not made for a run")
+        return None
 
 
 _CLAIMABLE = ("(state = 'queued' OR (state = 'retrying'"

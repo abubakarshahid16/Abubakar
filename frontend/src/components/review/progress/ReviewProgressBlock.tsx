@@ -28,7 +28,10 @@ export function ReviewProgressBlock({ job }: { job: ReviewRunSummary["job"] }) {
   }, [detail]);
   const jobId = job?.id;
   const tracker = useMemo(() => new ProgressTracker(), [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!detail) return null;
+  // A running review on the local model names its model and the minutes of its last measured run (the server's `local_note`): a long step
+  // then does not look stuck. Shown with or without the progress detail.
+  const note = job?.local_note ? <p className="text-xs text-slateish-300" data-testid="review-local-note">{job.local_note}</p> : null;
+  if (!detail) return note;
   const s = shown(detail, extra);
   // The general review: ONE step line (the screen's own, from the job's five named steps) and no earlier-engine step names, bands or
   // "No progress" light (they count four steps of another method and read a clock that only moves at a step's end). The bar counts
@@ -46,6 +49,7 @@ export function ReviewProgressBlock({ job }: { job: ReviewRunSummary["job"] }) {
         <p className="text-xs text-slateish-300" data-testid="review-progress-detail">
           {[s.elapsed, slow].filter((x): x is string => x !== null).join(" · ")}
         </p>
+        {note}
         {detail.stale && (
           <p role="status" data-testid="review-stall" data-level="red" className="text-xs text-danger-500">
             The run may be stuck; see System Health.

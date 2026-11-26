@@ -56,7 +56,7 @@ describe("rowChip (L3, L9)", () => {
       status: "running",
       job: { id: "job-1", state: "running", progress_done: 1, progress_total: 4, progress_label: "Reading the standards", cancel_requested: false },
     });
-    expect(rowChip(inboxStateOf(running), null).text).toBe("Running (step 2 of 4)");
+    expect(rowChip(inboxStateOf(running), null).text).toBe("Running: Step 2 of 4: Reading the standards");
     expect(rowChip(inboxStateOf(run({ status: "running" })), null).text).toBe("Running");
     expect(rowChip(inboxStateOf(run({ status: "failed", failure_reason: "The file could not be opened." })), null))
       .toEqual({ text: "Failed: The file could not be opened.", tone: "failed" });

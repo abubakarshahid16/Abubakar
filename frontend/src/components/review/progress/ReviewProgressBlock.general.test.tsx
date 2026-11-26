@@ -66,3 +66,18 @@ describe("the earlier engine's block is unchanged", () => {
     expect(screen.getByTestId("review-stall")).toHaveTextContent(/No progress for 3 min/);
   });
 });
+
+describe("a running review on the local model names its model and measured minutes", () => {
+  it("shows the server's note with the progress detail, and alone when there is no detail", () => {
+    const note = "Local model qwen-test: about 33 min for this kind on this Mac (the last measured run of this model and kind).";
+    render(<ReviewProgressBlock job={{ ...general("checklist", 2, detail()), local_note: note }} />);
+    expect(screen.getByTestId("review-local-note")).toHaveTextContent(note);
+  });
+  it("shows the note even when the run has no progress detail, and nothing for a Claude run", () => {
+    const { unmount } = render(<ReviewProgressBlock job={{ id: "j", state: "running", cancel_requested: false, progress_done: 2, progress_total: 5, progress_label: "checklist", local_note: "Local model m: not yet measured for this kind on this Mac." }} />);
+    expect(screen.getByTestId("review-local-note")).toHaveTextContent("not yet measured");
+    unmount();
+    const { container } = render(<ReviewProgressBlock job={{ id: "j", state: "running", cancel_requested: false, progress_done: 2, progress_total: 5, progress_label: "checklist" }} />);
+    expect(container.querySelector('[data-testid="review-local-note"]')).toBeNull();
+  });
+});

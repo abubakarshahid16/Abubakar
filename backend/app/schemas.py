@@ -2807,6 +2807,8 @@ class CompanyStandardConfirmed(BaseModel):
 
 class ReviewJobState(BaseModel):
     progress_detail: ReviewProgressDetail | None = None
+    #: A running local review: its model and the minutes the last measured run of that model and kind took on this Mac (or "not yet measured").
+    local_note: str | None = None
     id: str
     state: str
     progress_done: int | None = None
