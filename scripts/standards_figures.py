@@ -16,6 +16,7 @@ library step, with a backup, adds them.
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import re
@@ -39,6 +40,94 @@ SYSTEM = (
     '{"rules": [{"rule": "one sentence", "figure": "the figure or table number and title as printed", '
     '"values": ["each number with its unit, as printed"]}]}; when the page shows no requirement, {"rules": []}.'
 )
+
+
+# ------------------------------------------------------------------ which pages may go: figure or picture pages only
+#
+# The owner approved FIGURE pages (#1584 7189065710). A page is sent only when the picture-gap counter's own test (builder H,
+# BUILD/picture-gap/H_picture_count.py, 26 Nov 2026) calls it a figure or picture page: a PICTURE page (under 200 characters of text
+# layer, images or drawn lines on 40% or more of a 40 x 40 grid; a scanned page is one) or a FIGURE page (a caption word with a
+# number, "Figure 3", "Table 2", "Sketch 1", and images or drawn lines on 15% or more of the grid). Any other page is refused before
+# anything is sent (review of update 12, N2).
+GRID = 40
+CAPTION = re.compile(
+    r"(?im)^\s*(figure|fig\.|chart|graph|diagram|table|sketch)\s*[a-z]?[-\s]?\d"
+)
+
+
+class NotFigurePage(ValueError):
+    """A page that is not a figure or picture page by the counter's test: nothing of the book is sent."""
+
+
+def _seg(cells: set, x0, y0, x1, y1, w, h) -> None:
+    steps = max(2, int(max(abs(x1 - x0) / w, abs(y1 - y0) / h) * GRID * 2))
+    for s in range(steps + 1):
+        x, y = x0 + (x1 - x0) * s / steps, y0 + (y1 - y0) * s / steps
+        if 0 <= x <= w and 0 <= y <= h:
+            cells.add(
+                (min(GRID - 1, int(x / w * GRID)), min(GRID - 1, int(y / h * GRID)))
+            )
+
+
+def _box(cells: set, r, w, h) -> None:
+    for i in range(max(0, int(r.x0 / w * GRID)), min(GRID, int(r.x1 / w * GRID) + 1)):
+        for j in range(
+            max(0, int(r.y0 / h * GRID)), min(GRID, int(r.y1 / h * GRID) + 1)
+        ):
+            cells.add((i, j))
+
+
+def page_signals(page) -> tuple[int, float, bool]:
+    """(characters of text layer, share of the grid holding images or drawn lines, a figure caption printed) of one page."""
+    w, h = page.rect.width or 1, page.rect.height or 1
+    text = page.get_text("text") or ""
+    cells: set = set()
+    for img in page.get_images(full=True):
+        for r in page.get_image_rects(img[0]):
+            r = r & page.rect
+            if not r.is_empty:
+                _box(cells, r, w, h)
+    for path in page.get_drawings():
+        filled = path.get("fill") is not None
+        for it in path.get("items", []):
+            if it[0] == "l":
+                _seg(cells, it[1].x, it[1].y, it[2].x, it[2].y, w, h)
+            elif it[0] == "c":
+                for a, b in itertools.pairwise(it[1:5]):
+                    _seg(cells, a.x, a.y, b.x, b.y, w, h)
+            elif it[0] == "re":
+                r = it[1]
+                if filled and r.width * r.height < 0.9 * w * h:
+                    _box(cells, r, w, h)
+                elif not filled:
+                    for a, b in (((r.x0, r.y0), (r.x1, r.y0)), ((r.x1, r.y0), (r.x1, r.y1)), ((r.x1, r.y1), (r.x0, r.y1)),
+                                 ((r.x0, r.y1), (r.x0, r.y0))):  # fmt: skip
+                        _seg(cells, a[0], a[1], b[0], b[1], w, h)
+            elif it[0] == "qu":
+                q = it[1]
+                for a, b in ((q.ul, q.ur), (q.ur, q.lr), (q.lr, q.ll), (q.ll, q.ul)):
+                    _seg(cells, a.x, a.y, b.x, b.y, w, h)
+    return len(text.strip()), len(cells) / (GRID * GRID), bool(CAPTION.search(text))
+
+
+def is_figure_page(page) -> bool:
+    chars, cover, caption = page_signals(page)
+    return (chars < 200 and cover >= 0.40) or (caption and cover >= 0.15)
+
+
+def figure_pages_only(pdf_path, pages: list[int]) -> None:
+    """Raise `NotFigurePage` naming every asked page that is not a figure or picture page (or not in the book)."""
+    bad = []
+    with pdf_guard.opened(str(pdf_path)) as pdf, pdf_guard.held():
+        for n in pages:
+            if not (0 < int(n) <= pdf.page_count) or not is_figure_page(
+                pdf.load_page(int(n) - 1)
+            ):
+                bad.append(int(n))
+    if bad:
+        raise NotFigurePage(
+            f"not a figure or picture page by the counter's test: page(s) {', '.join(map(str, bad))}; nothing sent"
+        )
 
 
 def parse(text: str) -> list[dict] | None:
@@ -70,12 +159,16 @@ def read_book(
     conn, book_id: str, pages: list[int], pdf_path, out, provider=None
 ) -> dict:
     """Read the figure `pages` of one held book; write one JSON line per page to `out` (an open text file). Returns the counts.
-    Raises `standards_lane.NotStandardsLane` (nothing sent) for a document outside the lane."""
+    Raises `standards_lane.NotStandardsLane` for a document outside the lane, `NotFigurePage` for a page that is not a figure or
+    picture page; either way nothing is sent."""
     from app import vision_reader
     from app.claude_spend import STANDARD_STEP_PREFIX
     from app.reasoning_provider import ClaudeProvider, Packet
 
     checked = standards_lane.check(conn, [book_id])
+    figure_pages_only(
+        pdf_path, pages
+    )  # only figure or picture pages (the owner's yes), checked before anything is sent
     if provider is None:
         provider = ClaudeProvider(
             settings.claude_reasoning_model, step=f"{STANDARD_STEP_PREFIX}{book_id}"
