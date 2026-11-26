@@ -35,7 +35,9 @@ AUTO_START = True
 #: The rules that propose a query's question: 2 = the mail's introduction, greetings and pointers to the attachment are never the question;
 #: the attached form's own question field is (lead-4, 26 Nov 2026). A query prepared under older rules with no confirmed question is
 #: prepared again by "Prepare evidence for all".
-QUESTION_RULES = 2
+#: 3 = a cover line whatever its punctuation, boilerplate and links ask nothing, the form's question SECTION, why nothing was proposed
+#: (lead-4's live walk on update 13): the queries re-proposed under 2 are proposed again.
+QUESTION_RULES = 3
 
 _wake = threading.Event()
 _stop = threading.Event()
