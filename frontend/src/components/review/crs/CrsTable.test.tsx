@@ -73,3 +73,13 @@ describe("CrsTable rank word (order 139 part 2)", () => {
     expect(screen.queryByTestId("row-priority")).toBeNull();
   });
 });
+
+describe("CrsTable scrolls inside its own box (G, 26 Nov 2026: the page scrolled sideways at 390 wide)", () => {
+  it("the table's box is positioned, so its hidden labels are clipped by it and never widen the page", () => {
+    render(table());
+    const box = screen.getByTestId("crs-table-box");
+    expect(box.className).toMatch(/\brelative\b/);  // without it the hidden "Actions" header label widened the page to 964 at 390
+    expect(box.className).toMatch(/\boverflow-x-auto\b/);
+    expect(box.querySelector('table[aria-label="Comment resolution sheet"]')).toBeTruthy();
+  });
+});
