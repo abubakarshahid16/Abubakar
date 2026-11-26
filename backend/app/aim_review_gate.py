@@ -42,6 +42,8 @@ LOCAL_SWITCHED_OFF = (
 LOCAL_TEST_NOTE = "Local model: about 20 minutes; found 0 of 10 planted datasheet mistakes and 3 of 10 contract mistakes in our test."
 #: The score line of a review made on the local model (page and file), in place of the kind's score measured on Claude.
 LOCAL_NOT_SCORED = "local model, not yet scored"
+#: A model with no measured score of the general review (the Review model section of the Administration page).
+NOT_YET_SCORED = "not yet scored"
 #: The contractor copy of a general review is refused (409) with these words.
 NO_CONTRACTOR_COPY_WORDS = "No contractor copy yet: this review is not signed off. This file is for the team: AI, to be checked."
 #: The rule-check part of the plan while the general review is on.

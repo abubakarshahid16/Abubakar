@@ -71,15 +71,18 @@ WINDOW_MARK = "THIS IS PART OF A LONGER PAPER"
 
 
 def model_name() -> str:
-    """The one local default (the setting `ANSWER_MODEL`; the run records what the engine answered)."""
+    """The local default: the administrator's saved Review model (`review_model_setting`), else `ANSWER_MODEL`; the run
+    records what the engine answered."""
+    from app import review_model_setting
     from app.config import settings
 
-    return str(settings.answer_model).strip()
+    return (review_model_setting.default_choice() or str(settings.answer_model)).strip()
 
 
 def step_models() -> dict[str, str]:
-    """{method step: local model} for the steps the setting names ("judge=qwen3.5:9b, editor=ministral-3:14b"); an unknown step
-    name or an empty model is ignored (the step keeps the default)."""
+    """{method step: local model} for the steps the administrator saved (`review_model_setting`) and, for a step not saved, the
+    env setting ("judge=qwen3.5:9b, editor=ministral-3:14b"); an unknown step name or an empty model is ignored (the step keeps
+    the default)."""
     from app.config import settings
 
     out: dict[str, str] = {}
@@ -89,6 +92,12 @@ def step_models() -> dict[str, str]:
         key, _, value = part.partition("=")
         group, value = " ".join(key.strip().lower().split()), value.strip()
         for step in STEP_GROUPS.get(group, ()) if value else ():
+            out[step] = value
+    from app import review_model_setting
+
+    # the saved choice wins over the env setting
+    for group, value in review_model_setting.step_choices().items():
+        for step in STEP_GROUPS.get(group, ()):
             out[step] = value
     return out
 

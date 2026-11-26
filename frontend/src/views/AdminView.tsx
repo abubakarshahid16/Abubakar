@@ -348,6 +348,8 @@ export interface AdminViewProps {
   /** The read-only Database section, passed in already built so this view
    *  keeps no transport of its own. Absent in tests that do not care. */
   databaseSection?: React.ReactNode;
+  /** The Review model section (local default and one model per step), passed in already built. */
+  reviewModelSection?: React.ReactNode;
 }
 
 export function AdminView(props: AdminViewProps) {
@@ -703,6 +705,8 @@ export function AdminView(props: AdminViewProps) {
       </section>
 
       {props.companyStandardsSection}
+
+      {props.reviewModelSection}
 
       {props.databaseSection}
 

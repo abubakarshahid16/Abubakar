@@ -270,9 +270,21 @@ def general_plan(
         out["sentence"] = (
             f"{aim_review_gate.LOCAL_PLAN_WORDS} {aim_review_gate.AI_MARK}."
         )
-        out["notes"] = [*out["notes"], aim_review_gate.LOCAL_TEST_NOTE]
+        out["notes"] = [
+            *out["notes"],
+            _review_model_line(),
+            aim_review_gate.LOCAL_TEST_NOTE,
+        ]
     else:
         out["sentence"] = (
             f"The general review runs on Claude. {GENERAL_LEAVES} {aim_review_gate.AI_MARK}."
         )
     return out
+
+
+def _review_model_line() -> str:
+    """The Local only plan's line naming its models, with `aim_review_gate.LOCAL_NOT_SCORED` (`review_model_setting.plan_line`)."""
+    from . import review_model_setting
+    from .aim_review import local_model
+
+    return review_model_setting.plan_line(local_model.model_name())

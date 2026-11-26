@@ -185,6 +185,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `api.agent_review_schemas` | The AI reviewer's request and response shapes (#1690): status, summary, lines, trace and Rules used, with closed word lists; contract only, no route yet, no behaviour; read by the TypeScript generator |
 | `api.run_standards` | Routes: GET /api/reviews/runs/{id}/standards - the standards a run compared against and why, one page with its total (order 117 item 5); POST /api/reviews/runs/{id}/standards/override - the engineer adds or removes a standard (P2). Moved out of main.py |
 | `api.review_start` | Routes: GET /api/reviews/plan (what a Review would do, no side effect), POST /api/reviews/start (admin), POST and DELETE /api/reviews/contract-yes (admin): the ONE Review button's three choices (12 Nov 2026, #1584) |
+| `api.review_model` | Routes: GET and PUT /api/admin/review-model: the Administration page's Review model section (local default and one model per step; a signed-in administrator saves) (26 Nov 2026) |
 | `api.aim_history` | Routes: a paper's review history (general and earlier version) and the saved checklists of the general review (order 14) |
 | `api.aim_method` | Route: GET /api/reviews/method: which review method the Review button runs and the Local-only sentence (order 14) |
 | `api.aim_review` | Routes: the general review's results page and its file, team copy only (order 14) |
@@ -486,6 +487,7 @@ These jobs are done by more than one module today. Each row is a debt, not a des
 | `contract_yes` | The owner's yes to send ONE contract upload to Claude: recorded by checksum on the approved list with who and when, audited, withdrawable |
 | `contract_checks` | Order 14 lane E: the contract checks code can decide on a contract's own text (CT-01 stages add to 100%, CT-02 every labelled attachment present, CT-03 one giver per guarantee) against the draft checklist `reference/contract_checks.json`; each result quoted and verified on its page, internal only; pure |
 | `review_engine_general` | The ONE Review button's resolver and pre-start answer for the general review (order 14): every kind taken, the rule check never runs, a start that would run nothing refused with a code; cost at most the run's meter |
+| `review_model_setting` | The Review model setting of Local only runs, stored in the app's database: a local model may be chosen only when approved, priced, installed and small enough; Claude stays the main engine and is never changed here (26 Nov 2026) |
 | `review_leaving` | The documents a Claude review of one paper may send, worked out before the start for the caller's access (paper, cited rule books, cited specifications, chosen project papers) and what will not go, with reasons |
 | `review_cost` | The cost lines of the Review plan: a paper's last measured AI review cost and the upper bound per part and in total (moved out of `review_engine`) |
 | `aim_review_jobs` | The general review's job (stage `aim_review`): queued by the Review button's start with its list, run by the review worker with only the shown rule books, never retried by itself; nothing with the old engine on (order 14) |

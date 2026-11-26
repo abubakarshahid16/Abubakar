@@ -32,6 +32,7 @@ import { SESSION_HEADER, reportResponseStatus } from "../api/client";
 import { AdminView } from "./AdminView";
 import { CompanyStandardsSection } from "./admin/CompanyStandardsSection";
 import { DatabaseSection } from "./admin/DatabaseSection";
+import { ReviewModelSection } from "./admin/ReviewModelSection";
 
 const BASE = "/api";
 const GATEWAY_STATUSES = new Set([502, 503, 504]);
@@ -306,6 +307,7 @@ export function AdminScreen({
       busyKey={busyKey}
       companyStandardsSection={<CompanyStandardsSection client={api} />}
       databaseSection={<DatabaseSection client={api} />}
+      reviewModelSection={<ReviewModelSection />}
     />
   );
 }
