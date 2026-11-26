@@ -168,12 +168,20 @@ def test_only_its_named_users_open_the_lane_and_never_inside_a_review_or_another
     with claude_approved.carrying(["sheet"]), pytest.raises(standards_lane.NotStandardsLane), \
             standards_lane.open_for(conn, ["std"], user="rule approval"):  # fmt: skip
         pytest.fail("never inside another declaration")
+    import sys
+    from pathlib import Path
+
     from app import rule_label_job
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    import standards_figures  # a tool in scripts/ (J2)
 
     named = [inspect.getsource(m).count(f'user="{u}"') for m, u in (
         (rule_second_approval, "rule approval"), (rule_second_approval, "rule approval judge"),
-        (rule_label_job, "standards converter"))]  # fmt: skip
-    assert named == [1, 1, 1] and standards_lane.USERS == {"rule approval", "rule approval judge", "standards converter"}
+        (rule_label_job, "standards converter"), (standards_figures, "figure reading"))]  # fmt: skip
+    # the figure-reading user: owner, 26 Nov 2026, #1584 7189065710 (J2)
+    assert named == [1, 1, 1, 1] and standards_lane.USERS == {"rule approval", "rule approval judge", "standards converter",
+                                                              "figure reading"}  # fmt: skip
 
 
 def test_the_lane_is_never_opened_inside_a_run_named_only_through_the_spend_ledger(conn):
