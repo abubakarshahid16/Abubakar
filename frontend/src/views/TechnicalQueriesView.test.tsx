@@ -406,4 +406,21 @@ describe("Technical Queries screen", () => {
     expect(options).toContain("Awaiting review");
     expect(options).not.toContain("Sent");
   });
+
+  it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
+    render(<TechnicalQueriesView />);
+    const question = await screen.findByRole("heading", { name: "Question for the draft" });
+    const response = screen.getByRole("heading", { name: /^Proposed response/ });
+    const generate = screen.getByRole("button", { name: "Generate draft" });
+    const email = screen.getByTestId("tq-folded-email-question");
+    const mail = screen.getByTestId("tq-folded-mail");
+    const evidence = screen.getByTestId("tq-folded-evidence");
+    const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect([before(question, response), before(response, generate), before(generate, email), before(email, mail), before(mail, evidence)]).toEqual([true, true, true, true, true]);
+    for (const part of [email, mail, evidence]) {
+      expect(part.tagName).toBe("DETAILS");
+      expect((part as HTMLDetailsElement).open).toBe(false);  // folded on arrival
+    }
+    expect(within(evidence).getByTestId("evidence-coverage")).toBeTruthy();  // the same parts, only folded
+  });
 });
