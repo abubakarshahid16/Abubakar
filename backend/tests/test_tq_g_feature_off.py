@@ -162,12 +162,16 @@ def test_no_code_can_send_and_the_send_route_only_refuses(monkeypatch):
         gmail_worker, "send_approved"
     )
     app_dir = Path(api.__file__).resolve().parent.parent
+    # the ONE send request is the owner's TEST send to the mailbox itself (owner, 26 Nov 2026 23:14 PKT): built only in the Gmail client
+    # (send_to_self, which refuses any other recipient), its scope only in gmail_auth's separate re-grant; nothing else can send
     for path in app_dir.rglob("*.py"):
         text = path.read_text()
-        assert "messages/send" not in text, path.name  # no send request can be built
-        assert "gmail.send" not in text.replace("gmail.send is not asked for", ""), (
-            path.name
-        )
+        if path.name != "gmail_client.py":
+            assert "messages/send" not in text, path.name  # no other send request can be built
+        if path.name != "gmail_auth.py":
+            assert "gmail.send" not in text.replace("gmail.send is not asked for", ""), path.name
+        if path.name not in {"gmail_client.py", "technical_query_test_send.py"}:
+            assert "send_to_self" not in text, path.name  # only the test sender calls it
     assert "send" not in gmail_client.BASE
     item, _ = tq.import_message(envelope("lock"), "u1", False, False)
     scope = AccessScope("u1", frozenset(), capabilities=REVIEWER)

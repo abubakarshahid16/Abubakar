@@ -61,6 +61,20 @@ class GmailApiClient:
         response.raise_for_status()
         return response.json()
 
+    def send_to_self(self, raw: bytes, own_address: str) -> dict[str, Any]:
+        """Send ONE message whose only recipient is `own_address`, the connected mailbox itself (the owner's TEST send, 26 Nov 2026 23:14
+        PKT; technical_query_test_send). Refused here too, before any request: another To, any Cc or Bcc, or a resent header. The
+        second lock, in the one module that may open a socket to Gmail."""
+        from email import message_from_bytes, policy
+        from email.utils import getaddresses
+
+        message = message_from_bytes(raw, policy=policy.default)
+        to = [a.strip().lower() for _n, a in getaddresses(message.get_all("To", []))]
+        others = [h for h in message if h.lower() in {"cc", "bcc", "resent-to", "resent-cc", "resent-bcc"}]
+        if to != [own_address.strip().lower()] or others:
+            raise PermissionError("a test send goes only to the connected mailbox itself: no other recipient, no Cc, no Bcc")
+        return self._request("POST", "/messages/send", json={"raw": base64.urlsafe_b64encode(raw).decode()})
+
     def history(self, start_history_id: str, label_id: str | None = None) -> list[str]:
         return self.history_delta(start_history_id, label_id)[0]
 

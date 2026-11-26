@@ -239,6 +239,8 @@ EGRESS_SAFE: dict[str, object] = {
     "ai_division_scope_enabled": False,
     # Owner, 25 Nov 2026 (#1584): Chat's database tools send titles and review results to Claude: off in the suite.
     "chat_database_tools_enabled": False,
+    # Owner, 26 Nov 2026 23:14 PKT: a query's draft may be sent to the owner's OWN mailbox as a test: off in the suite.
+    "technical_query_test_send_enabled": False,
     # Order 210 FIX 2: a code-only rule (skips a model call), draft, off.
     "scope_type_words_rule_enabled": False,
     # Order 205: a cache that only SKIPS a local model call; on is the code

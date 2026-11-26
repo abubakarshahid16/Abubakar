@@ -707,3 +707,6 @@ class SettingsExt(BaseModel):
     #: OFF by default. Turning it on by default (update 14) was held back by the update 14 review: the review-comment and
     #: records answers did not yet check every referenced paper against the register and block list.
     chat_database_tools_enabled: bool = False
+    # TEST send of a query's draft to the owner's OWN mailbox (owner, 26 Nov 2026 23:14 PKT): the way-back switch of this egress lane.
+    # Off by default; also needs the mailbox's separate re-grant of the send scope (technical_query_test_send). Never a contractor.
+    technical_query_test_send_enabled: bool = False

@@ -33,6 +33,7 @@ from .. import (
     technical_query_contracts,
     technical_query_docx,
     technical_query_jobs,
+    technical_query_test_send,
     verified_passages,
 )
 from .. import upload as upload_mod
@@ -369,7 +370,12 @@ def graph_validation(validationToken: str | None = Query(default=None)):
 
 
 @router.get("/api/technical-queries/providers/gmail/oauth/start", response_model=OauthStartOut)
-def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope)):
+def gmail_oauth_start(
+    scope: access.AccessScope = Depends(access.current_scope),
+    purpose: Literal["read", "test_send"] = "read",
+):
+    """Connect a mailbox (read only), or, with `purpose=test_send`, the separate re-grant that lets an already connected mailbox send
+    TEST replies to itself (owner, 26 Nov 2026 23:14 PKT; technical_query_test_send); refused while that switch is off."""
     _require_identity_to_write(scope)
     if not scope.is_admin or not scope.user_id:
         raise HTTPException(
@@ -377,7 +383,7 @@ def gmail_oauth_start(scope: access.AccessScope = Depends(access.current_scope))
         )
     try:
         gmail_auth.connection_ready()
-        return {"authorization_url": gmail_auth.start(scope.user_id)}
+        return {"authorization_url": gmail_auth.start(scope.user_id, purpose)}
     except RuntimeError as exc:
         raise _refuse(424, str(exc)) from exc
 
@@ -393,6 +399,7 @@ def gmail_mailboxes(scope: access.AccessScope = Depends(access.current_scope)):
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(gmail_mailboxes)")}
         checked = "last_checked_at" if "last_checked_at" in columns else "NULL AS last_checked_at"
         checked += ",status_note" if "status_note" in columns else ",NULL AS status_note"
+        checked += ",test_send_granted_at" if "test_send_granted_at" in columns else ",NULL AS test_send_granted_at"
         rows = conn.execute(
             f"SELECT id,email,label_id,connection_state,{checked} FROM gmail_mailboxes WHERE owner_user_id=? ORDER BY email",
             (scope.user_id,),
@@ -509,7 +516,7 @@ class OauthCompleteIn(BaseModel):
 
 
 class OauthCompleteOut(BaseModel):
-    result: Literal["connected", "admin_must_allow"]
+    result: Literal["connected", "admin_must_allow", "test_send_granted"]
     mailbox_id: str | None = None
 
 
@@ -535,6 +542,8 @@ def gmail_oauth_complete(body: OauthCompleteIn, scope: access.AccessScope = Depe
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise _refuse(424, "Gmail connection could not be completed. Try again.") from exc
+    if (mailbox or {}).get("test_send") == "granted":  # the re-grant: the same mailbox may now send TEST replies to itself
+        return {"result": "test_send_granted", "mailbox_id": mailbox.get("mailbox_id")}
     return {"result": "connected", "mailbox_id": str((mailbox or {}).get("id") or "") or None}
 
 
@@ -1346,6 +1355,30 @@ def query_response_docx(
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         filename=f"technical-query-{query_id}.docx",
     )
+
+
+class TestSendIn(BaseModel):
+    draft_id: str = Field(min_length=1, max_length=200)
+
+
+class TestSendOut(BaseModel):
+    sent_to: str
+    at: str
+
+
+@router.post("/api/technical-queries/{query_id}/test-send", response_model=TestSendOut)
+def test_send_query_reply(query_id: str, body: TestSendIn, scope: access.AccessScope = Depends(access.current_scope)):
+    """Send the draft as a TEST to the mailbox the query was imported from, and to no one else (owner, 26 Nov 2026 23:14 PKT). The
+    recipient is not a parameter: it is that mailbox's own address, enforced in code twice. Sending to a contractor stays off."""
+    _require_identity_to_write(scope)
+    try:
+        return technical_query_test_send.send(query_id, body.draft_id, *_visible(scope), scope.user_id, reviewer=_reviewer(scope))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="technical query not found") from exc
+    except PermissionError as exc:
+        raise _refuse(403, str(exc)) from exc
+    except ValueError as exc:
+        raise _refuse(409, str(exc)) from exc
 
 
 @router.post("/api/technical-queries/{query_id}/send", response_model=SendOut)

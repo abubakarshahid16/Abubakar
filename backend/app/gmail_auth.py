@@ -20,8 +20,13 @@ from .technical_queries import now, require_enabled
 
 AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
-#: READ ONLY. Sending is a later, separate consent (owner, 25 Nov 2026): no send scope is asked until the owner writes "sending approved".
+#: READ ONLY: what connecting a mailbox asks. Sending to a contractor is a later, separate consent (owner, 25 Nov 2026): never asked
+#: until the owner writes "sending approved".
 SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
+#: The TEST send to the owner's OWN mailbox (owner, 26 Nov 2026 23:14 PKT): asked ONLY by the separate re-grant of a mailbox already
+#: connected (`start(..., purpose="test_send")`), and only while TECHNICAL_QUERY_TEST_SEND_ENABLED is on (technical_query_test_send).
+TEST_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+TEST_SEND = "test_send"
 
 
 #: What Google says when a Workspace company's admin has not allowed this app (the token step's error, or the return address's `error`).
@@ -65,14 +70,21 @@ def _client_secret() -> str:
     ).strip()
 
 
-def start(user_id: str | None) -> str:
+def start(user_id: str | None, purpose: str = "read") -> str:
+    """The Google consent address. `purpose="test_send"` is the separate re-grant that adds the send scope to an already connected
+    mailbox, for TEST sends to that mailbox itself; only while its switch is on."""
+    if purpose not in {"read", TEST_SEND}:
+        raise ValueError("unknown connection purpose")
+    if purpose == TEST_SEND and not settings.technical_query_test_send_enabled:
+        raise RuntimeError("test sending is switched off")
     client_id, redirect_uri = _config()
     state = secrets.token_urlsafe(32)
     with connect() as conn:
         conn.execute(
-            "INSERT INTO gmail_oauth_states(state,user_id,created_at) VALUES (?,?,?)",
-            (state, user_id, now()),
+            "INSERT INTO gmail_oauth_states(state,user_id,created_at,purpose) VALUES (?,?,?,?)",
+            (state, user_id, now(), purpose),
         )
+    scopes = (*SCOPES, TEST_SEND_SCOPE) if purpose == TEST_SEND else SCOPES
     return (
         AUTH_ENDPOINT
         + "?"
@@ -81,7 +93,7 @@ def start(user_id: str | None) -> str:
                 "client_id": client_id,
                 "redirect_uri": redirect_uri,
                 "response_type": "code",
-                "scope": " ".join(SCOPES),
+                "scope": " ".join(scopes),
                 "access_type": "offline",
                 "prompt": "consent",
                 "state": state,
@@ -147,6 +159,7 @@ def complete(
     store: Any = gmail_credentials,
 ) -> dict[str, str]:
     """Exchange one consent code and store the refresh token in Keychain."""
+    purpose = _purpose(state)
     user_id = consume_state(state)
     if not user_id or not code:
         raise ValueError("Gmail authorization state is invalid or expired")
@@ -176,6 +189,8 @@ def complete(
     history_id = str(mailbox_profile.get("historyId") or "").strip()
     if not address or "@" not in address or not history_id:
         raise RuntimeError("Gmail mailbox identity could not be verified")
+    if purpose == TEST_SEND:
+        return _grant_test_send(user_id, address, tokens, refresh_token, store)
     with connect() as conn:  # connecting again a mailbox that was revoked or in error: the same row takes the new token and chooses its label again
         again = conn.execute(
             "SELECT id FROM gmail_mailboxes WHERE lower(email)=? AND owner_user_id=? AND connection_state IN ('revoked','error')", (address, user_id)
@@ -204,6 +219,32 @@ def complete(
         "email": address,
         "connection_state": "needs_label",
     }
+
+
+def _purpose(state: str) -> str:
+    with connect() as conn:
+        row = conn.execute("SELECT purpose FROM gmail_oauth_states WHERE state=?", (state,)).fetchone()
+    return str((row["purpose"] if row else None) or "read")
+
+
+def _grant_test_send(user_id: str, address: str, tokens: dict[str, Any], refresh_token: str, store: Any) -> dict[str, str]:
+    """The re-grant: the SAME mailbox (this person's, already connected) keeps reading and may now send TEST messages to itself. Google
+    must have granted the send scope; the new token replaces the old one (it reads too)."""
+    if not settings.technical_query_test_send_enabled:
+        raise RuntimeError("test sending is switched off")
+    if TEST_SEND_SCOPE not in str(tokens.get("scope") or "").split():
+        raise RuntimeError("Google did not grant sending: allow it on Google's page and try again")
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, connection_state FROM gmail_mailboxes WHERE lower(email)=? AND owner_user_id=? AND connection_state IN ('active','needs_label')",
+            (address, user_id),
+        ).fetchone()
+    if row is None:
+        raise ValueError("connect this mailbox first, then allow test sending")
+    store.save_refresh_token(row["id"], refresh_token)
+    with connect() as conn:
+        conn.execute("UPDATE gmail_mailboxes SET test_send_granted_at=?,updated_at=? WHERE id=?", (now(), now(), row["id"]))
+    return {"mailbox_id": row["id"], "email": address, "connection_state": row["connection_state"], "test_send": "granted"}
 
 
 def access_token(

@@ -298,6 +298,10 @@ def _ensure_schema() -> None:
         }
         if "label_id" not in mailbox_columns:
             conn.execute("ALTER TABLE gmail_mailboxes ADD COLUMN label_id TEXT")
+        if "test_send_granted_at" not in mailbox_columns:  # the owner re-granted the send scope for TEST sends to this mailbox itself
+            conn.execute("ALTER TABLE gmail_mailboxes ADD COLUMN test_send_granted_at TEXT")
+        if "purpose" not in {row["name"] for row in conn.execute("PRAGMA table_info(gmail_oauth_states)")}:
+            conn.execute("ALTER TABLE gmail_oauth_states ADD COLUMN purpose TEXT")  # read (connect) or test_send (the re-grant)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tq_assignee_status ON technical_queries(assignee_user_id,status,updated_at DESC)"
         )
