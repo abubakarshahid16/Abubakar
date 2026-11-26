@@ -40,22 +40,12 @@ def now() -> str:
 #: NOT implied by `admin`: an administrator runs the system, and an administrator's
 #: account alone proves nothing about engineering qualification.
 REVIEWER_CAPABILITY = "technical_query_reviewer"
-REVIEWER_DESCRIPTION = (
-    "Confirm questions, review evidence, approve and send technical query responses"
-)
+REVIEWER_DESCRIPTION = "Confirm questions, review evidence, approve and send technical query responses"
 #: Evidence states. `needs_review` is set by the system on a source it no longer
 #: trusts; only a reviewer can move a row out of it.
 #: `proposed` is a passage the SEARCH found: its quote is checked by code to stand on the page, but no person has judged that it answers the
 #: question. Only a reviewer moves it to `verified` (or rejects it); until then it blocks approval and send (reviewer's blocker B5).
-EVIDENCE_STATES = (
-    "verified",
-    "missing",
-    "conflicting",
-    "ambiguous",
-    "needs_review",
-    "proposed",
-    "rejected",
-)
+EVIDENCE_STATES = ("verified", "missing", "conflicting", "ambiguous", "needs_review", "proposed", "rejected")
 
 
 #: Evidence in these states is unresolved: a response resting on it is neither approved nor sent.
@@ -70,17 +60,13 @@ def unresolved_evidence_message(state: str, action: str) -> str:
     return f"evidence marked {state} must be resolved by a reviewer before {action}"
 
 
-def is_reviewer(
-    capabilities: frozenset[str] | set[str], unrestricted: bool = False
-) -> bool:
+def is_reviewer(capabilities: frozenset[str] | set[str], unrestricted: bool = False) -> bool:
     return unrestricted or REVIEWER_CAPABILITY in capabilities
 
 
 def _require_reviewer(reviewer: bool, unrestricted: bool, what: str) -> None:
     if not (reviewer or unrestricted):
-        raise PermissionError(
-            f"a qualified technical-query reviewer is required to {what}"
-        )
+        raise PermissionError(f"a qualified technical-query reviewer is required to {what}")
 
 
 _READY_FOR: str | None = None
@@ -225,22 +211,12 @@ def _ensure_schema() -> None:
             conn.execute(
                 "ALTER TABLE technical_queries ADD COLUMN assignee_user_id TEXT REFERENCES users(id) ON DELETE SET NULL"
             )
-        for column in (
-            "ref_key",
-            "ref_type",
-            "ref_number",
-            "discipline_code",
-            "title_short",
-        ):  # read from the subject by code
+        for column in ("ref_key", "ref_type", "ref_number", "discipline_code", "title_short"):  # read from the subject by code
             if column not in columns:
                 conn.execute(f"ALTER TABLE technical_queries ADD COLUMN {column} TEXT")
         if "needs_person" not in columns:
-            conn.execute(
-                "ALTER TABLE technical_queries ADD COLUMN needs_person INTEGER NOT NULL DEFAULT 0"
-            )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_technical_queries_ref ON technical_queries(ref_key)"
-        )
+            conn.execute("ALTER TABLE technical_queries ADD COLUMN needs_person INTEGER NOT NULL DEFAULT 0")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_technical_queries_ref ON technical_queries(ref_key)")
         for column in (
             "routing_source",
             "attachment_context",
@@ -260,10 +236,7 @@ def _ensure_schema() -> None:
         }
         if "scan_detail" not in attachment_columns:
             conn.execute("ALTER TABLE query_attachments ADD COLUMN scan_detail TEXT")
-        for column in (
-            "filed_at",
-            "filed_by",
-        ):  # set when an engineer files the attachment into the library on purpose
+        for column in ("filed_at", "filed_by"):  # set when an engineer files the attachment into the library on purpose
             if column not in attachment_columns:
                 conn.execute(f"ALTER TABLE query_attachments ADD COLUMN {column} TEXT")
         # a picture inside the mail body (a signature logo): never an attachment to read
@@ -275,31 +248,19 @@ def _ensure_schema() -> None:
             row["name"] for row in conn.execute("PRAGMA table_info(query_evidence)")
         }
         if "attachment_checked_at" not in evidence_columns:
-            conn.execute(
-                "ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT"
-            )
+            conn.execute("ALTER TABLE query_evidence ADD COLUMN attachment_checked_at TEXT")
         if "rank_score" not in evidence_columns:
-            conn.execute(
-                "ALTER TABLE query_evidence ADD COLUMN rank_score REAL"
-            )  # the reranker's own score of the passage for this question
-        for column in (
-            "match_count",
-            "match_terms",
-            "match_ok",
-        ):  # how many of the question's key terms the passage holds (technical_query_match)
+            conn.execute("ALTER TABLE query_evidence ADD COLUMN rank_score REAL")  # the reranker's own score of the passage for this question
+        for column in ("match_count", "match_terms", "match_ok"):  # how many of the question's key terms the passage holds (technical_query_match)
             if column not in evidence_columns:
                 conn.execute(f"ALTER TABLE query_evidence ADD COLUMN {column} INTEGER")
         # A database without the roles table has no users to grant the role to.
         has_roles = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roles'"
         ).fetchone()
-        if (
-            has_roles
-            and conn.execute(
-                "SELECT 1 FROM roles WHERE name=?", (REVIEWER_CAPABILITY,)
-            ).fetchone()
-            is None
-        ):
+        if has_roles and conn.execute(
+            "SELECT 1 FROM roles WHERE name=?", (REVIEWER_CAPABILITY,)
+        ).fetchone() is None:
             conn.execute(
                 "INSERT INTO roles(id,name,description,kind,created_at) VALUES (?,?,?,?,?)",
                 (
@@ -340,18 +301,13 @@ def invalidate_attachment_evidence(conn, query_id: str | None = None) -> int:
     undone by a later sweep, and a row an engineer added from an attachment by hand
     is stamped when it is made."""
     marks = "SELECT DISTINCT document_id FROM query_attachments WHERE document_id IS NOT NULL"
-    where = (
-        "evidence_state='verified' AND attachment_checked_at IS NULL AND document_id IN ("
-        + marks
-        + ")"
-    )
+    where = "evidence_state='verified' AND attachment_checked_at IS NULL AND document_id IN (" + marks + ")"
     args: list[Any] = [now()]
     if query_id is not None:
         where += " AND query_id=?"
         args.append(query_id)
     return conn.execute(
-        "UPDATE query_evidence SET evidence_state='needs_review',attachment_checked_at=? WHERE "
-        + where,
+        "UPDATE query_evidence SET evidence_state='needs_review',attachment_checked_at=? WHERE " + where,
         args,
     ).rowcount
 
@@ -381,15 +337,11 @@ def _static_check_for(conn, document_id: str) -> dict[str, Any]:
 
     from . import attachment_safety, stored_paths
 
-    row = conn.execute(
-        "SELECT stored_path FROM documents WHERE id=?", (document_id,)
-    ).fetchone()
+    row = conn.execute("SELECT stored_path FROM documents WHERE id=?", (document_id,)).fetchone()
     local = stored_paths.local(row["stored_path"]) if row else None
     if not local or not Path(local).is_file():
         return {"status": attachment_safety.NOT_SCANNED, "findings": []}
-    with (
-        open(local, "rb") as stored
-    ):  # the check picks itself by the file's first bytes: a Word file is not read as a PDF
+    with open(local, "rb") as stored:  # the check picks itself by the file's first bytes: a Word file is not read as a PDF
         return attachment_safety.check_before_library(stored)
 
 
@@ -536,10 +488,7 @@ def _filtered_where(
         ("received_at <= ?", received_to),
         ("ref_type = ?", ref_type.upper() if ref_type else None),
         ("discipline_code = ?", discipline.upper() if discipline else None),
-        (
-            "ref_number = ?",
-            str(int(number)) if number and str(number).strip().isdigit() else None,
-        ),
+        ("ref_number = ?", str(int(number)) if number and str(number).strip().isdigit() else None),
         ("needs_person = ?", None if needs_person is None else int(needs_person)),
     )
     for clause, value in filters:
@@ -583,19 +532,14 @@ def import_message(
         from . import technical_query_subject
 
         ref = technical_query_subject.parse(data.get("subject"))
-        if (
-            ref and ref["prefixed"]
-        ):  # the full number in the subject IS the query's identity: a forward or a reply with the same reference joins the same query, in the same mailbox only
+        if ref and ref["prefixed"]:  # the full number in the subject IS the query's identity: a forward or a reply with the same reference joins the same query, in the same mailbox only
             same = conn.execute(
                 "SELECT q.id FROM technical_queries q WHERE q.ref_key=? AND EXISTS (SELECT 1 FROM query_messages m WHERE m.query_id=q.id AND m.mailbox_id IS ?) "
                 "ORDER BY q.created_at LIMIT 1",
                 (ref["reference"], mailbox_id),
             ).fetchone()
             if same:
-                threaded = {
-                    "query_id": same["id"],
-                    "from_address": data["from_address"],
-                }
+                threaded = {"query_id": same["id"], "from_address": data["from_address"]}
         if thread and not threaded:
             threaded = conn.execute(
                 "SELECT query_id,from_address FROM query_messages WHERE provider=? AND mailbox_id IS ? AND provider_thread_id=? ORDER BY received_at LIMIT 1",
@@ -673,16 +617,12 @@ def import_message(
                 received,
                 now(),
                 now(),
-                ref["reference"]
-                if ref and ref["prefixed"]
-                else None,  # a bare number is not an identity: no key, so nothing can join it
+                ref["reference"] if ref and ref["prefixed"] else None,  # a bare number is not an identity: no key, so nothing can join it
                 ref["type"] if ref else None,
                 ref["number"] if ref else None,
                 ref["discipline"] if ref else None,
                 ref["title"] if ref else None,
-                0
-                if ref and ref["prefixed"]
-                else 1,  # no number, or a bare one, in the subject: kept, and flagged for a person; never dropped
+                0 if ref and ref["prefixed"] else 1,  # no number, or a bare one, in the subject: kept, and flagged for a person; never dropped
             ),
         )
         conn.execute(
@@ -895,11 +835,7 @@ def get(
             )
         except ValueError:
             result["attachment_context"] = []
-        for name, empty in (
-            ("proposed_questions", []),
-            ("evidence_coverage", None),
-            ("attachment_reading", []),
-        ):
+        for name, empty in (("proposed_questions", []), ("evidence_coverage", None), ("attachment_reading", [])):
             try:
                 result[name] = json.loads(result.get(name) or "null") or empty
             except ValueError:
@@ -1158,21 +1094,11 @@ def unfiled_attachment_ids(conn) -> frozenset[str]:
     library search, Chat, the review picker and every automatic Claude-approval route (the scope of every request leaves them out:
     `access.scope_for_user`), until an engineer files one on purpose with a role (`file_into_library`). Reads only: with the feature never
     switched on there is no table and the answer is empty."""
-    if (
-        conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='query_attachments'"
-        ).fetchone()
-        is None
-    ):
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='query_attachments'").fetchone() is None:
         return frozenset()
     columns = {r["name"] for r in conn.execute("PRAGMA table_info(query_attachments)")}
     if "filed_at" not in columns:
-        return frozenset(
-            r["document_id"]
-            for r in conn.execute(
-                "SELECT DISTINCT document_id FROM query_attachments WHERE document_id IS NOT NULL"
-            )
-        )
+        return frozenset(r["document_id"] for r in conn.execute("SELECT DISTINCT document_id FROM query_attachments WHERE document_id IS NOT NULL"))
     return frozenset(
         r["document_id"]
         for r in conn.execute(
@@ -1184,8 +1110,7 @@ def unfiled_attachment_ids(conn) -> frozenset[str]:
 
 def mark_filed(conn, document_id: str, user_id: str | None) -> None:
     conn.execute(
-        "UPDATE query_attachments SET filed_at=?, filed_by=? WHERE document_id=? AND filed_at IS NULL",
-        (now(), user_id, document_id),
+        "UPDATE query_attachments SET filed_at=?, filed_by=? WHERE document_id=? AND filed_at IS NULL", (now(), user_id, document_id)
     )
 
 
@@ -1204,9 +1129,7 @@ def file_into_library(document_id: str, role: str, user_id: str | None) -> bool:
         mark_filed(conn, document_id, user_id)
     from . import claude_auto_approve
 
-    claude_auto_approve.on_upload(
-        document_id
-    )  # now an ordinary library document: the approval routes look at it by its role
+    claude_auto_approve.on_upload(document_id)  # now an ordinary library document: the approval routes look at it by its role
     return True
 
 
@@ -1250,20 +1173,14 @@ def original_email_question(saved: str | None) -> str:
     return text
 
 
-def propose_question(
-    email_question: str, proposals: list[dict[str, Any]] | None = None
-) -> str:
+def propose_question(email_question: str, proposals: list[dict[str, Any]] | None = None) -> str:
     """The wording evidence is searched for until an engineer confirms one: the email's own question, then the questions the model found in
     the attachment that the email does not already say, each numbered on its own line. No attachment page is copied in bulk (F4), and no
     label or file name. It is a proposal, not an answer to anything."""
     own = (email_question or "").strip()
     lines = [own] if own else []
     said = _squash(own).casefold()
-    extra = [
-        p["question"]
-        for p in proposals or []
-        if _squash(p["question"]).casefold() not in said
-    ]
+    extra = [p["question"] for p in proposals or [] if _squash(p["question"]).casefold() not in said]
     lines += [f"{n}. {q}" for n, q in enumerate(extra, 1)]
     text = "\n".join(lines)
     if len(text) > MAX_PROPOSED_QUESTION:
@@ -1300,9 +1217,7 @@ def confirm_question(
             "confirmed_question_at=?,updated_at=? WHERE id=?",
             (text, actor_user_id, now(), now(), query_id),
         )
-        _event(
-            conn, query_id, "question_confirmed", actor_user_id, f"chars={len(text)}"
-        )
+        _event(conn, query_id, "question_confirmed", actor_user_id, f"chars={len(text)}")
     return get(query_id, user_id, is_admin, unrestricted)
 
 
@@ -1331,17 +1246,13 @@ def _titled(conn, passage: dict, locator: str | None) -> str | None:
     """A bare clause number ("7.5") as its titled heading from the passage's own pages ("7.5 Invented Coating"), when they hold one."""
     from . import technical_query_match
 
-    if (
-        not locator
-        or not re.fullmatch(r"\d+(\.\d+)*\.?", locator.strip())
-        or not passage.get("page_start")
-    ):
+    bare = locator and re.fullmatch(r"\d+(\.\d+)*\.?", locator.strip())
+    if not bare or not passage.get("page_start"):
         return locator
     start = passage["page_start"]
     end = max(start, passage.get("page_end") or start)
-    on = "\n".join(
-        _page_text(r) for r in _source_pages(conn, passage["document_id"], start, end)
-    )
+    pages = _source_pages(conn, passage["document_id"], start, end)
+    on = "\n".join(_page_text(r) for r in pages)
     return technical_query_match.titled(locator.strip().rstrip("."), on) or locator
 
 
@@ -1415,9 +1326,7 @@ def prepare_evidence(
                 or attachment.get("scan_status") == "static_check_flagged"
             ):
                 continue
-            total = conn.execute(
-                "SELECT page_count FROM documents WHERE id=?", (document_id,)
-            ).fetchone()
+            total = conn.execute("SELECT page_count FROM documents WHERE id=?", (document_id,)).fetchone()
             total_pages = int((total["page_count"] if total else 0) or 0)
             read_to = min(ATTACHMENT_PAGES_READ, total_pages or ATTACHMENT_PAGES_READ)
             reading.append(
@@ -1427,11 +1336,7 @@ def prepare_evidence(
                     "page_count": total_pages or None,
                     "line": f"{attachment['filename']}: pages 1 to {read_to}"
                     + (f" of {total_pages} read" if total_pages else " read")
-                    + (
-                        f"; pages {read_to + 1} to {total_pages} were not read"
-                        if total_pages > read_to
-                        else ""
-                    )
+                    + (f"; pages {read_to + 1} to {total_pages} were not read" if total_pages > read_to else "")
                     + ".",
                 }
             )
@@ -1530,9 +1435,8 @@ def prepare_evidence(
                 or passage.get("locator")
                 or _locator_of(conn, passage, quote, terms)
             )
-            locator = _titled(
-                conn, passage, locator
-            )  # never a bare "7.5" when its page names the clause (review of update 14)
+            # never a bare "7.5" when its page names the clause (review of update 14)
+            locator = _titled(conn, passage, locator)
             quote_hash = hashlib.sha256(quote.encode()).hexdigest()
             known = conn.execute(
                 "SELECT id,supersession_state FROM query_evidence WHERE query_id=? "
@@ -1560,14 +1464,7 @@ def prepare_evidence(
                     )
                 conn.execute(  # the match for THIS question and a locator when there was none; never an overwrite of a locator
                     "UPDATE query_evidence SET match_count=?,match_terms=?,match_ok=?,rank_score=?,locator=COALESCE(locator,?) WHERE id=?",
-                    (
-                        sc["count"],
-                        sc["terms"],
-                        int(sc["matches"]),
-                        passage.get("rerank_score"),
-                        locator,
-                        known["id"],
-                    ),
+                    (sc["count"], sc["terms"], int(sc["matches"]), passage.get("rerank_score"), locator, known["id"]),
                 )
                 continue
             evidence_id = str(uuid.uuid4())
@@ -1590,22 +1487,12 @@ def prepare_evidence(
                     passage.get("rerank_score"),
                 ),
             )
-        coverage.update(
-            technical_query_match.coverage_of(terms, scores)
-        )  # counts, as information only
+        coverage.update(technical_query_match.coverage_of(terms, scores))  # counts, as information only
         note = technical_query_contracts.floor_note(hits, listed)
         coverage["line"] = (coverage.get("line") or "") + note
-        top = max(
-            (h.get("rerank_score") for h in hits if h.get("rerank_score") is not None),
-            default=None,
-        )
-        coverage["top_rerank_score"] = (
-            None if top is None else round(float(top), 3)
-        )  # the best passage's own reranker score, a plain number
-        conn.execute(
-            "UPDATE technical_queries SET evidence_coverage=? WHERE id=?",
-            (json.dumps(coverage), query_id),
-        )
+        top = max((h.get("rerank_score") for h in hits if h.get("rerank_score") is not None), default=None)
+        coverage["top_rerank_score"] = None if top is None else round(float(top), 3)  # the best passage's own reranker score, a plain number
+        conn.execute("UPDATE technical_queries SET evidence_coverage=? WHERE id=?", (json.dumps(coverage), query_id))
         _event(
             conn,
             query_id,
@@ -1756,19 +1643,13 @@ def decide(
     if decision == "approve" and current is not None:
         for row in current.get("evidence", []):
             if row["evidence_state"] in UNRESOLVED_EVIDENCE_STATES:
-                raise ValueError(
-                    unresolved_evidence_message(row["evidence_state"], "approval")
-                )
+                raise ValueError(unresolved_evidence_message(row["evidence_state"], "approval"))
 
     allowed = {
         "request_changes": {"awaiting_review", "changes_requested"},
         "approve": {"awaiting_review"},
         "reject": {"awaiting_review", "changes_requested"},
-        "close": {
-            "approved",
-            "sent",
-            "awaiting_confirmation",
-        },  # approved: the engineer handed the Word file over; nothing is emailed from here
+        "close": {"approved", "sent", "awaiting_confirmation"},  # approved: the engineer handed the Word file over; nothing is emailed from here
     }
     if current is not None and current["status"] not in allowed[decision]:
         raise ValueError(
@@ -1824,13 +1705,10 @@ def _require_cited(current: dict[str, Any]) -> None:
     good = {
         row["id"]
         for row in current.get("evidence", [])
-        if row["evidence_state"] == "verified"
-        and row["supersession_state"] == "current"
+        if row["evidence_state"] == "verified" and row["supersession_state"] == "current"
     }
     if not any(isinstance(c, dict) and c.get("evidence_id") in good for c in cited):
-        raise ValueError(
-            "the draft cites no verified, current evidence of this query; add a citation before approval"
-        )
+        raise ValueError("the draft cites no verified, current evidence of this query; add a citation before approval")
 
 
 def list_reviewers() -> list[dict[str, Any]]:
@@ -1852,20 +1730,14 @@ def set_reviewer(user_id: str, granted: bool, actor: dict[str, Any]) -> bool:
     from .admin import _audit
 
     if granted and actor.get("id") == user_id:
-        raise PermissionError(
-            "an administrator cannot grant themselves the reviewer role"
-        )
+        raise PermissionError("an administrator cannot grant themselves the reviewer role")
     with connect() as conn:
         role = conn.execute(
-            "SELECT id FROM roles WHERE name=? AND kind='capability'",
-            (REVIEWER_CAPABILITY,),
+            "SELECT id FROM roles WHERE name=? AND kind='capability'", (REVIEWER_CAPABILITY,)
         ).fetchone()
         if role is None:
             raise ValueError("the reviewer role is not configured")
-        if (
-            conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone()
-            is None
-        ):
+        if conn.execute("SELECT 1 FROM users WHERE id=?", (user_id,)).fetchone() is None:
             return False
         if granted:
             conn.execute(
@@ -1874,19 +1746,11 @@ def set_reviewer(user_id: str, granted: bool, actor: dict[str, Any]) -> bool:
             )
         else:
             conn.execute(
-                "DELETE FROM user_roles WHERE user_id=? AND role_id=?",
-                (user_id, role["id"]),
+                "DELETE FROM user_roles WHERE user_id=? AND role_id=?", (user_id, role["id"])
             )
         _audit(
-            "technical_query_reviewer_granted"
-            if granted
-            else "technical_query_reviewer_revoked",
-            actor,
-            "user",
-            user_id,
-            "ok",
-            f"role={REVIEWER_CAPABILITY}",
-            conn=conn,
+            "technical_query_reviewer_granted" if granted else "technical_query_reviewer_revoked",
+            actor, "user", user_id, "ok", f"role={REVIEWER_CAPABILITY}", conn=conn,
         )
     return True
 
@@ -1895,22 +1759,9 @@ def set_reviewer(user_id: str, granted: bool, actor: dict[str, Any]) -> bool:
 #: route on one of these domains. An exact address can still be routed.
 PUBLIC_MAIL_DOMAINS = frozenset(
     {
-        "gmail.com",
-        "googlemail.com",
-        "outlook.com",
-        "hotmail.com",
-        "live.com",
-        "msn.com",
-        "yahoo.com",
-        "ymail.com",
-        "icloud.com",
-        "me.com",
-        "aol.com",
-        "proton.me",
-        "protonmail.com",
-        "gmx.com",
-        "mail.com",
-        "zoho.com",
+        "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com",
+        "yahoo.com", "ymail.com", "icloud.com", "me.com", "aol.com", "proton.me",
+        "protonmail.com", "gmx.com", "mail.com", "zoho.com",
     }
 )
 
@@ -1928,16 +1779,13 @@ def _routed(conn, from_address: str, contractor: str | None, department: str | N
     if contractor and department:
         return contractor, department, None
     address, domain = _address_parts(from_address)
-    rule = (
-        conn.execute(
-            "SELECT * FROM query_routing_rules WHERE match_type='address' AND match_value=?",
-            (address,),
-        ).fetchone()
-        or conn.execute(
-            "SELECT * FROM query_routing_rules WHERE match_type='domain' AND match_value=?",
-            (domain,),
-        ).fetchone()
-    )
+    rule = conn.execute(
+        "SELECT * FROM query_routing_rules WHERE match_type='address' AND match_value=?",
+        (address,),
+    ).fetchone() or conn.execute(
+        "SELECT * FROM query_routing_rules WHERE match_type='domain' AND match_value=?",
+        (domain,),
+    ).fetchone()
     if rule is None:
         return contractor, department, None
     return (
@@ -1985,9 +1833,7 @@ def set_routing_rule(
     if match_type == "domain" and ("@" in value or "." not in value):
         raise ValueError("a domain rule needs a company domain such as example.test")
     if match_type == "domain" and value in PUBLIC_MAIL_DOMAINS:
-        raise ValueError(
-            "a public mail domain does not identify a contractor; route an exact address instead"
-        )
+        raise ValueError("a public mail domain does not identify a contractor; route an exact address instead")
     if not (contractor_name or "").strip() and not (department or "").strip():
         raise ValueError("a rule sets a contractor, a department, or both")
     with connect() as conn:
@@ -1996,13 +1842,9 @@ def set_routing_rule(
             "VALUES (?,?,?,?,?,?,?) ON CONFLICT(match_type,match_value) DO UPDATE SET "
             "contractor_name=excluded.contractor_name,department=excluded.department",
             (
-                str(uuid.uuid4()),
-                match_type,
-                value,
-                (contractor_name or "").strip() or None,
-                (department or "").strip() or None,
-                actor_user_id,
-                now(),
+                str(uuid.uuid4()), match_type, value,
+                (contractor_name or "").strip() or None, (department or "").strip() or None,
+                actor_user_id, now(),
             ),
         )
     return list_routing_rules()
