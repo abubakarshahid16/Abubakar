@@ -320,6 +320,16 @@ def _event(
     )
 
 
+def passage_standing(stored: str, source: str) -> str:
+    """A passage's revision standing follows its SOURCE document (F's live check, 26 Nov 2026: a kept passage stayed "unknown" after
+    its source was confirmed, so no query could ever reach a draft). Superseded when either the stored standing or the source says
+    so; current once the source is confirmed; else what was stored (a reviewer's own choice). One home: every reader of a query's
+    evidence goes through `get`, which applies it."""
+    if "superseded" in (stored, source):
+        return "superseded"
+    return "current" if source == "current" else (stored or "unknown")
+
+
 def _source_supersession(conn, document_id: str) -> str:
     row = conn.execute(
         "SELECT superseded_by,confirmed_by FROM document_classification WHERE document_id=?",
@@ -895,6 +905,11 @@ def get(
             row["source_kind"], row["source_name"] = _tqc.source_of(
                 conn, row["document_id"]
             )
+        # the standing follows the source document, read now
+        for row in result["evidence"]:
+            row["supersession_state"] = passage_standing(
+                row["supersession_state"], _source_supersession(conn, row["document_id"])
+            )
         result["decisions"] = [
             dict(r)
             for r in conn.execute(
@@ -1069,6 +1084,10 @@ def update_evidence(
         ).fetchone()
         if row is None:
             return None
+        doc = conn.execute("SELECT document_id FROM query_evidence WHERE id=?", (evidence_id,)).fetchone()
+        supersession_state = passage_standing(  # the source's own standing wins over a stale one sent back by the screen
+            supersession_state, _source_supersession(conn, doc["document_id"]) if doc else "unknown"
+        )
         conn.execute(
             "UPDATE query_evidence SET evidence_state=?,supersession_state=?,conflict_group=? WHERE id=?",
             (evidence_state, supersession_state, conflict_group, evidence_id),

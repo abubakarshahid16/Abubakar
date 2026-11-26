@@ -101,6 +101,19 @@ describe("Technical Queries screen", () => {
     expect(screen.getByText(/Open source, 6\.1 Invented Coating, page 9/)).toBeTruthy();
   });
 
+  it("tells the engineer that a kept passage counts once its source document is confirmed (F's live check, 26 Nov 2026)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query,
+      evidence: [
+        { id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" },
+        { id: "e2", document_id: "c2", page_start: 5, exact_quote: "y", evidence_state: "verified", supersession_state: "current" },
+        { id: "e3", document_id: "c3", page_start: 6, exact_quote: "z", evidence_state: "proposed", supersession_state: "unknown" },
+      ] } });
+    render(<TechnicalQueriesView />);
+    const notes = await screen.findAllByTestId("evidence-needs-confirm");
+    expect(notes).toHaveLength(1);  // only the kept passage whose source is not confirmed
+    expect(notes[0].textContent).toContain("source document is confirmed");
+  });
+
   it("has no send button, and Claude gets only the documents the engineer ticks", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, status: "approved", confirmed_question: "What applies?", evidence: [{ id: "e1", document_id: "contract-1", page_start: 1, exact_quote: "x", evidence_state: "verified", supersession_state: "current" }] } });
     api.generateDraft.mockResolvedValue({ ok: true, data: query });
