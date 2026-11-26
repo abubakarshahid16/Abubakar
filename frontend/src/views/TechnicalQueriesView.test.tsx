@@ -62,44 +62,45 @@ describe("Technical Queries screen", () => {
     expect((await screen.findByTestId("evidence-coverage")).textContent).toBe("Searched 19 of 20 contracts, hits in 6. 1 could not be searched.");
   });
 
-  it("places every question the model found in the text as a proposal, with its page, and one taken out can be added back", async () => {
+  it("opens with what the contractor is asking as one readable list: the lead-in, then each request numbered with where it was found (owner, 26 Nov 2026)", async () => {
     render(<TechnicalQueriesView />);
-    const box = within(await screen.findByLabelText("Questions found in the attachment")).getByRole("checkbox") as HTMLInputElement;
-    const text = screen.getByLabelText("Question the draft will answer") as HTMLTextAreaElement;
-    // owner, 26 Nov 2026: the found questions were listed but the box opened without them
-    await waitFor(() => expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?"));
-    expect(screen.getByText("query.pdf, page 2 · in the text below")).toBeTruthy();
-    expect(box.checked && box.disabled).toBe(true); // never added twice
-    fireEvent.change(text, { target: { value: "See attached." } }); // the engineer takes it out
-    expect(box.disabled).toBe(false);
-    fireEvent.click(box);
-    fireEvent.click(screen.getByText("Add ticked questions to the text"));
-    expect(text.value).toBe("See attached.\nWhat is the minimum coating thickness?");
+    const readable = await screen.findByTestId("question-readable");
+    expect(within(readable).getByText("See attached.")).toBeTruthy();
+    expect(within(readable).getByText("What is the minimum coating thickness?")).toBeTruthy();
+    expect(within(readable).getByText("found in query.pdf, page 2")).toBeTruthy();
+    expect(screen.queryByText(/each as printed/)).toBeNull();
+    // editing is one click away; the text is the same ask, numbered
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const text = screen.getByLabelText(/Edit what the contractor is asking/) as HTMLTextAreaElement;
+    expect(text.value).toBe("See attached.\n1. What is the minimum coating thickness?");
+    expect(screen.getByText(/Confirm means you have checked this is what the contractor is asking\. It does not send anything to the contractor\./)).toBeTruthy();
   });
 
-  it("puts only the first few found questions in the box and folds the rest under 'N more found', to tick", async () => {
+  it("lists only the first few found requests; the rest are marked as possibly missed and one can be added as the next number", async () => {
     const many = Array.from({ length: BOX_FOUND + 3 }, (_, i) => ({ question: `Please confirm invented item ${i + 1}?`, filename: "long.pdf", page: i + 1 }));
     api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: many } });
     render(<TechnicalQueriesView />);
-    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
-    await waitFor(() => expect(text.value.split("\n")).toHaveLength(BOX_FOUND));
-    expect(text.value).not.toContain(`item ${BOX_FOUND + 1}?`);
+    const readable = await screen.findByTestId("question-readable");
+    expect(within(readable).getAllByRole("listitem")).toHaveLength(BOX_FOUND);
+    expect(screen.getByTestId("question-mark").textContent).toBe("3 more lines were found on the form and are not in the list: one may be a request. Check below.");
     const more = screen.getByTestId("found-more");
-    expect(within(more).getByText("3 more found: show, tick to add")).toBeTruthy();
-    fireEvent.click(within(more).getAllByRole("checkbox")[0]);
-    fireEvent.click(screen.getByText("Add ticked questions to the text"));
-    expect(text.value.split("\n")).toHaveLength(BOX_FOUND + 1);
-    expect(text.value).toContain(`item ${BOX_FOUND + 1}?`);
+    fireEvent.click(within(more).getAllByText("Add to the list")[0]);
+    expect(within(screen.getByTestId("question-readable")).getAllByRole("listitem")).toHaveLength(BOX_FOUND + 1);
+    expect(screen.getByTestId("question-mark").textContent).toMatch(/^2 more lines/);
   });
 
-  it("opens the box with the found questions when the mail itself asks nothing (a forward of a form)", async () => {
-    api.get.mockResolvedValue({ ok: true, data: { ...query, extracted_question: "", extracted_question_main: "", proposed_questions: [
+  it("when the mail itself asks nothing, the lead-in is the subject and the requests found on the form follow, numbered", async () => {
+    api.get.mockResolvedValue({ ok: true, data: { ...query, subject: "Fw: Invented tie-in", extracted_question: "", extracted_question_main: "", proposed_questions: [
       { question: "Please confirm the invented rating?", filename: "form.pdf", page: 1 },
       { question: "Please clarify the invented limit?", filename: "form.pdf", page: 3 },
     ] } });
     render(<TechnicalQueriesView />);
-    const text = (await screen.findByLabelText("Question the draft will answer")) as HTMLTextAreaElement;
-    await waitFor(() => expect(text.value).toBe("Please confirm the invented rating?\nPlease clarify the invented limit?"));
+    const readable = await screen.findByTestId("question-readable");
+    expect(readable.textContent).toContain("About Invented tie-in, the contractor asks for the following:");
+    expect(within(readable).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "1.Please confirm the invented rating?found in form.pdf, page 1",
+      "2.Please clarify the invented limit?found in form.pdf, page 3",
+    ]);
   });
 
   it("shows the evidence job's progress, and which attachment pages were not read", async () => {
@@ -471,7 +472,7 @@ describe("Technical Queries screen", () => {
 
   it("answer first (E5, 26 Nov 2026): the question, the proposed response and the decisions come first; the email, attachments and evidence are folded", async () => {
     render(<TechnicalQueriesView />);
-    const question = await screen.findByRole("heading", { name: /^(Question for the draft|The contractor asks)$/ }); // the new look names it as the spec does
+    const question = await screen.findByRole("heading", { name: "What the contractor is asking" }); // the new look names it as the spec does
     const response = screen.getByRole("heading", { name: /^Proposed response/ });
     const generate = screen.getByRole("button", { name: "Generate draft" });
     const email = screen.getByTestId("tq-folded-email-question");
@@ -501,7 +502,7 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, confirmed_question: "Invented?", confirmed_question_at: at, messages: [mail] } });
     render(<TechnicalQueriesView />);
     expect(await screen.findByText(`Received: ${formatWhen(at)}`)).toBeTruthy();
-    expect(screen.getByText(new RegExp(`Confirmed by an engineer on ${formatWhen(at).replace(/[+]/g, "\\+")}`))).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Checked by an engineer on ${formatWhen(at).replace(/[+]/g, "\\+")}`))).toBeTruthy();
     expect(screen.queryByText(new RegExp(at))).toBeNull();
   });
 
