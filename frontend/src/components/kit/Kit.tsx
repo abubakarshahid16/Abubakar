@@ -43,9 +43,9 @@ export function ButtonLink({ variant = "secondary", size = "md", ...rest }: Omit
 
 /** A status as a chip: its WORD decides its colour (chipWords.ts), the same on every page. `why` is the full sentence: shown on hover
  *  and always in the chip's own text for a screen reader. */
-export function StatusChip({ word, why }: { word: string; why?: string }) {
+export function StatusChip({ word, why, testId }: { word: string; why?: string; testId?: string }) {
   return (
-    <span className={`kit-chip kit-chip--${toneOfWord(word)}`} title={why} data-word={word}>
+    <span className={`kit-chip kit-chip--${toneOfWord(word)}`} title={why} data-word={word} data-testid={testId}>
       {word}{why ? <span className="sr-only">: {why}</span> : null}
     </span>
   );
@@ -143,4 +143,48 @@ export function Stack({ gap = 4, children, label }: { gap?: Gap; children: React
 /** Parts side by side that wrap onto the next line on a narrow window. */
 export function Row({ gap = 2, children, label }: { gap?: Gap; children: ReactNode; label?: string }) {
   return <div className={`kit-row kit-gap-${gap}`} aria-label={label}>{children}</div>;
+}
+
+/** A status chip that is also a button (the mailbox chip: its details open from it). The word sets the colour; `detail` follows in plain words. */
+export function ChipButton({ word, detail, expanded, controls, onClick, testId }: { word: string; detail?: string; expanded?: boolean; controls?: string; onClick: () => void; testId?: string }) {
+  return (
+    <button type="button" className="kit-chip-btn" aria-expanded={expanded} aria-controls={controls} onClick={onClick} data-testid={testId}>
+      <StatusChip word={word} />{detail ? <span className="kit-chip-btn__detail">{detail}</span> : null}
+    </button>
+  );
+}
+
+/** A button that reads as a link in running text (a count that filters, "show all"). `pressed` marks the one that is on. */
+export function LinkButton({ pressed, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "type"> & { pressed?: boolean }) {
+  return <button type="button" className="kit-link" aria-pressed={pressed} {...rest} />;
+}
+
+/** One row of a list that opens an item: the whole row is one button, its first line the item, its second where it stands. */
+export function RowButton({ selected, first, second, onClick }: { selected?: boolean; first: ReactNode; second?: ReactNode; onClick: () => void }) {
+  return (
+    <button type="button" className={`kit-row-btn${selected ? " kit-row-btn--selected" : ""}`} aria-current={selected ? "true" : undefined} onClick={onClick}>
+      <span className="kit-row-btn__first">{first}</span>
+      {second ? <span className="kit-row-btn__second">{second}</span> : null}
+    </button>
+  );
+}
+
+/** A neutral tag for an id or a code ("CFC-7", "PRO"): never a status, never coloured. */
+export function Tag({ children, testId }: { children: ReactNode; testId?: string }) {
+  return <span className="kit-tag" data-testid={testId}>{children}</span>;
+}
+
+/** One line of text that is cut with an ellipsis when too long; the whole text is in its title and stays in the page for readers. */
+export function OneLine({ children, title }: { children: ReactNode; title: string }) {
+  return <span className="kit-one-line" title={title}>{children}</span>;
+}
+
+/** A small menu of less-used actions, folded behind one secondary button ("More"). */
+export function MoreMenu({ label = "More", children, testId }: { label?: string; children: ReactNode; testId?: string }) {
+  return (
+    <details className="kit-more" data-testid={testId}>
+      <summary className="kit-btn kit-btn--secondary kit-btn--sm">{label}</summary>
+      <div className="kit-more__panel">{children}</div>
+    </details>
+  );
 }

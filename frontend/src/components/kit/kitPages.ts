@@ -6,4 +6,5 @@
 export const KIT_PAGES: readonly string[] = [
   "components/kit/KitPreview.tsx",
   "components/dashboard/GlanceTiles.tsx",
+  "views/TechnicalQueriesList.tsx",
 ];

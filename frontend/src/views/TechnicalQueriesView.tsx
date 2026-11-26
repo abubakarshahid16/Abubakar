@@ -1,10 +1,11 @@
 import { InfoFold } from "../components/look/LookParts";
-import { LIST_FOUND, groupByItem, matchWords, replyBeingRewritten, countLine, mailboxChip, problemChips, queryTag, quickMatch, statusChip, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, groupByItem, matchWords, replyBeingRewritten, mailboxChip, problemChips, quickMatch, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
+import { TechnicalQueriesList } from "./TechnicalQueriesList";
 import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, peopleLine, prepareAllWords, proposalNoteWords, type PrepareAll } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
@@ -407,15 +408,14 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   return (
     <div ref={topRef} className="mx-auto grid w-full min-w-0 gap-5 px-4 py-6 lg:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
       <section className="min-w-0 [overflow-wrap:anywhere]">
-        <h1 id="technical-queries-title" className="text-xl font-semibold text-slateish-100">Technical Queries and CFCs</h1>
-        {/* THE MAILBOX IN ONE CHIP (owner, 27 Nov 2026: "a manager never needs that arithmetic on the first screen"): the address, the
-            import counts and the import buttons are one click away, in the chip's own panel */}
-        {(() => {
-          const chip = mailboxChip(mailboxes, canManageGmail);
-          if (!chip) return null;
-          return <div className="mt-2">
-            <button type="button" data-testid="mailbox-chip" aria-expanded={mailboxOpen} aria-controls="mailbox-panel" onClick={() => setMailboxOpen((open) => !open)} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-xs ${chip.tone === "ok" ? "border-ink-600 text-slateish-200" : chip.tone === "problem" ? "border-danger-500 text-danger-500" : "border-warn-500 text-warn-500"}`}><span aria-hidden="true" className={`inline-block h-2 w-2 rounded-full ${chip.tone === "ok" ? "bg-signal-500" : chip.tone === "problem" ? "bg-danger-500" : "bg-warn-500"}`} />{chip.words}</button>
-            {mailboxOpen && <div id="mailbox-panel" data-testid="mailbox-panel">
+        {/* THE LIST COLUMN, built only from the shared kit (TechnicalQueriesList.tsx, R1); the page's own panels come in as they were */}
+        <TechnicalQueriesList chip={mailboxChip(mailboxes, canManageGmail)} mailboxOpen={mailboxOpen} onToggleMailbox={() => setMailboxOpen((open) => !open)}
+          loading={visibleTotal === null} items={items} activeFilters={activeFilters} quick={quick} onQuick={setQuick}
+          handOpen={handOpen} onHand={() => setHandOpen((open) => !open)} filtersOpen={filtersOpen} onFilters={() => setFiltersOpen((open) => !open)}
+          importing={importing} selectedId={selected?.id ?? null} assignees={assignees}
+          onOpen={(id) => void technicalQueriesApi.get(id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })}
+          panels={{
+            mailbox: <>
         {canManageGmail && mailboxes.length === 0 && <div className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200">
           <p>No Gmail mailbox is connected. Connect one to import technical queries from a selected label.</p>
           <button type="button" disabled={busy} onClick={() => void technicalQueriesApi.startGmail().then((result) => { if (result.ok) window.location.assign(result.data.authorization_url); else setError(result.error.message); })} className="mt-2 rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100 disabled:opacity-50">Connect Gmail</button>
@@ -450,24 +450,14 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <button type="button" onClick={() => setConfirming(null)} className="mt-1 rounded bg-ink-700 px-2 py-1 text-slateish-100">Cancel</button>
           </div>}
         </div>)}
-            </div>}
-          </div>;
-        })()}
+            </>,
+            messages: <>
         {gmailReturn === "admin_must_allow" && <p role="alert" className="mt-4 text-sm text-warn-500">Your company's Google admin must allow this app.</p>}
         {gmailReturn === "working" && <p role="status" className="mt-4 text-sm text-slateish-300">Finishing the Gmail connection.</p>}
         {gmailReturn === "connected" && !mailboxes.some((mailbox) => mailbox.connection_state === "active") && <p role="status" className="mt-4 text-sm text-slateish-300">Gmail is connected. Choose the label to import below.</p>}
         {error && <p role="alert" className="mt-4 text-sm text-danger-500">{error}</p>}
-        {/* THE COUNT LINE IS A FILTER (owner, 27 Nov 2026): only the states that exist right now, each a click away */}
-        {visibleTotal === null ? <p className="mt-3 text-sm text-slateish-400">Loading queries</p> : (() => {
-          const line = countLine(items);
-          return <p data-testid="count-line" className="mt-3 text-sm text-slateish-300"><span className="font-semibold text-slateish-100">{line.total} quer{line.total === 1 ? "y" : "ies"}{activeFilters > 0 ? " match the filters" : ""}</span>{line.parts.length ? ": " : ""}{line.parts.map((part, index) => <span key={part.view}>{index ? ", " : ""}<button type="button" aria-pressed={quick === part.view} onClick={() => setQuick((current) => current === part.view ? null : part.view)} className={`underline decoration-dotted underline-offset-2 ${quick === part.view ? "font-semibold text-slateish-100" : ""}`}>{part.n} {part.words}</button></span>)}{line.ofThem && <>. <button type="button" aria-pressed={quick === line.ofThem.view} onClick={() => setQuick((current) => current === "person" ? null : "person")} className={`underline decoration-dotted underline-offset-2 ${quick === "person" ? "font-semibold text-slateish-100" : ""}`}>{line.ofThem.n} of them {line.ofThem.words}</button></>}{quick && <> · <button type="button" onClick={() => setQuick(null)} className="underline">show all</button></>}</p>;
-        })()}
-        {/* ONE TOOLBAR: New query, Filters, and More for the rest */}
-        <div className="mt-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Query actions">
-          <button type="button" onClick={() => setHandOpen((open) => !open)} aria-expanded={handOpen} className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">New query</button>
-          <button type="button" onClick={() => setFiltersOpen((open) => !open)} aria-expanded={filtersOpen} aria-controls="query-filters" className="rounded bg-ink-700 px-3 py-1.5 text-xs text-slateish-100">{activeFilters > 0 ? `Filters (${activeFilters} active)` : "Filters"}</button>
-          {(canManageGmail || rules !== null) && <details data-testid="more-menu" className="text-xs"><summary className="cursor-pointer rounded bg-ink-700 px-3 py-1.5 text-slateish-100">More</summary>
-            <div className="mt-2 w-full space-y-3 rounded border border-ink-700 bg-ink-850 p-2">
+            </>,
+            more: (canManageGmail || rules !== null) ? <>
         {canManageGmail && <div className="text-xs text-slateish-200" data-testid="prepare-all">
           <button type="button" disabled={busy || preparingAll} onClick={() => { setError(null); void technicalQueriesApi.prepareAllPlan().then((result) => { if (result.ok) setPrepareAll({ plan: result.data, asking: true }); else setError(result.error.message); }); }} className="rounded bg-ink-700 px-3 py-1.5 text-slateish-100 disabled:opacity-50">Find the sources for every query not prepared yet</button>
           {prepareAll?.asking && <div role="alertdialog" aria-label="Confirm preparing all" className="mt-2 rounded border border-warn-500 p-2" data-testid="confirm-prepare-all">
@@ -487,9 +477,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               <input aria-label="Rule department" value={ruleDepartment} onChange={(event) => setRuleDepartment(event.target.value)} placeholder="Department" className="w-full rounded border border-ink-600 bg-ink-900 p-1.5" />
               <button type="button" disabled={!ruleValue.trim()} onClick={() => { setError(null); void technicalQueriesApi.saveRoutingRule({ match_type: ruleType, match_value: ruleValue.trim(), contractor_name: ruleContractor.trim() || null, department: ruleDepartment.trim() || null }).then((result) => { if (result.ok) { setRules(result.data.items); setRuleValue(""); setRuleContractor(""); setRuleDepartment(""); } else setError(result.error.message); }); }} className="rounded bg-ink-700 px-2 py-1 disabled:opacity-50">Save rule</button>
             </div></details>}
-            </div>
-          </details>}
-        </div>
+            </> : null,
+            handForm: <>
           {handOpen && <div className="mt-2 space-y-1 rounded border border-ink-700 p-3 text-xs text-slateish-300" aria-label="New query by hand">
             <p className="text-slateish-400">For a query that did not come by email. Papers you upload are checked for active content like any emailed attachment.</p>
             <label className="block">Subject<input value={handSubject} onChange={(event) => setHandSubject(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
@@ -498,6 +487,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <label className="block">Papers (optional)<input type="file" multiple onChange={(event) => setHandFiles(Array.from(event.target.files ?? []))} className="mt-1 w-full" /></label>
             <button type="button" disabled={busy || !handSubject.trim() || !handBody.trim()} onClick={createByHand} className="rounded bg-signal-500 px-2 py-1 text-white disabled:opacity-50">Create query</button>
           </div>}
+            </>,
+            filters: <>
         <div className="mt-2">
           {filtersOpen && (
         <div id="query-filters" className="mt-2 space-y-2" role="group" aria-label="Query filters">
@@ -528,30 +519,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           </div>
           )}
         </div>
-        {/* each query in one or two lines: its tag, discipline and short title; then where it stands, who has it, its due date and any problem
-            as a short chip, the full sentence on hover (owner, 27 Nov 2026) */}
-        <div className="mt-4 space-y-2" aria-label="Technical query list">
-          {items.length === 0 && <p className="text-sm text-slateish-500">{importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</p>}
-          {items.length > 0 && quick && !items.some((item) => quickMatch(quick, item)) && <p className="text-sm text-slateish-400">None right now.</p>}
-          {(quick ? items.filter((item) => quickMatch(quick, item)) : items).map((item) => {
-            const tag = queryTag(item);
-            const chip = statusChip(item.status);
-            const who = item.assignee_user_id ? (assignees.find((p) => p.id === item.assignee_user_id)?.display_name ?? "a person") : "Nobody assigned";
-            return <button key={item.id} type="button" onClick={() => void technicalQueriesApi.get(item.id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })} className={`w-full rounded border px-3 py-2 text-left ${selected?.id === item.id ? "border-signal-500 bg-ink-800" : "border-ink-700 bg-ink-850"}`}>
-              <span className="flex min-w-0 items-center gap-1.5">
-                {tag && <span data-testid="query-tag" className="shrink-0 whitespace-nowrap rounded bg-ink-700 px-1.5 text-xs font-semibold text-slateish-100">{tag}</span>}
-                {item.discipline_code && <span className="shrink-0 whitespace-nowrap rounded border border-ink-600 px-1.5 text-xs text-slateish-300">{item.discipline_code}</span>}
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-slateish-100" title={item.title_short ?? item.subject}>{item.title_short ?? item.subject}</span>
-              </span>
-              <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slateish-400">
-                <span data-testid="status-chip" className={`whitespace-nowrap rounded border px-1.5 ${chip.tone === "wait" ? "border-signal-500 text-slateish-100" : chip.tone === "done" ? "border-ink-500 text-slateish-100" : chip.tone === "problem" ? "border-danger-500 text-danger-500" : "border-ink-600 text-slateish-300"}`}>{chip.words}</span>
-                <span className="whitespace-nowrap">{item.contractor_name ? `${item.contractor_name} \u00b7 ` : ""}{who}</span>
-                {item.due_at && <span className="whitespace-nowrap">due {formatWhen(item.due_at).split(",")[0]}</span>}
-                {problemChips(item).map((p) => <span key={p.words} data-testid="problem-chip" data-words={p.words} title={p.why} className="whitespace-nowrap rounded border border-warn-500 px-1.5 text-warn-500">{p.words}<span className="sr-only">: {p.why}</span></span>)}
-              </span>
-            </button>;
-          })}
-        </div>
+            </>,
+          }} />
 
       </section>
       {/* min-w-0 + wrapping anywhere: a long unbroken line in a mail (a link, a disclaimer) can never widen the page past the window */}
