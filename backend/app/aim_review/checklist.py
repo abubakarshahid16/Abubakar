@@ -22,6 +22,7 @@ from app.aim_review_store import (  # BUILT_FROMS is read by the engine through 
 from . import book_names as BN
 from . import library as L
 from . import prompts as P
+from . import retry as RT
 from . import scope_books as SB
 from .budget import is_local
 from .carried import knowledge_rows, say_none, set_aside
@@ -455,8 +456,13 @@ def _answers(
         out = model.ask(step="aim_checklist", model=lead, system="", cached=None, prompt=prompt, carries=carries,
                         max_tokens=S3_MAX_TOKENS)  # fmt: skip
     except StepFailed as exc:
-        if "max_tokens" not in str(exc) or len(batch) < 2 or depth >= SPLIT_DEPTH:
+        if "max_tokens" not in str(exc):
             raise
+        if len(batch) < 2 or depth >= SPLIT_DEPTH:
+            if not is_local():
+                raise
+            log.info("general review: a local checklist answer is still cut; no items")
+            return []  # a cut answer is never used, and on the local model it never stops the run
         log.info(
             "general review: a checklist answer was cut; its batch is asked again in two halves"
         )
@@ -465,30 +471,6 @@ def _answers(
             model, ident, sel, batch[:h], first, carries, lead, depth + 1
         ) + _answers(model, ident, sel, batch[h:], False, carries, lead, depth + 1)
     return [(out, batch)]
-
-
-def _retried(
-    model, bad: list[dict], batch, carries, lead, depth: int = 0
-) -> list[dict]:
-    """The retry's items for `bad` (one call). On the local model a cut answer is never used: the items are asked again in two
-    halves, and one item whose answer is still cut is dropped (its quote stays not found); on Claude a cut is raised, as before."""
-    prompt = P.S3_RETRY % {
-        "items": _dumps(bad),
-        "material": "\n".join(_material_line(r) for r in batch),
-    }
-    try:
-        fix = model.ask(step="aim_checklist_retry", model=lead, system="", cached=None, prompt=prompt, carries=carries,
-                        max_tokens=8000)  # fmt: skip
-    except StepFailed as exc:
-        if not is_local() or "max_tokens" not in str(exc) or depth >= SPLIT_DEPTH:
-            raise
-        if len(bad) < 2:
-            return []
-        h = len(bad) // 2
-        return _retried(model, bad[:h], batch, carries, lead, depth + 1) + _retried(
-            model, bad[h:], batch, carries, lead, depth + 1
-        )
-    return _items_of(fix)
 
 
 def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> dict:
@@ -518,7 +500,7 @@ def s3_checklist(model, ident: dict, sel: dict, text: L.BookText, lead: str) -> 
             size = RETRY_LOCAL if is_local() else len(bad)
             fixed = []
             for k in range(0, len(bad), size):
-                fixed += _retried(model, bad[k : k + size], batch, carries, lead)
+                fixed += RT.retried(model, bad[k : k + size], batch, carries, lead)
             ok_fixed = [
                 it
                 for it in fixed

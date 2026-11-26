@@ -292,7 +292,9 @@ def test_on_the_local_model_a_met_code_could_not_prove_is_never_sent():
     assert line["label"] == "Question" and aim_review.AI_MET_UNPROVEN in line["code"]
     assert not aim_review.sendable(to_line(1, line))
     with budget.using(budget.LOCAL):
-        assert "exactly as PRINTED (never converted or worked out" in P.s4_task()  # the local model's judge line
+        assert (
+            "exactly as PRINTED (never converted or worked out" in P.s4_task()
+        )  # the local model's judge line
     assert "exactly as PRINTED" not in P.s4_task()  # Claude: main's judge text
 
 
@@ -377,3 +379,59 @@ def test_on_the_local_model_a_cut_attack_answer_of_one_batch_is_set_aside_and_th
     assert (
         len(local.calls) == n and len(got["attack"]["removed"]) == n - 1
     )  # the cut one is not used
+
+
+def test_the_local_answer_shape_always_closes_items_and_text_are_bounded():
+    """F's 14B run at 7dd97183: answers of 8,192 tokens out of 1,500 in, a list that never ended. The forced shape bounds it."""
+    from app.aim_review import answer_schema as A
+
+    items = A.for_step("aim_checklist")["properties"]["items"]
+    assert items["maxItems"] == A.MAX_ITEMS and all(
+        v.get("maxLength") or v.get("maxItems") or v.get("anyOf")
+        for v in items["items"]["properties"].values()
+    )
+    assert (
+        A.for_step("aim_judge")["properties"]["judgments"]["maxItems"]
+        == A.MAX_JUDGMENTS
+    )
+
+
+class _Runaway(_Retry):
+    def ask(self, **kw):
+        from app.aim_review.engine import StepFailed
+
+        self.calls.append(kw)
+        if kw["step"] == "aim_checklist":
+            raise StepFailed("aim_checklist: stop_max_tokens")
+        return {"items": []}
+
+
+def test_a_local_checklist_answer_still_cut_after_halving_is_set_aside_and_never_stops_the_run():
+    import pytest
+
+    from app.aim_review.engine import StepFailed
+
+    sel = _sel(6)
+    sel["books"] = [
+        {**b, "committee": "", "why": "invented", "required": False}
+        for b in sel["books"]
+    ]
+    ident = {
+        "kind": "datasheet",
+        "equipment_type": None,
+        "subject": "invented",
+        "service": "",
+    }
+    local = _Runaway()
+    with budget.using(budget.LOCAL):
+        got = CL.s3_checklist(
+            local, ident, sel, _Book(), "local"
+        )  # every answer cut: no items, but the run goes on
+    assert (
+        got["items"] == []
+        and sum(c["step"] == "aim_checklist" for c in local.calls) > 1
+    )  # halves were asked first
+    with pytest.raises(StepFailed):
+        CL.s3_checklist(
+            _Runaway(), ident, sel, _Book(), "claude-sonnet-5-5"
+        )  # Claude: raised, as before
