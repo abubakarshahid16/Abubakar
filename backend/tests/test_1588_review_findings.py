@@ -282,7 +282,6 @@ def test_naming_skipped_is_stated_and_a_requirement_left_unpaired_never_passes(
 ):
     """Naming only ADDS a pairing: with it skipped, containment decides, and a requirement
     nothing pairs stays a query, stated on the run. It never reads as a Pass."""
-    lane.setattr(settings, "field_naming_enabled", True)
     lane.setattr(settings, "geometry_reader_enabled", True)
     with db.connect() as conn:
         conn.execute(

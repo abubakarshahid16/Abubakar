@@ -201,11 +201,38 @@ def _second_standard(run):
         )
 
 
+def _raised_rule(applicable):
+    """The rule the retired switch applied (recommendation_queries_enabled retired 26 Nov 2026 (OFF kept)): the standards the datasheet itself names. The app no longer raises
+    recommendations; these tests stand this rule in for `recommendations.named` so the query path, still in the code until the
+    old engine's retirement (D1), stays tested."""
+    from app import applicability
+
+    return {
+        a["standard_document_id"]
+        for a in applicable
+        if a.get("selection_method") == applicability.METHOD_REFERENCED
+    }
+
+
 @pytest.fixture
 def queries_on(monkeypatch):
-    from app.config import settings
+    monkeypatch.setattr(recommendations, "named", _raised_rule)
 
-    monkeypatch.setattr(settings, "recommendation_queries_enabled", True)
+
+def test_the_app_raises_no_recommendation_since_the_switch_retired():
+    from app import applicability
+
+    assert (
+        recommendations.named(
+            [
+                {
+                    "standard_document_id": "std-1",
+                    "selection_method": applicability.METHOD_REFERENCED,
+                }
+            ]
+        )
+        == set()
+    )
 
 
 def _reasons(split):
@@ -323,7 +350,8 @@ def _numbers_of_the_run(monkeypatch, tmp_path, switch):
     db.init_db()
     submittal_review.ensure_schema()
     submittal_review.migrate_facts_to_per_document()
-    monkeypatch.setattr(settings, "recommendation_queries_enabled", switch)
+    if switch:  # the retired switch's rule, stood in (see `_raised_rule`)
+        monkeypatch.setattr(recommendations, "named", _raised_rule)
     _req, _fact, run, scope = _world("Design pressure", "3.5 barg")
     for n in range(3):
         _add_advice(

@@ -168,7 +168,6 @@ EGRESS_SAFE: dict[str, object] = {
     "claude_approved_list_enforced": False,
     "review_ai_check_enabled": False,
     "geometry_reader_enabled": False,  # also gates the Claude vision reader
-    "field_naming_enabled": False,  # order 259.5: model-named fields in a review
     "vision_reader_engine": "ollama",  # #830: "claude" sends page images out under per_task
     "answer_judge_enabled": False,  # a model call per answer
     "ai_senior_review_enabled": False,  # a model call per review item
@@ -292,7 +291,6 @@ EGRESS_SAFE: dict[str, object] = {
     # --- local only, no model or socket: rule_trust's opt-in hook (off by default)
     "rule_auto_use_enabled": False,
     # --- local only, no model or socket: a recommendation is raised as a query (order 288.2, off by default)
-    "recommendation_queries_enabled": False,
     # --- local only, no model or socket: a value marked By Contractor / TBA is a query, never a verdict (#1475, D2, off by default)
     "deferred_value_is_query_enabled": False,
     # --- local only, no model or socket: document kind from the title block (#1474, off by default)

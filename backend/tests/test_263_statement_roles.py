@@ -446,7 +446,9 @@ def test_a_reviewed_statement_pairs_through_the_run_and_shows_both_sides_held_fo
     from app import comparison
 
     rule, fact, run, scope = _statement_world(sheet)
-    monkeypatch.setattr(settings, "field_naming_enabled", True)
+    monkeypatch.setattr(
+        settings, "geometry_reader_enabled", True
+    )  # was field_naming_enabled: field_naming_enabled retired 26 Nov 2026 (OFF kept): the naming step runs through the geometry reader only
     monkeypatch.setattr(
         field_naming, "ensure_names", lambda *_a, **_k: pytest.fail("a model was asked")
     )
@@ -465,7 +467,9 @@ def test_a_reviewed_statement_is_not_used_on_a_review_of_another_type(monkeypatc
     from app import comparison
 
     rule, _fact, run, scope = _statement_world("Duplex stainless steel")
-    monkeypatch.setattr(settings, "field_naming_enabled", True)
+    monkeypatch.setattr(
+        settings, "geometry_reader_enabled", True
+    )  # was field_naming_enabled: field_naming_enabled retired 26 Nov 2026 (OFF kept): the naming step runs through the geometry reader only
     _classify("Pressure Vessel")
     found = _finding_of(
         comparison.run_comparison(run, allowed_document_ids=scope), rule
@@ -486,7 +490,9 @@ def test_a_statement_pairs_with_the_field_of_its_own_role_and_not_with_another_f
         raw_value="Ball bearing",
         page=1,
     )
-    monkeypatch.setattr(settings, "field_naming_enabled", True)
+    monkeypatch.setattr(
+        settings, "geometry_reader_enabled", True
+    )  # was field_naming_enabled: field_naming_enabled retired 26 Nov 2026 (OFF kept): the naming step runs through the geometry reader only
     _classify(PUMP)
     found = _finding_of(
         comparison.run_comparison(run, allowed_document_ids=scope), rule

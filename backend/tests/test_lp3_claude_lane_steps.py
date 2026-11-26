@@ -241,7 +241,6 @@ def test_a_claude_lane_review_runs_both_steps_on_claude_and_skips_neither(
 
     for name in local_engine_bar.REVIEW_ENGINE_SETTINGS:
         declared.setattr(settings, name, "claude")
-    declared.setattr(settings, "field_naming_enabled", True)
     declared.setattr(settings, "geometry_reader_enabled", True)
     declared.setattr(settings, "ai_clause_checks_enabled", True)
     declared.setattr(

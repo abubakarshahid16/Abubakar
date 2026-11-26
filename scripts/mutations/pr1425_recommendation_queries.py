@@ -1,6 +1,7 @@
 """Order 288.2 step 2 (PR 1425): a recommendation of a named standard is raised as an engineer's query.
 `comparison.py` is danger zone. Ids M1425-01 onwards, phase 1425. M1421-08 and -09 (the earlier `apart` step)
-are replaced by -01 and -02 here: the code they anchored is gone."""
+are replaced by -01 and -02 here: the code they anchored is gone. M1425-04 (the switch ignored) went with the switch
+recommendation_queries_enabled, retired 26 Nov 2026 (lead-4, OFF kept); its id is not reused."""
 
 from __future__ import annotations
 
@@ -48,14 +49,6 @@ MUTATIONS: tuple[Mutation, ...] = (
         "    requirements = recommendations.hold_for_query(requirements, held_items)",
         "    requirements = [r for r in requirements if not recommendations.is_advice(r)]",
         "is_raised_as_a_query",
-    ),
-    _m(
-        4,
-        "the switch is ignored: every referenced standard raises its recommendations",
-        APP / "recommendations.py",
-        "    if not settings.recommendation_queries_enabled:\n        return set()\n",
-        "",
-        "switch_off",
     ),
     _m(
         5,
