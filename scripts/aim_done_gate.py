@@ -492,6 +492,12 @@ def cmd_report(a) -> int:
 # ------------------------------------------------------------------------------------------------ switches
 
 
+def _unscored(words) -> bool:
+    """The Local-only words mark it as not scored (the app's own phrases: "rough draft", "not yet scored")."""
+    said = str(words or "").lower()
+    return "rough draft" in said or "not yet scored" in said
+
+
 def cmd_switches(a) -> int:
     c = driver.Client(a.base_url, driver.read_token(a.token_file))
     code, m = c.json("GET", "/api/reviews/method")
@@ -500,10 +506,12 @@ def cmd_switches(a) -> int:
         ("method route answers", code == 200, f"HTTP {code}"),
         ("method is general", m.get("method") == "general", repr(m.get("method", NM))),
         ("old engine off", m.get("old_engine") is False, repr(m.get("old_engine", NM))),
+        # today's rule (since update 9; the planner's 26 Nov order): Local only is OFFERED and labelled as unscored (a rough
+        # draft); the rule before update 9 was "Local only not available"
         (
-            "Local only not available",
-            m.get("local_available") is False,
-            repr(m.get("local_available", NM)),
+            "Local only offered, labelled a rough draft",
+            m.get("local_available") is True and _unscored(m.get("local_words")),
+            f"{m.get('local_available', NM)!r}, words {'say' if _unscored(m.get('local_words')) else 'do NOT say'} unscored",
         ),
     ]
     code, plan = c.json(
