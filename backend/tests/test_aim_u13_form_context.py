@@ -113,3 +113,63 @@ def test_on_g1_asks_for_the_standards_list_and_g3_for_each_entry_of_a_kind_and_o
     )
     monkeypatch.setattr(settings, "aim_u13_enabled", False)
     assert always.form_context({"equipment_type": "pressure_vessel"}) == ("", "")
+
+
+# ---- items 7 and 8 (a procedure): its cited books reach the checklist; G2 asks for each definition and each interval
+
+
+def test_on_a_book_the_paper_cites_stays_in_the_catalog_when_its_committee_role_does_not_fit_the_kind_and_off_it_is_dropped(
+    tmp_path, monkeypatch
+):
+    """The stored procedure runs: both cited held books were dropped by the committee-role filter, before the scope filter that
+    keeps cited books, so the checklist had no held rule at all. A cited book is on the shown list (rule 1: `within`)."""
+    from app.aim_review import checklist as CL
+    from app.aim_review import library as L
+    from tests.test_aim_method_helpers import BOOK_A, BOOK_B, PAPER, open_aim_db
+
+    gen = open_aim_db(tmp_path, monkeypatch)
+    conn = next(gen)
+    try:
+        monkeypatch.setattr(L, "role_applies", lambda e, k: e["id"] != BOOK_A)
+        ident, listed = (
+            {"kind": "procedure", "equipment_type": None},
+            frozenset({BOOK_A, BOOK_B}),
+        )
+
+        def books(cited):
+            cat, *_ = CL._catalog(
+                conn, PAPER, ident, listed, {"listed": {}}, lambda b: None, cited
+            )
+            return {c["book"] for c in cat}
+
+        monkeypatch.setattr(settings, "aim_u13_enabled", False)
+        assert BOOK_A not in books(frozenset({BOOK_A}))  # main: dropped
+        monkeypatch.setattr(settings, "aim_u13_enabled", True)
+        assert BOOK_A in books(frozenset({BOOK_A}))
+        assert BOOK_A not in books(
+            frozenset()
+        )  # not cited: the role filter still holds
+        cat, *_ = CL._catalog(
+            conn,
+            PAPER,
+            ident,
+            frozenset({BOOK_B}),
+            {"listed": {}},
+            lambda b: None,
+            frozenset({BOOK_A}),
+        )
+        assert BOOK_A not in {
+            c["book"] for c in cat
+        }  # cited but not on the shown list: never in (rule 1)
+    finally:
+        next(gen, None)
+
+
+def test_on_g2_asks_for_each_definition_and_each_interval_on_any_kind_and_off_not(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "aim_u13_enabled", True)
+    for etype in ("pressure_vessel", None):
+        assert always.G2_MORE in always.form_context({"equipment_type": etype})[0]
+    monkeypatch.setattr(settings, "aim_u13_enabled", False)
+    assert always.form_context({"equipment_type": None}) == ("", "")

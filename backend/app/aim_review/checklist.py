@@ -47,7 +47,7 @@ from .material import (  # noqa: F401 - the clause material S3 and the attack re
     halves,
     material,
 )
-from .updates import checklist_method
+from .updates import checklist_method, u13
 
 log = logging.getLogger(__name__)
 HELD = "held standard"
@@ -329,7 +329,8 @@ def _catalog(
                     "text_only": True,
                 }
             )
-    cat = [c for c in cat if L.role_applies(by_id[c["book"]], kind)]
+    # update 13: a book the paper itself cites applies to it, whatever its committee's role (the stored procedure runs had none left)
+    cat = [c for c in cat if (u13() and c["book"] in cited) or L.role_applies(by_id[c["book"]], kind)]  # fmt: skip
     # a book only when it is public, the client's own (its recorded role) or cited (the build sees no paper: the job passes the
     # cited ids, no text)
     cat = [c for c in cat if L.usable(by_id[c["book"]])]
