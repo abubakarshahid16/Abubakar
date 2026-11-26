@@ -161,6 +161,8 @@ SCHEMAS: dict[str, dict] = {
     "aim_checklist_retry": _ITEMS,
     "aim_checklist_knowledge": _ITEMS,
 }
+#: Role 5 of the nine roles (`missed.STEP`) asks the judge's own question again: the judge's answer shape.
+SCHEMAS["aim_checklist_missed"] = SCHEMAS["aim_judge"]
 
 
 #: The checklist call in force may hold at most this many items (`items_at_most`, set by the caller per batch); None: MAX_ITEMS.
