@@ -33,7 +33,7 @@ SYSTEM_DRAFT = "system-draft-2"
 #: passages were below it; with it, 23 of 32 queries keep a source (median 7). A passage an engineer KEPT always counts.
 RELEVANCE_FLOOR = -1.19
 #: The passages a system draft is written from when no engineer has kept one: the best found for this wording.
-MAX_DRAFT_PASSAGES = 8
+MAX_DRAFT_PASSAGES = 8  # = answer.QUERY_REPLY_PASSAGES: what the local draft can read
 #: The states in which the wording may change and evidence and draft refresh (as `technical_queries.prepare_evidence` accepts); a query
 #: awaiting review on a MODEL-written draft is refreshed too (its draft is replaced by a new version), never one on an engineer's own draft.
 PREPARABLE = ("received", "triage", "drafting", "changes_requested")
@@ -96,7 +96,24 @@ def draft_passages(
             if e["evidence_state"] == "verified"
             and e["supersession_state"] != "superseded"
         ]
-    return kept + found[: max(0, MAX_DRAFT_PASSAGES - len(kept))]
+    return kept + by_item(found)[: max(0, MAX_DRAFT_PASSAGES - len(kept))]
+
+
+def by_item(found: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The finds in turns, ITEM BY ITEM (each numbered item's best, then each one's second best ...), then the whole request's own finds:
+    so every item of a long request reaches the draft (technical_query_items). Finds with no item keep their order."""
+    groups: dict[int, list[dict[str, Any]]] = {}
+    rest = []
+    for e in found:
+        if e.get("item_no"):
+            groups.setdefault(int(e["item_no"]), []).append(e)
+        else:
+            rest.append(e)
+    turns = []
+    depth = max((len(g) for g in groups.values()), default=0)
+    for r in range(depth):
+        turns += [groups[n][r] for n in sorted(groups) if r < len(groups[n])]
+    return turns + rest
 
 
 def close_enough(row: dict[str, Any]) -> bool:
