@@ -60,7 +60,8 @@ describe("where the sources and the draft stand (builder A's ready)", () => {
     expect(readyLine(null)).toBeNull();
   });
   it("says who wrote the draft and whether it used paid credit", () => {
-    expect(draftAuthor({ system: true, model: "invented-small:9b" })).toBe("Written by the AI on this computer from the sources found (no paid credit).");
+    expect(draftAuthor({ system: true, model: "invented-small:9b" })).toBe("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
+    expect(draftAuthor({ system: true, model: null })).toBe("Written by the AI on this computer from the sources found (no credit needed).");
     expect(draftAuthor({ system: true, model: "claude-invented" })).toBe("Written by Claude from the sources found (uses paid credit).");
     expect(draftAuthor({ system: false, model: null })).toBe("Written by an engineer.");
     expect(draftAuthor({ model: "x" })).toBeNull(); // an older draft with no origin recorded: nothing claimed

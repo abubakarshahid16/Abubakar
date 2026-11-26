@@ -159,7 +159,7 @@ export function draftAuthor(d: { system?: boolean | null; model?: string | null 
   if (!d) return null;
   if (d.system === false) return "Written by an engineer.";
   if (d.system !== true) return null;
-  return /claude/i.test(d.model ?? "")
-    ? "Written by Claude from the sources found (uses paid credit)."
-    : "Written by the AI on this computer from the sources found (no paid credit).";
+  // builder A: the automatic draft is always the local model and needs no credit; a Claude draft is only an engineer's own request
+  if (/claude/i.test(d.model ?? "")) return "Written by Claude from the sources found (uses paid credit).";
+  return `Written by ${d.model ? `${d.model}, the AI on this computer,` : "the AI on this computer"} from the sources found (no credit needed).`;
 }
