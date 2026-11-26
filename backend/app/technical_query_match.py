@@ -172,6 +172,20 @@ def last_heading(page_text: str) -> str | None:
     return found[-1][1] if found else None
 
 
+_SENTENCE = re.compile(r"(?<=[.;:!?])\s+|\n+")
+
+
+def best_sentence(terms: list[str], text: str) -> str | None:
+    """The sentence of a passage holding the most of the question's key terms (the first of equals), or None when none holds one: where the
+    matched words sit, so a passage spanning several clauses is located at the clause that answers (review of evidence run 2: Q1, Q4)."""
+    best, most = None, 0
+    for sentence in (x.strip() for x in _SENTENCE.split(text or "")):
+        held = score(terms, sentence)["count"] if sentence else 0
+        if held > most:
+            best, most = sentence, held
+    return best
+
+
 def locator_for(
     page_text: str,
     earlier_page_text: str | None,

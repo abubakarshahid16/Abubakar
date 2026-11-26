@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from app.technical_query_match import heading_above, last_heading, locator_for
 
+from .test_technical_queries import temp_storage  # noqa: F401 - the fixture is used by name
+
 
 def test_a_clause_number_alone_on_its_line_takes_its_title_from_the_next_line():
     page = "Invented Contract Part\n4.2.1\nInvented Cooling Water\nThe invented header shall be designed for 12 bar."
@@ -53,3 +55,37 @@ def test_the_last_heading_of_the_page_before_still_serves_a_passage_with_none_on
         )
         == "5.6 Invented Testing"
     )
+
+
+def test_a_passage_spanning_two_clauses_is_located_at_the_clause_holding_the_matched_words():
+    from app import db
+    from app.technical_queries import _locator_of
+    from app.technical_query_match import best_sentence, key_terms
+
+    page = ("3.1 Invented Painting\nThe invented steel shall be painted in invented grey.\n"
+            "3.2 Invented Insulation\nThe invented insulation thickness shall be 50 mm on invented pipes.")  # fmt: skip
+    passage_text = (
+        "The invented steel shall be painted in invented grey.\n3.2 Invented Insulation\n"
+        "The invented insulation thickness shall be 50 mm on invented pipes."
+    )
+    terms = key_terms("What insulation thickness applies?")
+    assert best_sentence(terms, passage_text).startswith(
+        "The invented insulation thickness"
+    )
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at) VALUES ('c9','c.pdf',?,1,'c.pdf','ready','2026-01-01')",
+            ("9" * 64,),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES ('c9',1,?,?,0,1)",
+            (page, len(page)),
+        )
+        passage = {"document_id": "c9", "page_start": 1, "page_end": 1}
+        assert (
+            _locator_of(conn, passage, passage_text, terms) == "3.2 Invented Insulation"
+        )
+        assert (
+            _locator_of(conn, passage, passage_text, key_terms("Which paint colour?"))
+            == "3.1 Invented Painting"
+        )

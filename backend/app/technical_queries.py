@@ -1213,17 +1213,36 @@ def confirm_question(
     return get(query_id, user_id, is_admin, unrestricted)
 
 
-def _locator_of(conn, passage: dict, quote: str) -> str | None:
-    """The clause heading a passage stands under ("6.1 Painting"), from the search's own heading or the stored page text; None when none is found."""
+def _locator_of(
+    conn, passage: dict, quote: str, terms: list[str] | None = None
+) -> str | None:
+    """The clause a passage answers under: the heading above the passage's sentence holding the most of the question's key terms (a passage
+    may span several clauses), else the heading the passage starts under ("6.1 Painting", from the search's own heading or the stored page
+    text); None when none is found."""
     from . import technical_query_match
 
     start = passage.get("page_start")
     document_id = passage.get("document_id")
     if not start or not document_id:
         return None
-    rows = {r["page_no"]: _page_text(r) for r in _source_pages(conn, document_id, max(1, start - 1), start)}
+    end = passage.get("page_end") or start
+    rows = {
+        r["page_no"]: _page_text(r)
+        for r in _source_pages(conn, document_id, max(1, start - 1), max(start, end))
+    }
+    best = technical_query_match.best_sentence(terms or [], quote)
+    if best and not _squash(quote).startswith(
+        _squash(best)
+    ):  # the matched words sit further in: their own clause
+        on = "\n".join(rows.get(p, "") for p in range(start, max(start, end) + 1))
+        found = technical_query_match.heading_above(on, best)
+        if found:
+            return found
     return technical_query_match.locator_for(
-        rows.get(start, ""), rows.get(start - 1) if start > 1 else None, quote, passage.get("context") or passage.get("section")
+        rows.get(start, ""),
+        rows.get(start - 1) if start > 1 else None,
+        quote,
+        passage.get("context") or passage.get("section"),
     )
 
 
@@ -1374,7 +1393,7 @@ def prepare_evidence(
 
             sc = technical_query_match.score(terms, quote)
             scores.append(sc)
-            locator = passage.get("locator") or _locator_of(conn, passage, quote)
+            locator = passage.get("locator") or _locator_of(conn, passage, quote, terms)
             quote_hash = hashlib.sha256(quote.encode()).hexdigest()
             known = conn.execute(
                 "SELECT id,supersession_state FROM query_evidence WHERE query_id=? "
