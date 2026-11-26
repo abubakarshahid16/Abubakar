@@ -88,7 +88,7 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
   // a saved model that is no longer offered (removed, too large) stays visible in its picker, so the screen never hides it
   const pick = (value: string, onChange: (v: string) => void, label: string, empty: string) => (
     <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} disabled={busy}
-      className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1 text-sm">
+      className="w-full min-w-0 max-w-full rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1 text-sm">
       <option value="">{empty}</option>
       {choosable.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
       {value && !choosable.some((m) => m.name === value) && <option value={value}>{value} (no longer offered)</option>}
@@ -128,7 +128,7 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
     </span>
   ));
   const pickers = options && (
-    <div className="grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">
+    <div className="grid gap-2 text-sm sm:grid-cols-[10rem_minmax(0,1fr)]">
       <span className="text-slateish-300">Default AI on this computer</span>
       {pick(choice.default, (v) => setChoice((c) => ({ ...c, default: v })), "Default local model",
         `the answer model (${options.answer_model})`)}
@@ -138,7 +138,7 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
   // under the new look the per-step choices (internal step names) are folded: the default is the one choice most need
   const stepsFold = NEW_LOOK && options && options.steps.length > 0 && (
     <InfoFold title="One AI per step (advanced)">
-      <div className="grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">{steps}</div>
+      <div className="grid gap-2 text-sm sm:grid-cols-[10rem_minmax(0,1fr)]">{steps}</div>
     </InfoFold>
   );
 

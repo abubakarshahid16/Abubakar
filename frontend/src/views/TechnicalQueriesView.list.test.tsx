@@ -54,7 +54,8 @@ describe("the query list page", () => {
   it("has a count line that is also a filter, with only the states that exist now", async () => {
     render(<TechnicalQueriesView />);
     const line = await screen.findByTestId("count-line");
-    expect(line.textContent).toBe("3 queries: 1 waiting for approval, 2 in progress, 1 needs a person");
+    // the status parts add up to the total; the one needing a person is said "of them", never added (owner's live walk, 27 Nov 2026)
+    expect(line.textContent).toBe("3 queries: 1 waiting for approval, 2 in progress. 1 of them needs a person");
     fireEvent.click(within(line).getByRole("button", { name: "1 waiting for approval" }));
     const list = screen.getByLabelText("Technical query list");
     expect(within(list).getAllByRole("button").length).toBe(1);
@@ -113,6 +114,27 @@ describe("the query list page", () => {
     ]);
   });
 
+  it("puts the count line's filter in the address and reads it back (F's walk, 27 Nov 2026)", async () => {
+    window.history.replaceState(null, "", "/technicalQueries?show=person");
+    render(<TechnicalQueriesView />);
+    const list = screen.getByLabelText("Technical query list");
+    await waitFor(() => expect(within(list).getAllByRole("button").length).toBe(1)); // read back: only the one needing a person
+    fireEvent.click(within(await screen.findByTestId("count-line")).getByRole("button", { name: "show all" }));
+    expect(window.location.search).toBe("");
+    fireEvent.click(within(screen.getByTestId("count-line")).getByRole("button", { name: "1 waiting for approval" }));
+    expect(window.location.search).toBe("?show=waiting");
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("opens the first match when the open query is not among a filter's matches (F's walk, 27 Nov 2026)", async () => {
+    api.get.mockImplementation((id: string) => Promise.resolve({ ok: true, data: rows.find((r) => r.id === id) }));
+    render(<TechnicalQueriesView />);
+    expect(await screen.findByText(rows[0].subject, { selector: "h2" })).toBeTruthy(); // the first query opens on arrival
+    fireEvent.click(within(await screen.findByTestId("count-line")).getByRole("button", { name: "1 of them needs a person" }));
+    await waitFor(() => expect(api.get).toHaveBeenLastCalledWith("q3"));
+    expect(await screen.findByText("Please advise", { selector: "h2" })).toBeTruthy();
+  });
+
   it("says a stopped mailbox in red on the chip", async () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ ...mailbox, connection_state: "error", status_note: "Gmail could not be read." }] } });
     render(<TechnicalQueriesView />);
@@ -158,6 +180,14 @@ describe("the list page's words", () => {
       expect(new Set(words).size).toBeLessThanOrEqual(view === "closed" ? 3 : 1);
     }
     expect(rows.filter((r) => quickMatch("approved", r)).map((r) => statusChip(r.status).words)).toEqual(["Approved"]);
+  });
+  it("adds up: every status lands in exactly one part, and the parts sum to the total (owner's live walk, 27 Nov 2026)", () => {
+    const statuses = ["received", "triage", "drafting", "awaiting_review", "changes_requested", "approved", "send_pending", "sent", "awaiting_confirmation", "resolved", "duplicate", "cancelled", "failed", "some_new_state"];
+    const rows = statuses.flatMap((status) => [{ status, ref_type: "TQ", needs_person: 0 }, { status, ref_type: null, needs_person: 1 }]);
+    const line = countLine(rows);
+    expect(line.parts.reduce((sum, p) => sum + p.n, 0)).toBe(line.total);
+    for (const r of rows) expect(line.parts.filter((p) => quickMatch(p.view, r)).length).toBe(1);
+    expect(line.ofThem).toEqual({ view: "person", n: statuses.length, words: "need a person" });
   });
   it("counts only the states that exist", () => {
     expect(countLine([]).parts).toEqual([]);

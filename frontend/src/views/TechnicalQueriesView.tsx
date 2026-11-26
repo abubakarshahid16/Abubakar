@@ -66,6 +66,15 @@ export function sourceLinkLabel(name?: string | null, kind?: string | null): str
   return name || kind ? `${name || "Unnamed document"}${kind ? ` (${kind})` : ""}` : "Open source";
 }
 
+const QUICK_VIEWS: readonly QuickView[] = ["waiting", "progress", "person", "approved", "sent", "closed", "stopped"];
+/** The count line's filter named in the address, if it is one the page knows. */
+function readQuick(): QuickView | null {
+  try {
+    const show = new URL(window.location.href).searchParams.get("show");
+    return show && (QUICK_VIEWS as readonly string[]).includes(show) ? (show as QuickView) : null;
+  } catch { return null; }
+}
+
 export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: string; isAdmin?: boolean }) {
   const [items, setItems] = useState<TechnicalQuery[]>([]);
   const [selected, setSelected] = useState<TechnicalQuery | null>(null);
@@ -94,7 +103,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const [canManageGmail, setCanManageGmail] = useState(false);
   /** The mailbox chip's panel (address, import counts, the import buttons) and the count line's quick filter (owner, 27 Nov 2026). */
   const [mailboxOpen, setMailboxOpen] = useState(false);
-  const [quick, setQuick] = useState<QuickView | null>(null);
+  // the count line's filter lives in the address (?show=waiting), so a bookmark or a reload keeps it (F's walk, 27 Nov 2026)
+  const [quick, setQuick] = useState<QuickView | null>(() => readQuick());
   const [assignees, setAssignees] = useState<TechnicalQueryAssignee[]>([]);
   const [chosenAssignee, setChosenAssignee] = useState("");
   const [labels, setLabels] = useState<GmailLabel[]>([]);
@@ -143,6 +153,21 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     setQuestionDraft(selected ? startingText(selected) : "");
     setEditingQuestion(false);
   }, [selected?.id, selected?.confirmed_question, selected?.proposed_question, selected?.proposed_questions, selected?.extracted_question, selected?.extracted_question_main]);
+
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (quick) url.searchParams.set("show", quick); else url.searchParams.delete("show");
+      if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url);
+    } catch { /* an address that cannot be rewritten keeps the filter on the page only */ }
+  }, [quick]);
+  // the open query follows the filter (F's walk, 27 Nov 2026): one that is not among the matches gives way to the first that is, or to none
+  useEffect(() => {
+    if (!quick || !selected || quickMatch(quick, selected)) return;
+    const first = items.find((item) => quickMatch(quick, item));
+    if (!first) { setSelected(null); return; }
+    void technicalQueriesApi.get(first.id).then((detail) => { if (detail.ok) { setSelected(detail.data); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } });
+  }, [quick]); // on a filter change only, not on every reload of the list
 
   const createByHand = () => {
     const form = new FormData();
@@ -435,7 +460,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
         {/* THE COUNT LINE IS A FILTER (owner, 27 Nov 2026): only the states that exist right now, each a click away */}
         {visibleTotal === null ? <p className="mt-3 text-sm text-slateish-400">Loading queries</p> : (() => {
           const line = countLine(items);
-          return <p data-testid="count-line" className="mt-3 text-sm text-slateish-300"><span className="font-semibold text-slateish-100">{line.total} quer{line.total === 1 ? "y" : "ies"}{activeFilters > 0 ? " match the filters" : ""}</span>{line.parts.length ? ": " : ""}{line.parts.map((part, index) => <span key={part.view}>{index ? ", " : ""}<button type="button" aria-pressed={quick === part.view} onClick={() => setQuick((current) => current === part.view ? null : part.view)} className={`underline decoration-dotted underline-offset-2 ${quick === part.view ? "font-semibold text-slateish-100" : ""}`}>{part.n} {part.words}</button></span>)}{quick && <> · <button type="button" onClick={() => setQuick(null)} className="underline">show all</button></>}</p>;
+          return <p data-testid="count-line" className="mt-3 text-sm text-slateish-300"><span className="font-semibold text-slateish-100">{line.total} quer{line.total === 1 ? "y" : "ies"}{activeFilters > 0 ? " match the filters" : ""}</span>{line.parts.length ? ": " : ""}{line.parts.map((part, index) => <span key={part.view}>{index ? ", " : ""}<button type="button" aria-pressed={quick === part.view} onClick={() => setQuick((current) => current === part.view ? null : part.view)} className={`underline decoration-dotted underline-offset-2 ${quick === part.view ? "font-semibold text-slateish-100" : ""}`}>{part.n} {part.words}</button></span>)}{line.ofThem && <>. <button type="button" aria-pressed={quick === line.ofThem.view} onClick={() => setQuick((current) => current === "person" ? null : "person")} className={`underline decoration-dotted underline-offset-2 ${quick === "person" ? "font-semibold text-slateish-100" : ""}`}>{line.ofThem.n} of them {line.ofThem.words}</button></>}{quick && <> · <button type="button" onClick={() => setQuick(null)} className="underline">show all</button></>}</p>;
         })()}
         {/* ONE TOOLBAR: New query, Filters, and More for the rest */}
         <div className="mt-3 flex flex-wrap items-center gap-2" role="toolbar" aria-label="Query actions">
