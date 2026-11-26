@@ -48,9 +48,16 @@ def create_table(conn) -> None:
 
 
 def enqueue(
-    query_id: str, allowed_document_ids, user_id, is_admin: bool, unrestricted: bool
+    query_id: str,
+    allowed_document_ids,
+    user_id,
+    is_admin: bool,
+    unrestricted: bool,
+    *,
+    start_thread: bool = True,
 ) -> str:
-    """Queue the preparation; one active job per query (the same one is returned while it is queued or running)."""
+    """Queue the preparation; one active job per query (the same one is returned while it is queued or running). `start_thread=False`
+    (the automatic preparation after an import) only queues it: the app's one job thread, started with the app, takes it in turn."""
     with connect() as conn:
         create_table(conn)
         active = conn.execute(
@@ -71,7 +78,7 @@ def enqueue(
             (job_id, query_id, json.dumps(caller), at, at),
         )
     _wake.set()
-    if AUTO_START:
+    if AUTO_START and start_thread:
         start()
     return job_id
 

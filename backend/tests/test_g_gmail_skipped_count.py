@@ -311,3 +311,36 @@ def test_importing_the_label_again_adds_only_what_is_missing_and_never_a_second_
     assert _counts()[:2] == (1, [("m1-theirs", 1), ("m2-ours", 0)])
     with db.connect() as conn:
         assert gmail_import_jobs.latest(conn, "mb")["skipped"] == {replies.ALREADY: 2}
+
+
+def test_a_new_query_from_the_mailbox_is_queued_for_evidence_once_and_a_follow_up_is_not(
+    monkeypatch, tq
+):
+    from app import gmail_worker as W
+    from app import technical_query_jobs
+
+    started = []
+    monkeypatch.setattr(technical_query_jobs, "start", lambda: started.append(1))
+    client = _client(
+        [
+            _mail("m1", "a@vendor.example", "t1"),
+            _mail(
+                "m2", "a@vendor.example", "t1", "RE: PRJ-INV-TQ-7 - Invented question"
+            ),
+        ]
+    )
+    W.process_history(
+        client,
+        "1",
+        "u1",
+        mailbox_id="mb",
+        message_ids=["m1", "m2"],
+        label_id="L1",
+        mailbox_address="box@example.test",
+    )
+    with db.connect() as conn:
+        jobs = conn.execute("SELECT state FROM query_evidence_jobs").fetchall()
+    assert [j[0] for j in jobs] == [
+        "queued"
+    ]  # one query, one job, waiting for the app's one evidence thread
+    assert started == []  # the import never starts a second thread of its own

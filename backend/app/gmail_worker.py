@@ -77,7 +77,9 @@ def attach_own(
         "provider_thread_id": message.thread_id, "from_address": message.from_address, "to_addresses": message.to_addresses,
         "cc_addresses": message.cc_addresses, "subject": message.subject, "body": message.body, "received_at": message.received_at,
     }  # fmt: skip
-    if replies_held(data):  # read again: already stored with its query, nothing is added
+    if replies_held(
+        data
+    ):  # read again: already stored with its query, nothing is added
         return ALREADY
     kept = attach_reply(
         data,
@@ -204,7 +206,36 @@ def _process_message(
                 connect() as conn
             ):  # a paper the library already held is not hidden by being attached to a query
                 mark_filed(conn, row["id"], actor_user_id)
+    if not duplicate:
+        auto_prepare(item.get("id"), actor_user_id)
     return {"query_id": item.get("id"), "duplicate": duplicate}
+
+
+def auto_prepare(query_id: str | None, actor_user_id: str | None) -> None:
+    """A NEW query's evidence is prepared at once, in the background, one query at a time (the evidence job's one thread), with the mailbox
+    owner's read scope, so an engineer opens a query that is already prepared (lead-4 and the planner, 26 Nov 2026). Only a query with no
+    evidence job yet; a fault here never stops the import (the engineer can still press "Prepare evidence")."""
+    from . import technical_query_jobs
+
+    if not query_id:
+        return
+    try:
+        with connect() as conn:
+            if technical_query_jobs.latest(conn, query_id) is not None:
+                return
+        scope = access.scope_for_user(actor_user_id)
+        technical_query_jobs.enqueue(
+            query_id,
+            scope.readable_with_attachments,
+            scope.user_id,
+            scope.is_admin,
+            scope.unrestricted,
+            start_thread=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - logged by its class; the import goes on
+        log.info(
+            "technical query: evidence not queued after import (%s)", type(exc).__name__
+        )
 
 
 MAX_TRIES = 3
