@@ -51,3 +51,37 @@ def test_past_the_limit_the_page_says_which_pages_were_not_read_and_why(monkeypa
     assert result["attachment_reading"][0]["line"] == (
         "query.pdf: pages 1 to 3 of 5 read; pages 4 to 5 were not read: the reading stops at 3 pages per attachment."
     )
+
+
+def _doc(doc_id: str, filename: str, text: str) -> None:
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO documents(id,filename,sha256,size_bytes,stored_path,status,uploaded_at,page_count) VALUES (?,?,?,?,?,?,?,?)",
+            (doc_id, filename, doc_id[0] * 64, 1, filename, "ready", "2026-01-01T00:00:00Z", 1),
+        )
+        conn.execute(
+            "INSERT INTO pages(document_id,page_no,text,char_count,needs_ocr,batch_no) VALUES (?,?,?,?,?,?)",
+            (doc_id, 1, text, len(text), 0, 1),
+        )
+
+
+def test_a_paper_sent_with_a_later_mail_of_the_thread_is_read_and_our_own_reply_s_is_not(monkeypatch):
+    for n, (doc_id, name) in enumerate([("aaa-first", "first.pdf"), ("bbb-later", "later.pdf"), ("ccc-ours", "ours.pdf")], 1):
+        _doc(doc_id, name, f"Please confirm invented point {n}?")
+        payload = envelope(f"thread-mail-{n}")
+        payload["body"], payload["question"] = "Please see attached.", None
+        payload["attachments"] = [{"filename": name, "media_type": "application/pdf", "size_bytes": 1}]
+        payload["received_at"] = f"2026-01-0{n}T00:00:00Z"
+        item, _ = import_message(payload, "u1", False, False)
+        mail = next(m for m in item["messages"] if m["attachments"] and m["attachments"][0]["filename"] == name)
+        link_attachment(item["id"], mail["attachments"][0]["id"], doc_id, "u1", "u1", True, False)
+        if name == "ours.pdf":
+            with db.connect() as conn:
+                conn.execute("UPDATE query_messages SET is_inbound=0 WHERE id=?", (mail["id"],))
+    assert len({m["id"] for m in item["messages"]}) == 3  # one thread, one query
+    hold_contract("contract-1")
+    monkeypatch.setattr("app.technical_query_questions._ask", lambda page_text: [page_text])
+    monkeypatch.setattr("app.search.search", lambda question, **kwargs: {"hits": []})
+    result = prepare_evidence(item["id"], frozenset({"aaa-first", "bbb-later", "ccc-ours", "contract-1"}), "u1", True, False, "u1")
+    assert sorted(p["filename"] for p in result["attachment_context"]) == ["first.pdf", "later.pdf"]
+    assert sorted(r["filename"] for r in result["attachment_reading"]) == ["first.pdf", "later.pdf"]
