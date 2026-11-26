@@ -35,7 +35,7 @@ function fake(save = vi.fn().mockResolvedValue({ ok: true, data: { stored: OPTIO
 describe("ReviewModelSection", () => {
   it("lists Claude as the main engine without a picker and every local model as not yet scored", async () => {
     render(<ReviewModelSection api={fake()} />);
-    expect(await screen.findByText(/Claude \(the main engine\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Claude \(the main reviewer\)/)).toBeInTheDocument(); // everyday words (owner, 26 Nov 2026)
     const rows = screen.getAllByTestId("review-model-local");
     expect(rows).toHaveLength(2);
     for (const row of rows) expect(row).toHaveTextContent("local model, not yet scored");
