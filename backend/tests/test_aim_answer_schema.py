@@ -56,6 +56,7 @@ def test_only_a_step_with_a_full_shape_is_forced_and_every_other_step_keeps_plai
         forced
         == {
             "aim_judge",
+            "aim_checklist_missed",  # role 5 of the nine roles asks the judge's question again: the judge's shape (26 Nov 2026)
             "aim_second_read",
             "aim_checklist",
             "aim_checklist_retry",

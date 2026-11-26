@@ -733,7 +733,7 @@ def _judge(
 ) -> None:
     """The decided lines of every checklist item, in order (one per item, or per failing place). An item whose book is not on
     the list shown is never sent: "not judged", its book counted as unlisted. Company books not cited: "Does not apply"."""
-    from . import always
+    from . import always, updates
     from . import library as L
     from . import steps as S
     from . import verify as V
@@ -775,6 +775,7 @@ def _judge(
         progress=lambda pct, _w: say(25 + int(pct * 0.7), "judge"),
         scope=state.identity,
     )
+    lines, stop = updates.nine_missed(mdl, paper, checklist, text, judged, lines, stop, windows=wins, lead=lead, cancelled=cancelled, scope=state.identity)  # role 5, after the judge (nine roles; off: unchanged)  # fmt: skip
     by_id: dict[str, list[dict]] = {}
     for ln in lines:
         by_id.setdefault(ln["item_id"], []).append(ln)
