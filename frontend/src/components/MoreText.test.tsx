@@ -20,13 +20,13 @@ describe("MoreText", () => {
 describe("Analysis header", () => {
   it("folds the three rule paragraphs behind More, with their text kept", () => {
     render(<AnalysisHeader />);
-    const evidence = screen.getByText(/Document claims render only when citations resolve/);
+    const evidence = screen.getByText(/A statement about a document is shown only when the page/); // everyday words (owner, 26 Nov 2026)
     expect(evidence.closest("[hidden]")).not.toBeNull();
     expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument();
   });
   it("keeps the sample-data market rule visible without opening More", () => {
     render(<AnalysisHeader />);
-    const market = screen.getByText(/Public market rows are sample data/);
+    const market = screen.getByText(/Market prices shown here are sample data/); // everyday words (owner, 26 Nov 2026)
     expect(market.closest("[hidden]")).toBeNull();
   });
 });

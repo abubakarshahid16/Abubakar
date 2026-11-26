@@ -10,7 +10,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { request } from "../../api/core";
+import { InfoFold } from "../../components/look/LookParts";
 import { formatWhen } from "../../format/when";
+import { NEW_LOOK } from "../../look";
 
 export interface ReviewModelOption {
   name: string;
@@ -93,49 +95,73 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
     </select>
   );
 
+  const lists = options && (
+    <>
+      <div className="space-y-1">
+        <h3 className="text-xs font-semibold text-slateish-300">Claude (the main reviewer)</h3>
+        <ul className="space-y-0.5 text-xs text-slateish-300">
+          {options.claude.map((m) => (
+            <li key={m.name}><span className="font-mono">{m.name}</span>: {m.used_for}; {m.score_words}. {m.why}.</li>
+          ))}
+        </ul>
+      </div>
+      <div className="space-y-1">
+        <h3 className="text-xs font-semibold text-slateish-300">AIs on this computer</h3>
+        {options.engine_down && <p role="note" className="text-xs text-warn-500">{options.engine_down_words}.</p>}
+        <ul className="space-y-0.5 text-xs text-slateish-300">
+          {options.local.map((m) => (
+            <li key={m.name} data-testid="review-model-local">
+              <span className="font-mono">{m.name}</span>{m.is_default ? " (default)" : ""}: {m.score_words}; {m.price_words}
+              {m.measured ? `; ${m.measured}` : ""}
+              {m.selectable ? "" : `; cannot be chosen: ${m.why}`}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
+  const steps = options && options.steps.map((s) => (
+    <span key={s} className="contents">
+      <span className="text-slateish-300">{s}</span>
+      {pick(choice.steps[s] ?? "", (v) => setChoice((c) => ({ ...c, steps: { ...c.steps, [s]: v } })),
+        `Local model for ${s}`, "the default")}
+    </span>
+  ));
+  const pickers = options && (
+    <div className="grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">
+      <span className="text-slateish-300">Default AI on this computer</span>
+      {pick(choice.default, (v) => setChoice((c) => ({ ...c, default: v })), "Default local model",
+        `the answer model (${options.answer_model})`)}
+      {!NEW_LOOK && steps}
+    </div>
+  );
+  // under the new look the per-step choices (internal step names) are folded: the default is the one choice most need
+  const stepsFold = NEW_LOOK && options && options.steps.length > 0 && (
+    <InfoFold title="One AI per step (advanced)">
+      <div className="grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">{steps}</div>
+    </InfoFold>
+  );
+
   return (
     <section aria-labelledby="admin-review-model-heading" data-testid="admin-review-model" className="space-y-3">
-      <h2 id="admin-review-model-heading" className="text-sm font-semibold text-slateish-200">Review model</h2>
+      <h2 id="admin-review-model-heading" className="text-sm font-semibold text-slateish-200">Which AI reviews</h2>
       {failure && <p role="alert" className="text-xs text-warn-500">The review model setting could not be loaded: {failure}</p>}
       {options && (
         <>
+          {NEW_LOOK && (
+            <p data-testid="review-model-plain" className="text-sm text-slateish-200">
+              Reviews are made by Claude. The AI on this computer only makes rough drafts, for a Local only review: choose which one below.
+            </p>
+          )}
           <p className="text-xs text-slateish-300">{options.used_by}</p>
           {options.answer_model_why && (
             <p role="note" data-testid="review-model-fell-back" className="text-xs text-warn-500">{options.answer_model_why}.</p>
           )}
-          <div className="space-y-1">
-            <h3 className="text-xs font-semibold text-slateish-300">Claude (the main engine)</h3>
-            <ul className="space-y-0.5 text-xs text-slateish-300">
-              {options.claude.map((m) => (
-                <li key={m.name}><span className="font-mono">{m.name}</span>: {m.used_for}; {m.score_words}. {m.why}.</li>
-              ))}
-            </ul>
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-xs font-semibold text-slateish-300">Local models on this computer</h3>
-            {options.engine_down && <p role="note" className="text-xs text-warn-500">{options.engine_down_words}.</p>}
-            <ul className="space-y-0.5 text-xs text-slateish-300">
-              {options.local.map((m) => (
-                <li key={m.name} data-testid="review-model-local">
-                  <span className="font-mono">{m.name}</span>{m.is_default ? " (default)" : ""}: {m.score_words}; {m.price_words}
-                  {m.measured ? `; ${m.measured}` : ""}
-                  {m.selectable ? "" : `; cannot be chosen: ${m.why}`}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">
-            <span className="text-slateish-300">Default</span>
-            {pick(choice.default, (v) => setChoice((c) => ({ ...c, default: v })), "Default local model",
-              `the answer model (${options.answer_model})`)}
-            {options.steps.map((s) => (
-              <span key={s} className="contents">
-                <span className="text-slateish-300">{s}</span>
-                {pick(choice.steps[s] ?? "", (v) => setChoice((c) => ({ ...c, steps: { ...c.steps, [s]: v } })),
-                  `Local model for ${s}`, "the default")}
-              </span>
-            ))}
-          </div>
+          {NEW_LOOK ? (
+            <>{pickers}{stepsFold}<InfoFold title="Every AI and how it was measured">{lists}</InfoFold></>
+          ) : (
+            <>{lists}{pickers}</>
+          )}
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => void save()} disabled={busy}
               className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">

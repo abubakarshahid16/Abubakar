@@ -37,6 +37,21 @@ export function InfoFold({ title, children, className = "" }: { title: string; c
 }
 
 
+/** A long section folded under the new look (owner: the main thing first, detail folded): its heading stays visible as the fold's
+ *  summary, with its count, so nothing waiting is hidden from view; the classic look shows the heading and body as before. */
+export function SectionFold({ on, heading, children }: { on: boolean; heading: ReactNode; children: ReactNode }) {
+  if (!on) return <>{heading}{children}</>;
+  return (
+    <details className="look-details flex flex-col gap-2">
+      <summary className="cursor-pointer select-none">
+        {heading}
+        <span className="ml-2 text-xs font-semibold text-signal-300 hover:underline">Show</span>
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">{children}</div>
+    </details>
+  );
+}
+
 const CHIP: Record<ChipTone, string> = {
   done: "border-pill-pass-border bg-pill-pass-bg text-pill-pass-fg",
   check: "border-pill-review-border bg-pill-review-bg text-pill-review-fg",

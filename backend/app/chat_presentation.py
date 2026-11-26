@@ -198,7 +198,7 @@ def answer_kind(result: dict) -> str:
 
 
 def _engine(result: dict) -> str:
-    return "Claude" if result.get("provider") == "claude" else "Local model"
+    return "Claude" if result.get("provider") == "claude" else "The AI on this computer"
 
 
 def _comparison_line(result: dict) -> str | None:

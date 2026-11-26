@@ -19,7 +19,9 @@
  *
  * Data flow is by props; this component calls no api.* function itself.
  */
+import { InfoFold } from "../components/look/LookParts";
 import { formatWhen } from "../format/when";
+import { NEW_LOOK } from "../look";
 import { filterGrantDocuments, grantPage } from "./grantList";
 import { useEffect, useState } from "react";
 
@@ -187,7 +189,7 @@ function SetupTokenBlock({ created, onDismiss }: { created: CreatedUser; onDismi
       className="rounded-[var(--radius-md)] border border-signal-500 bg-signal-500/10 p-4 text-sm"
     >
       <p className="font-medium text-slateish-200">
-        Setup token for {created.email}
+        One-time sign-in code for {created.email}
       </p>
       <p className="mt-1 text-slateish-300">
         This is shown once and cannot be retrieved again. Send it to the person now;
@@ -259,8 +261,8 @@ function CreateUserForm({
           log - this repo found exactly that defect in its 422 handler. The
           user redeems a one-time token at first sign-in instead. */}
       <p className="mt-1 text-xs text-slateish-400">
-        No password is set here. Creating the user produces a one-time setup token,
-        shown once, which they redeem when they first sign in.
+        No password is set here. Creating the user gives a one-time sign-in code,
+        shown once, which they enter when they first sign in.
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -418,34 +420,7 @@ export function AdminView(props: AdminViewProps) {
     setSummaryFailure(result.ok ? null : result.error.message);
   }
 
-  return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="text-xl font-semibold text-slateish-200">Administration</h1>
-        <p className="mt-1 text-sm text-slateish-400">
-          Users, disciplines, and which discipline can see which document. Grants are
-          per discipline, never per person, so adding somebody to a team gives them the
-          team's documents.
-        </p>
-      </header>
-
-      {summary.length > 0 && (
-        <section
-          role="status"
-          aria-label="Access problems"
-          className="rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4 text-sm"
-        >
-          <p className="font-medium text-warn-500">This system is seeded but not usable</p>
-          <p className="mt-1 text-slateish-300">{summary.join(" ")}</p>
-          <p className="mt-2 text-slateish-400">
-            Each of these looks like broken search to the person it affects: they sign in
-            successfully and find nothing.
-          </p>
-        </section>
-      )}
-
-      {created && <SetupTokenBlock created={created} onDismiss={onDismissCreated} />}
-
+  const controls = (
       <section aria-label="Engineering review administration" className="space-y-4">
         <h2 className="text-sm font-semibold text-slateish-200">Engineering review controls</h2>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -456,9 +431,52 @@ export function AdminView(props: AdminViewProps) {
             {baselineFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{baselineFailure}</p>}
             {baselineMessage && <p role="status" className="mt-2 text-xs text-slateish-400">{baselineMessage}</p>}
           </div>
-          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"><h3 className="text-sm font-medium text-slateish-200">Management summaries</h3><p className="mt-1 text-xs text-slateish-400">Choose the reporting cadence used by the scheduled summary job.</p><div className="mt-3 flex flex-wrap items-center gap-2"><select aria-label="Summary schedule" value={summarySchedule} onChange={(e) => void updateSummarySchedule(e.target.value as "disabled" | "daily" | "weekly")} className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="disabled">Disabled</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select><button type="button" onClick={() => void sendSummaryNow()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Send now</button></div><p className="mt-2 text-xs text-slateish-500">Selected cadence: {summarySchedule}.</p>{summaryFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{summaryFailure}</p>}</div>
+          <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4"><h3 className="text-sm font-medium text-slateish-200">Management summaries</h3><p className="mt-1 text-xs text-slateish-400">Choose how often the summary email is sent.</p><div className="mt-3 flex flex-wrap items-center gap-2"><select aria-label="Summary schedule" value={summarySchedule} onChange={(e) => void updateSummarySchedule(e.target.value as "disabled" | "daily" | "weekly")} className="rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200"><option value="disabled">Disabled</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select><button type="button" onClick={() => void sendSummaryNow()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs text-signal-300">Send now</button></div><p className="mt-2 text-xs text-slateish-500">Sent: {summarySchedule}.</p>{summaryFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{summaryFailure}</p>}</div>
         </div>
       </section>
+  );
+
+  return (
+    <div className="space-y-8">
+      <header>
+        <h1 className="text-xl font-semibold text-slateish-200">Administration</h1>
+        {NEW_LOOK ? (
+          <>
+            <p data-testid="admin-summary" className="mt-1 text-sm text-slateish-200">
+              Who may use the app and which documents each team may see. The review settings are further down.
+            </p>
+            <InfoFold title="How access works" className="mt-2">
+              Users, disciplines, and which discipline can see which document. Grants are per discipline, never per person, so
+              adding somebody to a team gives them the team&apos;s documents.
+            </InfoFold>
+          </>
+        ) : (
+          <p className="mt-1 text-sm text-slateish-400">
+            Users, disciplines, and which discipline can see which document. Grants are
+            per discipline, never per person, so adding somebody to a team gives them the
+            team's documents.
+          </p>
+        )}
+      </header>
+
+      {summary.length > 0 && (
+        <section
+          role="status"
+          aria-label="Access problems"
+          className="rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4 text-sm"
+        >
+          <p className="font-medium text-warn-500">Some people will find nothing yet</p>
+          <p className="mt-1 text-slateish-300">{summary.join(" ")}</p>
+          <p className="mt-2 text-slateish-400">
+            Each of these looks like broken search to the person it affects: they sign in
+            successfully and find nothing.
+          </p>
+        </section>
+      )}
+
+      {created && <SetupTokenBlock created={created} onDismiss={onDismissCreated} />}
+
+      {!NEW_LOOK && controls}
 
       <section aria-labelledby="admin-users-heading" className="space-y-3">
         <h2 id="admin-users-heading" className="text-sm font-semibold text-slateish-200">
@@ -704,14 +722,16 @@ export function AdminView(props: AdminViewProps) {
         )}
       </section>
 
+      {NEW_LOOK && controls}
+
       {props.companyStandardsSection}
 
       {props.reviewModelSection}
 
-      {props.databaseSection}
+      {NEW_LOOK ? <InfoFold title="Database (technical)">{props.databaseSection}</InfoFold> : props.databaseSection}
 
       <p className="text-xs text-slateish-400">
-        Reset tokens are shown once and expire after 24 hours. The user enters the token on the sign-in screen.
+        Reset codes are shown once and expire after 24 hours. The user enters the code on the sign-in screen.
       </p>
     </div>
   );

@@ -129,7 +129,7 @@ def test_a_general_question_is_answered_labelled_and_never_searched(monkeypatch)
     body = _ask(client, convo, "What is sulfidation? Explain it like I'm not an engineer, in one paragraph.")
     assert searched == []
     assert body["answer_type"] == "general" and body["answer_kind"] == "general"
-    assert body["used_line"].startswith("General knowledge, not from your documents · Local model")
+    assert body["used_line"].startswith("General knowledge, not from your documents · The AI on this computer")  # everyday words (owner, 26 Nov 2026)
     assert body["sources"] == [] and body["passages"] == [] and body["verification"] is None
     assert seen[0]["system"] == chat_answers.GENERAL_SYSTEM
     assert seen[0]["options"]["temperature"] == settings.chat_temperature_general == 0.5
@@ -194,7 +194,7 @@ def test_a_rewrite_of_a_general_answer_searches_nothing(monkeypatch):
     assert body["answer_kind"] == "rewrite" and body["answer_type"] == "general"
     assert "Previous answer:\nSulfidation is sulfur attack" in seen[-1]["prompt"]
     assert "as short bullet points and with more detail" in seen[-1]["prompt"]
-    assert body["used_line"].startswith("General knowledge · Local model")
+    assert body["used_line"].startswith("General knowledge · The AI on this computer")  # everyday words (owner, 26 Nov 2026)
 
 
 def test_a_rewrite_of_a_document_answer_keeps_its_sources_and_searches_nothing(monkeypatch):
