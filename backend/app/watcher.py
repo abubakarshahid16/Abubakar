@@ -50,6 +50,7 @@ called directly.
 from __future__ import annotations
 
 import hashlib
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -98,6 +99,22 @@ STATE_UNREADABLE = "unreadable"
 #: a screen. The cause is reported by KIND, from the exception class, and the
 #: full error goes to the local log like every other internal detail.
 FOLDER_UNREADABLE = "the watched folder could not be read"
+
+#: The two reasons a configured folder is missing, said without the path (see FOLDER_UNREADABLE). Plain words: the screen
+#: shows them as they are.
+NOT_THERE = "no folder is there now. It may be on a drive or network share that is not connected."
+FOREIGN_DRIVE = (
+    "it is set to a folder on a Windows drive, which this computer cannot open. "
+    "Set it to a folder on this computer, or to a folder name inside the app's data folder.")
+
+
+def set_for_windows_drive(configured: str) -> bool:
+    """True when the setting names a Windows drive or share (D:/..., \\\\server\\...) and this is not Windows."""
+    if os.name == "nt":
+        return False
+    value = configured.strip()
+    return (len(value) > 2 and value[0].isalpha() and value[1] == ":" and value[2] in "/\\") or value.startswith("\\\\")
+
 
 #: Exception class -> the half-sentence that explains it without locating it.
 #: Keyed by class rather than by errno so a platform that raises a different
@@ -525,10 +542,12 @@ class FolderWatcher:
                     STATE_MISSING, configured,
                     f"{configured!r} is not a directory that exists; waiting for it")
                 self.last_reachable = False
-                # No path, here or anywhere else this string can reach.
+                # No path, here or anywhere else this string can reach. A folder set for ANOTHER KIND of computer can never
+                # appear here, so "waiting for it" would wait for ever: say so, and what fixes it (F, 27 Nov 2026: live was set
+                # to a Windows drive folder carried over from the other machine; the Mac's own data folder has watch-inbox).
                 self.last_error = (
-                    f"{FOLDER_UNREADABLE}: no directory exists at the "
-                    "configured path")
+                    f"{FOLDER_UNREADABLE}: {FOREIGN_DRIVE}" if set_for_windows_drive(configured)
+                    else f"{FOLDER_UNREADABLE}: {NOT_THERE}")
                 return self._result(STATE_MISSING, configured)
             ensure_role_folders(folder)
             # The root, then each role subfolder - and NOTHING deeper. A plain
