@@ -146,6 +146,10 @@ export function DocumentsView({
   // THE METADATA FILTERS. Passed to the server on every read; never applied to
   // the returned array. See DocumentFilters for why that distinction matters.
   const [filters, setFilters] = useState<DocumentFilterState>(EMPTY_FILTERS);
+  // the new look folds these filters behind one "Filters" button, as the Queries page does (C's walk, 27 Nov 2026: three filter
+  // groups stood above the list); its label says how many are on ("Filters (2 active)"), so a narrowed list never hides why
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilters = [filters.document_role, filters.discipline, filters.equipment_type, filters.project].filter((axis) => axis.length > 0).length;
 
   const { vocabulary, settled: vocabularySettled } = useTypeVocabularyLoad();
 
@@ -594,6 +598,16 @@ export function DocumentsView({
           caller's grants and returns a narrower list. The type filter under it
           never leaves the browser and only hides rows already fetched. Two
           filters on one screen with different reach, so each says which it is. */}
+      {NEW_LOOK && (
+        <div>
+          <Button size="sm" variant="secondary" aria-expanded={filtersOpen} aria-controls="document-filters"
+            onClick={() => setFiltersOpen((open) => !open)}>
+            {activeFilters > 0 ? `Filters (${activeFilters} active)` : "Filters"}
+          </Button>
+        </div>
+      )}
+      {(!NEW_LOOK || filtersOpen) && (
+      <div id="document-filters">
       <DocumentFilters
         value={filters}
         onChange={setFilters}
@@ -601,6 +615,8 @@ export function DocumentsView({
         equipmentTypes={observed.equipmentTypes}
         projects={observed.projects}
       />
+      </div>
+      )}
 
       {/* THE TYPE FILTER. Built here rather than with <TypeFilter> because
           that component's "documents in scope" count is the SERVER'S echo of

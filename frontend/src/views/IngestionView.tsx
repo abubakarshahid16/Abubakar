@@ -25,8 +25,9 @@ import { usePoll } from "../hooks/usePoll";
 
 import { api } from "../api/client";
 import type { WatchEvent, WatchStatus } from "../api/client";
-import type { Connection } from "../components/Shell";
+import { NAV, type Connection } from "../components/Shell";
 import { EmptyState, ErrorState, Spinner } from "../components/states";
+import { PageHeader } from "../components/kit/Kit";
 import { formatAge, presentStatus } from "../components/documentStatus";
 import { useDocumentReading } from "../components/useDocumentReading";
 import { LIST_MAX, totalFromResponse } from "../components/review/reviewFormat";
@@ -568,11 +569,15 @@ export function IngestionView({
   // health: health is unauthenticated and a document id is not public.
   const activeWorker = metrics?.worker ?? null;
 
-  const pageIdentity = (
+  const LEAD = "What the system is doing to your documents, and how fast it is doing it.";
+  // the page's name is the menu's own label: one name for one page, kept where screen names live (the Shell)
+  const TITLE = NAV.find((item) => item.id === "ingestion")?.label ?? "";
+  // the new look: the kit's one page header, with "Updates every N seconds" in its one place under the lead (H's audit 67)
+  const pageIdentity = NEW_LOOK ? <PageHeader title={TITLE} lead={LEAD} /> : (
     <div className="mb-4">
       <h1 className="text-lg font-semibold text-slateish-200">Ingestion</h1>
       <p className="mt-0.5 text-sm text-slateish-400">
-        What the system is doing to your documents, and how fast it is doing it.
+        {LEAD}
       </p>
     </div>
   );
@@ -609,12 +614,13 @@ export function IngestionView({
 
   return (
     <div>
+      {NEW_LOOK ? <PageHeader title={TITLE} lead={LEAD} updated={`Updates every ${metrics.refresh_seconds} seconds`} /> : (
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>{pageIdentity}</div>
         <p className="text-xs text-slateish-500">
           Updates every {metrics.refresh_seconds} seconds
         </p>
-      </div>
+      </div>)}
 
       {NEW_LOOK && (
         <p data-testid="ingestion-summary" className="mt-3 text-sm text-slateish-200">

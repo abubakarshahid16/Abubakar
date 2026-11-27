@@ -12,6 +12,7 @@ import type { ApiError, DocumentRecord, ExclusionsResponse } from "../types/api"
 import { Drawer } from "./Drawer";
 import { DisconnectedState, EmptyState, ErrorState, Spinner } from "./states";
 import { NEW_LOOK } from "../look";
+import { Tag } from "./kit/Kit";
 
 const PAGE_SIZE = 25;
 const nf = new Intl.NumberFormat("en-GB");
@@ -140,15 +141,16 @@ export function ExcludedViewer({
                         )}
                       </span>
                       <span className="ms-3 shrink-0 text-right">
-                        <span className="block font-mono text-sm text-warn-500">
+                        <span className={NEW_LOOK ? "block text-sm tabular-nums text-warn-500" : "block font-mono text-sm text-warn-500"}>
                           {nf.format(s.count)} {s.scope}s
                         </span>
                         <span className="block text-xs text-slateish-400">
                           {nf.format(s.characters_dropped)} chars
                         </span>
+                        {NEW_LOOK ? <span className="mt-0.5 block"><Tag>{s.rule}</Tag></span> : (
                         <span className="mt-0.5 block font-mono text-xs text-slateish-500">
                           {s.rule}
-                        </span>
+                        </span>)}
                       </span>
                     </button>
                   </li>
@@ -157,7 +159,7 @@ export function ExcludedViewer({
             </ul>
             {activeRule && (
               <p className="mt-2 text-xs text-slateish-400">
-                Showing only <span className="font-mono">{activeRule}</span> on this page.{" "}
+                Showing only {NEW_LOOK ? <Tag>{activeRule}</Tag> : <span className="font-mono">{activeRule}</span>} on this page.{" "}
                 <button
                   type="button"
                   className="underline decoration-dotted"
@@ -175,7 +177,7 @@ export function ExcludedViewer({
                 What was dropped
               </h3>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-slateish-400">
+                <span className={NEW_LOOK ? "text-xs tabular-nums text-slateish-400" : "font-mono text-xs text-slateish-400"}>
                   {offset + 1}–{offset + state.data.excluded.length} of {state.data.total}
                 </span>
                 <button
@@ -219,7 +221,7 @@ export function ExcludedViewer({
                     <span className="rounded bg-warn-500/15 px-2 py-0.5 text-warn-500">
                       {e.scope}
                     </span>
-                    <span className="font-mono text-slateish-300">{e.rule}</span>
+                    {NEW_LOOK ? <Tag>{e.rule}</Tag> : <span className="font-mono text-slateish-300">{e.rule}</span>}
                     <span className="text-slateish-400">
                       {e.page_start === e.page_end
                         ? `page ${e.page_start}`
@@ -230,9 +232,12 @@ export function ExcludedViewer({
                     </span>
                   </div>
                   {e.reason && (
-                    <p className="mt-1 font-mono text-xs text-warn-500">{e.reason}</p>
+                    <p className={NEW_LOOK ? "mt-1 text-xs text-warn-500" : "mt-1 font-mono text-xs text-warn-500"}>{e.reason}</p>
                   )}
-                  <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs text-slateish-300">
+                  {/* the document's own words in the app's reading face, as in "What was read" (H, 27 Nov 2026) */}
+                  <pre className={NEW_LOOK
+                    ? "evidence-quote mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 text-slateish-300"
+                    : "mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs text-slateish-300"}>
 {e.text_sample}
                   </pre>
                 </li>

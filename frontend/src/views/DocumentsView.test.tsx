@@ -271,6 +271,27 @@ describe("#W7 one request for the documents page", () => {
   });
 });
 
+describe("the filters, one place (C's walk, 27 Nov 2026: three filter groups stood above the list)", () => {
+  it("new look: the role and metadata filters sit behind one 'Filters' button, with the kit's bordered selects", async () => {
+    mockApi([makeDoc({ id: "d1", filename: "a.pdf" })]);
+    renderDocuments();
+    await screen.findByText("a.pdf");
+    if (!NEW_LOOK) {
+      expect(screen.getByRole("region", { name: "Document filters" })).toBeInTheDocument();
+      return;
+    }
+    expect(screen.queryByRole("region", { name: "Document filters" })).toBeNull();
+    const button = screen.getByRole("button", { name: "Filters" });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    const filters = screen.getByRole("region", { name: "Document filters" });
+    expect(within(filters).getByRole("combobox", { name: "Discipline" }).className).toBe("kit-select");
+    fireEvent.click(within(filters).getAllByRole("button")[0]);
+    expect(screen.getByRole("button", { name: "Filters (1 active)" })).toBeInTheDocument();
+  });
+});
+
 describe("B2 documents list", () => {
   it("shows the live ingestion progress line and does not say ready mid-embed", async () => {
     mockApi([
