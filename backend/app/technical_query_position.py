@@ -42,6 +42,11 @@ def raises_cost(question: str) -> bool:
     return bool(_RAISES.search(question or ""))
 
 
-def offer(question: str) -> dict[str, str | None]:
-    """What the page offers beside the draft: the set sentence, and the hint when the request mentions money or time."""
-    return {"line": POSITION_LINE, "hint": HINT if raises_cost(question) else None}
+def offer(question: str, reply: str | None = None) -> dict[str, str | bool | None]:
+    """What the page offers beside the draft: the set sentence, the hint when the request mentions money or time, and whether the reply
+    ALREADY states a cost or schedule position (with its source), so the page says one cost / schedule message, never two (owner,
+    27 Nov 2026: builder H's table, 6h and 6r)."""
+    from .technical_query_reply_checks import states_cost
+
+    speaks = states_cost(reply or "")
+    return {"line": POSITION_LINE, "hint": HINT if raises_cost(question) and not speaks else None, "reply_speaks": speaks}

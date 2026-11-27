@@ -70,7 +70,7 @@ export function TechnicalQueriesList(props: {
       {props.panels.handForm}
       {props.panels.filters}
       {/* a problem every query shares is said ONCE above the list, never as a chip on every row (H's audit, 27 Nov 2026, (d)) */}
-      {noContractor > 0 ? <Notice tone="warn"><span data-testid="no-contractor-note">{noContractor === items.length ? `None of the ${items.length}` : `${noContractor} of the ${items.length}`} quer{items.length === 1 ? "y has" : "ies have"} a contractor yet. Add its code once under More, &ldquo;Rules for who it goes to&rdquo;, and every query with that code fills itself.</span></Notice> : null}
+      {noContractor > 0 ? <Notice tone="warn"><span data-testid="no-contractor-note">{noContractor === items.length ? `None of the ${items.length}` : `${noContractor} of the ${items.length}`} quer{items.length === 1 ? "y has" : noContractor === items.length ? "ies has" : "ies have"} a contractor yet. Add the contractor&rsquo;s code once, under More, &ldquo;Rules for who it goes to&rdquo;. Every query with that code then gets its contractor.</span></Notice> : null}
       {/* the same said-once rule (H's gate on #1971: "Nobody assigned" on every one of 34 rows) */}
       {nobodyAll ? <Small><span data-testid="nobody-assigned-note">Nobody is assigned to any of these {items.length} queries yet.</span></Small> : null}
       <div className="kit-stack kit-gap-2" aria-label="Technical query list">

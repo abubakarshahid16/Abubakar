@@ -1274,7 +1274,10 @@ def test_the_pages_not_read_and_a_cut_wording_are_said_on_the_query(monkeypatch)
         == "query.pdf: pages 1 to 60 of 75 read; pages 61 to 75 were not read: the reading stops at 60 pages per attachment."
     )
     long_text = tq.propose_question("x" * (tq.MAX_PROPOSED_QUESTION + 50))
-    assert long_text.endswith(tq.CUT_MARK) and "cut here" in long_text
+    assert long_text.endswith(tq.CUT_MARK) and "The rest of the question is in the email files." in long_text
+    # never cut inside a word (the owner's Queries page, 27 Nov 2026)
+    words = tq.propose_question("invented " * (tq.MAX_PROPOSED_QUESTION // 9 + 20))
+    assert words.endswith("invented" + tq.CUT_MARK)
 
 
 # ---------------------------------------------------------------- Lead 4: a mailbox attachment is kept OUT of the library until filed

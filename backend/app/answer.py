@@ -782,9 +782,9 @@ _QUERY_REPLY_LEAD = """- This is the draft of COMPANY's reply to a contractor's 
 - Where a source points to another reference for the answer (another
   clarification or technical query number, a question-and-answer serial number,
   another document), name that reference instead of repeating its content.
-- State a position on cost or schedule impact only when a source supports it;
-  otherwise, if the contractor asks, write: "COMPANY to confirm the cost and
-  schedule position."
+- State a position on cost or schedule impact only when a source supports it,
+  with its citation. Otherwise write nothing about cost or schedule: the
+  engineer adds COMPANY's position.
   Use markdown (**bold**, bullets). Never a dense wall of text."""
 _QUERY_REPLY: contextvars.ContextVar[bool] = contextvars.ContextVar("answer_query_reply", default=False)
 
@@ -1111,7 +1111,16 @@ def verify_claims(text: str, passages: list[dict], *,
 #: Its digits number the list; they are not a figure the answer claims. Only a
 #: marker FOLLOWED BY WHITESPACE, so "3.0 mm/s" at the start of a line is
 #: still a figure.
-_LIST_MARKER = re.compile(r"^\s*(?:[-*+>#]+|\d{1,2}[.)])(?:\s+|$)")
+#: A list marker or a request label at the start of a line: "1. ", "- ", "**3. " (a bold heading), "- **Request 3 (valve):** ",
+#: "Items 1 and 2: ". Taken off before the figure check, so its number is never read as a figure: "**3." used to be checked as a
+#: sentence holding the figure 3 and removed, leaving "Title**" with no number (builder H's table of the 34 queries, 27 Nov 2026,
+#: fault 4), and a "Request 3:" line whose source does not print a 3 lost its whole answer.
+_REQUEST_LABEL = r"(?:items?|requests?|questions?|points?|quer(?:y|ies))\s+\d{1,2}(?:\s*(?:,|and|&|to|-|\u2013)\s*\d{1,2})*"
+_LIST_MARKER = re.compile(
+    rf"^\s*(?:[-*+>#]+\s+)?(?:\*\*)?\s*(?:\d{{1,2}}[.)]|{_REQUEST_LABEL}(?:\s*\([^)\n]*\))?\s*:?)(?:\*\*)?:?(?:\s+|$)"
+    r"|^\s*[-*+>#]+(?:\s+|$)",
+    re.IGNORECASE,
+)
 
 #: Shown above an answer that lost sentences to the figure check.
 NUMBERS_NOTICE = ("{n} sentence{s} removed: a figure in {it} was not in the passage "

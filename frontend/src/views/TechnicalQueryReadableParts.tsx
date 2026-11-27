@@ -1,6 +1,7 @@
 /** The query page made readable (owner's Part 3, item 2, 27 Nov 2026), kit parts only: the reply as a real numbered list, the revision
  *  of each source document in one plain sentence with "How to confirm" folded, and how the query was made in one closed fold. LOOK ONLY:
  *  the same words, marks and actions as before. */
+import { leadParagraphs } from "./technicalQueryQuestion";
 import type { ReactElement } from "react";
 
 import { Fold } from "../components/kit/Kit";
@@ -23,7 +24,8 @@ function Body({ lines }: { lines: string[] }) {
     if (bullet !== null) run.push(bullet);
     else {
       flush();
-      out.push(<p key={`l-${j}`} className="mt-1"><Inline text={line} /></p>);
+      // a long line is shown as short paragraphs of whole sentences; the words and their order never change (H's table, 8 and W)
+      leadParagraphs(line).forEach((piece, k) => out.push(<p key={`l-${j}-${k}`} className="mt-1"><Inline text={piece} /></p>));
     }
   });
   flush();
@@ -56,7 +58,7 @@ export function ReplyText({ answer }: { answer: string }) {
       bullets.push(<li key={`b-${i}`}><Inline text={b.text} /></li>);
     } else {
       flush();
-      out.push(<p key={`p-${i}`} className="mt-2"><Inline text={b.text} /></p>);
+      leadParagraphs(b.text).forEach((piece, k) => out.push(<p key={`p-${i}-${k}`} className="mt-2"><Inline text={piece} /></p>));
     }
   });
   flush();
@@ -68,7 +70,8 @@ export function RevisionLines({ documents, isAdmin }: { documents: string[]; isA
   if (!documents.length) return null;
   return (
     <div data-testid="revision-lines" className="mt-2 text-sm text-slateish-300">
-      {documents.map((name) => <p key={name} data-testid="revision-line" className="mt-1">We have not yet confirmed that we hold the latest revision of {name}.</p>)}
+      {/* one sentence for every such document, said once (builder H's table of the 34 queries, 27 Nov 2026, 7d) */}
+      <p data-testid="revision-line" className="mt-1">We have not yet checked that {documents.length === 1 ? `${documents[0]} is the current revision` : `${documents.slice(0, -1).join(", ")} and ${documents[documents.length - 1]} are the current revisions`}.</p>
       <Fold title="How to confirm" testId="revision-how">
         {isAdmin
           ? "Press “Confirm source document” on its source below, once you have checked it is the current revision. Or open it under Documents, then Details, and save its details."

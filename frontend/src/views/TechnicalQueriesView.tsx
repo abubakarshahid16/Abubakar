@@ -666,7 +666,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                 <Button variant="secondary" disabled={busy} onClick={() => setSendingBack(true)}>Send back with a note</Button>
               </div>
               <p data-testid="decision-hint" className="mt-1 text-xs text-slateish-400">{decision.hint}</p>
-              {split.keep.length + split.reject.length > 0 && <p className="mt-1 text-xs text-slateish-400">Approving keeps the {split.keep.length} source{split.keep.length === 1 ? "" : "s"} the reply cites and rejects the other {split.reject.length} found for this question. You can change any of them under &ldquo;All sources found&rdquo; first.</p>}
+              {split.keep.length + split.reject.length > 0 && <p className="mt-1 text-xs text-slateish-400">Approving keeps the {split.keep.length} source{split.keep.length === 1 ? "" : "s"} the reply cites. It rejects the other {split.reject.length}. Change any of them first under &ldquo;All sources found&rdquo;.</p>}
               {sendingBack && <div data-testid="send-back" className="mt-2 rounded border border-ink-700 p-2">
                 <label htmlFor="technical-query-send-back" className="block text-xs text-slateish-300">What should change in the reply?</label>
                 <textarea id="technical-query-send-back" value={backNote} onChange={(event) => setBackNote(event.target.value)} rows={3} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
@@ -691,7 +691,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                   : <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download the reply as a Word file</a>}
                 {["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? <Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))}>Mark as answered</Button> : null}
               </div>
-              <p id="word-reply-hint" className="mt-1 text-xs text-slateish-400">{whyNot ? `${whyNot} ` : ""}A Word file of the approved reply. Send it to the contractor yourself: the app sends no email.{["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? " After you have sent it, press Mark as answered." : ""}</p>
+              <p id="word-reply-hint" className="mt-1 text-xs text-slateish-400">{whyNot ? `${whyNot} ` : ""}Send it to the contractor yourself. The app sends no email.{["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? " After you have sent it, press Mark as answered." : ""}</p>
             </div>;
           })() : null}
           {/* REDO, folded and quiet (owner, 27 Nov 2026 00:02): each line says what it does and that it replaces the reply above */}
