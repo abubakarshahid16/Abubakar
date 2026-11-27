@@ -213,6 +213,10 @@
 /* two kit buttons side by side in running text keep the scale's gap (a row with its own gap adds none) (H's gate: "Edit" and "Confirm") */
 .kit-btn + .kit-btn { margin-inline-start: var(--kit-space-2); }
 .kit-row > .kit-btn + .kit-btn, [class*="gap-"] > .kit-btn + .kit-btn { margin-inline-start: 0; }
+/* A More menu is a COLUMN: the row gap above pushed every item after the first 8 px right (C's walk, 27 Nov 2026). Its items line up
+   and share one width, their words at the left like any menu. */
+.kit-more__panel > .kit-btn + .kit-btn { margin-inline-start: 0; }
+.kit-more__panel > .kit-btn, :root[data-look="new"] main .kit-more__panel > button.kit-btn { justify-content: flex-start; text-align: left; }
 
 /* A TABLE THAT STACKS WHEN ITS BOX IS NARROW (H's audit 1, 27 Nov 2026: at 800px the Dashboard's Recent reviews showed only the
    document and its date, the rest off to the side). Same elements, no copy: under 42rem of space each row becomes a block, its first
@@ -234,3 +238,9 @@
 .kit-group-title.kit-check { color: var(--kit-check-fg); }
 .kit-group-title__count { font-size: 13px; font-weight: 400; color: var(--color-slateish-400); }
 
+/* NEW LOOK, C's walk (27 Nov 2026) and F's gate on #1987:
+   - a list row keeps a row's height even when it has one line (rows read 40 to 92 px; a 40 px row looked like a button);
+   - every bordered field draws its edge in the field colour: raw fields used border-ink-600 (#e2e6ec in light, a card edge that
+     vanishes on white), so selects and inputs lost their outline in the light theme only (H's walk). Fields with no border stay so. */
+:root[data-look="new"] .kit-row-btn, :root[data-look="new"] main button.kit-row-btn { min-height: 4rem; justify-content: center; }
+:root[data-look="new"] main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea) { border-color: var(--kit-field-edge); }
