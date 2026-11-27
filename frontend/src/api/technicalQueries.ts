@@ -54,6 +54,8 @@ export interface TechnicalQuery {
   evidence_question?: string | null;
   /** What the system works from and how far it has got (builder A, owner 26 Nov 2026: question, evidence and draft always ready). */
   ready?: {
+    /** How many key words the current question holds (lead-5's 1f): a source scored against more was searched for a longer text. */
+    question_terms?: number | null;
     question: string;
     question_source: "confirmed" | "edited" | "proposed" | "none";
     evidence: "ready" | "refreshing" | "none" | "failed";

@@ -168,8 +168,12 @@ export interface MarksSource extends QuestionSource {
  *  stored queries, 26 Nov 2026: 200 to 560 key words, when a question holds tens). The ratio of key words then says nothing. */
 export const QUESTION_KEY_WORDS_MAX = 60;
 
-export function staleSources(q: MarksSource): boolean {
-  return currentSources(q.evidence).some((e) => (e.match_terms ?? 0) > QUESTION_KEY_WORDS_MAX);
+export function staleSources(q: MarksSource & { ready?: { question_terms?: number | null } | null }): boolean {
+  // scored against MORE key words than the current question holds: searched for a longer text. The server says how many the question
+  // holds; only an older server falls back to the fixed bound (a composed ask of several items can hold more than 60 by itself: lead-5's 1f)
+  const own = q.ready?.question_terms;
+  const bound = typeof own === "number" && own > 0 ? own : QUESTION_KEY_WORDS_MAX;
+  return currentSources(q.evidence).some((e) => (e.match_terms ?? 0) > bound);
 }
 
 /** HONEST MARKS INSTEAD OF GATES (owner, 26 Nov 2026 21:36): one plain line per thing the system is unsure of, shown on the item it is

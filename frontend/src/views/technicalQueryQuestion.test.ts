@@ -1,7 +1,7 @@
 /** The query's ask as one readable list, and honest marks instead of gates (owner, 26 Nov 2026). Invented queries only. */
 import { describe, expect, it } from "vitest";
 
-import { pageHeaderSplit, problemChips } from "./technicalQueryQuestion";
+import { pageHeaderSplit, problemChips, staleSources as staleOf } from "./technicalQueryQuestion";
 import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, boldSplit, plainMark, citedSplit, plainStatus, queryHeadline, querySteps, sharedSource, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 
 const found = (n: number) => Array.from({ length: n }, (_, i) => ({ question: `Invented request ${i + 1}`, filename: "Invented form.pdf", page: 1 }));
@@ -176,5 +176,15 @@ describe("A's own walk of the Queries page (27 Nov 2026)", () => {
     expect(`${split.header} ${split.body}`).toBe(text);
     expect(pageHeaderSplit("CONTRACTOR shall keep the invented record.")).toBeNull();
     expect(pageHeaderSplit(`${"word ".repeat(30)}Page 2 of 9 the rest`)).toBeNull(); // a long lead is not a header
+  });
+});
+
+describe("sources found for a longer text than the question (lead-5's 1f, 27 Nov 2026)", () => {
+  const source = (terms: number) => ({ for_current_question: true, match_terms: terms, match_count: 10 });
+  it("never says 'found for the whole email' when the question itself holds that many key words", () => {
+    // measured on a copy of live: all 7 such banners were false, the composed question held more than 60 key words itself
+    expect(staleOf({ evidence: [source(80)], ready: { question_terms: 80 } } as never)).toBe(false);
+    expect(staleOf({ evidence: [source(300)], ready: { question_terms: 80 } } as never)).toBe(true); // a whole mail's words
+    expect(staleOf({ evidence: [source(80)] } as never)).toBe(true); // an older server: the fixed bound, as before
   });
 });
