@@ -48,7 +48,7 @@ test("capture the complete Phase 0 visual and accessibility baseline", async ({ 
       for (const view of views) {
         await page.setViewportSize(size);
         await openView(page, view);
-        await page.getByRole("button", { name: theme === "light" ? "light" : "dark", exact: true }).click();
+        await page.getByRole("button", { name: theme === "light" ? "Light" : "Dark", exact: true }).click();
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         // Capture the settled screen rather than a transient loading card. Some
         // live metrics calls take four seconds on the Phase 0 machine.
