@@ -143,11 +143,11 @@ function Step({
             : "border-ink-700 text-slateish-500",
       ].join(" ")}
     >
-      <span aria-hidden className="font-mono">
+      <span aria-hidden className={NEW_LOOK ? "tabular-nums" : "font-mono"}>
         {done ? "done" : current ? "now" : "··"}
       </span>
       <span className="font-medium">{label}</span>
-      {detail && <span className="ms-auto font-mono text-xs">{detail}</span>}
+      {detail && <span className={NEW_LOOK ? "ms-auto tabular-nums text-xs" : "ms-auto font-mono text-xs"}>{detail}</span>}
     </li>
   );
 }
@@ -171,7 +171,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
     <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-medium text-slateish-200">{doc.filename}</p>
-        <p className="font-mono text-xs text-slateish-400">
+        <p className={NEW_LOOK ? "tabular-nums text-xs text-slateish-400" : "font-mono text-xs text-slateish-400"}>
           {doc.page_count != null ? `${nf.format(doc.page_count)} pages` : "reading the manifest"}
         </p>
       </div>
@@ -360,13 +360,13 @@ function WatchRow({ event }: { event: WatchEvent }) {
   const when = relativeTime(event.at);
   return (
     <li className="flex flex-wrap items-baseline gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-800 px-2 py-1.5 text-xs">
-      <span aria-hidden className={`font-mono ${style.tone}`}>
+      <span aria-hidden className={`${NEW_LOOK ? "tabular-nums" : "font-mono"} ${style.tone}`}>
         {style.glyph}
       </span>
       <span className="font-medium text-slateish-200">{event.filename}</span>
       <span className={style.tone}>{style.word}</span>
       {when && (
-        <span className="ms-auto font-mono text-xs text-slateish-300" title={event.at}>
+        <span className={NEW_LOOK ? "ms-auto tabular-nums text-xs text-slateish-300" : "ms-auto font-mono text-xs text-slateish-300"} title={event.at}>
           {when}
         </span>
       )}
@@ -470,7 +470,7 @@ function WatchedFolderPanel() {
         {status.folder_name ? (
           <p className="text-xs text-slateish-300">
             watching a folder named{" "}
-            <span className="break-all font-mono text-slateish-200">{status.folder_name}</span>
+            <span className={NEW_LOOK ? "break-all tabular-nums text-slateish-200" : "break-all font-mono text-slateish-200"}>{status.folder_name}</span>
           </p>
         ) : null}
 
@@ -736,7 +736,7 @@ export function IngestionView({
                 className="flex flex-wrap items-baseline gap-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-850 px-3 py-2 text-xs"
               >
                 <span className="font-medium text-slateish-200">{d.filename}</span>
-                <span className="font-mono text-xs text-slateish-400">
+                <span className={NEW_LOOK ? "tabular-nums text-xs text-slateish-400" : "font-mono text-xs text-slateish-400"}>
                   {d.page_count != null ? `${nf.format(d.page_count)} pages` : ""}
                   {" · "}
                   {nf.format(d.chunk_count)} searchable parts of pages
