@@ -142,3 +142,29 @@ def test_a_confirmed_or_edited_question_is_never_prepared_again(
             (edited,),
         )
         assert J.unprepared(conn) == []
+
+
+def test_prepare_all_sends_an_awaiting_query_back_to_drafting_too(
+    monkeypatch, temp_storage, tq
+):
+    """H's note on #2016: "Prepare all" flipped only the older-system-draft queries back to drafting, not the rules-5 awaiting ones from
+    `unprepared`, so it would have queued them while still awaiting review. Now every queued query goes back to drafting first."""
+    monkeypatch.setattr(J, "start", lambda: None)
+    model = _query(61)
+    with db.connect() as conn:
+        _prepared(conn, model, [LEAD, *POINTS], status="awaiting_review")
+        conn.execute(
+            "INSERT INTO query_drafts(id,query_id,version,answer,model,prompt_version,created_by,created_at) "
+            "VALUES ('d-61',?,1,'Invented reply.','invented-model','system-draft-3','u1','x')",
+            (model,),
+        )
+        assert model in J.unprepared(conn)
+    monkeypatch.setattr(J, "enqueue", lambda *a, **k: None)
+    J.queue_all(frozenset(), "u1", True, False)
+    with db.connect() as conn:
+        assert (
+            conn.execute(
+                "SELECT status FROM technical_queries WHERE id=?", (model,)
+            ).fetchone()[0]
+            == "drafting"
+        )

@@ -422,10 +422,9 @@ def queue_all(
         ids = technical_query_auto.backlog(
             conn
         )  # never prepared, prepared with no draft and no reason why, or an older system draft
-        stale = set(technical_query_auto.stale_system_drafts(conn))
-        for (
-            query_id
-        ) in stale:  # back to drafting, so the job may prepare and draft again
+        # EVERY queued query awaiting review goes back to drafting first, as the start-up backlog does (H's note on #2016: rules 5's
+        # awaiting-review queries come from `unprepared`, not `stale_system_drafts`, and passed the same guards)
+        for query_id in ids:  # back to drafting, so the job may prepare and draft again
             conn.execute(
                 "UPDATE technical_queries SET status='drafting' WHERE id=? AND status='awaiting_review'",
                 (query_id,),
