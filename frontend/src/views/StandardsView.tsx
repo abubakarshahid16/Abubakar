@@ -131,6 +131,7 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
               // the kit's input (H's audit 22: no visible border in the new look)
               className={NEW_LOOK ? "kit-input w-full max-w-md" : "w-full max-w-md rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-sm"}
             />
+            {NEW_LOOK && <p className="text-xs text-slateish-400" data-testid="standards-in-force">Every book here is in force unless it is marked Superseded.</p>}
             <p className="text-xs opacity-70" data-testid="standards-shown">
               {matches.length === load.standards.length
                 ? `${load.standards.length.toLocaleString()} in your library`
@@ -209,7 +210,9 @@ function StandardRow({
         {standard.revision && (
           NEW_LOOK ? <Tag>Rev {standard.revision}</Tag> : <span className="rounded bg-white/10 px-2 py-0.5 text-xs">Rev {standard.revision}</span>
         )}
-        {NEW_LOOK ? <StatusChip word={standard.superseded ? "Superseded" : "Active"} /> : standard.superseded ? (
+        {/* SAID ONCE, NOT ON EVERY ROW (owner, 27 Nov 2026 10:25): "Active" was on all 272 rows; the list says once that a book is in
+            force unless marked, and only a superseded book carries a chip */}
+        {NEW_LOOK ? (standard.superseded ? <StatusChip word="Superseded" /> : null) : standard.superseded ? (
           <span className="rounded bg-warn-500/20 px-2 py-0.5 text-xs text-warn-500">
             Superseded
           </span>

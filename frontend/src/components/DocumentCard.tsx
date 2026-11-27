@@ -72,7 +72,11 @@ export function DocumentCard({
   onConfirmKind,
   selected,
   onToggleSelected,
+  sharedDiscipline,
 }: {
+  /** The one discipline every listed document has, said once above the list (owner, 27 Nov 2026): this card then skips that tag.
+   *  An empty string: no listed document has any discipline (only an administrator can open them), also said once above. */
+  sharedDiscipline?: string;
   doc: DocumentRecord;
   actions: DocumentActions;
   /** This document's classification. Absent (not `null`) while it has not
@@ -188,7 +192,7 @@ export function DocumentCard({
                 discipline holds this document and only an administrator can
                 read it. It is labelled as exactly that, never left blank and
                 never given a placeholder. */}
-            {doc.disciplines.length > 0 ? (
+            {(sharedDiscipline && doc.disciplines.length === 1 && doc.disciplines[0] === sharedDiscipline) || (sharedDiscipline === "" && doc.disciplines.length === 0) ? null : doc.disciplines.length > 0 ? (
               doc.disciplines.map((d) => (
                 <span
                   key={d}

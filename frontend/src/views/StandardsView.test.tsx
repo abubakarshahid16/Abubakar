@@ -19,6 +19,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 import { StandardsView } from "./StandardsView";
 import type { StandardRequirement, StandardSummary } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 const base: StandardSummary = {
   id: "doc_std", filename: "SAES-A-105.pdf", status: "ready", page_count: 20,
@@ -157,7 +158,13 @@ describe("the library list", () => {
   it("shows an active standard as active", async () => {
     mockApi();
     render(<StandardsView />);
-    expect(await screen.findByText("Active")).toBeTruthy();
+    if (NEW_LOOK) {
+      // said once above the list, not on every row (owner, 27 Nov 2026): no "Active" chip, and the in-force line is there
+      expect(await screen.findByTestId("standards-in-force")).toHaveTextContent("Every book here is in force unless it is marked Superseded.");
+      expect(screen.queryByText("Active")).toBeNull();
+    } else {
+      expect(await screen.findByText("Active")).toBeTruthy();
+    }
   });
 
   it("renders nothing for a field that was never recorded", async () => {
