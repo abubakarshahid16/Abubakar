@@ -23,13 +23,25 @@ def _query(n: int):
     return q["id"]
 
 
-def test_a_query_prepared_under_rules_3_is_prepared_again_unless_its_question_was_confirmed(monkeypatch, temp_storage, tq):  # noqa: F811
-    monkeypatch.setattr(J, "start", lambda: None)  # no thread in a test: the jobs stay queued
+def test_a_query_prepared_under_rules_3_is_prepared_again_unless_its_question_was_confirmed(
+    monkeypatch, temp_storage, tq
+):  # noqa: F811
+    monkeypatch.setattr(
+        J, "start", lambda: None
+    )  # no thread in a test: the jobs stay queued
     old, confirmed, current = _query(1), _query(2), _query(3)
     with db.connect() as conn:
         for qid, rules in ((old, 3), (confirmed, 3), (current, J.QUESTION_RULES)):
             job = J.enqueue(qid, frozenset(), "u1", True, False)
-            conn.execute("UPDATE query_evidence_jobs SET state='done', question_rules=? WHERE id=?", (rules, job))
-        conn.execute("UPDATE technical_queries SET confirmed_question='Invented confirmed question?' WHERE id=?", (confirmed,))
-        assert J.QUESTION_RULES == 4
+            conn.execute(
+                "UPDATE query_evidence_jobs SET state='done', question_rules=? WHERE id=?",
+                (rules, job),
+            )
+        conn.execute(
+            "UPDATE technical_queries SET confirmed_question='Invented confirmed question?' WHERE id=?",
+            (confirmed,),
+        )
+        assert (
+            J.QUESTION_RULES >= 4
+        )  # rules 5 (#2009's lead-ins) re-proposes rules 3 too
         assert J.unprepared(conn) == [old]

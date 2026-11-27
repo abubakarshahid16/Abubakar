@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import threading
 import uuid
 
@@ -39,7 +40,10 @@ AUTO_START = True
 #: (lead-4's live walk on update 13): the queries re-proposed under 2 are proposed again.
 #: 4 = every page of an attachment is read (up to 60, was 5) and the papers of a LATER mail of the thread too (builder H, update 15;
 #: lead-4's live walk, 26 Nov 2026: queries prepared before them kept the old proposals): those prepared under 3 are proposed again.
-QUESTION_RULES = 4
+#: 5 = a lead-in line ("... the following two points:") is an unnumbered lead, never an item; a request that points back ("... on the
+#: above understanding") brings the statement it points to; an answer-choice cell is never a question (#2009, the owner's 15:18 fault;
+#: lead-5, 27 Nov 2026: the 34 live queries must get it, not only new ones): those prepared under 4 are proposed again at the next start.
+QUESTION_RULES = 5
 
 _wake = threading.Event()
 _stop = threading.Event()
@@ -290,7 +294,7 @@ def unprepared(conn) -> list[str]:
     """The queries in a state that can be prepared with no preparation queued, running or done (a failed one counts as unprepared); a
     preparation done under older question rules counts as not done when no engineer has confirmed the question (re-proposed)."""
     create_table(conn)
-    return [
+    out = [
         r[0]
         for r in conn.execute(
             f"SELECT q.id FROM technical_queries q WHERE q.status IN ({','.join('?' * len(PREPARABLE))}) AND NOT EXISTS "
@@ -299,6 +303,87 @@ def unprepared(conn) -> list[str]:
             (*PREPARABLE, QUESTION_RULES),
         )
     ]
+    # AWAITING REVIEW on a MODEL's reply prepared under older question rules (lead-5, 27 Nov 2026: rules 5 must reach the 34 live
+    # queries, and 20 of them await review): proposed again too, with the draft redo's guards - no engineer decision, no confirmed
+    # question, the latest draft written by a model (never an engineer's own typed reply). The start-up backlog sends it back to drafting.
+    seen = set(out)
+    try:
+        awaiting = conn.execute(
+            f"SELECT q.id FROM technical_queries q WHERE q.status='awaiting_review' AND COALESCE(q.confirmed_question,'')='' "
+            "AND NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
+            "AND COALESCE((SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1),'') != '' "
+            f"AND NOT EXISTS (SELECT 1 FROM {TABLE} j WHERE j.query_id=q.id AND (j.state IN ('queued','running') OR (j.state='done' AND "
+            "COALESCE(j.question_rules,1) >= ?))) "
+            f"AND EXISTS (SELECT 1 FROM {TABLE} j WHERE j.query_id=q.id AND j.state='done') ORDER BY q.received_at",
+            (QUESTION_RULES,),
+        ).fetchall()
+    except sqlite3.OperationalError:  # the drafts or decisions table not made yet (a fresh database): nothing awaits review
+        awaiting = []
+    for r in awaiting:
+        if r[0] not in seen:
+            out.append(r[0])
+            seen.add(r[0])
+    # RULES 5 CHANGES ONLY HOW THE STORED PROPOSALS ARE TIDIED (A's read of #2016, 27 Nov 2026: of the 34 live queries only 7 would show
+    # another question; re-preparing the other 27 would throw away good replies for nothing). A query whose last preparation ran under
+    # rules 4 is prepared again ONLY when tidying its stored proposals against their own page text, with no model call, changes the
+    # question the page shows. Older rules, and a query never prepared or whose preparation failed, are prepared again as before.
+    return [
+        qid
+        for qid in out
+        if not _only_rules_4(conn, qid) or question_would_change(conn, qid)
+    ]
+
+
+def _only_rules_4(conn, query_id: str) -> bool:
+    """The query's latest finished preparation ran under rules 4 (the rules just before today's)."""
+    row = conn.execute(
+        f"SELECT MAX(COALESCE(question_rules,1)) FROM {TABLE} WHERE query_id=? AND state='done'",
+        (query_id,),
+    ).fetchone()
+    return bool(row) and row[0] == QUESTION_RULES - 1
+
+
+def question_would_change(conn, query_id: str) -> bool:
+    """Would today's rules show another proposed question? The STORED proposals are tidied again against their OWN stored page text
+    (`technical_query_questions.tidy`, no model call), composed as the page composes them (`technical_queries.propose_question`) and
+    compared with the stored proposal. An engineer's own saved wording is what the page shows, so a query with one never changes."""
+    from . import technical_queries
+    from . import technical_query_questions as tqq
+
+    row = conn.execute(
+        "SELECT extracted_question, attachment_context, proposed_question, proposed_questions, edited_question, title_short, subject "
+        "FROM technical_queries WHERE id=?",
+        (query_id,),
+    ).fetchone()
+    if row is None or (row[4] or "").strip():
+        return False
+    try:
+        context = json.loads(row[1] or "[]")
+        proposals = json.loads(row[3] or "[]")
+    except ValueError:
+        return True  # an unreadable stored proposal: prepare it again, as before
+    pages = {
+        (c.get("filename"), c.get("page")): str(c.get("text") or "")
+        for c in context
+        if isinstance(c, dict)
+    }
+    tidied: list[dict] = []
+    seen: set[str] = set()
+    for p in proposals if isinstance(proposals, list) else []:
+        if not isinstance(p, dict):
+            continue
+        page_text = pages.get((p.get("filename"), p.get("page")), "")
+        printed = tqq._squash(page_text)
+        for item in tqq.tidy([str(p.get("question") or "")], page_text):
+            key = tqq._squash(item["question"])
+            if key and key not in seen and (not page_text or key in printed):
+                seen.add(key)
+                tidied.append({**p, **item})
+    fallback = "" if tidied else tqq.form_question(context)
+    composed = technical_queries.propose_question(
+        row[0] or fallback, tidied, row[5] or row[6]
+    )
+    return composed != (row[2] or "")
 
 
 def minutes_each(conn) -> int | None:
@@ -334,10 +419,17 @@ def queue_all(
     from . import technical_query_auto
 
     with connect() as conn:
-        ids = technical_query_auto.backlog(conn)  # never prepared, prepared with no draft and no reason why, or an older system draft
+        ids = technical_query_auto.backlog(
+            conn
+        )  # never prepared, prepared with no draft and no reason why, or an older system draft
         stale = set(technical_query_auto.stale_system_drafts(conn))
-        for query_id in stale:  # back to drafting, so the job may prepare and draft again
-            conn.execute("UPDATE technical_queries SET status='drafting' WHERE id=? AND status='awaiting_review'", (query_id,))
+        for (
+            query_id
+        ) in stale:  # back to drafting, so the job may prepare and draft again
+            conn.execute(
+                "UPDATE technical_queries SET status='drafting' WHERE id=? AND status='awaiting_review'",
+                (query_id,),
+            )
     for query_id in ids:
         enqueue(query_id, allowed_document_ids, user_id, is_admin, unrestricted)
     with connect() as conn:
