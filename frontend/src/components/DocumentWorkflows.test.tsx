@@ -48,7 +48,7 @@ describe("editing metadata", () => {
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Pump datasheet" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /save metadata/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save details/i }));
     await waitFor(() => expect(sent.length).toBe(1));
     const body = sent[0] as Record<string, unknown>;
     expect(body.title).toBe("Pump datasheet");
@@ -60,7 +60,7 @@ describe("editing metadata", () => {
 
   it("does not offer the controls to a non-admin", () => {
     render(<MetadataEditor documentId="doc_1" record={classified} canEdit={false} />);
-    expect(screen.queryByRole("button", { name: /save metadata/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /save details/i })).toBeNull();
   });
 });
 
@@ -79,7 +79,7 @@ describe("assigning a document role", () => {
     fireEvent.change(screen.getByLabelText("Document role"), {
       target: { value: "COMPANY_STANDARD" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /save metadata/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save details/i }));
     await waitFor(() => expect(sent.length).toBe(1));
     // The CONTRACT value, not the human label. A label sent here would be
     // refused by the backend vocabulary and match no filter.

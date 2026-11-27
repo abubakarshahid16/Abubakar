@@ -71,7 +71,7 @@ export function uploadOne(
       resolve({
         phase: "error",
         code: "internal",
-        message: "Cannot reach the backend.",
+        message: "Cannot reach the app's server. Check it is running, then try again.",
       });
     xhr.onload = () => {
       let body: Record<string, unknown> = {};
@@ -280,7 +280,7 @@ export function Uploader({ onUploaded }: { onUploaded: () => void }) {
                     <span className="text-slateish-400">{item.state.percent}%</span>
                   )}
                   {item.state.phase === "done" && item.state.awaitingGrant && (
-                    <span className="text-warn-500">awaiting administrator review</span>
+                    <span className="text-warn-500">waiting for an administrator to check it</span>
                   )}
                   {item.state.phase === "done" && !item.state.awaitingGrant && item.state.duplicateOf && (
                     <span className="text-warn-500">already uploaded</span>

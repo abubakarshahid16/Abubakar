@@ -68,7 +68,7 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
   if (!canEdit) {
     return (
       <p className="text-xs opacity-70">
-        Only an administrator can change a document&rsquo;s metadata.
+        Only an administrator can change a document&rsquo;s details.
       </p>
     );
   }
@@ -91,7 +91,7 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
 
   return (
     <form
-      aria-label="Document metadata"
+      aria-label="Document details"
       className="flex flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault();
@@ -149,7 +149,7 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
           disabled={saving}
           className="rounded bg-white/15 px-3 py-1 text-xs disabled:opacity-50"
         >
-          {saving ? "Saving…" : "Save metadata"}
+          {saving ? "Saving…" : "Save details"}
         </button>
         {saved && <span role="status" className="text-xs opacity-80">Saved.</span>}
         {error && <span role="alert" className="text-xs text-warn-500">{error}</span>}

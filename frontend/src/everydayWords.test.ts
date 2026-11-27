@@ -130,6 +130,9 @@ export function shownTexts(source: string, file: string): { raw: string; line: n
 export const WORDS_DONE: RegExp[] = [
   /^views\/TechnicalQueriesView\.tsx$/, /^views\/technicalQueryQuestion\.ts$/, /^views\/TechnicalQueryCrossRefs\.tsx$/,
   /^views\/TechnicalQueryPosition\.tsx$/,
+  // Documents (words job page 2)
+  /^views\/DocumentsView\.tsx$/, /^components\/(DocumentCard|DocumentPreview|ExcludedViewer|PageImageViewer|Uploader|WorkerPanel)\.tsx$/,
+  /^components\/classification\/(DocumentFilters|MetadataEditor|TypeFilter)\.tsx$/, /^components\/classification\/registerLabels\.ts$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [

@@ -361,7 +361,7 @@ describe("B2 documents list", () => {
     ]);
     renderDocuments();
     expect(
-      await screen.findByText((NEW_LOOK ? /12 of 546 pages were scanned and read as pictures/ : /12 of 546 pages\s+read by OCR/)),
+      await screen.findByText((NEW_LOOK ? /12 of 546 pages were scanned and read as pictures/ : /12 of 546 pages\s+read from a scan/)),
     ).toBeInTheDocument();
     // Nothing is outstanding, so the warning must be GONE - asserting the
     // absence, because a stale amber badge is a false alarm.
@@ -374,7 +374,7 @@ describe("B2 documents list", () => {
     ]);
     renderDocuments();
     expect(await screen.findByText(NEW_LOOK ? "7 waiting to be read" : "7 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read by OCR/))).toBeInTheDocument();
+    expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read from a scan/))).toBeInTheDocument();
   });
 
   it("requires a second click to delete", async () => {
@@ -478,7 +478,7 @@ describe("B4 excluded viewer", () => {
     renderDocuments();
 
     fireEvent.click(await screen.findByRole("button", { name: /see what was excluded/i }));
-    expect(await screen.findByRole("dialog")).toHaveAccessibleName(/Excluded from search/i);
+    expect(await screen.findByRole("dialog")).toHaveAccessibleName(/Left out of search/i);
   });
 });
 
@@ -752,7 +752,7 @@ describe("documents grouped by classification type", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /^All/ }));
     expect(screen.getByText("Not in the register", { selector: "[data-testid=type-chip]" })).toHaveAttribute(
       "title",
-      expect.stringMatching(/not waiting for one/i),
+      expect.stringMatching(/not one of them/i),
     );
   });
 
@@ -807,7 +807,7 @@ describe("documents grouped by classification type", () => {
 
     await screen.findByText("guessed.pdf");
     expect(
-      screen.getByText(/Awaiting confirmation by an administrator/i),
+      screen.getByText(/Waiting for an administrator to confirm it/i),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Confirm$/ })).toBeNull();
   });
@@ -858,7 +858,7 @@ describe("documents grouped by classification type", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     expect(
-      await screen.findByText(/do not have permission to confirm/i),
+      await screen.findByText(/Your role cannot confirm/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/does not exist|not found|gone/i)).toBeNull();
   });

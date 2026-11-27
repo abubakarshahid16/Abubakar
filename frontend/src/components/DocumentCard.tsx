@@ -202,7 +202,7 @@ export function DocumentCard({
               <span
                 data-testid="discipline"
                 className={NEW_LOOK ? "kit-tag" : "rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"}
-                title="No discipline holds this document. Only an administrator can read it."
+                title="No discipline has this document, so only an administrator can open it."
               >
                 Admin only
               </span>
@@ -216,7 +216,7 @@ export function DocumentCard({
             {doc.needs_ocr_pages > doc.recognised_pages && (
               <span
                 className={NEW_LOOK ? "kit-chip kit-chip--check" : "rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"}
-                title="Scanned pages with no extractable text that recognition has not yet read."
+                title="Scanned pages that have not been read yet."
               >
                 {NEW_LOOK ? `${doc.needs_ocr_pages - doc.recognised_pages} waiting to be read` : `${doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR`}
               </span>
@@ -224,7 +224,7 @@ export function DocumentCard({
             {doc.equation_pages > 0 && (
               <span
                 className={NEW_LOOK ? "kit-chip kit-chip--info" : "rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"}
-                title="Mathematics did not survive extraction on these pages. Use the page image."
+                title="The maths on these pages could not be read as text. Use the page picture."
               >
                 {NEW_LOOK ? `${doc.equation_pages} page${doc.equation_pages === 1 ? "" : "s"} mostly equations` : `${doc.equation_pages} equation-heavy`}
               </span>
@@ -271,7 +271,7 @@ export function DocumentCard({
               <>
                 {" "}
                 · {nf.format(doc.recognised_pages)} of {nf.format(doc.page_count)} pages
-                read by OCR
+                read from a scan
               </>
             )}
             {doc.indexed_at && <> · finished {formatWhen(doc.indexed_at)}</>}
@@ -376,7 +376,7 @@ export function DocumentCard({
               </div>
             )
           ) : (
-            <p className="text-slateish-400">Awaiting confirmation by an administrator.</p>
+            <p className="text-slateish-400">Waiting for an administrator to confirm it.</p>
           )}
         </div>
       )}

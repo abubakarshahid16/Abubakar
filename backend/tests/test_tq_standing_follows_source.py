@@ -80,8 +80,8 @@ def test_a_claude_draft_is_refused_with_what_to_do_and_passes_once_the_source_is
     with pytest.raises(HTTPException) as refused:
         api.generate_query_draft(item["id"], scope, _claude_lane(monkeypatch))
     detail = str(refused.value.detail)
-    assert "verified, current evidence is required before drafting" in detail
-    assert "counts as current once its source document is confirmed" in detail and "contract.pdf" in detail
+    assert "a reply needs a kept source from a current document" in detail
+    assert "Confirm the document under Documents, Details, then Save details" in detail and "contract.pdf" in detail
     _confirm("d1")
     seen = []
     _stop_at_the_model(monkeypatch, seen)
@@ -143,7 +143,7 @@ def test_a_superseded_source_makes_its_passage_superseded_and_no_draft_rests_on_
     assert "no source was found" in str(local.value.detail)
     with pytest.raises(HTTPException) as refused:
         api.generate_query_draft(item["id"], scope, _claude_lane(monkeypatch))
-    assert "every kept passage's source has been superseded" in str(
+    assert "Every kept source is from a replaced revision" in str(
         refused.value.detail
     )
 
@@ -159,7 +159,7 @@ def test_no_kept_passage_a_claude_draft_says_to_keep_one_and_a_local_draft_uses_
         )
     with pytest.raises(HTTPException) as refused:
         api.generate_query_draft(item["id"], scope, _claude_lane(monkeypatch))
-    assert "keep at least one passage as evidence first" in str(refused.value.detail)
+    assert "Keep at least one source first" in str(refused.value.detail)
     seen = []
     _stop_at_the_model(monkeypatch, seen)
     with pytest.raises((HTTPException, RuntimeError)):

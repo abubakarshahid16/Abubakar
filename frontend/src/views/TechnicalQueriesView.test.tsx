@@ -532,7 +532,7 @@ describe("Technical Queries screen", () => {
     expect(screen.queryByText(new RegExp(at))).toBeNull();
   });
 
-  it("an administrator confirms a source document in place: the same request as Save metadata, then the query is read again (F's click count)", async () => {
+  it("an administrator confirms a source document in place: the same request as Save details, then the query is read again (F's click count)", async () => {
     const unconfirmed = { ...query, evidence: [{ id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" }] };
     const confirmed = { ...unconfirmed, evidence: [{ ...unconfirmed.evidence[0], supersession_state: "current" }] };
     api.get.mockResolvedValueOnce({ ok: true, data: unconfirmed }).mockResolvedValue({ ok: true, data: confirmed });

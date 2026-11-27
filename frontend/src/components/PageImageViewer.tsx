@@ -72,7 +72,7 @@ export function PageImageViewer({
   return (
     <Drawer
       title={`Pages — ${doc.filename}`}
-      subtitle="The rendered page, so a citation can be checked against the source"
+      subtitle="The page as a picture, to check a quote against it"
       onClose={onClose}
     >
       {state.s === "loading" && <Spinner label="Loading pages" />}
@@ -151,7 +151,7 @@ export function PageImageViewer({
               )}
               {current.equation_heavy && (
                 <span className="rounded bg-info-500/15 px-2 py-0.5 text-info-500">
-                  {NEW_LOOK ? "mostly equations: read them on the page picture" : "equation-heavy — the maths did not survive extraction"}
+                  {NEW_LOOK ? "mostly equations: read them on the page picture" : "mostly equations: the maths could not be read as text"}
                 </span>
               )}
             </p>
