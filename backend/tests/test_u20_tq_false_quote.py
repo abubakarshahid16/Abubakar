@@ -136,3 +136,44 @@ def test_what_the_contractors_form_cites_is_said_held_or_not_held():
                                                   "the form's citations could not be looked up"]}}  # fmt: skip
     assert [c["held"] for c in auto.cited_by_contractor(item)] == [True, False, False]
     assert auto.cited_by_contractor({}) == []
+
+
+def test_one_retry_when_the_only_fault_is_a_false_quote_and_the_check_still_stops_a_second(
+    query, monkeypatch
+):
+    """Measured on a live snapshot (27 Nov 2026): the model varies from run to run; 8 of 9 redrafts of the stopped queries passed."""
+    item, scope, _asked = query
+    good = {"answer_type": "generated", "answer": "1. Class 300 applies [S1].", "cited": [1], "model": "synthetic-local",
+            "passages": [{"document_id": "d1", "page_start": 3, "page_end": 3, "text": QUOTE}]}  # fmt: skip
+    bad = {**good, "answer": f'1. The contract requires "{ASKED.lower()}" [S1].'}
+    answers = [bad, good]
+    monkeypatch.setattr("app.answer.answer", lambda q, **k: answers.pop(0))
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    kept = tq.get(item["id"], "u1", False, False)
+    assert answers == [] and [d["answer"] for d in kept["drafts"]] == [
+        "1. Class 300 applies [S1]."
+    ]  # the retry's draft, checked
+    calls = []
+    monkeypatch.setattr(
+        "app.answer.answer", lambda q, **k: calls.append(1) or bad
+    )  # false twice: still never shown
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET status='drafting' WHERE id=?", (item["id"],)
+        )
+    assert (
+        auto.write_draft(item["id"], frozenset({"d1"}), "u1", False, False)
+        == auto.FALSE_QUOTE
+        and len(calls) == 2
+    )
+
+
+def test_the_reply_rule_forbids_quoting_the_contractor_as_a_source():
+    from app import answer as A
+
+    with A.query_reply():
+        assert "Never put the contractor's own words in quotation marks" in A._fit(
+            A.SYSTEM_PROMPT
+        )
+    assert A._fit(A.SYSTEM_PROMPT) == A.SYSTEM_PROMPT  # Chat unchanged
