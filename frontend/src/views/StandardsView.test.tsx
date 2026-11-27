@@ -19,6 +19,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 import { StandardsView } from "./StandardsView";
 import type { StandardRequirement, StandardSummary } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 const base: StandardSummary = {
   id: "doc_std", filename: "SAES-A-105.pdf", status: "ready", page_count: 20,
@@ -109,7 +110,7 @@ describe("the library list: search and families", () => {
     await screen.findByRole("region", { name: "SAES standards" });
     expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(25);
     // 25 more at a time (H's audit 27: a family of 272 drew all of them at once): 25 -> 50 -> 60, and the count says so
-    expect(screen.getByText(/Showing 25 of 60 SAES standards/)).toBeTruthy();
+    expect(screen.getByText("Showing 25 of 60.")).toBeTruthy(); // the kit's ShowMore; the family is named by its section
     fireEvent.click(screen.getByRole("button", { name: "Show 25 more" }));
     expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(50);
     fireEvent.click(screen.getByRole("button", { name: "Show 10 more" }));
@@ -157,7 +158,13 @@ describe("the library list", () => {
   it("shows an active standard as active", async () => {
     mockApi();
     render(<StandardsView />);
-    expect(await screen.findByText("Active")).toBeTruthy();
+    if (NEW_LOOK) {
+      // said once above the list, not on every row (owner, 27 Nov 2026): no "Active" chip, and the in-force line is there
+      expect(await screen.findByTestId("standards-in-force")).toHaveTextContent("Every book here is in force unless it is marked Superseded.");
+      expect(screen.queryByText("Active")).toBeNull();
+    } else {
+      expect(await screen.findByText("Active")).toBeTruthy();
+    }
   });
 
   it("renders nothing for a field that was never recorded", async () => {

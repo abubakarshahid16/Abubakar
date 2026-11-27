@@ -60,12 +60,13 @@
   --color-signal-400: #0a6460; /* was #0b6e69: 4.29 : 1 on its own pale tint (Standards "Active"); now 4.9 (owner's live walk, 27 Nov 2026) */
   --color-signal-300: #0b5f5b; /* link text */
 
-  --color-warn-500: #5c3700;
+  /* NO AMBER (owner, 27 Nov 2026 10:25, final): 'needs your action' is a calm blue; the old warn token carries it everywhere */
+  --color-warn-500: #24508f; /* 8.0 : 1 on a card, 6.9 on its own 10% tint */
   --color-danger-500: #8a2a12;
-  --color-info-500: #1e3a8a;
+  --color-info-500: #4b5563; /* plain information is grey (blue is kept for 'action needed') */
 
   /* Status: review = AI reading, please check; fail = late / must fix (inverted); pass = done / proved by code; cond = waiting / info. */
-  --color-pill-review-fg: #5c3700; --color-pill-review-bg: #ffe2b8; --color-pill-review-border: #e8b86a;
+  --color-pill-review-fg: #1d3f6e; --color-pill-review-bg: #e8eff8; --color-pill-review-border: #8fb0da; /* action needed: blue, not amber */
   --color-pill-fail-fg: #ffffff; --color-pill-fail-bg: #8a2a12; --color-pill-fail-border: #8a2a12;
   --color-pill-pass-fg: #0b5a3a; --color-pill-pass-bg: #ddf3ea; --color-pill-pass-border: #9ad3b8;
   --color-pill-cond-fg: #1e3a8a; --color-pill-cond-bg: #e3ecfb; --color-pill-cond-border: #a9c2ee;
@@ -97,11 +98,11 @@
   --color-signal-400: #2bafa6; /* was #0e8a84: 3.9-4.5 on the dark grounds; now 6.0-7.0 (owner's contrast audit, 26 Nov 2026) */
   --color-signal-300: #5fd3c9;
 
-  --color-warn-500: #ffd9a3;
+  --color-warn-500: #a9c7f0; /* action needed, dark: 9.4 : 1 on a card */
   --color-danger-500: #ffb4a0;
-  --color-info-500: #c7d7fb;
+  --color-info-500: #b8c2d1; /* plain information, dark: grey */
 
-  --color-pill-review-fg: #ffd9a3; --color-pill-review-bg: #3d2a0a; --color-pill-review-border: #8a6a2a;
+  --color-pill-review-fg: #bcd4f5; --color-pill-review-bg: #16263c; --color-pill-review-border: #3e5f8a;
   --color-pill-fail-fg: #ffffff; --color-pill-fail-bg: #9a3417; --color-pill-fail-border: #9a3417;
   --color-pill-pass-fg: #b5ecd3; --color-pill-pass-bg: #0c2e22; --color-pill-pass-border: #2f7a5c;
   --color-pill-cond-fg: #c7d7fb; --color-pill-cond-bg: #13254a; --color-pill-cond-border: #3d5a95;
@@ -131,7 +132,7 @@
   --color-signal-300: #5fd3c9;
   /* owner's contrast audit (26 Nov 2026): the menu's warning line and the Light/Dark toggle took the LIGHT page's colours on the
      dark menu (1.5-1.9 : 1); scoped here like the rest */
-  --color-warn-500: #ffe2b8; /* 13.9 : 1 on the menu */
+  --color-warn-500: #c4d8f5; /* 11.9 : 1 on the menu (no amber, owner 27 Nov 10:25) */
   --color-ink-900: #16243a; /* the toggle's ground: "dark" in #a9b4c4 reads 7 : 1 */
   --color-ink-950: #0f1b2d;
   background: #0f1b2d;

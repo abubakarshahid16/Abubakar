@@ -71,7 +71,7 @@ export function uploadOne(
       resolve({
         phase: "error",
         code: "internal",
-        message: "Cannot reach the app's server. Check it is running, then try again.",
+        message: "Cannot reach the app's server. Ask whoever runs the app to check it, then try again.",
       });
     xhr.onload = () => {
       let body: Record<string, unknown> = {};

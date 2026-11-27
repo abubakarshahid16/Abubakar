@@ -156,6 +156,12 @@ describe("1 the header", () => {
     mount(); await loaded();
     await waitFor(() => expect(screen.getByTestId("v2-kind-line")).toHaveTextContent("type decided by an engineer"));
   });
+  it("the facts after the chip never start with a dot, even with no equipment type (H's R9, 27 Nov 2026)", async () => {
+    api.ofDocument.mockResolvedValue(ok({ document_kind: "datasheet", document_kind_state: "confirmed", equipment_type: null }));
+    mount(); await loaded();
+    await waitFor(() => expect(screen.getByTestId("v2-kind-facts")).toHaveTextContent("type decided by an engineer"));
+    expect(screen.getByTestId("v2-kind-facts").textContent).toBe("12 pages · type decided by an engineer");
+  });
   it("has ONE engine choice with Automatic preselected and ONE Review button; the old two buttons are not here", async () => {
     mount(); await loaded();
     const group = screen.getByRole("radiogroup");

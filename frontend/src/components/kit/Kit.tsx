@@ -165,9 +165,11 @@ export function ChipButton({ word, detail, expanded, controls, onClick, testId }
 export function ShowMore({ shown, total, step, onMore, testId }: { shown: number; total: number; step: number; onMore: () => void; testId?: string }) {
   if (shown >= total) return null;
   return (
-    <div className="kit-show-more" data-testid={testId}>
-      <span className="kit-small">Showing {shown.toLocaleString("en-US")} of {total.toLocaleString("en-US")}.</span>
-      <Button variant="secondary" size="sm" onClick={onMore}>Show {Math.min(step, total - shown)} more</Button>
+    // A LINK STAYS A LINK (owner's rule; lead 4 on #1969, 27 Nov 2026): "Show K more" is the kit link, never a boxed button, in the
+    // same small line as its count, on every page that uses it
+    <div className="kit-show-more kit-small" data-testid={testId}>
+      <span>Showing {shown.toLocaleString("en-US")} of {total.toLocaleString("en-US")}.</span>
+      <LinkButton tone="action" onClick={onMore}>Show {Math.min(step, total - shown)} more</LinkButton>
     </div>
   );
 }

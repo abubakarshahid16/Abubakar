@@ -31,6 +31,13 @@ from .db import connect
 log = logging.getLogger(__name__)
 LIST_AT_MOST = 10
 
+#: Three counts of 0 compare nothing (REVIEW.md: "0 == 0 is not a pass"; H's one-real-file pass, 27 Nov 2026, R5: a review that stopped
+#: before reading the paper said "all three agree"). Such a run has no file to give out, so it is refused, in these words.
+NOTHING_TO_COMPARE = (
+    "Nothing to compare: this review has no points (it stopped before reading the paper, or found nothing to check), so there is no "
+    "file to give out."
+)
+
 __all__ = ["Incomplete", "file_or_refuse", "record_after_run", "report_for", "verify"]
 
 
@@ -255,8 +262,15 @@ def checked(conn, run: dict, view: dict) -> tuple[bytes, dict]:
         and rep["confirmations"] == rep["confirmation_rows"]
         and rep["rejected_before"] == rep["rejected_before_rows"]
     )
-    rep["ok"] = same and not problems
-    rep["sentence"] = None if rep["ok"] else _sentence(rep)
+    rep["nothing_to_compare"] = rep["page"] == rep["database"] == rep["file_rows"] == 0
+    rep["ok"] = same and not problems and not rep["nothing_to_compare"]
+    rep["sentence"] = (
+        None
+        if rep["ok"]
+        else NOTHING_TO_COMPARE
+        if rep["nothing_to_compare"] and same and not problems
+        else _sentence(rep)
+    )
     return data, rep
 
 
@@ -301,7 +315,7 @@ def record_after_run(run_id: str) -> dict | None:
         conn = connect()
         # the one writer (piece D)
         aim_review_store.set_completeness(conn, run_id, report)
-        if not report["ok"]:
+        if not report["ok"] and not report.get("nothing_to_compare"):
             log.error(
                 "general review completeness: run %s differs (page %s, database %s)",
                 run_id,

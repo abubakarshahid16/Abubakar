@@ -115,6 +115,9 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
         </select>
       </label>
 
+      {!role && !tags.trim() && TEXT_FIELDS.every(([field]) => !(text[field] ?? "").trim()) && (
+        <p className="text-xs opacity-80">Nothing is recorded yet. Fill in what you know.</p>
+      )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {TEXT_FIELDS.map(([field, label]) => (
           <label key={field} className="flex flex-col gap-1 text-xs">
@@ -122,7 +125,6 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
             <input
               aria-label={label}
               value={text[field] ?? ""}
-              placeholder="Not recorded"
               onChange={(e) =>
                 setText((prev) => ({ ...prev, [field as TextField]: e.target.value }))
               }
@@ -135,7 +137,6 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
           <input
             aria-label="Equipment tags"
             value={tags}
-            placeholder="Not recorded"
             onChange={(e) => setTags(e.target.value)}
             className="rounded border border-white/15 bg-transparent px-2 py-1"
           />

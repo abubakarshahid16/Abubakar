@@ -694,6 +694,12 @@ export function DocumentsView({
               const showAwaiting = selectedTypes.length === 0 || selectedTypes.includes(AWAITING_TYPE);
               const showNotInRegister =
                 selectedTypes.length === 0 || selectedTypes.includes(NOT_IN_REGISTER);
+              // SAID ONCE, NOT ON EVERY ROW (owner, 27 Nov 2026 10:25): when every listed document has the same one discipline, the list
+              // says it once above and the cards skip that tag. Two or more listed, never guessed for one.
+              const firstDisc = filtered[0]?.disciplines;
+              const sharedDiscipline = !NEW_LOOK || filtered.length < 2 ? undefined
+                : firstDisc?.length === 1 && filtered.every((d) => d.disciplines.length === 1 && d.disciplines[0] === firstDisc[0]) ? firstDisc[0]
+                : filtered.every((d) => d.disciplines.length === 0) ? "" : undefined;
               // One card per document, the same wherever its group is.
               const card = (doc: DocumentRecord) => (
                 <DocumentCard
@@ -708,11 +714,19 @@ export function DocumentsView({
                   onConfirmKind={confirmKind}
                   selected={isAdmin ? selectedIds.includes(doc.id) : undefined}
                   onToggleSelected={isAdmin ? toggleSelected : undefined}
+                  sharedDiscipline={sharedDiscipline}
                 />
               );
 
               return (
                 <>
+                  {sharedDiscipline !== undefined && (
+                    <p className="text-sm text-slateish-300" data-testid="shared-discipline">
+                      {sharedDiscipline
+                        ? `All ${filtered.length.toLocaleString("en-US")} documents listed here belong to ${sharedDiscipline}.`
+                        : `No discipline holds any of the ${filtered.length.toLocaleString("en-US")} documents listed here: only an administrator can open them.`}
+                    </p>
+                  )}
                   {groups
                     .filter((g) => showType(g.name))
                     .map((group) => (
