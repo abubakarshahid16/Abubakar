@@ -576,7 +576,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
 
       </section>
       {/* min-w-0 + wrapping anywhere: a long unbroken line in a mail (a link, a disclaimer) can never widen the page past the window */}
-      <section ref={detailRef} className="min-w-0 overflow-x-hidden rounded border border-ink-700 bg-ink-850 p-5 [overflow-wrap:anywhere]">
+      {/* kit-quiet-notes: the notes in this panel read quiet; the blue is the decision's own area (owner, 27 Nov 2026 12:32) */}
+      <section ref={detailRef} className="kit-quiet-notes min-w-0 overflow-x-hidden rounded border border-ink-700 bg-ink-850 p-5 [overflow-wrap:anywhere]">
         {!selected ? <p className="text-sm text-slateish-500">Choose a query to see its email and history.</p> : <>
           {/* READ IN TEN SECONDS (owner, 26 Nov 2026 22:41): one plain sentence first, then where it stands as four marks */}
           <p data-testid="query-headline" className="text-xl font-semibold leading-snug text-slateish-100">{queryHeadline(selected, questionDraft)}</p>
@@ -660,7 +661,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             if (decision.kind === "no_role") return <p data-testid="decision-no-role" className="mt-4 text-sm text-slateish-300">{decision.hint}</p>;
             if (decision.kind !== "decide") return null;
             const split = citedSplit(selected.evidence, selected.drafts?.at(-1)?.citations_json);
-            return <div className="mt-4" data-testid="approve-once">
+            return <div className="kit-action-area mt-4" data-testid="approve-once">
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="primary" disabled={busy} onClick={approveOnce}>Approve the reply</Button>
                 <Button variant="secondary" disabled={busy} onClick={() => setSendingBack(true)}>Send back with a note</Button>
