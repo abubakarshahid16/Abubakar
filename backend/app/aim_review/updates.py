@@ -45,8 +45,9 @@ def formula_checks() -> bool:
 
 def always_by_field() -> bool:
     """The always-on items (G1-G3) give one comment per FIELD: each is a catch-all check whose findings are unrelated entries, so one
-    comment per item titled one field and carried the others (a WRONG read on a live review, 27 Nov 2026). Off: as main."""
-    return bool(settings.aim_always_by_field_enabled)
+    comment per item titled one field and carried the others (a WRONG read on a live review, 27 Nov 2026). Off: as main, unless
+    7b is on (its "one point one comment" includes this)."""
+    return bool(settings.aim_always_by_field_enabled) or u7b()
 
 
 def group_mark(p: dict) -> int | None:
