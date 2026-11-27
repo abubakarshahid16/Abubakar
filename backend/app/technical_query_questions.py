@@ -112,19 +112,13 @@ def from_pages(
             return out, MODEL_UNAVAILABLE
         printed = _squash(page_text)
         listed += len(found)
-        for question in found[:MAX_PER_PAGE]:
-            key = _squash(question)
+        for item in tidy(found[:MAX_PER_PAGE], page_text):
+            key = _squash(item["question"])
             if (
                 key and key in printed and key not in seen
             ):  # only words that stand on the page as printed
                 seen.add(key)
-                out.append(
-                    {
-                        "question": question,
-                        "filename": part.get("filename"),
-                        "page": part.get("page"),
-                    }
-                )
+                out.append({**item, "filename": part.get("filename"), "page": part.get("page")})
         # a request that refers to the page's numbered list ("each item above", "the following positions") brings the items with
         # it, as printed (lead-4's blind test, 27 Nov 2026: the model lists only the closing request, never the items it refers to)
         if any(_REFERS_TO_LIST.search(q) for q in found):
@@ -138,6 +132,60 @@ def from_pages(
     if out or not any(str(part.get("text") or "").strip() for part in context):
         return out, ""
     return out, NOT_ON_PAGE if listed else NONE_FOUND
+
+
+# ------------------------------------------------------------------ the list tidied (builder F's trace of the planner's 15:18 fault, 27 Nov 2026)
+#: A LEAD-IN, not a question: a line that introduces a list ("CONTRACTOR requests confirmation on the following two points:"). It is shown
+#: as an unnumbered lead line above the items it introduces, never as a numbered item of its own.
+_LEAD_IN = re.compile(r":\s*$")
+#: A request that points BACK at what is written above it ("COMPANY confirmation is kindly requested on the above understanding", a bare
+#: "COMPANY to confirm."): the real question is the paragraph above it, which the model did not list.
+_POINTS_BACK = re.compile(
+    r"\b(?:on|of|with|for)\s+(?:the\s+)?(?:above|this|that|said)\s+(?:understanding|proposal|approach|interpretation|assumption|statement|"
+    r"point|position|clarification)s?\b|\b(?:above|this)\s+understanding\b|^\W*(?:company|contractor)[\w\s]{0,40}\bto\s+confirm\W*$",
+    re.IGNORECASE,
+)
+#: A form's answer-choice cell ("Yes / No", "Y/N"): never a question.
+_ANSWER_CHOICE = re.compile(r"^\W*(?:yes|y)\s*/\s*(?:no|n)\W*$|^\W*(?:yes|no)\W*$", re.IGNORECASE)
+#: Paragraphs: a blank line ends one.
+_BLANK = re.compile(r"\n\s*\n")
+
+
+def _paragraph_above(question: str, page_text: str) -> str | None:
+    """The words a back-pointing request refers to, as printed: the text before it in its own paragraph when there is enough of it,
+    else the paragraph above. None when the request is not found on the page or nothing stands above it."""
+    blocks = [b.strip() for b in _BLANK.split(page_text or "") if b.strip()]
+    key = _squash(question)
+    for i, block in enumerate(blocks):
+        flat = " ".join(block.split())
+        at = flat.casefold().find(" ".join(question.split()).casefold())
+        if at < 0 and key not in _squash(block):
+            continue
+        before = flat[:at].strip() if at > 0 else ""
+        if len(before.split()) >= 8:
+            return before
+        if i > 0:
+            return " ".join(blocks[i - 1].split())
+        return None
+    return None
+
+
+def tidy(found: list[str], page_text: str) -> list[dict[str, Any]]:
+    """The model's list for one page made into requests: `{"question", "lead"?}`. A lead-in line becomes an unnumbered lead (`lead: True`);
+    a request that points back at the text above it is replaced by that text as printed; a form's answer-choice cell is dropped.
+    Everything kept still stands on the page word for word (the caller checks it)."""
+    out: list[dict[str, Any]] = []
+    for question in found:
+        q = question.strip()
+        if not q or _ANSWER_CHOICE.match(q):
+            continue
+        if _POINTS_BACK.search(q):
+            above = _paragraph_above(q, page_text)
+            if above:
+                out.append({"question": above})
+                continue
+        out.append({"question": q, "lead": True} if _LEAD_IN.search(q) else {"question": q})
+    return out
 
 
 #: A form's question field label ("Question:", "Query", "Description of query", "Details of the query"), alone or before its text.

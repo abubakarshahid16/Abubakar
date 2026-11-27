@@ -304,6 +304,10 @@ function atSecond(iso: string | null): number | null {
  *  Null when there is nothing true to say - no scan recorded and no event ever
  *  seen - which renders as nothing, like every other unknown on this screen. */
 export function scanSummary(status: WatchStatus): string | null {
+  // F's live walk (27 Nov 2026): with the folder NOT reachable the panel still said "the last check found nothing new in the folder"
+  // under the red "not being read" line. A check that could not open the folder found nothing because it looked at nothing: the
+  // red line says why, and no sentence here claims a result.
+  if (status.reachable === false) return null;
   const scanAt = atSecond(status.last_scan_at);
   const events = status.recent;
   // A scan ran and decided nothing at all. This is the ordinary steady state,

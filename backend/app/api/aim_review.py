@@ -111,9 +111,10 @@ def general_sheet(
     request: Request,
     run_id: str | None = None,
     copy: Literal["team", "contractor"] = "team",
+    rough_draft_ok: bool = False,
     scope: access.AccessScope = Depends(access.current_scope),
 ):
-    reject_unknown_params(request, {"run_id", "copy"})
+    reject_unknown_params(request, {"run_id", "copy", "rough_draft_ok"})
     require_document(document_id, scope)
     run = aim_review_view.resolve(connect(), document_id, run_id)
     if run is None:
@@ -140,6 +141,8 @@ def general_sheet(
             media_type=_XLSX,
             headers={"Content-Disposition": f'attachment; filename="{name}"'},
         )
+    if not rough_draft_ok:  # a local rough draft's file needs the engineer's explicit OK first (lead-5, 27 Nov 2026)
+        _refuse_unconfirmed_rough_draft(run, scope)
     try:  # THE HARD RULE: page, database and file rows agree, or the file is refused with the sentence
         data = aim_review_completeness.file_or_refuse(run["run_id"], scope)
     except aim_review_view.NotFinished as exc:
@@ -154,6 +157,35 @@ def general_sheet(
         content=data,
         media_type=_XLSX,
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+ROUGH_DRAFT_CONFIRM = (
+    "This review is a rough draft by the AI on this computer, not scored as reliable. Confirm that you will check every "
+    "comment, then download it."
+)
+
+
+def _refuse_unconfirmed_rough_draft(run: dict, scope) -> None:
+    """A review made on the local model (`aim_review_signoff.rough_draft`) that no engineer has signed: its team file is given
+    only with `rough_draft_ok` (the page asks first), so a rough draft never leaves as if it were a finished review. A signed
+    review is the engineer's: no question. 409 `confirm_required` with the sentence; nothing is written."""
+    conn = connect()
+    try:
+        view = aim_review_view.build(conn, run, scope)
+    except aim_review_view.NotFinished:
+        return  # the completeness step answers a run that has not finished, in its own words
+    if (
+        not aim_review_signoff.rough_draft(view)
+        or aim_review_signoff.latest(conn, run["run_id"]) is not None
+    ):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            **errors.safe_error(errors.CONFIRM_REQUIRED, ""),
+            "message": ROUGH_DRAFT_CONFIRM,
+        },
     )
 
 
@@ -338,7 +370,9 @@ def accept_rest(
     )
     try:
         n = aim_review_signoff.accept_rest(conn, run, view, actor)
-    except aim_review_signoff.Refused as exc:  # a rough draft from the local model: decided one by one
+    except (
+        aim_review_signoff.Refused
+    ) as exc:  # a rough draft from the local model: decided one by one
         detail = {
             **errors.safe_error(errors.CRS_NOT_FINISHED, str(exc)),
             "message": str(exc),
