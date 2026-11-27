@@ -6,7 +6,7 @@ import { EmptyState, InlineErrorState, Spinner, StatusBadge } from "../component
 import { deliverables as deliverablesApi, management, risks as risksApi } from "../api/client";
 import type { Deliverable, DeliverableCreate, DeliverableStatus, DeliverableStakeholder, StakeholderRole } from "../types/api";
 import type { EscalationRule } from "../types/api";
-import { Button, Fold, LinkButton, PageHeader, SectionTitle, Tag } from "../components/kit/Kit";
+import { Button, Fold, LinkButton, PageHeader, SectionTitle, Tag, TextField } from "../components/kit/Kit";
 
 /** Expected deliverables shown before the fold (H's audit #45, 27 Nov 2026: 41 rows made a 7,330 px page); the rest stay one click away, counted. */
 export const EXPECTED_SHOWN = 8;
@@ -145,16 +145,29 @@ export function DeliverablesView() {
     sameOrigin ? (expected[0].origin === "inferred" ? "All were suggested by the AI: check each before accepting it." : "All were added by hand.") : null,
   ].filter(Boolean).join(" ");
   const expectedRow = (item: import("../types/api").ExpectedDeliverable) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm text-slateish-200">{expectedTitle(item.title)}{item.origin === "inferred" && item.source_name ? ` · from ${item.source_name}, ${item.source_page ? `page ${item.source_page}` : "page not recorded"}` : ""}</p><p className="text-xs text-slateish-500">Item {item.wbs_code} · {item.deliverable_type}{sameOrigin ? "" : ` · ${item.origin === "inferred" ? "suggested by the AI, check it before accepting" : "added by hand"}`}</p></div>{sameState ? null : <StatusBadge tone={item.state === "missing" ? "warn" : "good"}>{item.state === "missing" ? "not in the list yet" : item.state.replaceAll("_", " ")}</StatusBadge>}</div>;
+  // the add form's one grid, the same in both looks (the grid-width check reads each grid once)
+  const ADD_FORM_GRID = "xl:grid-cols-[130px_minmax(0,1fr)_180px_150px_auto]";
   const addForm = (
       <section>
         <SectionTitle>Add deliverable</SectionTitle>
-        <div className="mt-3 grid gap-2 xl:grid-cols-[130px_minmax(0,1fr)_180px_150px_auto]">
+        {NEW_LOOK ? (
+        // each field says what it is above it, not only in a placeholder that vanishes once typed in (C's walk, 27 Nov 2026)
+        <div className={`mt-3 grid items-end gap-2 ${ADD_FORM_GRID}`}>
+          <TextField id="deliverable-number" label="Item number in the project list" value={form.wbs_code} onChange={(e) => setForm({ ...form, wbs_code: e.target.value })} placeholder="e.g. 1.1" />
+          <TextField id="deliverable-title" label="Deliverable title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <TextField id="deliverable-type" label="Deliverable type" value={form.deliverable_type} onChange={(e) => setForm({ ...form, deliverable_type: e.target.value })} />
+          <TextField id="deliverable-due" label="Due date" type="date" value={form.due_date ?? ""} onChange={(e) => setForm({ ...form, due_date: e.target.value || null })} />
+          <Button variant="secondary" onClick={() => void create()}>Add</Button>
+        </div>
+        ) : (
+        <div className={`mt-3 grid gap-2 ${ADD_FORM_GRID}`}>
           <input value={form.wbs_code} onChange={(e) => setForm({ ...form, wbs_code: e.target.value })} aria-label="Item number in the project list" placeholder="Number, e.g. 1.1" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-2 text-sm text-slateish-200" />
           <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} aria-label="Deliverable title" placeholder="Deliverable title" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-2 text-sm text-slateish-200" />
           <input value={form.deliverable_type} onChange={(e) => setForm({ ...form, deliverable_type: e.target.value })} aria-label="Deliverable type" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-2 text-sm text-slateish-200" />
           <input type="date" value={form.due_date ?? ""} onChange={(e) => setForm({ ...form, due_date: e.target.value || null })} aria-label="Due date" className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-2 text-sm text-slateish-200" />
           <Button variant="secondary" onClick={() => void create()}>Add</Button>
         </div>
+        )}
       </section>
   );
   const register = (
@@ -176,7 +189,8 @@ export function DeliverablesView() {
   );
 
   return (
-    <section id="deliverables" className="w-full px-4 py-6">
+    // the new look starts at the same left edge as every other page (C's walk: 60 px against 44 px)
+    <section id="deliverables" className={NEW_LOOK ? "w-full" : "w-full px-4 py-6"}>
       {/* the kit's own page header: no one-off green eyebrow line above the title (H's audit #28) */}
       <PageHeader title="Deliverables" lead={<>Every document the contractor must deliver: its number in the project list, its revision, where it stands and when it is due.{NEW_LOOK && <span data-testid="deliverables-summary" className="mt-2 block text-slateish-200">{deliverablesSummary(items, alerts)}</span>}</>} />
 

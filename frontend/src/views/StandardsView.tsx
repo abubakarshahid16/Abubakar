@@ -99,10 +99,7 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
             </p>
           )}
         </div>
-        {NEW_LOOK ? (
-          // the kit's toggle (H's audit 24: a raw checkbox): pressed while superseded books are listed
-          <Button size="sm" aria-pressed={includeSuperseded} onClick={() => setIncludeSuperseded((v) => !v)}>Show superseded</Button>
-        ) : (
+        {NEW_LOOK ? null : (
         <label className="flex items-center gap-2 text-xs">
           <input
             type="checkbox"
@@ -132,6 +129,9 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
               className={NEW_LOOK ? "kit-input w-full max-w-md" : "w-full max-w-md rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-sm"}
             />
             {NEW_LOOK && <p className="text-xs text-slateish-400" data-testid="standards-in-force">Every book here is in force unless it is marked Superseded.</p>}
+            {/* the kit's toggle (H's audit 24) sits with the search it narrows, not at the top of the page where it read as the page's
+                main action (C's walk, 27 Nov 2026); pressed while superseded books are listed */}
+            {NEW_LOOK && <Button size="sm" aria-pressed={includeSuperseded} onClick={() => setIncludeSuperseded((v) => !v)}>Show superseded</Button>}
             <p className="text-xs opacity-70" data-testid="standards-shown">
               {matches.length === load.standards.length
                 ? `${load.standards.length.toLocaleString()} in your library`
@@ -240,7 +240,8 @@ function StandardRow({
       {standard.title && displayName(standard) !== standard.title && (
         <p className="mt-1 text-xs opacity-80">{standard.title}</p>
       )}
-      {standard.filename !== displayName(standard) && (
+      {/* the file's name only when it says more than the title above (C's walk: "File: x.pdf" under the title "x" on every row) */}
+      {standard.filename.replace(/\.(pdf|docx?|xlsx?)$/i, "") !== displayName(standard) && (
         <p className="mt-1 text-xs opacity-60">File: {standard.filename}</p>
       )}
       <p className="mt-1 text-xs opacity-70">

@@ -4,6 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { DeliverablesView, EXPECTED_SHOWN } from "./DeliverablesView";
+import { NEW_LOOK } from "../look";
 
 const ok = (data: unknown) => Promise.resolve({ ok: true, data });
 const expectedItem = (i: number) => ({
@@ -57,4 +58,13 @@ describe("the Deliverables page in one kit", () => {
       rows.list = null;
     }
   });
+  it.runIf(NEW_LOOK)("each 'Add deliverable' field says what it is above it (C's walk, 27 Nov 2026)", async () => {
+    render(<DeliverablesView />);
+    for (const label of ["Item number in the project list", "Deliverable title", "Deliverable type", "Due date"]) {
+      const field = await screen.findByLabelText(label);
+      expect(field.className).toBe("kit-input");
+      expect(document.querySelector(`label[for="${field.id}"]`)?.textContent).toBe(label);
+    }
+  });
 });
+
