@@ -191,13 +191,17 @@ export function LoginView({
 
         {/* The single error region. aria-live so a screen reader hears the
             verdict without focus moving; role=alert for the same reason. */}
-        <div id={errorId} role="alert" aria-live="assertive" className="min-h-[1.25rem]">
-          {error && (
+        {/* the new look: no empty slot while there is nothing to say (H's gate: a 50px gap above Sign in), the region kept for a
+            screen reader; the message in the kit's notice shape, not a red pill */}
+        <div id={errorId} role="alert" aria-live="assertive" className={NEW_LOOK ? (error ? undefined : "sr-only") : "min-h-[1.25rem]"}>
+          {error && (NEW_LOOK ? (
+            <p className="kit-notice kit-notice--problem">{error}</p>
+          ) : (
             <p className="rounded-[var(--radius-xs)] border border-danger-500/50 bg-danger-500/10 px-3 py-2 text-sm text-danger-500">
               <span aria-hidden="true">! </span>
               {error}
             </p>
-          )}
+          ))}
         </div>
 
         {NEW_LOOK ? (

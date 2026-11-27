@@ -8,6 +8,13 @@
     <!-- THE THEME AND LOOK BEFORE THE FIRST PAINT (owner, 27 Nov 2026 08:45: the sign-in page's background flipped between
          pale blue and white from one load to the next, because App stamped them only after React's first paint). The same
          choice App makes: the saved theme, else dark; the look from the build switch. App's own effect still runs. -->
+    <!-- the page colour from the very first frame, before the stylesheet arrives (H's gate on #1967: one white frame for a dark
+         reader); keyed on the attributes, so it follows a theme switch too. The new look's page colours (look.css). -->
+    <meta name="color-scheme" content="dark light" />
+    <style>
+      html[data-look="new"][data-theme="light"] { background-color: #f4f6f9; color-scheme: light; }
+      html[data-look="new"][data-theme="dark"] { background-color: #0e1624; color-scheme: dark; }
+    </style>
     <script>
       (function () {
         var theme = "dark";
