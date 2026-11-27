@@ -33,6 +33,7 @@ import {
   type ClassificationScope,
   type ClassificationVocabulary,
 } from "../../api/client";
+import { Button } from "../kit/Kit";
 
 /** The vocabulary plus per-type counts, or nothing. Deliberately NOT a
  *  Loadable: no screen should render an error state for this control - a
@@ -193,21 +194,8 @@ export function TypeFilter({
       {vocabulary.types.map((type) => {
         const on = selected.includes(type);
         const count = vocabulary.countByType[type];
-        return (
-          <button
-            key={type}
-            type="button"
-            role="checkbox"
-            aria-checked={on}
-            onClick={() => onToggle(type)}
-            className={[
-              "inline-flex items-center gap-2 rounded border px-2.5 py-1 text-[13px] motion-safe:transition-colors",
-              layout === "column" ? "justify-start" : "",
-              on
-                ? "border-signal-500/40 bg-signal-500/10 text-signal-400"
-                : "border-ink-600 bg-ink-800 text-slateish-300 hover:bg-ink-700",
-            ].join(" ")}
-          >
+        const inner = (
+          <>
             <span
               aria-hidden
               className={[
@@ -220,20 +208,43 @@ export function TypeFilter({
                 know" reads as "there are none of these", which is a different
                 claim and sometimes a false one. */}
             {count != null && (
-              <span className="font-mono text-xs text-slateish-300">{count}</span>
+              <span className="text-xs text-slateish-300">{count}</span>
             )}
-          </button>
+          </>
+        );
+        // A ROW STAYS A ROW (H's gate on 5c142650): in a column (Analysis, "Search in") each type is a left-aligned list row with its
+        // box at the left, as approved; only the row of filters (Documents) is the kit's small button with its checked state.
+        if (layout === "column") {
+          return (
+            <button
+              key={type}
+              type="button"
+              role="checkbox"
+              aria-checked={on}
+              onClick={() => onToggle(type)}
+              className={[
+                "inline-flex items-center justify-start gap-2 rounded border px-2.5 py-1 text-[13px] motion-safe:transition-colors",
+                on
+                  ? "border-signal-500/40 bg-signal-500/10 text-signal-400"
+                  : "border-ink-600 bg-ink-800 text-slateish-300 hover:bg-ink-700",
+              ].join(" ")}
+            >
+              {inner}
+            </button>
+          );
+        }
+        return (
+          // the shared kit's small button, its checked state the kit's "on" look: one filter look on Documents (H's gate carry-on)
+          <Button key={type} size="sm" role="checkbox" aria-checked={on} onClick={() => onToggle(type)}>
+            {inner}
+          </Button>
         );
       })}
 
       {onClear && selected.length > 0 && (
-        <button
-          type="button"
-          onClick={onClear}
-          className="rounded border border-ink-600 px-2 py-1 text-xs text-slateish-400 hover:text-slateish-200"
-        >
+        <Button size="sm" onClick={onClear}>
           Clear
-        </button>
+        </Button>
       )}
 
       {/* RULE 3: the server's number, or no number. */}

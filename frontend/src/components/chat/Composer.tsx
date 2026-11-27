@@ -94,13 +94,14 @@ export function Composer({
             >
               @{d.name}
               {onPick && (
-                <Button variant="secondary"
-                 
+                <button
+                  type="button"
                   aria-label={`Stop answering from ${d.name}`}
                   onClick={() => onPick(picked.filter((p) => p.id !== d.id))}
+                  className="min-h-0 px-0.5 text-slateish-400 hover:text-slateish-100"
                 >
                   ×
-                </Button>
+                </button>
               )}
             </li>
           ))}
@@ -148,48 +149,39 @@ export function Composer({
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <div className="relative flex items-center gap-2">
-          <Button variant="secondary"
-           
+          {/* an icon keeps its own shape (the round +), never the kit's box (27 Nov 2026) */}
+          <button
+            type="button"
             aria-label="More options"
             aria-expanded={menu}
             aria-haspopup="true"
             onClick={() => setMenu((m) => !m)}
+            className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-full)] border border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800"
           >
             +
-          </Button>
+          </button>
           {onPick && onPickerOpen && (
-            <button
+            <Button
               ref={pickerButton}
-              type="button"
+              size="sm"
               aria-expanded={pickerOpen}
+              aria-pressed={picked.length > 0}
               aria-haspopup="dialog"
               onClick={() => onPickerOpen(!pickerOpen)}
-              className={[
-                "rounded-[var(--radius-full)] border px-3 py-1 text-xs motion-safe:transition-colors",
-                picked.length > 0
-                  ? "border-signal-500/60 text-signal-300"
-                  : "border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800",
-              ].join(" ")}
             >
               @ a document{picked.length > 0 ? ` (${picked.length})` : ""}
-            </button>
+            </Button>
           )}
           {models && (
-            <button
-              type="button"
+            <Button
+              size="sm"
               aria-pressed={web}
               disabled={!models.web_available || !onWeb}
               title={models.web_available ? "Offer a web search. Nothing is sent until you approve the phrase." : models.web_reason ?? "Web search is off"}
               onClick={() => onWeb?.(!web)}
-              className={[
-                "rounded-[var(--radius-full)] border px-3 py-1 text-xs motion-safe:transition-colors disabled:opacity-50",
-                web
-                  ? "border-signal-500/70 bg-signal-500/10 text-signal-300"
-                  : "border-ink-600 text-slateish-300 hover:border-signal-500/50 hover:bg-ink-800",
-              ].join(" ")}
             >
               {web ? "Web on" : "Web off"}
-            </button>
+            </Button>
           )}
           {pickerOpen && onPick && onPickerOpen && (
             <DocumentPicker

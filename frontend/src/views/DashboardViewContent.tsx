@@ -223,7 +223,7 @@ export function DashboardView({
               <p className="mt-1 text-xs text-slateish-500">Live WBS, review, and overdue-risk counts for the projects you can see.</p>
             </div>
             {onOpenDeliverables && (
-              <LinkButton tone="action" size="xs" onClick={onOpenDeliverables}>Open deliverables</LinkButton>
+              <LinkButton weight="medium" tone="action" size="xs" onClick={onOpenDeliverables}>Open deliverables</LinkButton>
             )}
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">

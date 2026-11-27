@@ -164,10 +164,12 @@ export function ChipButton({ word, detail, expanded, controls, onClick, testId }
  *  `tone`: action = the teal link, underlined on hover ("← Reviews", "page 4", "See all"); danger = the red underlined link (Cancel a run);
  *  inherit = a link inside a sentence, in the sentence's own colour, underlined. No tone: the quiet underlined word (the count line).
  *  `size`: xs (12px) or sm (14px), the link's own size where it stood apart; otherwise the text's size around it. */
-export function LinkButton({ pressed, tone, size, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "type"> & {
+export function LinkButton({ pressed, tone, size, weight, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "type"> & {
   pressed?: boolean; tone?: "action" | "danger" | "inherit"; size?: "xs" | "sm";
+  /** the weight the link had where it stood (F's note, 27 Nov 2026: "All reviews of this file" was bold teal); otherwise the text's own */
+  weight?: "medium" | "semibold";
 }) {
-  const cls = `kit-link${tone ? ` kit-link--${tone}` : ""}${size ? ` kit-link--${size}` : ""}`;
+  const cls = `kit-link${tone ? ` kit-link--${tone}` : ""}${size ? ` kit-link--${size}` : ""}${weight ? ` kit-link--${weight}` : ""}`;
   return <button type="button" className={cls} aria-pressed={pressed} {...rest} />;
 }
 

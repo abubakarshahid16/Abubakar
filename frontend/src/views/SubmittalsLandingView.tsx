@@ -255,7 +255,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
           inbox, this list stays the default" teaser would be untrue. */}
       {!inbox && onOpenInbox && !workspace && (
         <p className="text-sm text-slateish-300">
-          <LinkButton tone="action" onClick={onOpenInbox}>
+          <LinkButton weight="medium" tone="action" onClick={onOpenInbox}>
             Try the new inbox
           </LinkButton>{" "}
           - where each review stands, filtered to what needs you. This list stays the default for now.
@@ -263,7 +263,7 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
       )}
       {inbox && onOpenList && (
         <p className="text-sm text-slateish-300">
-          <LinkButton tone="action" onClick={onOpenList}>
+          <LinkButton weight="medium" tone="action" onClick={onOpenList}>
             Back to the current list
           </LinkButton>
         </p>

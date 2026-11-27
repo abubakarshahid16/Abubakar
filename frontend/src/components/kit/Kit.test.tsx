@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { KIT_WORDS, toneOfWord } from "./chipWords";
-import { Button, ButtonLink, Card, Notice, PageHeader, SelectField, StatusChip, Table, TextField, Tile } from "./Kit";
+import { Button, ButtonLink, Card, LinkButton, Notice, PageHeader, SelectField, StatusChip, Table, TextField, Tile } from "./Kit";
 import { KitPreview } from "./KitPreview";
 
 describe("the shared kit", () => {
@@ -69,5 +69,10 @@ describe("the shared kit", () => {
     render(<KitPreview />);
     expect(screen.getByRole("heading", { level: 1, name: "Shared kit" })).toBeTruthy();
     expect(screen.getAllByRole("button").length).toBeGreaterThan(8);
+  });
+  it("keeps a link a link: the link looks the pages had (tone, size, weight), never a boxed button", () => {
+    render(<><LinkButton tone="action" size="xs" weight="semibold" onClick={() => undefined}>All reviews of this file (2)</LinkButton><LinkButton onClick={() => undefined}>show all</LinkButton></>);
+    expect(screen.getByRole("button", { name: "All reviews of this file (2)" }).className).toBe("kit-link kit-link--action kit-link--xs kit-link--semibold");
+    expect(screen.getByRole("button", { name: "show all" }).className).toBe("kit-link"); // no tone: the quiet underlined word
   });
 });
