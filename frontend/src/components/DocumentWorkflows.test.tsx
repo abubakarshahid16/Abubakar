@@ -218,7 +218,7 @@ describe("technical details", () => {
     // recorded value.
     expect(screen.queryByText("Unknown")).toBeNull();
     expect(screen.queryByText("Revision")).toBeNull();
-    expect(screen.getByText(/no submittal-review metadata/i)).toBeTruthy();
+    expect(screen.getByText(/nothing is recorded for this document yet/i)).toBeTruthy();
   });
 
   it("shows the metadata that IS recorded", () => {
