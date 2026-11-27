@@ -7,6 +7,24 @@ import { TechnicalQueryPosition, withPositionLine } from "./TechnicalQueryPositi
 
 const LINE = "On the information given, COMPANY finds no basis for a change to cost or schedule from this item.";
 
+describe("one cost / schedule message (builder H's table of the 34 queries, 27 Nov 2026)", () => {
+  it("heads the usual sentence with the hint, as one message, never a hint beside it", () => {
+    render(<TechnicalQueryPosition position={{ line: LINE, hint: "This request mentions money or time: state COMPANY's position yourself." }} canEdit onAdd={() => {}} />);
+    const offer = screen.getByTestId("position-offer");
+    expect(screen.getByTestId("position-hint")).toHaveTextContent("This request mentions money or time. COMPANY’s usual position:");
+    expect(offer.textContent).not.toMatch(/state COMPANY's position yourself/);
+    const said = (offer.textContent ?? "").replace(screen.getByRole("button").textContent ?? "", "");
+    expect(said.split(/schedule/i).length - 1).toBe(1); // only the usual sentence names it (the button aside)
+  });
+
+  it("says only that the reply already states a position, with nothing to add beside it", () => {
+    render(<TechnicalQueryPosition position={{ line: LINE, hint: null, reply_speaks: true }} canEdit onAdd={() => {}} />);
+    expect(screen.getByTestId("position-reply-speaks")).toHaveTextContent("The reply already states a cost or schedule position.");
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByTestId("position-offer").textContent).not.toContain(LINE);
+  });
+});
+
 describe("the offered sentence", () => {
   it("is added once, as the last paragraph", () => {
     const once = withPositionLine("1. Class 300 applies [S1].", LINE);

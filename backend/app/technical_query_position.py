@@ -24,7 +24,7 @@ HINT = "This request mentions money or time: state COMPANY's position yourself."
 # a "push button", a flow or corrosion "rate", seismic "acceleration", a part "behind" another.
 _MONEY = (
     r"\bcosts?\b|\bcosted\b|\bcostly\b|\bprices?\b|\bpricing\b|\bpa(?:y|ys|id|ying|yment|yments)\b|\bexpenses?\b|\bbudget\w*"
-    r"|\bcommercial\w*|\bclaims?\b|\bclaimed\b|\bcompensat\w*|\breimburs\w*|\bman-?hours?\b|\bmanhours?\b"
+    r"|\bcommercial\w*|\bclaims?\b|\bclaimed\b|\bcompensat\w*|\breimburs\w*|\bman[- ]?hours?\b|\bmanhours?\b"
     r"|\b(?:unit|hourly|daily|labou?r|day)\s+rates?\b|\b(?:variation|change)\s+orders?\b|\binvoice\w*|\bcontract\s+(?:price|sum|value)\b"
 )
 _TIME = (
@@ -33,15 +33,23 @@ _TIME = (
     r"|\bpush(?:es|ed|ing)?\s+(?:back|out)\b|\bpush(?:es|ed|ing)?\s+(?:the|our|its)\s+[\w\s-]{0,30}?\bdates?\b"
     r"|\bpostpon\w*|\baccelerat\w*\s+(?:the\s+)?(?:work|works|schedule|programme|program|delivery|completion)\b"
     r"|\b\d+\s*(?:-\s*)?(?:days?|weeks?|months?)\b|\bschedule\b(?!\s*(?:[A-H]\b|[A-H]-?\d|\d|XS\b|XXS\b|STD\b))(?<!pipe schedule)"
+    # a technical LIST called a schedule ("Coating Schedule", "valve schedule") is not time (builder H's replay of #1992, row 16)
+    r"(?<!coating schedule)(?<!painting schedule)(?<!paint schedule)(?<!insulation schedule)(?<!line schedule)(?<!valve schedule)(?<!equipment schedule)(?<!cable schedule)(?<!lubrication schedule)(?<!inspection schedule)(?<!test schedule)(?<!testing schedule)(?<!maintenance schedule)(?<!material schedule)(?<!data schedule)(?<!drawing schedule)(?<!document schedule)(?<!instrument schedule)(?<!piping schedule)(?<!welding schedule)(?<!heat treatment schedule)(?<!pwht schedule)(?<!hydrotest schedule)"
 )
 _RAISES = re.compile(f"{_MONEY}|{_TIME}", re.IGNORECASE)
 
 
 def raises_cost(question: str) -> bool:
-    """True when the request holds any money or time word: the page then shows the HINT (and still offers the sentence)."""
-    return bool(_RAISES.search(question or ""))
+    """True when the request holds any money or time word: the page then shows the HINT (and still offers the sentence). Runs of spaces
+    and a hyphen between words read as one space first, so "coating-schedule" and "coating  schedule" meet the same exceptions (H)."""
+    return bool(_RAISES.search(re.sub(r"(?<=\w)[\s-]+(?=\w)", " ", question or "")))
 
 
-def offer(question: str) -> dict[str, str | None]:
-    """What the page offers beside the draft: the set sentence, and the hint when the request mentions money or time."""
-    return {"line": POSITION_LINE, "hint": HINT if raises_cost(question) else None}
+def offer(question: str, reply: str | None = None) -> dict[str, str | bool | None]:
+    """What the page offers beside the draft: the set sentence, the hint when the request mentions money or time, and whether the reply
+    ALREADY states a cost or schedule position (with its source), so the page says one cost / schedule message, never two (owner,
+    27 Nov 2026: builder H's table, 6h and 6r)."""
+    from .technical_query_reply_checks import states_cost
+
+    speaks = states_cost(reply or "")
+    return {"line": POSITION_LINE, "hint": HINT if raises_cost(question) and not speaks else None, "reply_speaks": speaks}

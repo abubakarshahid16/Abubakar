@@ -165,7 +165,7 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView />);
     await screen.findByText("Coating question", { selector: "h2" });
     expect(screen.queryByText("Send approved response")).toBeNull();
-    expect(screen.getByText(/the app sends no email/)).toBeTruthy(); // the owner has not approved sending (27 Nov wording)
+    expect(screen.getByText(/The app sends no email/)).toBeTruthy(); // the owner has not approved sending (27 Nov wording)
     fireEvent.click(screen.getByLabelText(/^Claude \(paid, better/)); // "Who writes the reply" (owner, 27 Nov 2026)
     fireEvent.click(screen.getByLabelText("contract-1"));
     fireEvent.click(screen.getByText("Write the reply again"));
@@ -389,7 +389,7 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView />);
     // a short chip on the row, the full sentence on hover (owner, 27 Nov 2026)
     // said once above the list (H's audit, 27 Nov 2026 (d)), not as a chip on every row
-    expect((await screen.findByTestId("no-contractor-note")).textContent).toMatch(/Add its code once under More, .Rules for who it goes to./);
+    expect((await screen.findByTestId("no-contractor-note")).textContent).toMatch(/Add the contractor.s code once, under More, .Rules for who it goes to.\. Every query with that code then gets its contractor\./);
     expect(screen.queryByText(/Unknown contractor/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     const options = Array.from((screen.getByLabelText("Rule type") as HTMLSelectElement).options).map((o) => o.textContent);
@@ -630,7 +630,7 @@ describe("Technical Queries screen", () => {
     api.decide.mockResolvedValue({ ok: true, data: { ...drafted, status: "approved" } });
     render(<TechnicalQueriesView queryId="q1" />);
     const box = await screen.findByTestId("approve-once");
-    expect(box.textContent).toContain("Approving keeps the 1 source the reply cites and rejects the other 1 found for this question.");
+    expect(box.textContent).toContain("Approving keeps the 1 source the reply cites. It rejects the other 1.");
     expect(within(screen.getByTestId("reply-sources")).getByText("Invented quote e1.")).toBeTruthy();
     fireEvent.click(within(box).getByRole("button", { name: "Approve the reply" }));
     await waitFor(() => expect(api.decide).toHaveBeenCalledWith("q1", "approve", "d1"));
