@@ -752,7 +752,7 @@ describe("documents grouped by classification type", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /^All/ }));
     expect(screen.getByText("Not in the register", { selector: "[data-testid=type-chip]" })).toHaveAttribute(
       "title",
-      expect.stringMatching(/not one of them/i),
+      expect.stringMatching(/not waiting for one/i),
     );
   });
 

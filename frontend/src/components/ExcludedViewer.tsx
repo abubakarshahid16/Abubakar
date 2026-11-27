@@ -44,7 +44,7 @@ const RULE_EXPLANATION: Record<string, string> = {
   ocr_yielded_no_chunk:
     "Some text was read from this scan, but too little to search.",
   ocr_confidence_below_threshold:
-    "The reader was too unsure of this page to make it searchable. No limit is set now, so this should not happen.",
+    "The reader was too unsure of this page to make it searchable. Tell your administrator you saw this.",
 };
 
 export function ExcludedViewer({
