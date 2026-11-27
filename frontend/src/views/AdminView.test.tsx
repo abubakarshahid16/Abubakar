@@ -326,3 +326,28 @@ describe("V1: the grant list is searched and paged", () => {
     expect(onGrant).toHaveBeenCalledWith({ document_id: "doc_7", discipline: "IT" });
   });
 });
+
+describe("a file attached to a query, kept out of the library (F, 27 Nov 2026: all 55 'visible to nobody' on live were these)", () => {
+  const withAttachments: AdminGrantDocument[] = [
+    ...documents,
+    { document_id: "doc_inv_att1", filename: "invented-attachment-1.pdf", disciplines: [], warning: "query_attachment_unfiled" },
+    { document_id: "doc_inv_att2", filename: "invented-attachment-2.pdf", disciplines: [], warning: "query_attachment_unfiled" },
+  ];
+
+  it("is never counted as visible to nobody, and is said once, quietly, with where to act", () => {
+    render(<AdminView {...props({ documents: withAttachments })} />);
+    const summary = screen.getByRole("status", { name: "Access problems" });
+    expect(summary.textContent).toContain("1 document is visible to nobody."); // the real orphan only
+    expect(screen.getByTestId("admin-unfiled-attachments")).toHaveTextContent(
+      "2 files attached to queries are kept out of the library on purpose. File one from its query to share it.",
+    );
+    expect(screen.getAllByTestId("admin-visible-to-nobody")).toHaveLength(1);
+    expect(screen.getAllByTestId("admin-query-attachment")).toHaveLength(2);
+  });
+
+  it("raises no access problem when the attachments are the only documents without a discipline", () => {
+    const onlyAttachments = withAttachments.filter((d) => d.warning !== "no_discipline_can_see_this");
+    render(<AdminView {...props({ documents: onlyAttachments, users: [], disciplines: disciplines.filter((d) => d.warning !== "no_documents") })} />);
+    expect(screen.queryByRole("status", { name: "Access problems" })).toBeNull();
+  });
+});

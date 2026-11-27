@@ -70,6 +70,7 @@ export function summarise(
       `${unseen} document${unseen === 1 ? "" : "s"} ${unseen === 1 ? "is" : "are"} visible to nobody.`,
     );
   }
+
   return lines;
 }
 
@@ -379,6 +380,7 @@ export function AdminView(props: AdminViewProps) {
   const [grantPageIndex, setGrantPageIndex] = useState(0);
   const grantMatches = filterGrantDocuments(orphansFirst(documents ?? []), grantQuery);
   const grantView = grantPage(grantMatches, grantPageIndex);
+  const unfiledAttachments = (documents ?? []).filter((d) => d.warning === "query_attachment_unfiled").length;
   const [baselineRules, setBaselineRules] = useState<import("../types/api").ReviewBaselineRule[]>([]);
   const [baselineType, setBaselineType] = useState("");
   const [baselineTarget, setBaselineTarget] = useState("");
@@ -642,6 +644,12 @@ export function AdminView(props: AdminViewProps) {
           {grantMatches.length === 0 && (
             <p className="text-sm text-slateish-400">No document matches that search.</p>
           )}
+          {/* a file attached to a query is kept out of the library on purpose: said once here, never counted as "visible to nobody" (F, 27 Nov 2026) */}
+          {unfiledAttachments > 0 && (
+            <p className="text-xs text-slateish-400" data-testid="admin-unfiled-attachments">
+              {unfiledAttachments === 1 ? "1 file attached to a query is" : `${unfiledAttachments.toLocaleString()} files attached to queries are`} kept out of the library on purpose. File one from its query to share it.
+            </p>
+          )}
           <ul className="space-y-2">
             {grantView.rows.map((doc) => (
               <li
@@ -655,6 +663,9 @@ export function AdminView(props: AdminViewProps) {
                   {doc.filename}
                   {doc.warning === "no_discipline_can_see_this" && (
                     <StatusChip word="Visible to nobody" why="Give a discipline access below. Until then nobody can find this document in search." testId="admin-visible-to-nobody" />
+                  )}
+                  {doc.warning === "query_attachment_unfiled" && (
+                    <StatusChip word="Attached to a query" why="Kept out of the library on purpose. It is seen on its own query; file it from there to share it." testId="admin-query-attachment" />
                   )}
                 </p>
 

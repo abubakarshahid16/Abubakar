@@ -16,7 +16,7 @@
  *  that breaks silently when the wording changes. */
 export type UserWarning = "no_discipline";
 export type DisciplineWarning = "no_documents";
-export type DocumentWarning = "no_discipline_can_see_this";
+export type DocumentWarning = "no_discipline_can_see_this" | "query_attachment_unfiled";
 
 export interface AdminUser {
   user_id: string;

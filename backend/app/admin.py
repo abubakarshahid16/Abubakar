@@ -655,7 +655,12 @@ def deactivate_user(user_id: str, actor: dict | None) -> dict:
 
 
 def list_grants() -> dict:
+    from . import technical_queries
+
     conn = connect()
+    # a technical-query attachment nobody has filed is kept out of the library ON PURPOSE (seen on its own query, filed from there):
+    # never "visible to nobody" (F, 27 Nov 2026: all 55 such warnings on live were these attachments, hiding the real count, 0)
+    unfiled = technical_queries.unfiled_attachment_ids(conn)
     documents = []
     for row in conn.execute(
             "SELECT id, filename FROM documents ORDER BY filename, id"):
@@ -672,7 +677,7 @@ def list_grants() -> dict:
             # A document nobody can see is invisible in every search and looks
             # exactly like a broken upload. Deny-by-default is correct and this
             # is its cost, so the cost is displayed.
-            "warning": None if names else "no_discipline_can_see_this",
+            "warning": None if names else ("query_attachment_unfiled" if row["id"] in unfiled else "no_discipline_can_see_this"),
         })
     return {"documents": documents}
 

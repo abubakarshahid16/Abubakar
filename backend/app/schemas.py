@@ -4144,8 +4144,9 @@ class AdminGrantDocument(BaseModel):
     document_id: str
     filename: str
     disciplines: list[str]
-    warning: Literal["no_discipline_can_see_this"] | None = Field(
-        None, description="invisible in every search; looks like a broken upload")
+    warning: Literal["no_discipline_can_see_this", "query_attachment_unfiled"] | None = Field(
+        None, description="no_discipline_can_see_this: invisible in every search, looks like a broken upload; query_attachment_unfiled: "
+                          "a technical-query attachment kept out of the library on purpose (seen on its query, filed from there)")
 
 
 class AdminGrantList(ListPage):
