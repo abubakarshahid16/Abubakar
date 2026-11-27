@@ -18,9 +18,10 @@
   /* THE FIVE TONES, one style each (pale fill, dark words, a border), the kit's own: the theme's pill colours are solid in places.
      Measured (text on its fill): done 7.2, check 7.8, late 7.7, info 7.8 : 1. */
   --kit-done-bg: #ddf5ea; --kit-done-fg: #0b5a3e; --kit-done-bd: #7cc6a5;
-  --kit-check-bg: #fff1cc; --kit-check-fg: #6b4200; --kit-check-bd: #d9a93b;
+  /* ACTION NEEDED is blue, never amber (owner, 27 Nov 2026 10:25, final); plain information is grey with no fill */
+  --kit-check-bg: #e8eff8; --kit-check-fg: #1d3f6e; --kit-check-bd: #8fb0da;
   --kit-late-bg: #fde4e4; --kit-late-tone-fg: #8a1c24; --kit-late-bd: #e08a90;
-  --kit-info-bg: #ddeefb; --kit-info-fg: #0b4a7a; --kit-info-bd: #86b8e0;
+  --kit-info-bg: transparent; --kit-info-fg: #374151; --kit-info-bd: var(--kit-edge);
   /* a pressed / checked button: a pale teal fill (words 15:1 on it) */
   --kit-on-bg: #dff3f1;
 }
@@ -31,9 +32,9 @@
   --kit-edge: #5b6b80;
   --kit-field-edge: #66788f; /* 3.61 : 1 on the card, 4.01 on the field */
   --kit-done-bg: #10302a; --kit-done-fg: #a7f3d0; --kit-done-bd: #2f7a62;
-  --kit-check-bg: #3b2f14; --kit-check-fg: #fcd58a; --kit-check-bd: #8a6a22;
+  --kit-check-bg: #16263c; --kit-check-fg: #bcd4f5; --kit-check-bd: #3e5f8a;
   --kit-late-bg: #3d1c1f; --kit-late-tone-fg: #ffc2c2; --kit-late-bd: #9b3b42;
-  --kit-info-bg: #12293d; --kit-info-fg: #bae0fd; --kit-info-bd: #3d6e99;
+  --kit-info-bg: transparent; --kit-info-fg: #d1d9e4; --kit-info-bd: var(--kit-edge);
   --kit-on-bg: #123a3a;
 }
 
@@ -82,6 +83,16 @@
 .kit-chip--late { background: var(--kit-late-bg); color: var(--kit-late-tone-fg); border-color: var(--kit-late-bd); }
 .kit-chip--info { background: var(--kit-info-bg); color: var(--kit-info-fg); border-color: var(--kit-info-bd); }
 .kit-chip--plain { background: var(--color-ink-800); color: var(--color-slateish-300); border-color: var(--kit-edge); }
+/* EVERY STATE HAS AN ICON AND A WORD, NEVER COLOUR ALONE (owner, 27 Nov 2026 10:25): a tick for done or ready, a flag for action
+   needed, a stop sign for a problem; plain information (grey) has none. Drawn in the text's own colour, so it keeps its contrast
+   in both themes. */
+.kit-chip--done { --kit-icon: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M3 8.5l3.2 3.2L13 4.8%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272.2%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E"); }
+.kit-chip--check { --kit-icon: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M4 14.5V2M4 2.8h8.2l-2 3.1 2 3.1H4%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E"); }
+.kit-chip--late { --kit-icon: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath fill-rule=%27evenodd%27 d=%27M5.2 1h5.6L15 5.2v5.6L10.8 15H5.2L1 10.8V5.2zM4.5 7h7v2h-7z%27 fill=%27black%27/%3E%3C/svg%3E"); }
+.kit-chip--done::before, .kit-chip--check::before, .kit-chip--late::before {
+  content: ""; flex: none; width: 12px; height: 12px; margin-right: 4px; background: currentColor;
+  -webkit-mask: var(--kit-icon) center / contain no-repeat; mask: var(--kit-icon) center / contain no-repeat;
+}
 
 /* ---- card ---- */
 .kit-card { background: var(--color-ink-800); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); padding: var(--kit-space-4); min-width: 0; }
@@ -104,6 +115,13 @@
 
 /* ---- notice box: info, warn, problem ---- */
 .kit-notice { border: 1px solid; border-left-width: 4px; border-radius: var(--kit-radius-lg); padding: var(--kit-space-3) var(--kit-space-4); font-size: 15px; line-height: 1.5; }
+.kit-notice--warn { --kit-icon: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M4 14.5V2M4 2.8h8.2l-2 3.1 2 3.1H4%27 fill=%27none%27 stroke=%27black%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E"); }
+.kit-notice--problem { --kit-icon: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath fill-rule=%27evenodd%27 d=%27M5.2 1h5.6L15 5.2v5.6L10.8 15H5.2L1 10.8V5.2zM4.5 7h7v2h-7z%27 fill=%27black%27/%3E%3C/svg%3E"); }
+.kit-notice--warn, .kit-notice--problem { position: relative; padding-left: calc(var(--kit-space-4) + 22px); }
+.kit-notice--warn::before, .kit-notice--problem::before {
+  content: ""; position: absolute; left: var(--kit-space-4); top: calc(var(--kit-space-3) + 4px); width: 14px; height: 14px; background: currentColor;
+  -webkit-mask: var(--kit-icon) center / contain no-repeat; mask: var(--kit-icon) center / contain no-repeat;
+}
 .kit-notice__title { font-weight: 600; margin: 0 0 var(--kit-space-1); }
 .kit-notice--info { background: var(--kit-info-bg); color: var(--kit-info-fg); border-color: var(--kit-info-bd); }
 .kit-notice--warn { background: var(--kit-check-bg); color: var(--kit-check-fg); border-color: var(--kit-check-bd); }
