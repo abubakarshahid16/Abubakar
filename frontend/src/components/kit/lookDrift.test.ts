@@ -2,7 +2,7 @@
  * LOOK-KIT DRIFT RATCHET (owner, 27 Nov 2026 12:47: "one table style, one card style, one notice style everywhere; a test that fails
  * if a page invents a new one"). Builder C.
  *
- * Every .tsx under src/ (not tests, not the kit itself) is read as text and three kinds of hand-made style are counted per file:
+ * Every .tsx and .ts under src/ (not tests, not the kit itself) is read as text and three kinds of hand-made style are counted per file:
  *   TABLE  - a <table> whose tag names no kit table class (kit-table / kit-stack-table);
  *   CARD   - a class string with rounded + border + a background, that is no kit part (kit-card / kit-row-btn / kit-tile / kit-notice);
  *   NOTICE - a class string with a tinted warning / problem / info / signal background (e.g. bg-warn-500/10), that is not kit-notice.
@@ -23,18 +23,26 @@ export const USE: Record<Kind, string> = { table: "the kit Table (or kit-stack-t
 const KIT_TABLE = /\bkit-(?:stack-)?table\b/;
 const KIT_PART = /\bkit-(?:card|row-btn|tile|notice|stack-table|table|tag|chip|btn)\b/;
 
-/** The class strings of a source file: every "..." and `...` literal (a ternary's two branches are two strings). */
+/** The class strings of a source file: every "..." and `...` literal. The standard both-looks pattern
+ *  `NEW_LOOK ? "kit-..." : "classic classes"` draws only the kit part in the new look, so the else-branch of a ternary whose first
+ *  string names a kit part is NOT counted (H's read of #2010: it failed every new file written with a classic fallback). */
 function classStrings(source: string): string[] {
+  const kitElse = source.replace(/\?\s*("[^"\n]*"|`[^`]*`)\s*:\s*("[^"\n]*"|`[^`]*`)/g, (whole, first: string) => (KIT_PART.test(first) ? `? ${first} : ""` : whole));
   const out: string[] = [];
-  for (const m of source.matchAll(/"([^"\n]{3,})"|`([^`]{3,})`/g)) out.push(m[1] ?? m[2]);
+  for (const m of kitElse.matchAll(/"([^"\n]{3,})"|`([^`]{3,})`/g)) out.push(m[1] ?? m[2]);
   return out;
 }
 
 export function drift(source: string): Record<Kind, number> {
   const table = [...source.matchAll(/<table\b[^>]*>/g)].filter((m) => !KIT_TABLE.test(m[0])).length;
   const strings = classStrings(source);
-  const card = strings.filter((s) => /\brounded\b|\brounded-\[|\brounded-(?:sm|md|lg|xl)\b/.test(s) && /\bborder(?:\s|$|")|\bborder-(?:ink|white|slateish)-/.test(s) && /\bbg-(?:ink|white|slateish)/.test(s) && !KIT_PART.test(s)).length;
-  const notice = strings.filter((s) => /\bbg-(?:warn|danger|info|signal|check|ok)-\d{2,3}\/\d+/.test(s) && !/\bkit-notice\b/.test(s)).length;
+  // a card: rounded + a background + an edge, the edge a border OR a shadow (H: ReviewCrsList's own section used a shadow)
+  const card = strings.filter((s) => /\brounded\b|\brounded-\[|\brounded-(?:sm|md|lg|xl)\b/.test(s) && /\bbg-(?:ink|white|slateish)/.test(s)
+    && (/\bborder(?:\s|$|")|\bborder-(?:ink|white|slateish)-/.test(s) || /\bshadow-/.test(s)) && !KIT_PART.test(s)).length;
+  // a notice: a tinted warning/problem/info/signal fill (number or bracket opacity), OR a coloured edge with padding (a left-bar notice)
+  const TINT = /\bbg-(?:warn|danger|info|signal|check|ok)-\d{2,3}\/(?:\d+|\[[\d.]+\])/;
+  const EDGE = /\bborder-(?:l-\d+\s.*)?(?:warn|danger|info|signal|check|ok)-\d{2,3}\b|\bborder-l-\d+\b.*\bborder-(?:warn|danger|info|signal|check|ok)-\d{2,3}/;
+  const notice = strings.filter((s) => (TINT.test(s) || (EDGE.test(s) && /\bp[xy]?-\d/.test(s))) && !/\bkit-notice\b/.test(s)).length;
   return { table, card, notice };
 }
 
@@ -43,7 +51,8 @@ function files(dir: string): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) { if (name !== "node_modules") out.push(...files(p)); continue; }
-    if (!name.endsWith(".tsx") || /\.(test|spec)\.tsx$/.test(name)) continue;
+    // .tsx pages and .ts helpers (tone or format maps hold class strings too; H's read of #2010)
+    if (!/\.tsx?$/.test(name) || /\.(test|spec)\.tsx?$/.test(name) || name.endsWith(".d.ts")) continue;
     out.push(p);
   }
   return out;
@@ -94,5 +103,12 @@ describe("look-kit drift ratchet: one table, card and notice style (owner, 27 No
     expect(drift('<div className="kit-card">')).toEqual({ table: 0, card: 0, notice: 0 });
     expect(drift('<p className="rounded bg-warn-500/10 px-3 py-2 text-warn-500">')).toEqual({ table: 0, card: 0, notice: 1 });
     expect(drift('<div className="kit-notice kit-notice--warn">')).toEqual({ table: 0, card: 0, notice: 0 });
+    // the both-looks pattern: the classic branch of a kit ternary is not drift (H)
+    expect(drift('<div className={NEW_LOOK ? "kit-card" : "rounded border border-ink-700 bg-ink-850 p-3"}>')).toEqual({ table: 0, card: 0, notice: 0 });
+    expect(drift('<div className={NEW_LOOK ? "p-2" : "rounded border border-ink-700 bg-ink-850 p-3"}>')).toEqual({ table: 0, card: 1, notice: 0 });
+    // H's slip-throughs: a shadow card, a left-bar notice, a bracket-opacity tint
+    expect(drift('<section className="rounded-[var(--radius-md)] bg-ink-800 p-5 shadow-[var(--shadow-resting)]">')).toEqual({ table: 0, card: 1, notice: 0 });
+    expect(drift('<div className="border-l-4 border-warn-500 px-3 py-2 text-sm">')).toEqual({ table: 0, card: 0, notice: 1 });
+    expect(drift('<p className="rounded bg-warn-500/[0.08] px-3 py-2">')).toEqual({ table: 0, card: 0, notice: 1 });
   });
 });

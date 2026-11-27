@@ -2,17 +2,17 @@
  "components/analysis/ClaimTable.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 1
+  "notice": 2
  },
  "components/analysis/CoverageLedger.tsx": {
   "table": 1,
   "card": 1,
-  "notice": 0
+  "notice": 1
  },
  "components/analysis/GapAnalysisCard.tsx": {
   "table": 0,
   "card": 13,
-  "notice": 4
+  "notice": 5
  },
  "components/analysis/MarketPanelContent.tsx": {
   "table": 0,
@@ -44,6 +44,11 @@
   "card": 0,
   "notice": 1
  },
+ "components/analysis/RecommendationCard.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 3
+ },
  "components/analysis/RemovedSentences.tsx": {
   "table": 0,
   "card": 1,
@@ -52,17 +57,17 @@
  "components/analysis/ReviewWorkflowPanel.tsx": {
   "table": 0,
   "card": 7,
-  "notice": 2
+  "notice": 3
  },
  "components/analysis/SummaryCard.tsx": {
   "table": 0,
   "card": 0,
-  "notice": 1
+  "notice": 2
  },
  "components/chat/AnswerActions.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 1
+  "notice": 2
  },
  "components/chat/AnswerCardContent.tsx": {
   "table": 0,
@@ -72,7 +77,12 @@
  "components/chat/AnswerCardView.tsx": {
   "table": 0,
   "card": 3,
-  "notice": 3
+  "notice": 7
+ },
+ "components/chat/AnswerComparison.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
  },
  "components/chat/AnswerInsufficient.tsx": {
   "table": 0,
@@ -89,10 +99,20 @@
   "card": 1,
   "notice": 2
  },
+ "components/chat/AssistantAnswer.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
  "components/chat/ChatEmptyState.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 0
+  "notice": 1
+ },
+ "components/chat/ComparisonScopeNotice.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
  },
  "components/chat/Composer.tsx": {
   "table": 0,
@@ -107,17 +127,17 @@
  "components/chat/DraftCommentCard.tsx": {
   "table": 0,
   "card": 2,
-  "notice": 1
+  "notice": 2
  },
  "components/chat/EvidencePanel.tsx": {
   "table": 0,
-  "card": 1,
-  "notice": 3
+  "card": 3,
+  "notice": 4
  },
  "components/chat/GeneratedAnswer.tsx": {
   "table": 0,
   "card": 0,
-  "notice": 1
+  "notice": 3
  },
  "components/chat/LocalWork.tsx": {
   "table": 0,
@@ -132,6 +152,11 @@
  "components/chat/Provenance.tsx": {
   "table": 0,
   "card": 1,
+  "notice": 2
+ },
+ "components/chat/ProviderNotice.tsx": {
+  "table": 0,
+  "card": 0,
   "notice": 1
  },
  "components/chat/RecentChats.tsx": {
@@ -149,10 +174,15 @@
   "card": 2,
   "notice": 2
  },
- "components/chat/WebAnswer.tsx": {
+ "components/chat/UserMessage.tsx": {
   "table": 0,
   "card": 1,
   "notice": 0
+ },
+ "components/chat/WebAnswer.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
  },
  "components/ChunkInspector.tsx": {
   "table": 0,
@@ -182,7 +212,7 @@
  "components/DocumentCard.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 13
+  "notice": 7
  },
  "components/DocumentKindChip.tsx": {
   "table": 0,
@@ -239,10 +269,15 @@
   "card": 1,
   "notice": 0
  },
+ "components/review/agent/AiMark.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
  "components/review/agent/AiReviewPanel.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 0
+  "notice": 1
  },
  "components/review/agent/PaperTextNotice.tsx": {
   "table": 0,
@@ -262,7 +297,7 @@
  "components/review/crs/CrsEvidenceDrawer.tsx": {
   "table": 0,
   "card": 2,
-  "notice": 1
+  "notice": 2
  },
  "components/review/crs/CrsHeader.tsx": {
   "table": 0,
@@ -277,7 +312,7 @@
  "components/review/crs/CrsTable.tsx": {
   "table": 1,
   "card": 0,
-  "notice": 0
+  "notice": 1
  },
  "components/review/CrsCommentControls.tsx": {
   "table": 0,
@@ -312,17 +347,22 @@
  "components/review/general/CommentCards.tsx": {
   "table": 0,
   "card": 6,
-  "notice": 0
+  "notice": 1
  },
  "components/review/general/GeneralResults.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 0
+  "notice": 6
  },
  "components/review/general/HowReviewMade.tsx": {
   "table": 3,
   "card": 2,
   "notice": 0
+ },
+ "components/review/general/MeasuredBadge.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
  },
  "components/review/general/SignBar.tsx": {
   "table": 0,
@@ -387,12 +427,17 @@
  "components/review/sheet/DecisionCard.tsx": {
   "table": 0,
   "card": 2,
+  "notice": 3
+ },
+ "components/review/sheet/DocumentPane.tsx": {
+  "table": 0,
+  "card": 0,
   "notice": 1
  },
  "components/review/sheet/SheetCard.tsx": {
   "table": 0,
   "card": 4,
-  "notice": 1
+  "notice": 2
  },
  "components/review/sheet/ZoomablePage.tsx": {
   "table": 0,
@@ -449,10 +494,15 @@
   "card": 6,
   "notice": 0
  },
+ "components/review/v2/ReviewPageV2.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 2
+ },
  "components/review/v2/Tiles.tsx": {
   "table": 0,
   "card": 2,
-  "notice": 0
+  "notice": 2
  },
  "components/review/workspace/ActionBar.tsx": {
   "table": 0,
@@ -467,7 +517,7 @@
  "components/review/workspace/decide/DecisionPanel.tsx": {
   "table": 0,
   "card": 2,
-  "notice": 0
+  "notice": 1
  },
  "components/review/workspace/FinishedReviewNotice.tsx": {
   "table": 0,
@@ -481,7 +531,7 @@
  },
  "components/review/workspace/landing/LandingDocumentRow.tsx": {
   "table": 0,
-  "card": 1,
+  "card": 2,
   "notice": 0
  },
  "components/review/workspace/landing/StartReviewBar.tsx": {
@@ -497,7 +547,7 @@
  "components/review/workspace/LeaveConfirm.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 1
+  "notice": 2
  },
  "components/review/workspace/NewReviewDropZone.tsx": {
   "table": 0,
@@ -524,10 +574,15 @@
   "card": 1,
   "notice": 0
  },
+ "components/review/workspace/WorkspaceTabs.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
  "components/Shell.tsx": {
   "table": 0,
-  "card": 1,
-  "notice": 1
+  "card": 2,
+  "notice": 2
  },
  "components/standards/MissingStandards.tsx": {
   "table": 1,
@@ -577,7 +632,7 @@
  "views/analysis/AnalysisControls.tsx": {
   "table": 0,
   "card": 3,
-  "notice": 1
+  "notice": 3
  },
  "views/analysis/AnalysisModeScreenView.tsx": {
   "table": 0,
@@ -587,7 +642,7 @@
  "views/analysis/AnalysisResultSections.tsx": {
   "table": 0,
   "card": 2,
-  "notice": 2
+  "notice": 4
  },
  "views/analysis/AnalysisRunPlan.tsx": {
   "table": 0,
@@ -597,12 +652,12 @@
  "views/analysis/AnalysisSources.tsx": {
   "table": 0,
   "card": 2,
-  "notice": 0
+  "notice": 2
  },
  "views/ChatView.tsx": {
   "table": 0,
   "card": 3,
-  "notice": 0
+  "notice": 2
  },
  "views/CrsSheetView.tsx": {
   "table": 0,
@@ -611,7 +666,7 @@
  },
  "views/DashboardPrimitives.tsx": {
   "table": 0,
-  "card": 3,
+  "card": 4,
   "notice": 3
  },
  "views/DashboardTechnicalDetails.tsx": {
@@ -627,7 +682,7 @@
  "views/DeliverablesView.tsx": {
   "table": 0,
   "card": 10,
-  "notice": 3
+  "notice": 4
  },
  "views/DocumentsView.tsx": {
   "table": 0,
@@ -646,7 +701,7 @@
  },
  "views/LoginView.tsx": {
   "table": 0,
-  "card": 7,
+  "card": 6,
   "notice": 5
  },
  "views/ReportsScreen.tsx": {
@@ -657,11 +712,11 @@
  "views/ReportsView.tsx": {
   "table": 0,
   "card": 3,
-  "notice": 2
+  "notice": 3
  },
  "views/ReviewCrsList.tsx": {
   "table": 0,
-  "card": 1,
+  "card": 2,
   "notice": 0
  },
  "views/ReviewSheetView.tsx": {
@@ -671,7 +726,7 @@
  },
  "views/StandardsView.tsx": {
   "table": 0,
-  "card": 2,
+  "card": 1,
   "notice": 6
  },
  "views/SubmittalsLandingView.tsx": {
@@ -682,6 +737,6 @@
  "views/TechnicalQueriesView.tsx": {
   "table": 0,
   "card": 28,
-  "notice": 0
+  "notice": 6
  }
 }
