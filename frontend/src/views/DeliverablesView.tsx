@@ -77,7 +77,7 @@ export function DeliverablesView() {
           if (result.ok) onOk(result.data);
           else { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: result.error.message })); }
         })
-        .catch(() => { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: "The request failed." })); })
+        .catch(() => { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: "The app's server did not answer. Nothing changed. Reload the page to try again." })); })
         .finally(() => setPending((current) => ({ ...current, [panel]: false })));
     };
     settle("register", deliverablesApi.list(), (data) => { setItems(data.deliverables); setRegisterLoaded(true); }, () => { setItems([]); setRegisterLoaded(false); });
@@ -179,7 +179,7 @@ export function DeliverablesView() {
   const matrix = (
       <section className="mt-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div><h2 className="text-sm font-semibold text-slateish-200">Who is reminded when something is late</h2><p className="mt-1 text-xs text-slateish-500">The reminders sent, step by step, when a deliverable is late. Mails go out only when your mail service is switched on.</p></div>
+          <div><h2 className="text-sm font-semibold text-slateish-200">Who is reminded when something is late</h2><p className="mt-1 text-xs text-slateish-500">The reminders sent, step by step, when a deliverable is late. Emails go out only when the email service is on.</p></div>
         </div>
         <div className="mt-3 divide-y divide-ink-700/70">
           {rules.map((rule) => <div key={rule.level} className="grid gap-2 py-3 lg:grid-cols-[70px_130px_180px_minmax(0,1fr)] lg:items-center"><span className={NEW_LOOK ? "text-xs" : "font-mono text-xs text-signal-400"}>Step {rule.level}</span><span className="text-xs text-slateish-400">{rule.trigger_days === 0 ? "On the due date" : `${rule.trigger_days} days late`}</span><span className="text-sm text-slateish-200">{rule.recipient_role}</span><span className="text-xs text-slateish-400">{rule.action}</span></div>)}

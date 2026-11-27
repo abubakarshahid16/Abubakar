@@ -152,6 +152,8 @@ export const WORDS_DONE: RegExp[] = [
   /^views\/AnalysisModeScreen(Content)?\.tsx$/, /^components\/analysis\/[A-Za-z]+\.tsx?$/,
   // Ingestion (words job, the rest)
   /^views\/IngestionView\.tsx$/,
+  // Deliverables (words job, the last page)
+  /^views\/DeliverablesView\.tsx$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [
