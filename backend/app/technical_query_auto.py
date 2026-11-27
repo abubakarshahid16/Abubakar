@@ -27,8 +27,9 @@ log = logging.getLogger(__name__)
 #: `query_drafts.prompt_version` of a draft the system wrote by itself after preparing the evidence. 2 = the query-reply prompt (no
 #: "Yes." / "No." opening; each numbered request answered, or "Not found in the documents searched") and the relevance floor; a query whose
 #: latest draft is an older system draft, with no decision on it, is drafted again at the next start (builder C's walk, 26 Nov 2026).
-#: 3 = COMPANY's usual cost / schedule sentence added by code, marked for the engineer (technical_query_position, 27 Nov 2026).
-SYSTEM_DRAFT = "system-draft-3"
+#: The cost / schedule sentence (technical_query_position, 27 Nov 2026) did NOT move it: new drafts carry it, older ones at their next
+#: natural redo (lead-4: no extra backlog redo for a closing line).
+SYSTEM_DRAFT = "system-draft-2"
 #: A passage the SYSTEM found is a draft's source only at or above this reranker score: the answer lane's own calibration (answer.py:
 #: answerable questions -1.19 .. 7.36, plausible but wrong -10.32 .. -4.73). Measured on a copy of live (32 drafts): 29 of 82 cited
 #: passages were below it; with it, 23 of 32 queries keep a source (median 7). A passage an engineer KEPT always counts.

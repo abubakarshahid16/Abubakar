@@ -63,5 +63,7 @@ def test_the_system_draft_carries_the_sentence_and_the_page_marks_it(
     got = tq.get(item["id"], "u1", False, False)
     draft = got["drafts"][-1]
     assert draft["answer"].endswith(P.POSITION_LINE)
-    assert draft["prompt_version"] == auto.SYSTEM_DRAFT == "system-draft-3"
+    assert (
+        draft["prompt_version"] == auto.SYSTEM_DRAFT == "system-draft-2"
+    )  # unchanged: no backlog redo for this line
     assert P.POSITION_MARK in got["ready"]["marks"]
