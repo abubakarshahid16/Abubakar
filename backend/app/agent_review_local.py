@@ -106,6 +106,11 @@ SECOND_UNAVAILABLE_WORDS = "a second reader was not available on this computer (
 #: discarded for that alone. (3) A per-call nonce starts the system text so the engine's prompt cache can never make a full prompt look short.
 CUT_MARGIN = 64
 ESTIMATE_SLACK = 64  # tokens the chat template adds to what the estimate counts
+#: How far a model's OWN count may run over the estimate without that being a sign of a cut (measured 17 Nov 2026 on real valve requests:
+#: a 14B model of another family counted 0.82 to 1.044 x the estimate, so 15 of 23 answers were thrown away at +64 tokens). An answer
+#: whose count is over the estimate is kept only when the WHOLE request would still fit the window at this spread (it cannot have been
+#: cut) and the count is within it; otherwise it is discarded exactly as before.
+TOKENIZER_SPREAD = 1.25
 #: The general review on the local engine: windows of pages, checklist batches and project-paper groups that fit the window under the
 #: engine's output ceiling (units: `agent_general_review.tokens_of`, characters / 4). A paper longer than one window is read in windows;
 #: the sheet says which pages were and were not read.
@@ -121,6 +126,10 @@ FIRST_BATCH_MAX = 1  # one item a request: the part of the paper it needs (`agen
 FIRST_TOKENS_BASE, FIRST_TOKENS_PER_ITEM, FIRST_TOKENS_CAP = 300, 380, 2400
 SECOND_BATCH_MAX = 1
 SECOND_TOKENS_BASE, SECOND_TOKENS_PER_ITEM, SECOND_TOKENS_CAP = 300, 330, 2000
+#: A model that THINKS although the request says `think: false` (the engine returns a `thinking` text beside the reply; measured 17 Nov
+#: 2026 on a 20B model: 680 of 680 output tokens spent thinking, the reply empty) gets this many more output tokens on every later
+#: request of the reader that showed it, for the rest of the run. Its thinking is never read and never shown; only counted.
+THINKING_ALLOWANCE = 1600
 
 
 class LocalError(agent_claude.AgentClaudeError):
@@ -426,7 +435,13 @@ def _cut_prompt(
         return "prompt reached the room the window leaves it"
     if reported < lower_bound_tokens(text):
         return "prompt shorter than the request needs"
-    if reported > estimate + ESTIMATE_SLACK:
+    if (
+        reported > estimate + ESTIMATE_SLACK
+        and not (
+            reported <= estimate * TOKENIZER_SPREAD
+            and estimate * TOKENIZER_SPREAD + int(num_predict) + CUT_MARGIN <= window
+        )
+    ):  # over the estimate AND (beyond the spread, or a request that may not fit at the spread): the estimate cannot be trusted here
         return "prompt longer than the estimate said"
     return None
 
@@ -488,6 +503,8 @@ class LocalEngine:
         self.loaded: str | None = None
         self.calls = {FIRST: 0, SECOND: 0}
         self.not_asked = 0
+        #: per reader: the replies that carried thinking text although none was asked for (counts only; the text is never kept)
+        self.thinking_replies = {FIRST: 0, SECOND: 0}
         self.unloads: list[str] = []
         self._ready: tuple[bool, str] | None = None
         self._show_of = show or _show
@@ -604,6 +621,8 @@ class LocalEngine:
             "local_requests_second": self.calls[SECOND],
             "local_not_asked_too_long": self.not_asked,
             "local_answers_discarded": sum(self.discarded.values()),
+            "local_thinking_replies_first": self.thinking_replies[FIRST],
+            "local_thinking_replies_second": self.thinking_replies[SECOND],
         }
 
     def fits(self, parts: dict, max_tokens: int, role: str = FIRST) -> bool:
@@ -612,15 +631,19 @@ class LocalEngine:
         )
         return need + int(max_tokens) + WINDOW_MARGIN_TOKENS <= self.window(role)
 
+    def _thinking_room(self, role: str) -> int:
+        """The thinking allowance of a reader that has shown it thinks although told not to (0 until it has)."""
+        return THINKING_ALLOWANCE if self.thinking_replies[role] else 0
+
     def first_tokens(self, n_items: int) -> int:
         return min(
             FIRST_TOKENS_CAP, FIRST_TOKENS_BASE + FIRST_TOKENS_PER_ITEM * n_items
-        )
+        ) + self._thinking_room(FIRST)
 
     def second_tokens(self, n_items: int) -> int:
         return min(
             SECOND_TOKENS_CAP, SECOND_TOKENS_BASE + SECOND_TOKENS_PER_ITEM * n_items
-        )
+        ) + self._thinking_room(SECOND)
 
     # ---- stages
     def to_second(self) -> None:
@@ -710,8 +733,15 @@ class LocalEngine:
             answer = self._send(body)
         message = answer.get("message") if isinstance(answer, dict) else None
         text = message.get("content") if isinstance(message, dict) else None
+        thought = message.get("thinking") if isinstance(message, dict) else None
+        if isinstance(thought, str) and thought.strip():
+            with self._lock:  # it thinks although told not to: later requests of this reader get room for it
+                self.thinking_replies[role] += 1
         if not isinstance(text, str) or not text.strip():
-            exc = agent_claude.AgentBadReply("bad_shape")
+            # an empty reply that stopped at its limit was CUT OFF, not a bad shape: the runner retries it once with a larger limit when
+            # that still fits the window (else: not asked, too long), and plans the item's windows again when the reader showed it thinks
+            cut = isinstance(answer, dict) and answer.get("done_reason") == "length"
+            exc = agent_claude.AgentBadReply("stop_max_tokens" if cut else "bad_shape")
             exc.usd = 0.0
             raise exc
         reported = answer.get("prompt_eval_count")

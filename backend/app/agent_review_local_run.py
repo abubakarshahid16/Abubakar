@@ -147,23 +147,9 @@ class LocalRunMixin:
             mdl,
         )
 
-    def _run_item_local(self, item: dict) -> None:
-        iid = str(item.get("item_id"))
-        full = {
-            n: t
-            for n in range(1, self.total_pages + 1)
-            if (t := self.pages.page(self.paper, n))
-        }
-        box = self._box()
-        if self._stop.is_set():
-            self.emit(
-                self.decide(
-                    item, None, full, None, f"not run: {self.stopped}", box, 0.0
-                )
-            )
-            return
-        wins, clauses, held_of, budget, shortened = self.local_windows(item, full)
-        total = len(wins)
+    def _ask_windows(self, item: dict, wins: list, clauses: dict, held_of: dict):
+        """Ask the windows in order until one answer is decisive. (decisive answer, last other answer, its window, the deciding
+        window, windows asked, windows failed, last error, usd, answering model)."""
         asked = failed = 0
         best: dict | None = (
             None  # the last answer that was not decisive (this window lacks it)
@@ -186,7 +172,48 @@ class LocalRunMixin:
                 break
             if a:
                 best, best_win = a, win
-        complete = failed == 0 and asked == total and total <= MAX_WINDOWS and total > 0
+        return got, best, best_win, decided_on, asked, failed, error, usd, model
+
+    def _run_item_local(self, item: dict) -> None:
+        iid = str(item.get("item_id"))
+        full = {
+            n: t
+            for n in range(1, self.total_pages + 1)
+            if (t := self.pages.page(self.paper, n))
+        }
+        box = self._box()
+        if self._stop.is_set():
+            self.emit(
+                self.decide(
+                    item, None, full, None, f"not run: {self.stopped}", box, 0.0
+                )
+            )
+            return
+        planned = self.local.first_tokens(1)
+        wins, clauses, held_of, budget, shortened = self.local_windows(item, full)
+        got, best, best_win, decided_on, asked, failed, error, usd, model = (
+            self._ask_windows(item, wins, clauses, held_of)
+        )
+        if (
+            got is None
+            and failed
+            and self.local.first_tokens(1) != planned
+            and not self._stop.is_set()
+        ):
+            # the reader showed during this item that it thinks although told not to: its output limit grew, so the windows
+            # planned for the old limit may no longer fit. Plan them again for the new limit and ask them all ONCE more.
+            wins, clauses, held_of, budget, shortened = self.local_windows(item, full)
+            got, best, best_win, decided_on, asked2, failed, error, usd2, model2 = (
+                self._ask_windows(item, wins, clauses, held_of)
+            )
+            asked, usd, model = asked + asked2, usd + usd2, model2 or model
+            last_pass = asked2
+        else:
+            last_pass = asked
+        total = len(wins)
+        complete = (
+            failed == 0 and last_pass == total and total <= MAX_WINDOWS and total > 0
+        )
         if got is None:
             if best is not None and complete:
                 got, error = (
