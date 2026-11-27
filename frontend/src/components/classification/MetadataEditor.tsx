@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { classification } from "../../api/client";
 import type { DocumentClassification, DocumentRole } from "../../types/api";
 import { confirmBody, TEXT_FIELDS } from "./metadataBody";
+import { NEW_LOOK } from "../../look";
 
 /** The five roles, with the words an engineer uses for them.
  *
@@ -149,7 +150,7 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
           disabled={saving}
           className="rounded bg-white/15 px-3 py-1 text-xs disabled:opacity-50"
         >
-          {saving ? "Saving…" : "Save metadata"}
+          {saving ? "Saving…" : NEW_LOOK ? "Save details" : "Save metadata"}
         </button>
         {saved && <span role="status" className="text-xs opacity-80">Saved.</span>}
         {error && <span role="alert" className="text-xs text-warn-500">{error}</span>}

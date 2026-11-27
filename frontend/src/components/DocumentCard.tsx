@@ -26,7 +26,7 @@ import {
   plainProgressLine,
   retrievableRatio,
 } from "./documentStatus";
-import { Button } from "./kit/Kit";
+import { Button, MoreMenu } from "./kit/Kit";
 import { NEW_LOOK } from "../look";
 
 const TONE: Record<string, string> = {
@@ -279,6 +279,35 @@ export function DocumentCard({
           )}
         </div>
 
+        {NEW_LOOK ? (
+          // TWO BUTTONS AND ONE MENU (owner, 27 Nov 2026 10:15-10:25: seven buttons on every row): Preview and Details on the row,
+          // everything else under "More" in everyday words, Delete last inside it, still asking first.
+          <div className="flex shrink-0 flex-wrap items-start gap-1.5">
+            <Action label="Preview" onClick={() => actions.onPreview(doc)} />
+            <Action label="Details" onClick={() => actions.onDetails(doc)} />
+            <MoreMenu label="More" testId="document-more">
+              <Action label="What was read" onClick={() => actions.onInspect(doc)} />
+              <Action label="Left out" onClick={() => actions.onExcluded(doc)} />
+              {doc.status !== "stored_not_indexed" && <Action label="Pages as read" onClick={() => actions.onPages(doc)} />}
+              <Action label={showStages ? "Hide reading again" : "Read it again"} onClick={() => setShowStages((v) => !v)} expanded={showStages} />
+              {showStages && (
+                <>
+                  <Action label="Read the text again" onClick={() => actions.onExtract(doc)} disabled={busy} />
+                  <Action label="Split into parts again" onClick={() => actions.onChunk(doc)} disabled={busy} />
+                  <Action label="Prepare search by meaning" onClick={() => actions.onEmbed(doc)} disabled={busy} />
+                </>
+              )}
+              {confirmingDelete ? (
+                <>
+                  <Action label="Confirm delete" onClick={() => { setConfirmingDelete(false); actions.onDelete(doc); }} danger />
+                  <Action label="Cancel" onClick={() => setConfirmingDelete(false)} />
+                </>
+              ) : (
+                <Action label="Delete" onClick={() => setConfirmingDelete(true)} danger />
+              )}
+            </MoreMenu>
+          </div>
+        ) : (
         <div className="flex shrink-0 flex-wrap gap-1.5">
           {/* "passages", the word the Dashboard defines. The same object was
               called sections, chunks and passages across three screens, and
@@ -328,6 +357,7 @@ export function DocumentCard({
             <Action label="Delete" onClick={() => setConfirmingDelete(true)} danger />
           )}
         </div>
+        )}
       </div>
 
       {/* THE CONFIRM STRIP. Only for a classification that has not been
