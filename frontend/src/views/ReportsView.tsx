@@ -19,7 +19,7 @@ import { useState } from "react";
 import { EmptyState, Spinner } from "../components/states";
 import type { ReportRecord, ReportVerification } from "../types/api";
 import { NEW_LOOK } from "../look";
-import { Button } from "../components/kit/Kit";
+import { Button, Notice } from "../components/kit/Kit";
 
 const nf = new Intl.NumberFormat("en-GB");
 
@@ -100,13 +100,25 @@ export function ReportsView({
           />
         )}
 
-        {reports !== null && reports.length > 0 && (
-          <ul className="virtual-list space-y-3">
-            {reports.map((r) => (
-              <ReportRow key={r.id} report={r} onDownload={onDownload} onVerify={onVerify} />
-            ))}
-          </ul>
-        )}
+        {reports !== null && reports.length > 0 && (() => {
+          // SAID ONCE, NOT ON EVERY ROW (H's audit 42: an amber "Original PDF missing" on each of 30 rows): when every report here is
+          // a recreated copy the page says so once, in the kit's notice; when only some are, each of those rows says it in plain grey.
+          const allRecreated = NEW_LOOK && reports.every((r) => r.recreation_available);
+          return (
+            <>
+              {allRecreated && (
+                <Notice>
+                  The original PDFs of these reports are not on this computer. Each download is a copy recreated from the saved evidence.
+                </Notice>
+              )}
+              <ul className={allRecreated ? "virtual-list mt-3 space-y-3" : "virtual-list space-y-3"}>
+                {reports.map((r) => (
+                  <ReportRow key={r.id} report={r} onDownload={onDownload} onVerify={onVerify} saidAbove={allRecreated} />
+                ))}
+              </ul>
+            </>
+          );
+        })()}
       </section>
     </div>
   );
@@ -122,10 +134,13 @@ function ReportRow({
   report,
   onDownload,
   onVerify,
+  saidAbove = false,
 }: {
   report: ReportRecord;
   onDownload: (id: string) => void;
   onVerify: (id: string) => Promise<ReportVerification>;
+  /** the page already says, once, that every report here is a recreated copy */
+  saidAbove?: boolean;
 }) {
   const [verify, setVerify] = useState<VerifyState>({ state: "idle" });
 
@@ -174,8 +189,8 @@ function ReportRow({
         {/* the report's buttons are one group that may wrap but never runs past the card ("Download recreated copy" was cut at
             800, the card hides what overflows); the text keeps 20rem and the group drops under it when both do not fit (27 Nov 2026) */}
         <div className="flex min-w-0 max-w-full flex-wrap gap-1.5">
-          {report.recreation_available && (
-            <span className="text-xs text-warn-500">Original PDF missing. This copy uses the saved evidence.</span>
+          {report.recreation_available && !saidAbove && (
+            <span className={NEW_LOOK ? "text-xs text-slateish-400" : "text-xs text-warn-500"}>Original PDF missing. This copy uses the saved evidence.</span>
           )}
           {report.file_available === false && !report.recreation_available ? (
             <span className="rounded-[var(--radius-sm)] border border-warn-500/40 px-2.5 py-1 text-xs text-warn-500">

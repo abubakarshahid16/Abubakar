@@ -19,7 +19,7 @@ export function ChatEmptyHeading() {
   // the page title is the menu's name (owner, 26 Nov 2026: title = menu name); the question stays as the big line under it
   return <>
     <h1 className="mb-1 text-center text-sm font-semibold text-slateish-400">Chat</h1>
-    <p className="mb-6 text-center font-serif text-3xl text-slateish-100">What can I help with?</p>
+    <p data-testid="chat-greeting" className="kit-greeting mb-6">What can I help with?</p>
   </>;
 }
 

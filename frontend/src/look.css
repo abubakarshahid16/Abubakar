@@ -270,3 +270,9 @@
   cursor: not-allowed;
 }
 :root[data-look="new"]:not([data-theme="dark"]) main .text-signal-500 { color: #0a6460; }
+
+/* H's audit 72: the aurora field's faint backdrop wash drew a tint band behind the header of four pages only (Dashboard,
+   Documents, Analysis, Reports) and ended at an arbitrary height. The new look hides the aurora already; the wash goes too. */
+:root[data-look="new"] .aurora-field {
+  background: none;
+}
