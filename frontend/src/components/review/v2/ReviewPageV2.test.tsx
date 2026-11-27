@@ -901,6 +901,7 @@ describe("the AI's own answer on a line code did not prove", () => {
 
 // ---- order 14, piece C: the general review's results page ------------------------------------------------------------------------
 import type { GeneralReview } from "../../../api/generalReview";
+import { NEW_LOOK } from "../../../look";
 
 const MARK = "AI, to be checked";
 function general(over: Partial<GeneralReview> = {}): GeneralReview {
@@ -1001,6 +1002,20 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.getByTestId("v2-kind-line")).not.toHaveTextContent("heat exchanger");
   });
 
+  it("narrow windows: the file name wraps instead of being cut, and 'New review' sits in a box as wide as itself (C's walk)", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    mount();
+    await screen.findByTestId("general-results");
+    const title = screen.getByRole("heading", { level: 1 });
+    const again = screen.getByTestId("review-again");
+    if (NEW_LOOK) {
+      expect(title.className).not.toContain("truncate");
+      expect(title.className).toContain("[overflow-wrap:anywhere]");
+      expect(again.parentElement?.className).toBe("flex");
+    } else {
+      expect(title.className).toContain("truncate");
+    }
+  });
   it("a finished general review hides the plan of a NEW review behind 'New review' and asks for no plan until it is opened", async () => {
     api.general.mockResolvedValue(ok(general()));
     api.plan.mockClear();
