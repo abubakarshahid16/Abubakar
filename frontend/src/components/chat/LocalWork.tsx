@@ -39,7 +39,7 @@ const STAGES: { id: Progress["stage"]; label: string; blurb: string }[] = [
   {
     id: "generating",
     label: "Writing",
-    blurb: "The AI on this computer writes an answer from those sources, and quotes them.",
+    blurb: "The AI on this computer writes an answer from those sources, and names them.",
   },
 ];
 

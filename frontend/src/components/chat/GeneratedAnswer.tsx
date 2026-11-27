@@ -90,7 +90,7 @@ export function GeneratedAnswer({
 
       {view.rejected_citations.length > 0 && (
         <p className="mt-2 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-2 py-1.5 text-xs text-slateish-300">
-          The AI quoted {view.rejected_citations.map((n) => `[S${n}]`).join(", ")}, which
+          The AI used {view.rejected_citations.map((n) => `[S${n}]`).join(", ")}, which
           {view.rejected_citations.length === 1 ? " was" : " were"} not among the sources
           supplied. Removed from the answer above rather than shown to you.
         </p>
