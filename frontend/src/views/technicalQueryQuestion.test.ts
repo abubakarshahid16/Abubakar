@@ -31,9 +31,9 @@ describe("what the contractor is asking", () => {
 
 describe("honest marks", () => {
   it("says when no source was found, when the sources are weak, and when a cited book is not held; never while still searching", () => {
-    expect(honestMarks({ evidence: [] }, "").evidence).toEqual(["No source was found for this question yet: the answer has nothing to stand on."]);
+    expect(honestMarks({ evidence: [] }, "").evidence).toEqual(["No source found for this question yet. The reply has nothing to rest on."]);
     expect(honestMarks({ evidence: [], evidence_job: { state: "running" } }, "").evidence).toEqual([]);
-    expect(honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 1, match_terms: 5 }] }, "").evidence[0]).toBe("Weak match: the sources found share few words with the question. Read them before relying on the reply."); // plain words (owner, 27 Nov 2026)
+    expect(honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 1, match_terms: 5 }] }, "").evidence[0]).toBe("Weak match: the sources share few words with the question. Read them before you rely on the reply."); // plain words (owner, 27 Nov 2026)
     expect(honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 4, match_terms: 5 }] }, "").evidence).toEqual([]);
     const cited = honestMarks({ evidence: [{ evidence_state: "proposed", match_count: 4, match_terms: 5 }], evidence_coverage: { cited_first: ["Schedule F clause 1.1: not held among the contracts you may read", "Schedule B clause 2.1: found on page 3"] } }, "");
     expect(cited.evidence).toEqual(["The form cites schedule F clause 1.1: not held among the contracts you may read."]);
@@ -41,7 +41,7 @@ describe("honest marks", () => {
   it("sources searched for a whole mail (more key words than any question holds) are said to be for the mail, not weak", () => {
     const stale = { evidence: [{ evidence_state: "proposed", match_count: 15, match_terms: QUESTION_KEY_WORDS_MAX + 190 }] };
     expect(staleSources(stale)).toBe(true);
-    expect(honestMarks(stale, "").evidence).toEqual(["These sources were found for the whole text of the mail, not for the question: find them again for the question."]);
+    expect(honestMarks(stale, "").evidence).toEqual(["Find the sources again: these were found for the whole email, not for the question."]);
   });
   it("a form's own list marker is not shown as part of the request", () => {
     const f = [{ question: "- Invented line list", filename: "f.pdf", page: 2 }];
@@ -52,10 +52,10 @@ describe("honest marks", () => {
 describe("where the sources and the draft stand (builder A's ready)", () => {
   const base = { evidence: "ready" as const, evidence_fresh: true, draft: "ready" as const, draft_fresh: true };
   it("says what is under way, what failed, and why no draft was written; nothing when all is ready", () => {
-    expect(readyLine({ ...base, evidence: "refreshing" })).toBe("Finding the sources for this question; a draft follows.");
-    expect(readyLine({ ...base, draft: "refreshing" })).toBe("Writing a draft from the sources found.");
-    expect(readyLine({ ...base, draft: "not_written", draft_note: "no passage found in the contract documents you may read" })).toBe("No draft was written: no passage found in the contract documents you may read.");
-    expect(readyLine({ ...base, draft_fresh: false })).toBe("The draft answers an earlier wording of the question.");
+    expect(readyLine({ ...base, evidence: "refreshing" })).toBe("Finding the sources for this question. The reply follows.");
+    expect(readyLine({ ...base, draft: "refreshing" })).toBe("Writing the reply from the sources found.");
+    expect(readyLine({ ...base, draft: "not_written", draft_note: "no passage found in the contract documents you may read" })).toBe("No reply was written: no passage found in the contract documents you may read.");
+    expect(readyLine({ ...base, draft_fresh: false })).toBe("The reply answers an earlier wording of the question.");
     expect(readyLine(base)).toBeNull();
     expect(readyLine(null)).toBeNull();
   });
@@ -134,7 +134,7 @@ describe("read in ten seconds (owner, 26 Nov 2026 22:41)", () => {
 
 describe("the server's marks in everyday words", () => {
   it("says 'the AI on this computer' and 'sources'", () => {
-    expect(plainMark("Written by the local model from passages the system found; no engineer has kept them yet.")).toBe("Written by the AI on this computer from sources the system found; no engineer has kept them yet.");
+    expect(plainMark("The AI wrote this reply from the sources it found. Nobody has kept them yet.")).toBe("The AI wrote this reply from the sources it found. Nobody has kept them yet.");
   });
 
   it("keeps a request that wraps onto the next line in its item, never as a line above the list (the owner's regression query, 27 Nov 2026)", () => {

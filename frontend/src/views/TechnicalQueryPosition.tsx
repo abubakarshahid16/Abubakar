@@ -18,7 +18,7 @@ export function TechnicalQueryPosition({ position, canEdit, onAdd }: {
 }) {
   if (!position?.line) return null;
   return (
-    <div data-testid="position-offer" className="mt-3 text-sm text-slateish-300">
+    <div data-testid="position-offer" className="mt-4 border-y border-ink-700 py-3 text-sm text-slateish-300">
       <p className="font-semibold text-slateish-200">COMPANY&rsquo;s usual position on cost and schedule</p>
       <p className="mt-1">&ldquo;{position.line}&rdquo;</p>
       {position.hint && <div data-testid="position-hint" className="mt-1"><Small>{position.hint}</Small></div>}

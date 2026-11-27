@@ -94,7 +94,7 @@ describe("the query list page", () => {
     expect(screen.getByTestId("no-contractor-note").textContent).toContain("Rules for who it goes to");
     expect(within(third).getAllByTestId("problem-chip")[0].getAttribute("title")).toContain("no full TQ or CFC number");
     // the full sentence is in the row's own text for a screen reader and a keyboard user, not only on hover (review of #1938)
-    expect(third.textContent).toContain("No query number: The subject has no full TQ or CFC number");
+    expect(third.textContent).toContain("No query number: Check which query this is. The subject has no full TQ or CFC number");
     for (const row of [first, second, third]) expect(row.textContent).not.toMatch(/_|awaiting_review|drafting/);
   });
 
@@ -113,8 +113,8 @@ describe("the query list page", () => {
     render(<TechnicalQueriesView />);
     const problems = await screen.findAllByTestId("query-problem");
     expect(problems.map((p) => p.textContent)).toEqual([
-      "No query number. The subject has no full TQ or CFC number, so a person must check which query this is.",
-      "No contractor. No contractor yet: add its code once under \u201cRules for who it goes to\u201d (in More) and every query with that code fills itself.",
+      "No query number. Check which query this is. The subject has no full TQ or CFC number.",
+      "No contractor. Add its code once under More, \u201cRules for who it goes to\u201d, and every query with this code is set for you.",
     ]);
   });
 

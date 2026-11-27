@@ -16,12 +16,12 @@ describe("the other queries a request names", () => {
     render(<TechnicalQueryCrossRefs refs={refs} onOpen={onOpen} />);
     const lines = screen.getAllByTestId("cross-ref");
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toHaveTextContent("TQ-0007 is held here: Invented subject (in progress: waiting for your approval). Read it before replying: open it.");
+    expect(lines[0]).toHaveTextContent("TQ-0007 is in this app: Invented subject (in progress: waiting for your approval). Read it before you reply: open it.");
     fireEvent.click(screen.getByRole("button", { name: "open it" }));
     expect(onOpen).toHaveBeenCalledWith("q7");
-    expect(lines[1]).toHaveTextContent("CFC-0008 is held here, but you may not open it");
+    expect(lines[1]).toHaveTextContent("CFC-0008 is in this app, but you cannot open it");
     expect(lines[1].querySelector("button")).toBeNull();
-    expect(lines[2]).toHaveTextContent("TQ-0009 is not held in this system.");
+    expect(lines[2]).toHaveTextContent("TQ-0009 is not in this app.");
   });
 
   it("draws nothing when the request names no other query", () => {
@@ -30,7 +30,7 @@ describe("the other queries a request names", () => {
   });
 
   it("recognises the server's own mark for these references, so it is not shown twice", () => {
-    expect(REFS_MARK.test("The request names TQ-0007, held in this system: see it before replying.")).toBe(true);
-    expect(REFS_MARK.test("The draft does not answer request item 1; check it by hand.")).toBe(false);
+    expect(REFS_MARK.test("The question names TQ-0007. Read it in this app before you reply.")).toBe(true);
+    expect(REFS_MARK.test("The reply does not answer question 1. Check it by hand.")).toBe(false);
   });
 });

@@ -59,12 +59,12 @@ describe("the query page's lower half", () => {
     const filled = within(decision).getAllByRole("button").filter((b) => b.className.includes("kit-btn--primary"));
     expect(filled.map((b) => b.textContent)).toEqual(["Approve the reply"]);
     expect(within(decision).getByRole("button", { name: "Send back with a note" })).toBeTruthy();
-    expect(screen.getByTestId("decision-hint").textContent).toMatch(/Nothing is sent/);
+    expect(screen.getByTestId("decision-hint").textContent).toMatch(/The app does not send it/);
     const redo = screen.getByTestId("more-actions");
     expect(within(redo).getByText("Redo: change the reply or write it again")).toBeTruthy();
     for (const b of within(redo).getAllByRole("button")) expect(b.className).not.toContain("kit-btn--primary");
     expect(within(redo).getByRole("button", { name: "Write the reply again" })).toBeTruthy();
-    expect(within(redo).getAllByText(/replaces the reply above/).length).toBeGreaterThan(0);
+    expect(within(redo).getAllByText(/replaces? the (?:reply|one) above/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Generate draft" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Approve latest draft" })).toBeNull();
   });
@@ -83,7 +83,7 @@ describe("the query page's lower half", () => {
   it("without the reviewer role the page says who can approve instead of a button", async () => {
     await open({ can_review: false });
     expect(screen.queryByRole("button", { name: "Approve the reply" })).toBeNull();
-    expect(screen.getByTestId("decision-no-role").textContent).toMatch(/technical-query reviewer role/);
+    expect(screen.getByTestId("decision-no-role").textContent).toMatch(/query reviewer role/);
   });
 
   it("who writes the reply is a choice, and Claude says why it cannot be used now", async () => {
@@ -192,7 +192,7 @@ describe("the owner's live walk (27 Nov 2026 01:15)", () => {
   it("the old reply is greyed and said while the sources or the reply are prepared again, and shown normally after", async () => {
     await open({ ready: { ...ready, evidence: "refreshing" } });
     const old = screen.getByTestId("reply-being-rewritten");
-    expect(old.textContent).toContain("Old reply, being rewritten");
+    expect(old.textContent).toContain("Old reply. A new one is being written");
     expect(old.textContent).toContain("250 microns");
   });
   it("is shown as the reply when nothing is being prepared", async () => {
@@ -238,7 +238,7 @@ describe("the sources by request (builder A's per-item search, 27 Nov 2026)", ()
       evidence: [e("e1", 1), e("e2", null)] });
     const groups = screen.getAllByTestId("evidence-group");
     expect(groups.map((g) => g.querySelector("h4")?.textContent)).toEqual(["1. Thickness? (1 source)", "2. Colour? (0 sources)", "For the whole request (1 source)"]);
-    expect(groups[1].textContent).toContain("No source found for this request yet.");
+    expect(groups[1].textContent).toContain("No source found for this question yet.");
     expect(groups[0].textContent).toContain("Invented quote e1.");
   });
 });

@@ -70,7 +70,7 @@ def test_a_named_query_held_here_is_listed_with_its_status_and_the_draft_line_sa
         "ZQP-INVCON-INVCO-CFC-9" not in by_ref
     )  # the query's own number is never a cross-reference
     assert got["ready"]["cross_refs"] == got["cross_refs"]
-    line = "The request names ZQP-INVCON-INVCO-CFC-5, held in this system: see it before replying."
+    line = "The question names ZQP-INVCON-INVCO-CFC-5. Read it in this app before you reply."
     assert line in got["ready"]["marks"] and refs.mark(got["cross_refs"]) == line
 
 

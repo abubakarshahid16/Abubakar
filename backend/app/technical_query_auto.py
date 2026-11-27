@@ -39,12 +39,12 @@ MAX_DRAFT_PASSAGES = 8  # = answer.QUERY_REPLY_PASSAGES: what the local draft ca
 PREPARABLE = ("received", "triage", "drafting", "changes_requested")
 
 NO_QUESTION = "no question was found to answer: write it in the question box and the draft follows"
-NO_PASSAGE = "no passage was found in the contract documents and standards you may read"
-TOO_WEAK = "no passage found answers the question closely enough: keep a source by hand, then press Write the reply again (under Redo)"
-MODEL_DOWN = "the local drafting model is unavailable; the draft is written on the next preparation"
-OUTSIDE = "the draft cited passages outside the query's evidence, so it was not kept"
-TYPED_KEPT = "an engineer's own draft is kept; press Write the reply again (under Redo) for a new one"
-FOUND_NOT_KEPT = "Written by the local model from passages the system found; no engineer has kept them yet."
+NO_PASSAGE = "no source was found in the documents you can open"
+TOO_WEAK = "no source answers the question closely enough. Keep a source by hand, then press Write the reply again"
+MODEL_DOWN = "the AI on this computer is not available. The reply is written next time"
+OUTSIDE = "the reply used sources outside this query, so it was not kept"
+TYPED_KEPT = "an engineer's own reply is kept. Press Write the reply again for a new one"
+FOUND_NOT_KEPT = "The AI wrote this reply from the sources it found. Nobody has kept them yet."
 
 
 def key(text: str | None) -> str | None:
@@ -166,7 +166,7 @@ FALSE_QUOTE = (
     "the draft put quotation marks round words that its cited source does not contain, so it is not shown: "
     "press Write the reply again (under Redo), or write the reply yourself"
 )
-FALSE_QUOTE_MARK = "A quote in this draft is not in its cited source."
+FALSE_QUOTE_MARK = "A quote in this reply is not in its source."
 #: How many more times the automatic draft is written when the only fault is a false quote (the model varies from run to run).
 FALSE_QUOTE_RETRIES = 1
 
@@ -245,10 +245,10 @@ def marks(item: dict[str, Any], cited_ids=None) -> list[str]:
     out = []
     if source == "proposed":
         out.append(
-            "The question was proposed by the system; no engineer has confirmed it yet."
+            "The AI suggested this question. Nobody has confirmed it yet."
         )
     elif source == "edited":
-        out.append("The question is an engineer's wording, not confirmed yet.")
+        out.append("An engineer changed this question. Nobody has confirmed it yet.")
     rows = [
         e for e in item.get("evidence", []) if cited_ids is None or e["id"] in cited_ids
     ]
@@ -263,7 +263,7 @@ def marks(item: dict[str, Any], cited_ids=None) -> list[str]:
     )
     if cited_ids is not None and unknown:
         out.append(
-            f"The revision of {', '.join(unknown)} is not confirmed yet (Documents, Details, Save metadata)."
+            f"The revision of {', '.join(unknown)} is not confirmed yet. Confirm it under Documents, Details."
         )
     return out
 
@@ -572,9 +572,9 @@ def unanswered_mark(answer: str, question: str) -> str | None:
     if not missing:
         return None
     if len(missing) == len(items):
-        return "The draft does not say which of the numbered requests it answers; check each one by hand."
+        return "The reply does not say which question it answers. Check each one by hand."
     plural = len(missing) > 1
-    return f"The draft does not answer request item{'s' if plural else ''} {', '.join(map(str, missing))}; check {'them' if plural else 'it'} by hand."
+    return f"The reply does not answer question{'s' if plural else ''} {', '.join(map(str, missing))}. Check {'them' if plural else 'it'} by hand."
 
 
 def items_of_question(question: str) -> list[str]:
@@ -625,7 +625,7 @@ def backlog(conn) -> list[str]:
     return ids
 
 
-OUTDATED_MARK = "These sources were found by an older search: press Find the sources again (under Redo), or they are found again at the next start."
+OUTDATED_MARK = "These sources came from an older search. Press Find the sources again, under Redo."
 
 
 def _search_version(row) -> int:

@@ -99,7 +99,7 @@ def test_a_local_draft_rests_on_a_kept_passage_whose_source_is_not_confirmed_and
         "passages": [{"document_id": "d1", "page_start": 1, "page_end": 1, "text": "q"}]})  # fmt: skip
     drafted = api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="local"))
     marks = __import__("json").loads(drafted["drafts"][-1]["unresolved_json"])
-    assert "The revision of contract is not confirmed yet (Documents, Details, Save metadata)." in marks  # named as the page labels it
+    assert "The revision of contract is not confirmed yet. Confirm it under Documents, Details." in marks  # named as the page labels it
 
 
 def test_keeping_a_passage_stores_its_sources_standing_not_the_stale_one_the_screen_sent(
@@ -140,7 +140,7 @@ def test_a_superseded_source_makes_its_passage_superseded_and_no_draft_rests_on_
     ] == ["superseded"]
     with pytest.raises(HTTPException) as local:  # the local model never drafts from a superseded source either
         api.generate_query_draft(item["id"], scope, api.GenerateDraftIn(engine="local"))
-    assert "no passage was found" in str(local.value.detail)
+    assert "no source was found" in str(local.value.detail)
     with pytest.raises(HTTPException) as refused:
         api.generate_query_draft(item["id"], scope, _claude_lane(monkeypatch))
     assert "every kept passage's source has been superseded" in str(
