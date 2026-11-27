@@ -60,6 +60,9 @@ describe("the query page's lower half", () => {
     expect(filled.map((b) => b.textContent)).toEqual(["Approve the reply"]);
     expect(within(decision).getByRole("button", { name: "Send back with a note" })).toBeTruthy();
     expect(screen.getByTestId("decision-hint").textContent).toMatch(/The app does not send it/);
+    // blue means "needs your action" (owner, 27 Nov 2026 12:32): the decision is the one tinted area; the panel's notes read quiet
+    expect(decision.className).toContain("kit-action-area");
+    expect(decision.closest("section")?.className).toContain("kit-quiet-notes");
     const redo = screen.getByTestId("more-actions");
     expect(within(redo).getByText("Redo: change the reply or write it again")).toBeTruthy();
     for (const b of within(redo).getAllByRole("button")) expect(b.className).not.toContain("kit-btn--primary");

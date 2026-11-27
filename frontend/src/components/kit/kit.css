@@ -179,6 +179,12 @@
 .kit-row-btn__second { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kit-space-2); font-size: 13px; color: var(--color-slateish-300); }
 .kit-tag { display: inline-flex; align-items: center; white-space: nowrap; border-radius: 4px; border: 1px solid var(--kit-edge); padding: 0 6px; font-size: 13px; font-weight: 600; color: var(--color-slateish-200); background: var(--color-ink-850); }
 .kit-one-line { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-two-lines { min-width: 0; flex: 1 1 auto; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.kit-row-btn__first:has(.kit-two-lines) { align-items: flex-start; }
+/* BLUE MEANS "NEEDS YOUR ACTION" (owner, 27 Nov 2026 12:32: the whole query panel read blue). In a reading panel marked
+   kit-quiet-notes, a note reads quiet; a real alert keeps its colour; the one place to act is the kit-action-area. New look only. */
+:root[data-look="new"] .kit-quiet-notes .text-warn-500:not([role="alert"]) { color: var(--color-slateish-400); }
+:root[data-look="new"] .kit-action-area { background: var(--kit-check-bg); border: 1px solid var(--kit-check-bd); border-radius: var(--kit-radius-lg); padding: var(--kit-space-3) var(--kit-space-4); }
 
 /* ---- a folded menu of less-used actions ---- */
 .kit-more { min-width: 0; }
