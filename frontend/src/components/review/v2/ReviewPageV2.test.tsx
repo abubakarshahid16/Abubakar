@@ -951,21 +951,20 @@ describe("12 the general review's results page (order 14)", () => {
     fireEvent.click(screen.getByRole("tab", { name: "How this review was made" }));
     expect(screen.getByTestId("general-counts")).toBeInTheDocument(); // its own facts: points, comments, how decided
     expect(screen.queryByTestId("old-method-panels")).toBeNull();
-    expect(screen.queryByText(/Findings: 0|not recorded/)).toBeNull();
+    expect(screen.queryByText(/Findings: 0|Recommended code/)).toBeNull();
   });
 
-  it("counts the confirmations apart and shows them only in a closed part, not among the comments (18 Nov 2026)", async () => {
+  it("counts the confirmations apart and shows them only on their own tab, not among the comments (18 Nov 2026; tabs 28 Nov)", async () => {
     const g = general();
     api.general.mockResolvedValue(ok({ ...g, counts: { ...g.counts, comments: 1, confirmations: 1 }, comments: [g.points[0]], confirmations: [g.points[2]] }));
     mount();
     const results = await screen.findByTestId("general-results");
     fireEvent.click(screen.getByRole("tab", { name: "How this review was made" })); // E5: the counts are folded (answer first)
-    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, 1 comments sent, 1 confirmations not sent");
-    fireEvent.click(screen.getByRole("tab", { name: /^Comments/ }));
+    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points were checked against");
+    expect(screen.getByTestId("how-numbers")).toHaveTextContent("To confirm 1 points, not sent");
+    fireEvent.click(screen.getByRole("tab", { name: "To confirm (1)" }));
     const part = screen.getByTestId("general-confirmations");
-    expect(part.tagName).toBe("DETAILS");
-    expect(part).not.toHaveAttribute("open"); // closed until opened
-    expect(within(part).getByText(/Confirmations, not sent \(1\)/)).toBeInTheDocument();
+    expect(within(part).getByText(/Points to confirm, not sent \(1\)/)).toBeInTheDocument();
     const rows = within(results).getAllByTestId("general-row");
     expect(rows.filter((r) => !part.contains(r))).toHaveLength(1); // the comments sent: the confirmation is not among them
     expect(within(part).getAllByTestId("general-row")).toHaveLength(1);
@@ -990,11 +989,13 @@ describe("12 the general review's results page (order 14)", () => {
     const results = await screen.findByTestId("general-results");
     expect(screen.getByTestId("general-mark")).toHaveTextContent(MARK);
     fireEvent.click(screen.getByRole("tab", { name: "How this review was made" })); // E5: the counts are folded (answer first)
-    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points reviewed, 2 comments sent (this paper, this review)");
+    expect(screen.getByTestId("general-counts")).toHaveTextContent("3 points were checked against");
+    expect(screen.getByTestId("general-counts")).toHaveTextContent("this paper, this review");
+    expect(screen.queryByRole("tab", { name: /^To confirm/ })).toBeNull(); // no count from the server: no such tab, never "(0)"
     fireEvent.click(screen.getByRole("tab", { name: /^Comments/ }));
     expect(screen.queryByTestId("general-confirmations")).toBeNull(); // an answer with no confirmations shows no such part
     const rows = within(results).getAllByTestId("general-row");
-    expect(rows).toHaveLength(2); // the comments only, until "All points" is ticked
+    expect(rows).toHaveLength(2); // the comments only; every point is on the "All points" tab
     rows.forEach((r) => expect(r).toHaveTextContent(MARK)); // the mark is on every row
     expect(rows[0]).toHaveTextContent("Fail, compared by code");
     expect(within(rows[0]).getByRole("button", { name: "page 4" })).toBeInTheDocument();
@@ -1053,12 +1054,15 @@ describe("12 the general review's results page (order 14)", () => {
     expect(api.downloadPaperCrs).not.toHaveBeenCalled();
   });
 
-  it("the All points toggle shows every point, and the server's refusal sentence is shown whole", async () => {
+  it("the All points tab shows every point, and the server's refusal sentence is shown whole", async () => {
     api.general.mockResolvedValue(ok(general()));
     api.downloadGeneral.mockResolvedValue("This general review's file is not complete and was not given out: the page has 3 points, the database holds 4 lines.");
     mount(); await screen.findByTestId("general-results");
-    fireEvent.click(screen.getByTestId("general-all-toggle"));
-    expect(screen.getAllByTestId("general-row")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("tab", { name: "All points (3)" }));
+    expect(within(screen.getByTestId("general-all")).getAllByTestId("general-row")).toHaveLength(3);
+    expect(screen.queryByTestId("general-mark")).toBeNull(); // the big header is not repeated on the other tabs
+    expect(screen.getByTestId("general-mark-short")).toHaveTextContent(MARK);
+    fireEvent.click(screen.getByRole("tab", { name: /^Comments/ }));
     fireEvent.click(screen.getByTestId("general-download"));
     expect(await screen.findByTestId("general-download-problem")).toHaveTextContent("the database holds 4 lines");
   });
@@ -1077,6 +1081,7 @@ describe("12 the general review's results page (order 14)", () => {
     ] }));
     mount(); await screen.findByTestId("general-results");
     fireEvent.click(screen.getByRole("tab", { name: "How this review was made" }));
+    fireEvent.click(screen.getByRole("button", { name: /Picked the rule books/ }));
     expect(screen.getByTestId("general-how")).toHaveTextContent("invented-book.pdf");
     expect(screen.getByTestId("general-how")).toHaveTextContent("and 1 you may not open");
     expect(screen.getByTestId("general-how")).toHaveTextContent("Invented Public Standard");

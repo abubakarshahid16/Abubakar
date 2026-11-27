@@ -97,6 +97,11 @@
 /* ---- card ---- */
 .kit-card { background: var(--color-ink-800); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); padding: var(--kit-space-4); min-width: 0; }
 
+/* ---- fact: one small labelled value (a count, a name) inside a card or a panel ---- */
+.kit-fact { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: var(--kit-space-2) var(--kit-space-3); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius); background: var(--color-ink-850); }
+.kit-fact__label { font-size: 12px; color: var(--color-slateish-300); }
+.kit-fact__value { font-size: 14px; color: var(--color-slateish-100); overflow-wrap: anywhere; }
+
 /* ---- table: scrolls inside its own box, never widens the page ---- */
 .kit-table-wrap { overflow-x: auto; border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); }
 .kit-table { width: 100%; border-collapse: collapse; font-size: 15px; }

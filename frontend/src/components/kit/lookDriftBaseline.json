@@ -346,18 +346,13 @@
  },
  "components/review/general/CommentCards.tsx": {
   "table": 0,
-  "card": 6,
+  "card": 5,
   "notice": 1
  },
  "components/review/general/GeneralResults.tsx": {
   "table": 0,
   "card": 1,
-  "notice": 6
- },
- "components/review/general/HowReviewMade.tsx": {
-  "table": 3,
-  "card": 2,
-  "notice": 0
+  "notice": 3
  },
  "components/review/general/MeasuredBadge.tsx": {
   "table": 0,

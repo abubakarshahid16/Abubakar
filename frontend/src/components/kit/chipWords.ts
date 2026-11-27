@@ -7,13 +7,13 @@
 export type KitTone = "done" | "check" | "late" | "info" | "plain";
 
 const WORDS: Record<KitTone, string[]> = {
-  done: ["approved", "signed off", "done", "closed", "sent", "ready", "active", "connected", "mailbox connected", "read", "kept", "answered", "held"],
+  done: ["approved", "signed off", "done", "closed", "sent", "ready", "active", "connected", "mailbox connected", "read", "kept", "answered", "held", "most trusted"],
   check: ["waiting for approval", "waiting for you", "needs a person", "not signed off", "review ready", "to check", "no contractor",
     "no query number", "being changed", "needs a label", "mailbox needs a label", "no mailbox connected", "not held", "superseded", "changed since",
-    "visible to nobody", "ai, to be checked"],
-  late: ["late", "overdue", "failed", "stopped by an error", "mailbox problem", "rejected", "not read", "blocked"],
+    "visible to nobody", "ai, to be checked", "yours to decide", "trust with care"],
+  late: ["late", "overdue", "failed", "stopped by an error", "mailbox problem", "rejected", "not read", "blocked", "least trusted"],
   info: ["in progress", "running", "queued", "importing", "being read", "being rewritten", "checking"],
-  plain: ["duplicate", "cancelled", "draft", "not started", "attached to a query"],
+  plain: ["duplicate", "cancelled", "draft", "not started", "attached to a query", "not recorded"],
 };
 
 const TONE_OF = new Map<string, KitTone>(Object.entries(WORDS).flatMap(([tone, words]) => words.map((w) => [w, tone as KitTone])));

@@ -38,14 +38,17 @@ describe("answer first", () => {
     expect(screen.getByRole("tab", { name: "Comments (5)" })).toHaveAttribute("aria-selected", "true");
     for (const id of ["general-counts", "general-cost"]) expect(screen.queryByTestId(id)).toBeNull();  // folded (E5)
     fireEvent.click(screen.getByRole("tab", { name: "How this review was made" }));
-    expect(screen.getByTestId("general-counts")).toHaveTextContent("12 points reviewed, 5 comments sent");
-    expect(screen.getByTestId("general-cost")).toHaveTextContent("USD 1.25");
+    expect(screen.getByTestId("general-counts")).toHaveTextContent("12 points were checked against");
+    expect(screen.queryByTestId("how-panel")).toBeNull();  // no panel is open at the start (owner, 28 Nov 2026)
+    expect(screen.getByTestId("how-time")).toHaveTextContent("USD 1.25");  // the cost is folded at the foot
   });
 
   it("the pointer to a step that did not run opens How this review was made", () => {
     render(<GeneralResults review={review({ steps_not_applied: [{ step: "aim_edit", why: "timeout", sentence: "The editor did not run (timeout)." }] })}
       howTab={null} onViewPage={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "see How this review was made" }));
+    expect(screen.getByTestId("how-summary")).toHaveTextContent("1 checking step did not run.");
+    fireEvent.click(screen.getByRole("button", { name: /Second look at the faults/ }));
     expect(screen.getByTestId("general-steps-not-applied")).toHaveTextContent("The editor did not run (timeout).");
   });
 });

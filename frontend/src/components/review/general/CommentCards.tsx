@@ -1,8 +1,8 @@
 /**
  * The general review's comment CARDS (order 14, the planner's target design of 18 Nov 2026, owner: "not easy to read").
  *
- * One card per problem: a one-line title and a severity badge, then PAPER SAYS / RULE SAYS / WE ASK in that order, "Applies to" chips
- * (one per place, each opens that page), the quotes folded under "Show evidence", and the mark "AI, to be checked" with how the card was
+ * One FLAT card per problem (owner's picture, 28 Nov 2026): a one-line title and a severity badge, then WE ASK first, PAPER SAYS, RULE SAYS, "Applies to" chips
+ * (one per place, each opens that page), the quotes folded under "Show the source text", and the mark "AI, to be checked" with how the card was
  * proven. The severity is the server's (decided by code from the points, never from the wording); nothing is computed here. The summary
  * tiles filter the list; "Please confirm" cards are the confirmations, not sent, in their own closed part.
  *
@@ -36,26 +36,34 @@ function pagesWords(line: GeneralLine): string {
   return pages.length === 1 ? `page ${pages[0]}` : `pages ${pages.join(", ")}`;
 }
 
-function Box({ label, children, wide = false }: { label: string; children: string; wide?: boolean }) {
+/** One part of the flat card: its name, then its words, on one row (stacked on a narrow screen). No box inside the card. */
+function Part({ label, children }: { label: string; children: string }) {
   if (!children) return null; // a part the card does not have renders as nothing
   return (
-    <div className={`rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 p-3 ${wide ? "md:col-span-2" : ""}`}>
-      <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-slateish-400">{label}</h4>
-      <p className="whitespace-pre-line text-sm text-slateish-100">{children}</p>
+    <div className="grid gap-x-3 sm:grid-cols-[6.5rem_minmax(0,1fr)]">
+      <dt className="text-sm text-slateish-300">{label}</dt>
+      <dd className="whitespace-pre-line text-sm text-slateish-100">{children}</dd>
     </div>
   );
 }
 
+/** Said ONCE at the top of a signed review (owner, 28 Nov 2026); each button then carries only the short mark below. */
+export const SIGNED_MARK = "This undoes the sign-off";
+
 const CHIPS_SHOWN = 12;
 const CHIP_VALUE = 36;
-/** A long value is cut with a mark; the whole text is under "Show evidence" and in the chip's title. */
+/** A long value is cut with a mark; the whole text is under "Show the source text" and in the chip's title. */
 const clip = (v: string) => (v.length > CHIP_VALUE ? `${v.slice(0, CHIP_VALUE)}…` : v);
 const MIN_REASON = 10;
 
 export type DecideFn = (line: GeneralLine, state: DecisionState, text?: string, reason?: string) => Promise<string | null>;
 
 /** The decision on a card: what the engineer decided (by whom, when), and the three buttons. Edit and Reject ask for what they need. */
-function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision: CommentDecision | null | undefined; onDecide: DecideFn }) {
+function DecisionBar({ line, decision, onDecide, signed = false }: { line: GeneralLine; decision: CommentDecision | null | undefined; onDecide: DecideFn;
+  /** The review is signed off: a click here changes a signed sheet, so each button carries the short mark. */
+  signed?: boolean }) {
+  const mark = signed ? <span aria-hidden="true" data-testid="card-signed-mark"> *</span> : null;
+  const why = signed ? SIGNED_MARK : undefined;
   const [open, setOpen] = useState<"edit" | "reject" | null>(null);
   const [text, setText] = useState(line.we_ask ?? "");
   const [reason, setReason] = useState("");
@@ -84,9 +92,9 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
           </p>
         ) : <p className="text-sm text-slateish-400">Not decided yet</p>}
         <span className="ml-auto flex gap-1.5">
-          <Button variant="primary" size="sm" disabled={busy} onClick={() => void send("accept")}>Accept</Button>
-          <Button variant="secondary" size="sm" disabled={busy} onClick={() => { setOpen(open === "edit" ? null : "edit"); setProblem(null); }}>Edit</Button>
-          <Button variant="secondary" size="sm" disabled={busy} onClick={() => { setOpen(open === "reject" ? null : "reject"); setProblem(null); }}>Reject</Button>
+          <Button variant={signed ? "secondary" : "primary"} size="sm" disabled={busy} title={why} onClick={() => void send("accept")}>Accept{mark}</Button>
+          <Button variant="secondary" size="sm" disabled={busy} title={why} onClick={() => { setOpen(open === "edit" ? null : "edit"); setProblem(null); }}>Edit{mark}</Button>
+          <Button variant="secondary" size="sm" disabled={busy} title={why} onClick={() => { setOpen(open === "reject" ? null : "reject"); setProblem(null); }}>Reject{mark}</Button>
         </span>
       </div>
       {open === "edit" && (
@@ -116,8 +124,8 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
   );
 }
 
-export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
-  line: GeneralLine; mark: string; onViewPage: (page: number) => void; decision?: CommentDecision | null; onDecide?: DecideFn;
+export function CommentCard({ line, mark, onViewPage, decision, onDecide, signed = false }: {
+  line: GeneralLine; mark: string; onViewPage: (page: number) => void; decision?: CommentDecision | null; onDecide?: DecideFn; signed?: boolean;
 }) {
   const sev = (line.severity ?? "Check a value") as Severity;
   const tone = TONE[sev];
@@ -130,16 +138,17 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
     <li data-testid="general-row" data-severity={sev} className={`space-y-3 rounded-[var(--radius-md)] border border-ink-600 border-l-4 bg-ink-800 p-4 ${tone.edge}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
+          <p className="text-xs text-slateish-300">Comment {line.n}{pagesWords(line) || line.field ? ` · ${pagesWords(line) || line.field}` : ""}</p>
           <h3 data-testid="card-title" className="text-base font-semibold text-slateish-100">{line.title}</h3>
-          <p className="text-xs text-slateish-400">{pagesWords(line) || line.field}</p>
         </div>
         <span data-testid="card-severity" className={`rounded-full border px-3 py-0.5 text-xs font-semibold ${tone.badge}`}>{sev}</span>
       </div>
-      <div className="grid gap-2 md:grid-cols-2">
-        <Box label="Paper says">{line.paper_says ?? ""}</Box>
-        <Box label="Rule says">{line.rule_says ?? ""}</Box>
-        <Box label="We ask" wide>{line.we_ask ?? ""}</Box>
-      </div>
+      {/* the answer first: what we ask, then what the paper says and what the rule says (owner's picture, 28 Nov 2026) */}
+      {line.we_ask && <p data-testid="card-ask" className="text-sm font-semibold text-slateish-100"><span>We ask: </span><span className="whitespace-pre-line">{line.we_ask}</span></p>}
+      <dl className="space-y-1">
+        <Part label="Paper says">{line.paper_says ?? ""}</Part>
+        <Part label="Rule says">{line.rule_says ?? ""}</Part>
+      </dl>
       {places.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <em className="mr-1 not-italic text-slateish-400">Applies to</em>
@@ -174,7 +183,7 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
       )}
       {(quotes.length > 0 || line.comment) && (
         <details data-testid="card-evidence" className="text-sm text-slateish-300">
-          <summary className="cursor-pointer">Show evidence{quotes.length > 0 ? ` (${quotes.length} quote${quotes.length === 1 ? "" : "s"})` : ""}</summary>
+          <summary className="cursor-pointer">Show the source text{quotes.length > 0 ? ` (${quotes.length} quote${quotes.length === 1 ? "" : "s"})` : ""}</summary>
           <div className="mt-2 space-y-2">
             {line.comment && <p className="text-slateish-200">{line.comment}</p>}
             {quotes.map((a, i) => (
@@ -204,24 +213,26 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
           </span>
         )}
       </div>
-      {onDecide && <DecisionBar line={line} decision={decision ?? line.decision} onDecide={onDecide} />}
+      {onDecide && <DecisionBar line={line} decision={decision ?? line.decision} onDecide={onDecide} signed={signed} />}
     </li>
   );
 }
 
 /** The four summary tiles. A severity with no count in the answer is left out (null renders as nothing), never 0. */
-export function SeverityTiles({ counts, active, onPick }: {
+export function SeverityTiles({ counts, active, onPick, kinds = SEVERITIES }: {
   counts: Partial<Record<Severity, number>> | undefined; active: Severity | null; onPick: (s: Severity | null) => void;
+  /** The kinds drawn: the Comments tab leaves "Please confirm" out, because the points to confirm have their own tab. */
+  kinds?: Severity[];
 }) {
   if (!counts) return null;
   return (
     // one even row from the kit's tile grid (H's audit #58, 27 Nov 2026: each box was as wide as its own words)
     <Tiles label="How many comments of each kind of problem" testId="severity-tiles">
-      {SEVERITIES.filter((s) => counts[s] != null).map((s) => (
+      {kinds.filter((s) => counts[s] != null).map((s) => (
         <button key={s} type="button" aria-pressed={active === s} onClick={() => onPick(active === s ? null : s)}
           className={`rounded-[var(--radius-md)] border px-3 py-2 text-left ${active === s ? "border-signal-400" : "border-ink-600"} bg-ink-800`}>
           <b className="block text-xl text-slateish-100">{counts[s]}</b>
-          <span className="text-xs text-slateish-300">{s}{s === "Please confirm" ? " (separate part, not sent)" : ""}</span>
+          <span className="text-xs text-slateish-300">{s}{s === "Please confirm" ? " (not sent)" : ""}</span>
         </button>
       ))}
     </Tiles>
@@ -232,10 +243,14 @@ export function SeverityTiles({ counts, active, onPick }: {
 export const COMMENTS_PAGE = 15;
 
 /** The comments as cards, with the severity and page filters. Lines without a card (an older answer) keep the plain row. */
-export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided }: {
+export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided, part = "comments", signed = false }: {
   review: GeneralReview; mark: string; onViewPage: (page: number) => void; renderPlain: (l: GeneralLine) => React.ReactNode;
   /** Called after a decision was recorded (the sign-off bar re-reads what is still undecided). */
   onDecided?: () => void;
+  /** Which tab this is: the comments that are sent, or the points to confirm that are not sent. */
+  part?: "comments" | "confirmations";
+  /** The review is signed off: every decision button carries the short mark. */
+  signed?: boolean;
 }) {
   const [severity, setSeverity] = useState<Severity | null>(null);
   const [page, setPage] = useState<number | null>(null);
@@ -255,9 +270,24 @@ export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided 
   const shown = review.comments.filter((c) => (severity == null || c.severity === severity) && (page == null || (c.applies_to ?? []).some((a) => a.page === page)));
   const confirmations = review.confirmations ?? [];
   const anyCard = review.comments.some(hasCard);
+  if (part === "confirmations") {
+    return (
+      <div className="space-y-3" data-testid="general-confirmations">
+        <p className="text-sm text-slateish-200">
+          Points to confirm, not sent ({confirmations.length}): the value is stated and nothing is suspected; the vendor is only asked to confirm it.
+        </p>
+        {confirmations.length === 0 && <p className="text-sm text-slateish-300">This review has no points to confirm.</p>}
+        <ul className="space-y-3">
+          {confirmations.map((l) => hasCard(l)
+            ? <CommentCard key={`c-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`confirmation:${l.n}`]} onDecide={decide("confirmation")} signed={signed} />
+            : renderPlain(l))}
+        </ul>
+      </div>
+    );
+  }
   return (
     <div className="space-y-3">
-      {anyCard && <SeverityTiles counts={review.counts.by_severity} active={severity} onPick={setSeverity} />}
+      {anyCard && <SeverityTiles counts={review.counts.by_severity} active={severity} onPick={setSeverity} kinds={SEVERITIES.filter((s) => s !== "Please confirm")} />}
       {anyCard && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span data-testid="card-filter-count" className="text-slateish-300">{shown.length === review.comments.length && severity == null && page == null ? `All ${shown.length}` : `${shown.length} of ${review.comments.length}`}</span>
@@ -272,20 +302,8 @@ export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided 
         </div>
       )}
       {shown.length === 0 && <p className="text-sm text-slateish-300">{review.comments.length === 0 ? "This review has no comments." : "No comment matches this filter."}</p>}
-      <ul className="space-y-3">{shown.slice(0, limit).map((l) => hasCard(l) ? <CommentCard key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`comment:${l.n}`]} onDecide={decide("comment")} /> : renderPlain(l))}</ul>
+      <ul className="space-y-3">{shown.slice(0, limit).map((l) => hasCard(l) ? <CommentCard key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`comment:${l.n}`]} onDecide={decide("comment")} signed={signed} /> : renderPlain(l))}</ul>
       <ShowMore testId="comments-more" shown={Math.min(limit, shown.length)} total={shown.length} step={COMMENTS_PAGE} onMore={() => setLimit((n) => n + COMMENTS_PAGE)} />
-      {confirmations.length > 0 && severity == null && page == null && (
-        <details data-testid="general-confirmations" className="rounded-[var(--radius-sm)] border border-ink-600 p-3">
-          <summary className="cursor-pointer text-sm text-slateish-200">
-            Confirmations, not sent ({confirmations.length}): the value is stated and nothing is suspected; the vendor is only asked to confirm it
-          </summary>
-          <ul className="mt-2 space-y-3">
-            {confirmations.map((l) => hasCard(l)
-              ? <CommentCard key={`c-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`confirmation:${l.n}`]} onDecide={decide("confirmation")} />
-              : renderPlain(l))}
-          </ul>
-        </details>
-      )}
     </div>
   );
 }
