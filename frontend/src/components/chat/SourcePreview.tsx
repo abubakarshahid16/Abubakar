@@ -189,8 +189,8 @@ export function SourcePreview({
         {quotes.length > 0
           ? `The marked words are what the answer stood on; they were found on this page.`
           : meta && !meta.cited
-            ? "Given to the model but not cited in the answer."
-            : "Open the page to check the passage in place."}
+            ? "Given to the AI but not used in the answer."
+            : "Open the page to check the source in place."}
       </footer>
     </section>
   );

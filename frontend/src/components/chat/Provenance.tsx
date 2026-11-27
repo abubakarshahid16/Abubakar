@@ -115,7 +115,7 @@ export function OcrConfidence({ passage }: { passage: ProvenanceSource }) {
   return (
     <span
       className="font-mono text-xs text-slateish-500"
-      title="Lowest OCR confidence across this passage. No pass/fail threshold is set - this is the measurement, not a verdict."
+      title="How sure the reader was of this scanned text, at its least sure. It is a measurement, not a pass or fail."
     >
       OCR confidence {passage.ocr_min_conf.toFixed(2)}
     </span>

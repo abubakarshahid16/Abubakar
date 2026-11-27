@@ -48,7 +48,7 @@ const DOC13: AnswerPassage = {
   ocr_alphabet_sample: null,
 };
 
-/** The two passages the original transcript collapsed into "2 other passages
+/** The two passages the original transcript collapsed into "2 other sources
  *  matched" — from OTHER documents, which is precisely why the answer needed
  *  to say it had not compared them. */
 const DOC15: AnswerPassage = {
@@ -196,7 +196,7 @@ describe("a comparison asked in Chat is answered with its scope stated", () => {
     // The notice ADDS a statement. It must not quietly remove the evidence the
     // reader already had, or it trades one omission for another.
     await ask("please compare the mechanical requirements from all documents");
-    expect(screen.getByText(/2 other passages matched/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 other sources matched/i)).toBeInTheDocument();
   });
 
   it("says nothing of the kind for an ordinary question", async () => {

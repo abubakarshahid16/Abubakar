@@ -234,7 +234,7 @@ describe("structured workflow search", () => {
     await userEvent.click(screen.getByRole("button", { name: "More options" }));
     await userEvent.click(screen.getByRole("button", { name: /Search workflow records/ }));
     await userEvent.click(screen.getByRole("button", { name: "Search records" }));
-    expect(await screen.findByText("Workflow records — not page-cited evidence")).toBeInTheDocument();
+    expect(await screen.findByText("Records of the app's work, not quotes from a page")).toBeInTheDocument();
     expect(screen.getByText("IFC drawing")).toBeInTheDocument();
     expect(calls.some((call) => call.url.includes("/search/structured"))).toBe(true);
   });
@@ -447,7 +447,7 @@ describe("a quotation is never mistaken for generated prose", () => {
 
     // the model name also appears in the sidebar, so assert on the label itself
     expect(
-      await screen.findByText(/Written by the model · qwen3\.5:4b — not the document's words/i),
+      await screen.findByText(/Written by the AI, not the document's own words/i),
     ).toBeInTheDocument();
     // and the quotation is still on screen, still labelled as a quotation
     expect(screen.getByText(/Quoted verbatim/i)).toBeInTheDocument();
@@ -509,8 +509,8 @@ describe("citations", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
     await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
 
-    const panel = await screen.findByRole("complementary", { name: "Evidence" });
-    expect(within(panel).getByText(/Quoted passage/i)).toBeInTheDocument();
+    const panel = await screen.findByRole("complementary", { name: "Sources" });
+    expect(within(panel).getByText(/Quoted source/i)).toBeInTheDocument();
     // The passage carries a highlight and the question is known, so the panel
     // asks for the page with the answer BOXED rather than the plain render.
     const img = within(panel).getByRole("img", { name: /Page 17 of NORSOKM501Rev5\.pdf/ });
@@ -564,7 +564,7 @@ describe("citations", () => {
     await ask();
     await userEvent.click(await screen.findByRole("button", { name: "Show source 1" }));
 
-    const panel = await screen.findByRole("complementary", { name: "Evidence" });
+    const panel = await screen.findByRole("complementary", { name: "Sources" });
     const mark = within(panel).getByText("The nominal dry film thickness is 280 um.");
     expect(mark.tagName).toBe("MARK");
     expect(panel.textContent).toContain(PARTIAL.text);
@@ -681,7 +681,7 @@ describe("citations", () => {
     await userEvent.type(await screen.findByLabelText("Your question"), "what is the NDFT");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByText(/Other matched passages stay in the evidence section/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Other matching sources are listed/i)).toBeInTheDocument();
   });
 });
 
@@ -697,8 +697,8 @@ describe("explain", () => {
     expect(
       await screen.findByRole("button", { name: /Explain in plain language/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/about 50 seconds on this hardware/i)).toBeInTheDocument();
-    expect(screen.getByText(/the quotation above is already the answer/i)).toBeInTheDocument();
+    expect(screen.getByText(/in about 50 seconds/i)).toBeInTheDocument();
+    expect(screen.getByText(/The quote above is already the answer/i)).toBeInTheDocument();
   });
 
   it("sends explain_of rather than re-asking the question", async () => {
@@ -740,7 +740,7 @@ describe("explain", () => {
     });
     await openChat();
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
-    await screen.findByText(/Written by the model/i);
+    await screen.findByText(/Written by the AI/i);
 
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
   });
@@ -765,7 +765,7 @@ describe("explain", () => {
     await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    await screen.findByText(/I cannot determine this from the available evidence/i);
+    await screen.findByText(/The sources found do not answer this/i);
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
   });
 });
@@ -794,13 +794,13 @@ describe("insufficient evidence", () => {
     await userEvent.type(await screen.findByLabelText("Your question"), "q");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The sources found do not answer this/i)).toBeInTheDocument();
     expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
     // what was considered is still offered, so the reader can judge
-    expect(screen.getByText(/What was considered/i)).toBeInTheDocument();
+    expect(screen.getByText(/What was looked at/i)).toBeInTheDocument();
     // Named by document and page - the two things that are reliable. The
     // clause label is not printed; see `clauseLabel` in chat/Provenance.tsx.
-    const considered = screen.getByText(/What was considered/i).parentElement!;
+    const considered = screen.getByText(/What was looked at/i).parentElement!;
     expect(considered.textContent).toContain("NORSOKM501Rev5.pdf");
     expect(considered.textContent).toMatch(/pages? 19/);
     expect(screen.queryByText(/A.4 Coating system no. 4/)).toBeNull();
@@ -831,9 +831,9 @@ describe("insufficient evidence", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
 
     expect(
-      await screen.findByText(/The local answer model is not running/i),
+      await screen.findByText(/The AI on this computer is not running/i),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
+    expect(screen.queryByText(/The sources found do not answer this/i)).toBeNull();
   });
 
   it("a Claude failure is named as Claude's, not the local model's", async () => {
@@ -862,7 +862,7 @@ describe("insufficient evidence", () => {
     await userEvent.click(await screen.findByRole("button", { name: /^what is the NDFT/ }));
 
     expect(await screen.findByText(/Claude could not answer/i)).toBeInTheDocument();
-    expect(screen.queryByText(/The local answer model is not running/i)).toBeNull();
+    expect(screen.queryByText(/The AI on this computer is not running/i)).toBeNull();
     expect(screen.queryByText("ollama serve")).toBeNull();
   });
 
@@ -1065,8 +1065,8 @@ describe("inputs that are not document questions", () => {
 
     expect(await screen.findByText(/I answer questions about your documents/i)).toBeInTheDocument();
     // never a refusal, and never evidence for a search that did not happen
-    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
-    expect(screen.queryByText(/What was considered/i)).toBeNull();
+    expect(screen.queryByText(/The sources found do not answer this/i)).toBeNull();
+    expect(screen.queryByText(/What was looked at/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Show source/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
   });
@@ -1193,7 +1193,7 @@ describe("the answer outlined on the rendered page", () => {
 
     expect(await screen.findByText("answer outlined")).toBeInTheDocument();
     expect(
-      screen.getByText(/The answering sentence is outlined on the real page/i),
+      screen.getByText(/The answering sentence is outlined on the page as printed/i),
     ).toBeInTheDocument();
   });
 
@@ -1498,7 +1498,7 @@ describe("evidence dropped to fit the context window", () => {
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
     expect(
-      await screen.findByText(/2 sources did not fit the model's context window/i),
+      await screen.findByText(/2 sources were too long for the AI to read in full/i),
     ).toBeInTheDocument();
     // The page is the actionable part. "Some evidence was dropped" is not
     // something a reader can do anything about; "page 598 was dropped" is.
@@ -1571,7 +1571,7 @@ describe("a refused plain-language upgrade", () => {
   it("still reads as a page-level refusal when it is not an upgrade of anything", async () => {
     await openTranscript(userMessage(), refusedUpgrade({ explains_id: null }));
 
-    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The sources found do not answer this/i)).toBeInTheDocument();
     expect(screen.getByText(/Nothing was made up to fill the gap/i)).toBeInTheDocument();
   });
 
@@ -1584,7 +1584,7 @@ describe("a refused plain-language upgrade", () => {
 
     // THE ASSERTION THAT WOULD HAVE CAUGHT IT. Both of these were on screen
     // together, stacked, each contradicting the other.
-    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
+    expect(screen.queryByText(/The sources found do not answer this/i)).toBeNull();
     expect(screen.queryByText(/Nothing was made up to fill the gap/i)).toBeNull();
     expect(screen.queryByText(/What was considered, so you can judge/i)).toBeNull();
   });
@@ -1611,13 +1611,13 @@ describe("a refused plain-language upgrade", () => {
 
     await screen.findByText(/The plain-language version could not be produced/i);
     expect(screen.queryByText(/Coatings are generally about 280/)).toBeNull();
-    expect(screen.queryByText(/Written by the model/i)).toBeNull();
+    expect(screen.queryByText(/Written by the AI/i)).toBeNull();
   });
 
   it("still lets the reader see what the model was given, with document and page", async () => {
     await openTranscript(userMessage(), extractMessage(), refusedUpgrade());
 
-    await screen.findByText(/What the model was given/i);
+    await screen.findByText(/What the AI was given/i);
     const notice = screen.getByRole("status");
     expect(within(notice).getByText("NORSOKM501Rev5.pdf")).toBeInTheDocument();
     expect(within(notice).getByText(/pages? 19/)).toBeInTheDocument();
@@ -1632,7 +1632,7 @@ describe("a refused plain-language upgrade", () => {
     const notice = await screen.findByRole("status");
     await userEvent.click(within(notice).getByText(/pages? 19/));
 
-    const panel = await screen.findByRole("complementary", { name: "Evidence" });
+    const panel = await screen.findByRole("complementary", { name: "Sources" });
     expect(within(panel).getByText(A4.text)).toBeInTheDocument();
     expect(within(panel).queryByText(A1.text)).toBeNull();
   });
@@ -1662,7 +1662,7 @@ describe("a refused plain-language upgrade", () => {
       }),
     );
 
-    await screen.findByText(/Written by the model/i);
+    await screen.findByText(/Written by the AI/i);
     expect(screen.queryByRole("button", { name: /plain-language version again/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Explain in plain/i })).toBeNull();
   });
@@ -1672,7 +1672,7 @@ describe("a refused plain-language upgrade", () => {
     // of this defect: an attempt that silently looks like it never ran.
     await openTranscript(userMessage(), refusedUpgrade({ explains_id: "msg_gone" }));
 
-    expect(await screen.findByText(/I cannot determine this from the available evidence/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The sources found do not answer this/i)).toBeInTheDocument();
   });
 
   it("scopes the failure when it arrives live, from pressing the button", async () => {
@@ -1703,7 +1703,7 @@ describe("a refused plain-language upgrade", () => {
       await screen.findByText(/The plain-language version could not be produced/i),
     ).toBeInTheDocument();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
-    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
+    expect(screen.queryByText(/The sources found do not answer this/i)).toBeNull();
   });
 
   // Rule: "backend offline" and "that request failed" must never look the
@@ -1721,13 +1721,13 @@ describe("a refused plain-language upgrade", () => {
     );
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/local answer model is not running/i);
-    expect(alert).toHaveTextContent("ollama serve");
-    expect(alert).toHaveTextContent(/This is the machine, not your question/i);
+    expect(alert).toHaveTextContent(/AI on this computer is not running/i);
+    expect(alert).toHaveTextContent("Ask whoever runs the app to start the AI"); // no server command on a screen
+    expect(alert).toHaveTextContent(/The problem is the computer, not your question/i);
 
     // not the refusal wording, and not the page-level one either
     expect(screen.queryByText(/cited no supplied source/i)).toBeNull();
-    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
+    expect(screen.queryByText(/The sources found do not answer this/i)).toBeNull();
     expect(screen.getByText(A1.text)).toBeInTheDocument();
   });
 });
