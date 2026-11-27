@@ -1,10 +1,13 @@
 /**
- * The general review's results page (order 14, piece C): what the ONE Review button's new method produced for a paper.
+ * The general review's results page (order 14, piece C; laid out as the owner's picture of 28 Nov 2026, round 1).
+ *
+ * Four tabs: Comments, To confirm, All points, How this review was made. The Comments tab carries ONE status box (the mark, the
+ * verdict, what did not run, the team file) beside ONE sign-off box; the other tabs carry one short line, so their own content
+ * starts at the top. On a signed review the sign-off warning is said ONCE, at the top of the page.
  *
  * Honest by construction: the mark "AI, to be checked" is on the header and on every row; the labels shown are the server's
- * `shown_label` (a Pass or Fail only where code compared a value, every other verdict says it is an AI opinion); there is NO
- * contractor button, NO sign row and NO review code here (no sign-off is connected to the general review); the one Download button
- * gives the team file and the server refuses it when the page, the database and the file rows differ, and this page says so.
+ * `shown_label` (a Pass or Fail only where code compared a value, every other verdict says it is an AI opinion); the Download
+ * button gives the team file and the server refuses it when the page, the database and the file rows differ, and this page says so.
  */
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -13,16 +16,13 @@ import { CommentCards } from "./CommentCards";
 import { SignBar } from "./SignBar";
 import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
-import { Button, LinkButton, Notice } from "../../kit/Kit";
+import { Button, LinkButton, Notice, ShowMore, StatusChip } from "../../kit/Kit";
 import { formatDay } from "../../../format/when";
 
 const MARK_FALLBACK = "AI, to be checked";
-/** The shown labels in plain words for the header's counts (a label not listed is shown as written, in lower case). */
-const SHOWN_WORDS: Record<string, string> = {
-  "Question": "questions", "AI opinion": "other AI opinions", "AI opinion: met": "met (the AI's view)",
-  "AI opinion: not met": "not met (the AI's view)",
-  "AI opinion: does not apply": "do not apply (the AI's view)", "Fail, compared by code": "failed, compared by code", "Pass, compared by code": "passed, compared by code",
-};
+/** Points drawn at first on the "All points" tab, and added per press of "Show more". */
+const POINTS_PAGE = 50;
+type Tab = "comments" | "confirm" | "all" | "how";
 
 function PageLink({ page, onViewPage }: { page: number | null; onViewPage: (page: number) => void }) {
   if (page == null) return null; // a null page renders as nothing, never "page 0"
@@ -123,8 +123,8 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
   onOpenRun?: (runId: string) => void;
 }) {
   const mark = review.mark || MARK_FALLBACK;
-  const [tab, setTab] = useState<"comments" | "how">("comments");
-  const [showAll, setShowAll] = useState(false);
+  const [tab, setTab] = useState<Tab>("comments");
+  const [pointsShown, setPointsShown] = useState(POINTS_PAGE);
   const [problem, setProblem] = useState<string | null>(null);
   const [askRough, setAskRough] = useState(false);
   const [signoff, setSignoff] = useState(review.signoff ?? null);
@@ -137,7 +137,16 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
     const r = await generalReview.get(review.paper_document_id, review.run_id);
     if (r.ok && r.data.signoff) setSignoff(r.data.signoff);
   }
-  const lines = showAll ? review.points : review.comments;
+  const signed = signoff?.state === "signed";
+  const stepsOff = (review.steps_not_applied ?? []).length;
+  const partsOff = (review.pages_not_read ?? []).length;
+  const tabs: { key: Tab; label: string }[] = [
+    { key: "comments", label: `Comments (${review.counts.comments})` },
+    ...(review.counts.confirmations != null ? [{ key: "confirm" as const, label: `To confirm (${review.counts.confirmations})` }] : []),
+    { key: "all", label: `All points (${review.counts.points})` },
+    { key: "how", label: "How this review was made" },
+  ];
+  const plainRow = (l: GeneralLine) => <Row key={`p-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />;
 
   async function download(roughOk = false) {
     setProblem(null);
@@ -158,27 +167,72 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
           <strong>This review did not finish.</strong> {review.stop_words}
         </div>
       )}
-      {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the verdict, the decisions, then the comments; how the review
-          was made (counts, cost, model notes, steps that did not run, pages not read) is folded under its own tab, and a
-          one-line pointer keeps what did not run or was not read visible. */}
-      <div role="note" data-testid="general-mark" className="rounded-[var(--radius-md)] border border-signal-400 p-3 text-sm text-slateish-100">
-        {signoff?.state === "signed" && signoff.signed ? (
-          <>
-            <strong>Signed off</strong>
-            {/* who and when is said ONCE, in the sign-off line below (F's live walk, 27 Nov 2026: three lines said "signed off") */}
-            <span className="ml-2 text-slateish-300">The contractor copy is below; this page is still the team's full list.</span>
-          </>
-        ) : (
-          <>
-            <strong>{mark}</strong>
-            <span className="ml-2 text-slateish-300">This is the AI's opinion, for the team: nothing here is signed off or ready for the contractor.</span>
-          </>
-        )}
-        <p data-testid="general-verdict" className="mt-1 text-base font-semibold text-slateish-100">{verdict(review, signoff)}</p>
-      </div>
+      {/* SAID ONCE, at the top (owner, 28 Nov 2026): on a signed review a click on a decision button changes a signed sheet. Each
+          button then carries only the short mark (*). */}
+      {signed && (
+        <div data-testid="general-signed-warning">
+          <Notice tone="warn" title="This review is signed off. A click on Accept, Edit or Reject changes a signed sheet.">
+            The sign-off is undone at once, the contractor copy is held back, and you sign again. The buttons marked * do this.
+            <span className="mt-1 block">Accept: the comment goes to the contractor as written. Edit: it goes with your wording. Reject: it is left out, and you give a one-line reason.</span>
+          </Notice>
+        </div>
+      )}
+      {/* ANSWER FIRST (owner's picture, 28 Nov 2026): ONE status box and ONE sign-off box, on the Comments tab only. The other tabs
+          carry one short line, so their own content starts at the top. */}
+      {tab === "comments" ? (
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div role="note" data-testid="general-mark" className="kit-card space-y-2">
+            <StatusChip word={signed ? "Signed off" : mark} />
+            <p data-testid="general-verdict" className="text-lg font-semibold text-slateish-100">{verdict(review, signoff)}</p>
+            <p className="text-sm text-slateish-300">
+              {signed ? "The contractor copy is in the sign-off box. This page is still the team's full list."
+                : "This is the AI's opinion, for the team: nothing here is signed off or ready for the contractor."}
+            </p>
+            {stepsOff > 0 && (
+              <p data-testid="general-steps-pointer" className="text-sm text-pill-review-fg">
+                {stepsOff} checking step{stepsOff === 1 ? "" : "s"} did not run:{" "}
+                <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
+              </p>
+            )}
+            {partsOff > 0 && (
+              <p data-testid="general-pages-pointer" className="text-sm text-pill-review-fg">
+                {partsOff} part{partsOff === 1 ? "" : "s"} of this paper {partsOff === 1 ? "was" : "were"} not read:{" "}
+                <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
+              </p>
+            )}
+            {/* three counts of 0: there is no file to give out, so no button that can only be refused (H on #1981) */}
+            {!review.completeness?.nothing_to_compare && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="secondary" size="sm" onClick={() => void download()} data-testid="general-download">
+                  Download the file (team copy)
+                </Button>
+                {!signed && <span className="text-xs text-slateish-300">The contractor copy comes after sign-off.</span>}
+              </div>
+            )}
+            {askRough && (
+              <div data-testid="general-rough-confirm">
+                <Notice tone="warn">
+                  This review is a rough draft by the AI on this computer, not scored as reliable. Check every comment before you use the file.
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => void download(true)} data-testid="general-rough-ok">I will check every comment: download</Button>
+                    <LinkButton tone="action" onClick={() => setAskRough(false)}>Cancel</LinkButton>
+                  </div>
+                </Notice>
+              </div>
+            )}
+            {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
+          </div>
+          {signoff && !cannotSignOff(review, signoff) && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
+        </div>
+      ) : (
+        <p data-testid="general-mark-short" className="flex flex-wrap items-center gap-2 text-sm text-slateish-200">
+          <StatusChip word={signed ? "Signed off" : mark} />
+          <span>{verdict(review, signoff)}</span>
+        </p>
+      )}
       {/* C's notes on #1981: the way to the last complete review comes FIRST, straight under the verdict */}
       <LastCompleteReview review={review} onOpenRun={onOpenRun} />
-      <MeasuredBadge measured={review.measured} />{/* the kind's real score stays on screen (standing order: "below target" shown) */}
+      {tab === "comments" && <MeasuredBadge measured={review.measured} />}{/* the kind's real score stays on screen (standing order: "below target" shown) */}
       {review.status === "stopped" && (
         <p role="alert" data-testid="general-stopped" className="text-sm text-danger-500">
           This review stopped early.{review.stop_reason && !review.stop_words ? ` ${stopSentence(review.stop_reason)}` : ""}
@@ -194,115 +248,46 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         </div>
       ))}
 
-      {(review.steps_not_applied ?? []).length > 0 && (
-        <p data-testid="general-steps-pointer" className="text-sm text-pill-review-fg">
-          {(review.steps_not_applied ?? []).length} checking step{(review.steps_not_applied ?? []).length === 1 ? "" : "s"} did not run:{" "}
-          <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
-        </p>
-      )}
-      {(review.pages_not_read ?? []).length > 0 && (
-        <p data-testid="general-pages-pointer" className="text-sm text-pill-review-fg">
-          {(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read:{" "}
-          <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
-        </p>
-      )}
-
-      {signoff && !cannotSignOff(review, signoff) && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
-
-      {/* three counts of 0: there is no file to give out, so no button that can only be refused (H on #1981) */}
-      {!review.completeness?.nothing_to_compare && (
-        <div className="flex flex-wrap items-center gap-3">
-          <Button variant="secondary" size="sm" onClick={() => void download()} data-testid="general-download">
-            Download the file (team copy)
-          </Button>
-        </div>
-      )}
-      {askRough && (
-        <div data-testid="general-rough-confirm">
-          <Notice tone="warn">
-            This review is a rough draft by the AI on this computer, not scored as reliable. Check every comment before you use the file.
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" onClick={() => void download(true)} data-testid="general-rough-ok">I will check every comment: download</Button>
-              <LinkButton tone="action" onClick={() => setAskRough(false)}>Cancel</LinkButton>
-            </div>
-          </Notice>
-        </div>
-      )}
-      {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
-
-      <div role="tablist" aria-label="Review" className="flex gap-1 border-b border-ink-600">
-        {([["comments", `Comments (${review.counts.comments})`], ["how", "How this review was made"]] as const).map(([t, label]) => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm ${tab === t ? "border-b-2 border-signal-400 text-slateish-100" : "text-slateish-300 hover:text-slateish-100"}`}>
+      <div role="tablist" aria-label="Review" className="flex gap-1 overflow-x-auto border-b border-ink-600">
+        {tabs.map(({ key, label }) => (
+          <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
+            className={`whitespace-nowrap px-4 py-2 text-sm ${tab === key ? "border-b-2 border-signal-400 text-slateish-100" : "text-slateish-300 hover:text-slateish-100"}`}>
             {label}
           </button>
         ))}
       </div>
 
-      {tab === "comments" && (
-        <div className="space-y-3">
-          <label className="flex items-center gap-2 text-sm text-slateish-300">
-            <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} data-testid="general-all-toggle" />
-            All points ({review.counts.points})
-          </label>
-          {showAll ? (
-            <>
-              {lines.length === 0 && <p className="text-sm text-slateish-300">This review has no points.</p>}
-              <ul className="space-y-2">{lines.map((l) => <Row key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}</ul>
-            </>
-          ) : (
-            <CommentCards review={review} mark={mark} onDecided={() => void refreshSignoff()} onViewPage={onViewPage}
-              renderPlain={(l) => <Row key={`p-${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />} />
-          )}
-          {(review.rejected_before ?? []).length > 0 && (
-            <section data-testid="general-rejected-before" aria-label="Rejected before" className="space-y-1 rounded-[var(--radius-sm)] border border-ink-600 p-3">
-              <h3 className="text-sm font-semibold text-slateish-200">Rejected before ({review.rejected_before!.length}), team only: not raised again, never sent</h3>
-              <ul className="space-y-1 text-sm text-slateish-300">
-                {review.rejected_before!.map((c) => (
-                  <li key={`rb-${c.n}`}><span className="text-slateish-100">{c.title ?? c.field}</span>: {c.rejected_before.note}</li>
-                ))}
-              </ul>
-            </section>
-          )}
+      {/* the comments and the points to confirm stay in the page while another tab is open, so a decision just made is still shown */}
+      <div className="space-y-3" hidden={tab !== "comments"}>
+        <CommentCards review={review} mark={mark} signed={signed} onDecided={() => void refreshSignoff()} onViewPage={onViewPage} renderPlain={plainRow} />
+        {(review.rejected_before ?? []).length > 0 && (
+          <section data-testid="general-rejected-before" aria-label="Rejected before" className="space-y-1 rounded-[var(--radius-sm)] border border-ink-600 p-3">
+            <h3 className="text-sm font-semibold text-slateish-200">Rejected before ({review.rejected_before!.length}), team only: not raised again, never sent</h3>
+            <ul className="space-y-1 text-sm text-slateish-300">
+              {review.rejected_before!.map((c) => (
+                <li key={`rb-${c.n}`}><span className="text-slateish-100">{c.title ?? c.field}</span>: {c.rejected_before.note}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+      {review.counts.confirmations != null && (
+        <div hidden={tab !== "confirm"}>
+          <CommentCards part="confirmations" review={review} mark={mark} signed={signed} onDecided={() => void refreshSignoff()} onViewPage={onViewPage} renderPlain={plainRow} />
+        </div>
+      )}
+
+      {tab === "all" && (
+        <div className="space-y-3" data-testid="general-all">
+          {review.points.length === 0 && <p className="text-sm text-slateish-300">This review has no points.</p>}
+          <ul className="space-y-2">{review.points.slice(0, pointsShown).map((l) => <Row key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} />)}</ul>
+          <ShowMore testId="points-more" shown={Math.min(pointsShown, review.points.length)} total={review.points.length} step={POINTS_PAGE} onMore={() => setPointsShown((n) => n + POINTS_PAGE)} />
         </div>
       )}
 
       {tab === "how" && (
         <div data-testid="general-how" className="space-y-3 text-sm text-slateish-200">
-          {(review.steps_not_applied ?? []).length > 0 && (
-            <div role="note" data-testid="general-steps-not-applied" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
-              <strong>A checking step did not run on this sheet.</strong>
-              <ul className="list-disc pl-5 text-slateish-200">
-                {(review.steps_not_applied ?? []).map((x) => <li key={`${x.step}:${x.why}`}>{x.sentence}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {(review.pages_not_read ?? []).length > 0 && (
-            <div role="note" data-testid="general-pages-not-read" className="space-y-1 rounded-[var(--radius-md)] border border-warn-500 p-3 text-sm text-slateish-100">
-              <strong>{(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read.</strong>
-              <p className="text-slateish-200">Nothing below says anything about them: no text and no picture reading came back, or it has not run yet.</p>
-              <ul className="list-disc pl-5 text-slateish-200">
-                {(review.pages_not_read ?? []).map((x) => <li key={x.where}>{x.sentence}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {(review.pages_not_read ?? []).length === 0 && review.pages_not_read_record === "not_recorded" && (
-            <p data-testid="general-pages-not-recorded" className="text-sm text-slateish-300">Which pages were read is not recorded for this review.</p>
-          )}
-
-          <p data-testid="general-counts" className="text-sm text-slateish-200">
-            {review.counts.points} points reviewed, {review.counts.comments} comments sent
-            {review.counts.confirmations != null ? `, ${review.counts.confirmations} confirmations not sent` : ""} ({review.counts.boundary}).
-            {Object.entries(review.counts.by_shown_label ?? {}).filter(([k]) => k).map(([k, n]) => (
-              <span key={k} className="ml-2 text-xs text-slateish-400">{n} {SHOWN_WORDS[k] ?? k.toLowerCase()}</span>
-            ))}
-            {" "}{review.counts.decided_by_code?.sentence}
-          </p>
-
-          {review.cost.usd != null && <p data-testid="general-cost" className="text-xs text-slateish-400">Cost of this review: USD {review.cost.usd.toFixed(2)}</p>}
-          <HowReviewMade review={review} />
+          <HowReviewMade review={review} onOpenTab={(t) => setTab(t)} />
           {howTab}
         </div>
       )}

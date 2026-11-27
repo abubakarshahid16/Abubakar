@@ -1,5 +1,5 @@
 /** The comment cards of the general review (planner's design, 18 Nov 2026). Invented values only. */
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const decide = vi.fn();
@@ -26,8 +26,8 @@ function review(comments: GeneralLine[], confirmations: GeneralLine[] = [], by?:
   } as unknown as GeneralReview;
 }
 
-function mount(r: GeneralReview, onViewPage = vi.fn()) {
-  render(<CommentCards review={r} mark={MARK} onViewPage={onViewPage} renderPlain={(l) => <li key={l.n} data-testid="plain-row">{l.field}</li>} />);
+function mount(r: GeneralReview, onViewPage = vi.fn(), more: { part?: "comments" | "confirmations"; signed?: boolean } = {}) {
+  render(<CommentCards review={r} mark={MARK} onViewPage={onViewPage} renderPlain={(l) => <li key={l.n} data-testid="plain-row">{l.field}</li>} {...more} />);
   return onViewPage;
 }
 
@@ -45,14 +45,15 @@ describe("comment cards", () => {
     expect(screen.queryByText(/First reader/)).toBeNull();
   });
 
-  it("one card per comment: title, severity word, paper says, rule says, we ask, in that order", () => {
+  it("one flat card per comment: title, severity word, then WE ASK first, paper says, rule says (owner's picture, 28 Nov 2026)", () => {
     mount(review(THREE));
     const first = screen.getAllByTestId("general-row")[0];
     expect(within(first).getByTestId("card-title")).toHaveTextContent("Backpressure over the limit");
     expect(within(first).getByTestId("card-severity")).toHaveTextContent("Must fix");
     const text = first.textContent ?? "";
+    expect(text.indexOf("We ask")).toBeLessThan(text.indexOf("Paper says"));
     expect(text.indexOf("Paper says")).toBeLessThan(text.indexOf("Rule says"));
-    expect(text.indexOf("Rule says")).toBeLessThan(text.indexOf("We ask"));
+    expect(first).toHaveTextContent("Comment 1");
     expect(within(first).getByTestId("card-mark")).toHaveTextContent("AI, to be checked · compared by code");
   });
 
@@ -65,7 +66,7 @@ describe("comment cards", () => {
     const evidence = within(third).getByTestId("card-evidence");
     expect(evidence.tagName).toBe("DETAILS");
     expect(evidence).not.toHaveAttribute("open");
-    expect(evidence).toHaveTextContent("Show evidence (2 quotes)");
+    expect(evidence).toHaveTextContent("Show the source text (2 quotes)");
   });
 
   it("a card never says 'AI, to be checked' twice when the card was not proven by code", () => {
@@ -78,7 +79,7 @@ describe("comment cards", () => {
     const r = review(THREE, [], by);
     mount(r);
     const tiles = screen.getByTestId("severity-tiles");
-    expect(tiles).toHaveTextContent("Please confirm (separate part, not sent)");
+    expect(tiles).not.toHaveTextContent("Please confirm"); // the points to confirm have their own tab
     fireEvent.click(within(tiles).getByRole("button", { name: /Missing information/ }));
     expect(screen.getAllByTestId("general-row")).toHaveLength(1);
     expect(screen.getByTestId("card-filter-count")).toHaveTextContent("1 of 3");
@@ -106,12 +107,27 @@ describe("comment cards", () => {
     expect(screen.queryByTestId("severity-tiles")).toBeNull();
   });
 
-  it("the confirmations are cards too, in a closed part that is not among the comments", () => {
-    mount(review([card(1)], [card(5, { severity: "Please confirm" })]));
+  it("the confirmations are cards too, in their OWN part (the To confirm tab), never among the comments", () => {
+    const r = review([card(1)], [card(5, { severity: "Please confirm" })]);
+    mount(r);
+    expect(screen.queryByTestId("general-confirmations")).toBeNull();
+    expect(screen.getAllByTestId("general-row")).toHaveLength(1);
+    cleanup();
+    mount(r, vi.fn(), { part: "confirmations" });
     const part = screen.getByTestId("general-confirmations");
-    expect(part).not.toHaveAttribute("open");
+    expect(part).toHaveTextContent("Points to confirm, not sent (1)");
     expect(within(part).getByTestId("card-severity")).toHaveTextContent("Please confirm");
-    expect(screen.getAllByTestId("general-row").filter((r) => !part.contains(r))).toHaveLength(1);
+    expect(within(part).getAllByTestId("general-row")).toHaveLength(1);
+  });
+
+  it("a signed review marks each decision button, and an unsigned one carries no mark (owner, 28 Nov 2026)", () => {
+    mount(review([card(1)]), vi.fn(), { signed: true });
+    expect(screen.getAllByTestId("card-signed-mark")).toHaveLength(3);
+    for (const name of ["Accept", "Edit", "Reject"]) expect(screen.getByRole("button", { name })).toHaveAttribute("title", "This undoes the sign-off");
+    cleanup();
+    mount(review([card(1)]));
+    expect(screen.queryByTestId("card-signed-mark")).toBeNull();
+    expect(screen.getByRole("button", { name: "Accept" })).not.toHaveAttribute("title");
   });
 });
 
@@ -179,9 +195,8 @@ describe("H10: Accept / Edit / Reject on each card", () => {
 
   it("a confirmation is decided as a confirmation", async () => {
     decide.mockResolvedValue(ok("accept"));
-    mount(review([card(1)], [card(5, { severity: "Please confirm" })]));
+    mount(review([card(1)], [card(5, { severity: "Please confirm" })]), vi.fn(), { part: "confirmations" });
     const part = screen.getByTestId("general-confirmations");
-    fireEvent.click(part.querySelector("summary") as HTMLElement);
     fireEvent.click(within(within(part).getByTestId("general-row")).getByRole("button", { name: "Accept" }));
     await waitFor(() => expect(decide).toHaveBeenCalled());
     expect(decide.mock.calls[0][1]).toMatchObject({ comment: 5, part: "confirmation" });
@@ -248,7 +263,7 @@ describe("one chip per field (planner 19 Nov, item 3)", () => {
     mount(review([c]));
     const quotes = screen.getAllByTestId("card-quote").map((q) => q.textContent);
     expect(quotes).toEqual(["page 1page one says 10 bar", "page 3page three says 12 bar"]);
-    expect(screen.getByText(/Show evidence \(2 quotes\)/)).toBeTruthy();
+    expect(screen.getByText(/Show the source text \(2 quotes\)/)).toBeTruthy();
   });
 });
 

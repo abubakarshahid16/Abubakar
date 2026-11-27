@@ -42,12 +42,11 @@ describe("GeneralResults header", () => {
   it("the header counts by label are plain words, not raw label names", () => {
     mount(review({ counts: { points: 193, comments: 73, by_label: {}, boundary: "this paper", by_shown_label: { "Question": 159, "AI opinion: does not apply": 28, "AI opinion: met": 4, "AI opinion: not met": 1, "AI opinion": 2 } } }));
     openHow();  // E5: the counts are folded
-    const t = screen.getByTestId("general-counts");
-    expect(t).toHaveTextContent("159 questions");
-    expect(t).toHaveTextContent("28 do not apply (the AI's view)");
-    expect(t).toHaveTextContent("4 met (the AI's view)");
-    expect(t).toHaveTextContent("1 not met (the AI's view)");
+    const t = screen.getByTestId("how-numbers");
+    expect(t).toHaveTextContent("Do not apply 28 the AI's view, least trusted");
+    expect(t).toHaveTextContent("Met 4 the AI's view");
     expect(t).not.toHaveTextContent(/AI opinion:/i);
+    expect(screen.getByTestId("general-counts")).not.toHaveTextContent(/AI opinion:/i);
   });
 
   it("names the pages that were not read, and says nothing when every page was", () => {
@@ -57,6 +56,8 @@ describe("GeneralResults header", () => {
     ] }));
     expect(screen.getByTestId("general-pages-pointer")).toHaveTextContent("2 parts of this paper were not read: see How this review was made.");  // visible (E5)
     openHow();
+    expect(screen.getByTestId("how-summary")).toHaveTextContent("2 parts of this paper were not read.");
+    fireEvent.click(screen.getByRole("button", { name: /Read the paper/ }));
     const note = screen.getByTestId("general-pages-not-read");
     expect(note).toHaveTextContent("2 parts of this paper were not read.");
     expect(note).toHaveTextContent("Page 7 was not read");
@@ -65,6 +66,7 @@ describe("GeneralResults header", () => {
     mount(review({ pages_not_read: [] }));
     expect(screen.queryByTestId("general-pages-pointer")).toBeNull();
     openHow();
+    fireEvent.click(screen.getByRole("button", { name: /Read the paper/ }));
     expect(screen.queryByTestId("general-pages-not-read")).toBeNull();
   });
 

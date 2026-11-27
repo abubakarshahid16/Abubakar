@@ -92,6 +92,7 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
 
   return (
     <section data-testid="sign-bar" data-state={signoff.state} aria-label="Sign-off" className="space-y-3 rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4">
+      <h3 className="text-base font-semibold text-slateish-100">Sign off</h3>
       {signoff.state === "signed" && signed && (
         <div className="space-y-1">
           <p data-testid="sign-signed" className="text-sm text-pill-pass-fg"><strong>Signed off</strong> by {signed.by}, {dayTimeWords(signed.at)}. Review code: {signed.code}.</p>
@@ -108,6 +109,7 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
         </p>
       )}
       {signoff.state === "not_signed" && <p className="text-sm text-slateish-300">Not signed off. The contractor copy follows the engineer's sign-off, and holds only the comments you accept or edit.</p>}
+      {signoff.state === "not_signed" && <p data-testid="sign-again-note" className="text-xs text-slateish-300">If you change a decision after signing, you sign again.</p>}
       {signoff.state !== "signed" && controls}
       {refusal && (
         <div role="alert" data-testid="sign-refusal" className="space-y-1 text-sm text-danger-500">

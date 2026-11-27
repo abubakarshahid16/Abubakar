@@ -29,11 +29,13 @@ describe("GeneralResults: steps that did not run", () => {
     expect(screen.getByTestId("general-steps-pointer")).toHaveTextContent("2 checking steps did not run: see How this review was made.");  // visible at the top (E5)
     expect(screen.queryByTestId("general-steps-not-applied")).toBeNull();  // the detail is folded (E5)
     openHow();
+    expect(screen.getByTestId("how-summary")).toHaveTextContent("2 checking steps did not run.");  // said in the summary, first
+    expect(screen.queryByTestId("general-steps-not-applied")).toBeNull();  // no panel is open at the start
+    fireEvent.click(screen.getByRole("button", { name: /Second look at the faults/ }));
     const note = screen.getByTestId("general-steps-not-applied");
-    expect(note).toHaveTextContent("A checking step did not run on this sheet.");
+    expect(note).toHaveTextContent("2 checking steps did not run on this sheet.");
     expect(note).toHaveTextContent("The second reader did not run on this sheet (no_json): invented.");
     expect(note).toHaveTextContent("The editor did not run on this sheet (timeout).");
-    expect(note.compareDocumentPosition(screen.getByTestId("general-counts")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows nothing when the list is empty or absent (an older answer)", () => {
