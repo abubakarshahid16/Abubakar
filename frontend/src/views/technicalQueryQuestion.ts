@@ -284,13 +284,13 @@ export function plainStatus(status: string, priority?: string | null): string {
   return `${word[status] ?? status.replaceAll("_", " ")}${p && p !== "normal" ? ` · ${p} priority` : ""}`;
 }
 
-export type StepState = "done" | "working" | "todo";
+export type StepState = "done" | "working" | "todo" | "warn";
 export interface Step { label: string; state: StepState }
 
 /** Three steps and the approval, each with its own mark (owner: instead of the dense status sentence). */
 export function querySteps(q: {
   status: string;
-  drafts?: unknown[] | null;
+  drafts?: Array<{ citations_json?: string | null }> | null;
   evidence?: { for_current_question?: boolean | null }[] | null;
   ready?: { evidence?: string | null; draft?: string | null } | null;
 }, askText: string): Step[] {
@@ -299,9 +299,23 @@ export function querySteps(q: {
   return [
     { label: "Question found", state: askText.trim() ? "done" : "todo" },
     { label: "Sources found", state: q.ready?.evidence === "refreshing" ? "working" : sources ? "done" : "todo" },
-    { label: "Reply written", state: q.ready?.draft === "refreshing" ? "working" : q.drafts?.length ? "done" : "todo" },
+    q.ready?.draft === "refreshing" ? { label: "Reply written", state: "working" }
+      : !q.drafts?.length ? { label: "Reply written", state: "todo" }
+      // a reply that cites no source is written, but not ready: never a plain tick (F's walk, 27 Nov 2026)
+      : citesNoSource(q.drafts[q.drafts.length - 1]) ? { label: "Reply written: uses no source yet", state: "warn" }
+      : { label: "Reply written", state: "done" },
     { label: "Approved", state: approved ? "done" : "todo" },
   ];
+}
+
+/** The latest reply cites no source: its citations are empty (an unreadable record counts as none). */
+function citesNoSource(draft: { citations_json?: string | null } | undefined): boolean {
+  try {
+    const cited = JSON.parse(draft?.citations_json || "[]");
+    return !Array.isArray(cited) || cited.length === 0;
+  } catch {
+    return true;
+  }
 }
 
 /** "file, page 1" said once under the list when every request was found in the same place (owner: it repeated under each item). */
