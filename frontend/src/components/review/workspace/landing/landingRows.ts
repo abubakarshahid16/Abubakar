@@ -28,7 +28,7 @@ export interface LandingRow {
 }
 
 /** One plain line for a paper with no role recorded. Nothing sets the role: the review treats it as a contractor paper. */
-export const NO_ROLE_LINE = "No role recorded yet: it will be reviewed as a contractor paper";
+export const NO_ROLE_LINE = "No role set yet: it is reviewed as a contractor document";
 
 function time(value: string | null | undefined): number | null {
   if (!value) return null;

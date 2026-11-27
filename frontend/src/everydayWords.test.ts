@@ -135,6 +135,9 @@ export const WORDS_DONE: RegExp[] = [
   /^components\/classification\/(DocumentFilters|MetadataEditor|TypeFilter)\.tsx$/, /^components\/classification\/registerLabels\.ts$/,
   // Dashboard (words job page 3; its folded technical details may keep technical words)
   /^views\/(DashboardView|DashboardViewContent|DashboardPrimitives)\.tsx$/, /^components\/dashboard\/(AtAGlance|GlanceTiles|MetricWarning)\.tsx$/,
+  // Review list (words job page 4)
+  /^views\/SubmittalsLandingView\.tsx$/, /^components\/review\/workspace\/landing\/[A-Za-z]+\.tsx?$/,
+  /^components\/review\/workspace\/(NewReviewDropZone|ViewModeSwitch)\.tsx$/, /^components\/review\/workspace\/(newReview|reviewWatch)\.ts$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [

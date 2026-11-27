@@ -13,7 +13,7 @@ export function ViewModeSwitch({ mode, onMode }: { mode: ViewMode; onMode: (mode
     <Button size="sm" aria-pressed={mode === value} onClick={() => onMode(value)}
       title={value === "simple"
         ? "Show only what you need to finish the review"
-        : "Also show the engineer pages: how it was reviewed, findings, standards"}>
+        : "Also show the engineer pages: how it was reviewed, comments, standards"}>
       {label}
     </Button>
   );
