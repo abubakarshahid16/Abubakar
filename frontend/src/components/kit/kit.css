@@ -244,3 +244,14 @@
      vanishes on white), so selects and inputs lost their outline in the light theme only (H's walk). Fields with no border stay so. */
 :root[data-look="new"] .kit-row-btn, :root[data-look="new"] main button.kit-row-btn { min-height: 4rem; justify-content: center; }
 :root[data-look="new"] main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea) { border-color: var(--kit-field-edge); }
+
+/* A tag that opens to its list ("3 disciplines" -> the names), reachable by keyboard and touch (H's gate on #2002). */
+.kit-tag-fold { display: inline-flex; align-items: center; gap: var(--kit-space-1); flex-wrap: wrap; }
+.kit-tag-fold > summary { list-style: none; cursor: pointer; }
+.kit-tag-fold > summary::-webkit-details-marker { display: none; }
+/* a small arrow says the tag opens (H's note on #2002); hidden from screen readers, which announce the summary as expandable */
+.kit-tag-fold > summary::after { content: "\25B8" / ""; margin-inline-start: var(--kit-space-1); }
+.kit-tag-fold[open] > summary::after { content: "\25BE" / ""; }
+.kit-tag-fold > summary:focus-visible { outline: 2px solid var(--kit-primary-bg); outline-offset: 2px; }
+.kit-tag-fold__names { font-size: 13px; color: var(--color-slateish-300); }
+

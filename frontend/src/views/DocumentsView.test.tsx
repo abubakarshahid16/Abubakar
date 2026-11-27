@@ -368,8 +368,11 @@ describe("B2 documents list", () => {
   it("warns only about scanned pages recognition has NOT yet read", async () => {
     mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
     renderDocuments();
-    expect(await screen.findByText(NEW_LOOK ? "12 waiting to be read" : "12 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText(NEW_LOOK ? "11 pages mostly equations" : "11 equation-heavy")).toBeInTheDocument(); // everyday words in the new look
+    // new look: a "ready" document's status already says it, so it is said ONCE there, not again as a chip (C's walk, 27 Nov 2026)
+    expect(await screen.findByText(NEW_LOOK ? "finished, 12 pages waiting to be read as pictures" : "12 awaiting OCR")).toBeInTheDocument();
+    if (NEW_LOOK) expect(screen.queryByText("12 waiting to be read")).toBeNull();
+    // the equations fact sits in the facts line in the new look, not as one more chip
+    expect(screen.getByText(NEW_LOOK ? /11 pages mostly equations/ : /^11 equation-heavy$/)).toBeInTheDocument(); // everyday words in the new look
   });
 
   it("states the OCR fraction as a fact once pages have been read", async () => {
@@ -389,12 +392,18 @@ describe("B2 documents list", () => {
     expect(screen.queryByText(NEW_LOOK ? /waiting to be read$/ : /awaiting OCR/)).toBeNull();
   });
 
+  it("keeps the waiting chip when the status does not say it (a document still being read)", async () => {
+    mockApi([makeDoc({ status: "partially_searchable", needs_ocr_pages: 4, recognised_pages: 1 })]);
+    renderDocuments();
+    expect(await screen.findByText(NEW_LOOK ? "3 waiting to be read" : "3 awaiting OCR")).toBeInTheDocument();
+  });
+
   it("shows both when recognition is only part-way through", async () => {
     mockApi([
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 5 }),
     ]);
     renderDocuments();
-    expect(await screen.findByText(NEW_LOOK ? "7 waiting to be read" : "7 awaiting OCR")).toBeInTheDocument();
+    expect(await screen.findByText(NEW_LOOK ? "finished, 7 pages waiting to be read as pictures" : "7 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read from a scan/))).toBeInTheDocument();
   });
 
