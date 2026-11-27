@@ -45,12 +45,12 @@ describe("the marks in their place", () => {
     expect(splitMarks(marks, false).shown).toEqual([marks[2], marks[3]]); // the page could not name the documents: the server's line stays
   });
 
-  it("says each unconfirmed document in one plain sentence, with How to confirm folded", () => {
+  it("says the unconfirmed documents in ONE plain sentence, once, with How to confirm folded (H's table, 7d)", () => {
     render(<><RevisionLines documents={["Invented Spec A", "Invented Std B"]} isAdmin /><MadeFold lines={["Written by an engineer."]} /></>);
     expect(screen.getAllByTestId("revision-line").map((l) => l.textContent)).toEqual([
-      "We have not yet confirmed that we hold the latest revision of Invented Spec A.",
-      "We have not yet confirmed that we hold the latest revision of Invented Std B.",
-    ]);
+      "We have not yet checked that these 2 are the current revisions:",
+    ]); // a short lead and the names as a list: never one long sentence of names (H's replay of #1992)
+    expect(screen.getByTestId("revision-lines").querySelectorAll("li")).toHaveLength(2);
     for (const id of ["revision-how", "how-made"]) {
       const fold = screen.getByTestId(id);
       expect(fold.tagName).toBe("DETAILS");
@@ -81,3 +81,15 @@ describe("an older reply (Part 3 picture review)", () => {
   });
 });
 
+
+describe("the owner's Queries page (builder H's table of the 34 queries, 27 Nov 2026)", () => {
+  it("shows a long reply paragraph as short paragraphs of whole sentences, every word kept in order (8 and W)", () => {
+    const sentence = "COMPANY has reviewed the invented request and the invented datasheet for the pump.";
+    const long = Array.from({ length: 8 }, () => sentence).join(" ");
+    render(<ReplyText answer={`1. **Pump rating**\n${long} [S1].\n\n${long}`} />);
+    const paragraphs = Array.from(screen.getByTestId("reply-text").querySelectorAll("p")).map((p) => p.textContent ?? "");
+    expect(paragraphs.length).toBeGreaterThan(3);
+    expect(paragraphs.every((p) => p.split(/\s+/).length <= 60)).toBe(true);
+    expect(paragraphs.slice(1).join(" ").replace(/\s+/g, " ")).toBe(`${long} [S1]. ${long}`.replace(/\s+/g, " "));
+  });
+});

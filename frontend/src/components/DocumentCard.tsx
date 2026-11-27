@@ -307,7 +307,8 @@ export function DocumentCard({
                   <Action label="Cancel" onClick={() => setConfirmingDelete(false)} />
                 </>
               ) : (
-                <Action label="Delete" onClick={() => setConfirmingDelete(true)} danger />
+                // the first step is neutral; the confirm is red (H's note on #1993: 100 red buttons with every menu open)
+                <Action label="Delete" onClick={() => setConfirmingDelete(true)} />
               )}
             </MoreMenu>
           </div>

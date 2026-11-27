@@ -1076,15 +1076,19 @@ def generate_query_draft(
             "the evidence was insufficient for a grounded draft"
             + (f": {reason}" if reason else ""),
         )
-    citations = technical_query_auto.citations_of(result, usable_evidence)
+    result, citations, advice, fault = technical_query_auto.checked_reply(result, usable_evidence, question)
     if citations is None:
         raise _refuse(
             409,
             "the generated answer cited passages outside the query's verified evidence",
         )
-    if technical_query_auto.unsupported_quotes(result["answer"], technical_query_auto.seen_sources(result), question):
-        raise _refuse(409, technical_query_auto.FALSE_QUOTE)  # a false quote is never kept as a proposed reply
+    if fault:  # a false quote, the first person or a source it was not given: never kept as a proposed reply
+        raise _refuse(409, fault)
     unresolved = [result.get("reason")] if result.get("reason") else []
+    unresolved += technical_query_auto.reply_marks(result, advice)
+    from ..technical_query_source_fit import marks as fit_marks
+
+    unresolved += fit_marks(result["answer"], technical_query_auto.seen_sources(result))
     unresolved += technical_query_auto.marks(current, {c["evidence_id"] for c in citations})
     if unread_standards:
         unresolved.append(f"{unread_standards} held standard(s) you may not read were not sent.")
