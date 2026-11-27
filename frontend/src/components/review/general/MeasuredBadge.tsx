@@ -46,7 +46,7 @@ export function MeasuredBadge({ measured }: { measured: GeneralMeasured | null |
           Below target
         </strong>
       )}
-      <span className="mr-1 text-xs text-slateish-400">{measured.kind_label}:</span>
+      {measured.kind_label?.trim() ? <span className="mr-1 text-xs text-slateish-400">{measured.kind_label}:</span> : null}
       {/* PLAIN WORDS FIRST (H's audit, 27 Nov 2026: a version code, "a strict reader judged" and a round note read as machine talk
           on an engineer's screen): the score in a sentence of its own; the server's full sentence, with its date, version and
           round, one click away under "How this was measured". Nothing is dropped, and this note is never part of a comment. */}

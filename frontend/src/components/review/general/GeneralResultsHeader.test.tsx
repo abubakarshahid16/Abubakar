@@ -77,10 +77,17 @@ describe("GeneralResults header", () => {
     expect(screen.getByTestId("general-stopped")).not.toHaveTextContent("account_no_credit"); // the code is not the message
   });
 
-  it("any other stop keeps the code and shows no account alert", () => {
+  it("any other stop says where its reason is, never the raw code, and shows no account alert (R3)", () => {
     mount(review({ status: "stopped", stop_reason: "run_cap: the run cap" }));
     expect(screen.queryByTestId("general-account-stop")).toBeNull();
-    expect(screen.getByTestId("general-stopped")).toHaveTextContent("run_cap");
+    expect(screen.getByTestId("general-stopped")).toHaveTextContent("How this review was made");
+    expect(screen.getByTestId("general-stopped")).not.toHaveTextContent("run_cap");
+  });
+
+  it("a stop because the document is too long for the AI on this computer says what to do (R3)", () => {
+    mount(review({ status: "stopped", stop_reason: "aim_identify: local_too_long (the prompt does not fit the local model's window)" }));
+    expect(screen.getByTestId("general-stopped")).toHaveTextContent("Run the review with Claude, or split the file.");
+    expect(screen.getByTestId("general-stopped")).not.toHaveTextContent("local_too_long");
   });
 });
 

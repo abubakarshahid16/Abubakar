@@ -1002,7 +1002,7 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.getByTestId("v2-kind-line")).not.toHaveTextContent("heat exchanger");
   });
 
-  it("narrow windows: the file name wraps instead of being cut, and 'Review this paper again' sits in a box as wide as itself (C's walk)", async () => {
+  it("narrow windows: the file name wraps instead of being cut, and 'New review' sits in a box as wide as itself (C's walk)", async () => {
     api.general.mockResolvedValue(ok(general()));
     mount();
     await screen.findByTestId("general-results");
@@ -1016,7 +1016,7 @@ describe("12 the general review's results page (order 14)", () => {
       expect(title.className).toContain("truncate");
     }
   });
-  it("a finished general review hides the plan of a NEW review behind 'Review this paper again' and asks for no plan until it is opened", async () => {
+  it("a finished general review hides the plan of a NEW review behind 'New review' and asks for no plan until it is opened", async () => {
     api.general.mockResolvedValue(ok(general()));
     api.plan.mockClear();
     mount();
@@ -1071,8 +1071,8 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.getByTestId("general-how")).toHaveTextContent("Invented Public Standard");
     expect(screen.getByTestId("general-unlisted")).toHaveTextContent("2 more rule book(s) apply to this paper");
     const history = await screen.findByTestId("general-history");
-    expect(history).toHaveTextContent("Current method");
-    expect(history).toHaveTextContent("Earlier version");
+    expect(history).toHaveTextContent("Latest review"); // R6: the newest review by name, dates and states in words
+    expect(history).toHaveTextContent("Older kind of review");
   });
 
   it("a page link opens the page viewer at that page", async () => {
@@ -1107,7 +1107,7 @@ describe("12 the general review's results page (order 14)", () => {
   it("a stopped general review says so", async () => {
     api.general.mockResolvedValue(ok(general({ status: "stopped", stop_reason: "the spend limit was reached" })));
     mount();
-    expect(await screen.findByTestId("general-stopped")).toHaveTextContent("the spend limit was reached");
+    expect(await screen.findByTestId("general-stopped")).toHaveTextContent("The spend limit was reached."); // a reason already in words is said as it is
   });
 });
 

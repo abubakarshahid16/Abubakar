@@ -6,7 +6,7 @@
  * each step says whether it is on or off by default.
  */
 import type { AiStepNumbers, ReviewRunSummary } from "../../../types/api";
-import { AI_STEP_DEFAULTS, NOT_RECORDED, defaultLine, readerOf } from "./howData";
+import { AI_STEP_DEFAULTS, NOT_RECORDED, defaultLine, plainAi, readerOf } from "./howData";
 import { HowSection, type HowSectionMeta } from "./HowPrimitives";
 
 export const AI_META: HowSectionMeta = {
@@ -108,7 +108,7 @@ function StepRow({ step }: { step: StepView }) {
         <span className="font-medium text-slateish-100">{meta?.label ?? step.key}</span>
         <span className="ml-2 text-xs text-slateish-400">
           {step.state ? `${step.state}${step.where ? `, ${step.where}` : ""}` : NOT_RECORDED}
-          {" · which AI: "}{step.model ?? NOT_RECORDED}
+          {" · which AI: "}<span title={step.model ?? undefined}>{plainAi(step.model) ?? NOT_RECORDED}</span>
         </span>
       </p>
       <div className="relative overflow-x-auto">

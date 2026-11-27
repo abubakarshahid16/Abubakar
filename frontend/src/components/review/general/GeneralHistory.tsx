@@ -3,6 +3,16 @@ import { useEffect, useState } from "react";
 
 import { type PaperHistory, generalReview } from "../../../api/generalReview";
 
+/** A run's state and date in words (H's review of the owner's file, R6: "Current method" twice, with raw dates). */
+const STATUS_WORDS: Record<string, string> = {
+  completed: "complete", complete: "complete", done: "complete", stopped: "stopped early", running: "running", queued: "waiting to start",
+  failed: "failed", cancelled: "cancelled",
+};
+export function dateWords(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso.slice(0, 10) : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export function GeneralHistory({ documentId }: { documentId: string }) {
   const [history, setHistory] = useState<PaperHistory | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -20,10 +30,11 @@ export function GeneralHistory({ documentId }: { documentId: string }) {
     <section data-testid="general-history" aria-label="History" className="space-y-1">
       <h3 className="font-semibold text-slateish-100">History ({history.runs.length} reviews; {history.boundary})</h3>
       <ul className="space-y-1 text-xs text-slateish-300">
-        {history.runs.map((r) => (
+        {history.runs.map((r, i) => (
           <li key={r.run_id}>
-            <span className="font-semibold">{r.version === "general" ? "Current method" : "Earlier version"}</span>
-            {" "}({r.part}, {r.status}{r.finished_at ? `, ${r.finished_at.slice(0, 10)}` : ""}{r.points != null ? `, ${r.points} points` : ""})
+            <span className="font-semibold">{r.version !== "general" ? "Older kind of review" : i === 0 ? "Latest review" : "Review"}</span>
+            {r.finished_at ? ` of ${dateWords(r.finished_at)}` : ""}
+            {" "}({r.version !== "general" && r.part ? `${r.part}, ` : ""}{STATUS_WORDS[r.status] ?? r.status.replaceAll("_", " ")}{r.points != null ? `, ${r.points} points` : ""})
           </li>
         ))}
       </ul>

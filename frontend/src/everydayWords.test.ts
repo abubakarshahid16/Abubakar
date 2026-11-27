@@ -138,6 +138,8 @@ export const WORDS_DONE: RegExp[] = [
   // Review list (words job page 4)
   /^views\/SubmittalsLandingView\.tsx$/, /^components\/review\/workspace\/landing\/[A-Za-z]+\.tsx?$/,
   /^components\/review\/workspace\/(NewReviewDropZone|ViewModeSwitch)\.tsx$/, /^components\/review\/workspace\/(newReview|reviewWatch)\.ts$/,
+  // the opened review's own lines (words job; H's review of the owner's file R3, R4, R6, R7, R8)
+  /^components\/review\/general\/(GeneralResults|GeneralHistory|MeasuredBadge|HowReviewMade)\.tsx$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [
