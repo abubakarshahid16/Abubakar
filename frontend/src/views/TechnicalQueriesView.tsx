@@ -1,5 +1,5 @@
 import { InfoFold } from "../components/look/LookParts";
-import { LIST_FOUND, groupByItem, leadParagraphs, matchWords, replyBeingRewritten, mailboxChip, problemChips, quickMatch, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, groupByItem, leadParagraphs, matchWords, pageHeaderSplit, replyBeingRewritten, mailboxChip, problemChips, quickMatch, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
@@ -68,10 +68,14 @@ function Folded({ text }: { text?: string | null }) {
 export const BOX_FOUND = 6;
 
 /** A source passage, short: about three lines with the ask's words marked, and the whole passage one click away (never cut unmarked). */
-function Quote({ text, words }: { text: string; words: string[] }) {
+function Quote({ text: whole, words }: { text: string; words: string[] }) {
+  // the page's own header (document number, "Page N of M Rev X") is shown apart, small, so the quote starts with the clause (A's walk)
+  const split = pageHeaderSplit(whole);
+  const text = split ? split.body : whole;
   const { short, cut } = shortQuote(text);
   const pieces = (t: string) => markedPieces(t, words).map((p, i) => p.hit ? <strong key={i} data-testid="quote-mark" className="font-semibold text-slateish-100 underline decoration-signal-500 decoration-2 underline-offset-2">{p.text}</strong> : <span key={i}>{p.text}</span>);
   return <>
+    {split && <p data-testid="quote-page-header" className="text-xs text-slateish-400">From the page header: {split.header}</p>}
     <p data-testid="quote-short" className="text-slateish-300">{pieces(short)}{cut && <span aria-label="the quote goes on">{" \u2026"}</span>}</p>
     {cut && <details data-testid="quote-full" className="mt-1"><summary className="cursor-pointer text-xs font-semibold text-signal-300">Show the whole quote</summary><p className="mt-1 whitespace-pre-wrap text-slateish-300">{pieces(text)}</p></details>}
   </>;

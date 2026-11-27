@@ -1,6 +1,7 @@
 /** The query's ask as one readable list, and honest marks instead of gates (owner, 26 Nov 2026). Invented queries only. */
 import { describe, expect, it } from "vitest";
 
+import { pageHeaderSplit, problemChips } from "./technicalQueryQuestion";
 import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, boldSplit, plainMark, citedSplit, plainStatus, queryHeadline, querySteps, sharedSource, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 
 const found = (n: number) => Array.from({ length: n }, (_, i) => ({ question: `Invented request ${i + 1}`, filename: "Invented form.pdf", page: 1 }));
@@ -41,7 +42,7 @@ describe("honest marks", () => {
   it("sources searched for a whole mail (more key words than any question holds) are said to be for the mail, not weak", () => {
     const stale = { evidence: [{ evidence_state: "proposed", match_count: 15, match_terms: QUESTION_KEY_WORDS_MAX + 190 }] };
     expect(staleSources(stale)).toBe(true);
-    expect(honestMarks(stale, "").evidence).toEqual(["Find the sources again: these were found for the whole email, not for the question."]);
+    expect(honestMarks(stale, "").evidence).toEqual(["These sources were found for the whole email, not for this question. Press Find the sources again."]);
   });
   it("a form's own list marker is not shown as part of the request", () => {
     const f = [{ question: "- Invented line list", filename: "f.pdf", page: 2 }];
@@ -156,5 +157,24 @@ describe("a question cut for its length (builder H's table, 5)", () => {
     expect(lines.map((l) => l.text)).toEqual(["The contractor asks about the invented\u2026 The rest of the question is in the email files."]);
     expect(readableLines("It is the invented pump. [cut here: the rest of the section is in the attachment text]", [])[0].text)
       .toBe("It is the invented pump.\u2026 The rest of the question is in the email files.");
+  });
+});
+
+describe("A's own walk of the Queries page (27 Nov 2026)", () => {
+  it("never says 'No query number' under a number the subject shows", () => {
+    const shown = problemChips({ needs_person: 1, ref_type: null, contractor_name: "X", subject: "CFC-00012 - Invented pump clarification" });
+    expect(shown.map((c) => c.words)).toEqual(["Query number not confirmed"]);
+    expect(shown[0].why).toBe("The subject has a number, but not a full TQ or CFC number. Check which query this is.");
+    expect(problemChips({ needs_person: 1, ref_type: null, contractor_name: "X", subject: "Invented pump clarification" }).map((c) => c.words))
+      .toEqual(["No query number"]);
+  });
+
+  it("shows a source's page header apart, keeping every word in order", () => {
+    const text = "ABC-123 SCHEDULE X - INVENTED SPECIFICATION Page 7 of 84 Rev 06 CONTRACTOR shall keep the invented record.";
+    const split = pageHeaderSplit(text)!;
+    expect(split).toEqual({ header: "ABC-123 SCHEDULE X - INVENTED SPECIFICATION Page 7 of 84 Rev 06", body: "CONTRACTOR shall keep the invented record." });
+    expect(`${split.header} ${split.body}`).toBe(text);
+    expect(pageHeaderSplit("CONTRACTOR shall keep the invented record.")).toBeNull();
+    expect(pageHeaderSplit(`${"word ".repeat(30)}Page 2 of 9 the rest`)).toBeNull(); // a long lead is not a header
   });
 });

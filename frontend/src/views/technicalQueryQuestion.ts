@@ -184,7 +184,7 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
   if (!running && all.length === 0) evidence.push("No source found for this question yet. The reply has nothing to rest on.");
   const scored = all.filter((e) => (e.match_terms ?? 0) > 0);
   if (staleSources(q)) {
-    evidence.push("Find the sources again: these were found for the whole email, not for the question.");
+    evidence.push("These sources were found for the whole email, not for this question. Press Find the sources again.");
   } else if (scored.length) {
     const best = scored.reduce((a, b) => ((b.match_count ?? 0) / (b.match_terms ?? 1) > (a.match_count ?? 0) / (a.match_terms ?? 1) ? b : a));
     if ((best.match_count ?? 0) / (best.match_terms ?? 1) < 0.5) {
@@ -431,10 +431,24 @@ export function statusChip(status: string): { words: string; tone: ChipTone } {
   return { words: "In progress", tone: "neutral" };
 }
 
+/** A TQ or CFC number in a subject, in any form ("CFC-00007", "TQ 12"). */
+const SHORT_NUMBER = /\b(?:TQ|CFC)\s*[-\u2013]?\s*\d+/i;
+
+/** A source passage that starts with its page's header (a document number, "Page 7 of 84 Rev 06"): the header and the rest, so the page can
+ *  show the header apart from the quote. Every word is kept, in order; null when the passage has no such header. */
+export function pageHeaderSplit(text: string): { header: string; body: string } | null {
+  const m = /^(.{0,120}?\bPage\s+\d+\s+of\s+\d+(?:\s+Rev(?:ision)?\.?\s*[A-Za-z0-9]{1,4})?)\s+(\S[\s\S]*)$/.exec(text ?? "");
+  if (!m || m[1].split(/\s+/).length > 16) return null;
+  return { header: m[1].trim(), body: m[2] };
+}
+
 /** The short amber chips of a row; the full sentence goes on hover (and inside the query). */
-export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null; contractor_code?: string | null }): Array<{ words: string; why: string }> {
+export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null; contractor_code?: string | null; subject?: string | null }): Array<{ words: string; why: string }> {
   const out: Array<{ words: string; why: string }> = [];
-  if (q.needs_person || !q.ref_type) out.push({ words: "No query number", why: "Check which query this is. The subject has no full TQ or CFC number." });
+  // a number IS in the subject but not in the full form: say that, never "no number" under a number the page shows (A's walk, 27 Nov 2026)
+  if (q.needs_person || !q.ref_type) out.push(SHORT_NUMBER.test(q.subject ?? "")
+    ? { words: "Query number not confirmed", why: "The subject has a number, but not a full TQ or CFC number. Check which query this is." }
+    : { words: "No query number", why: "Check which query this is. The subject has no full TQ or CFC number." });
   // the code printed in the reference number, when there is one, is named (never a guessed contractor; lead-4, 26 Nov 2026)
   if (!q.contractor_name) out.push({ words: "No contractor", why: q.contractor_code
     ? `Under More, “Rules for who it goes to”, say which contractor the code ${q.contractor_code} is. Every query with this code then gets it.`
