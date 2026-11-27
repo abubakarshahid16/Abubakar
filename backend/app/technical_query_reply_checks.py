@@ -51,15 +51,16 @@ _POSITION = re.compile(
     r"does\s+not\s+(?:accept|agree|approve|object)|cannot\s+accept|is\s+not\s+in\s+agreement)\b"
 )
 _SENTENCE = re.compile(r"(?<=[.!?])\s+")
+_LINE_MARKER = re.compile(r"^\s*(?:[-*\u2022]\s+)?(?:\*\*)?\s*(?:\d{1,2}[.)]\s+)?")
 
 #: A request's answer that is only "Yes." / "No." / "Partly." (the prompt forbids a bare one: it hides what was found, N3).
 _BARE = re.compile(r"^\s*(?:[-*\u2022]\s*)?(?:\*\*)?\s*(?:\d{1,2}[.)]\s*)?(?:\*\*)?\s*(?:yes|no|partly)\s*[.!]?\s*(?:\*\*)?\s*$", re.IGNORECASE)
 #: A sentence that states a cost or schedule POSITION (not only a money or time word): only with a source may it stand in the reply.
 _COST_POSITION = re.compile(
-    r"\b(?:COMPANY|impact|change\s+orders?|variation\s+orders?|variations?|entitle\w*|compensat\w*|no\s+(?:basis|grounds)|"
-    r"extensions?\s+of\s+time|reimburs\w*|claims?)\b",
+    r"\b(?:impacts?|change\s+orders?|variation\s+orders?|entitle\w*|compensat\w*|no\s+(?:basis|grounds)|extensions?\s+of\s+time|"
+    r"reimburs\w*|claims?|(?:additional|extra)\s+(?:cost|costs|time|payment)|cost\s+implications?|delay\s+damages)\b",
     re.IGNORECASE,
-)
+)  # a real position word: "COMPANY confirms the coating schedule" names no cost or time position (builder H's replay of #1992)
 #: A last line that stops mid-sentence: it ends on a lower-case word or a comma, colon, semicolon or dash (N1).
 _MID_SENTENCE = re.compile(r"[a-z,;:\u2013-]\s*$")
 
@@ -181,9 +182,18 @@ def cut_off(result: dict[str, Any]) -> bool:
     return bool(_MID_SENTENCE.search(last.replace("*", "").rstrip()))
 
 
+#: A line that opens "Yes." / "No." and then only says nothing was found: the "No." means "not found" (builder H, N3).
+_BARE_THEN_NOT_FOUND = re.compile(
+    r"^\s*(?:[-*\u2022]\s*)?(?:\*\*)?\s*(?:\d{1,2}[.)]\s*)?(?:\*\*)?\s*(?:yes|no)\s*[.!]\s*(?:\*\*)?\s*.{0,40}?"
+    r"\b(?:do(?:es)?\s+not\s+(?:contain|state|mention|include|specify)|not\s+found|no\s+information|not\s+(?:stated|mentioned))\b",
+    re.IGNORECASE,
+)
+
+
 def bare_answer(answer: str) -> bool:
-    """A line of the reply that is only "Yes.", "No." or "Partly." (numbered or not)."""
-    return any(_BARE.match(line) for line in (answer or "").splitlines())
+    """A line of the reply that is only "Yes.", "No." or "Partly." (numbered or not), or opens "No." and then says nothing was found."""
+    return any(_BARE.match(line) or (_BARE_THEN_NOT_FOUND.match(line) and not _LABEL.search(line))  # a sourced "No. ..." is an answer
+               for line in (answer or "").splitlines())
 
 
 def split_unsourced_cost(answer: str) -> tuple[str, str | None]:
@@ -195,7 +205,9 @@ def split_unsourced_cost(answer: str) -> tuple[str, str | None]:
     kept_lines: list[str] = []
     moved: list[str] = []
     for line in (answer or "").split("\n"):
-        pieces = _SENTENCE.split(line)
+        marker = _LINE_MARKER.match(line)  # "1. " / "- " / "**2. ": kept with the line, never split off as a sentence of its own
+        prefix = marker.group(0) if marker else ""
+        pieces = _SENTENCE.split(line[len(prefix):])
         keep = []
         for piece in pieces:
             bare = _QUOTED.sub(" ", piece)
@@ -204,7 +216,7 @@ def split_unsourced_cost(answer: str) -> tuple[str, str | None]:
             else:
                 keep.append(piece)
         if keep or not line.strip():
-            kept_lines.append(" ".join(keep))
+            kept_lines.append(prefix + " ".join(keep) if keep else "")
         # a line that held only such sentences goes with them
     if not moved:
         return answer, None

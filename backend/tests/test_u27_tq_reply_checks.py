@@ -225,3 +225,28 @@ def test_a_cost_sentence_with_no_source_is_kept_beside_a_system_draft_for_the_en
     draft = tq.get(item["id"], "u1", False, False)["drafts"][-1]
     assert draft["answer"] == "1. Class 300 applies [S1]."
     assert any(m.startswith(RC.COST_MARK) for m in json.loads(draft["unresolved_json"]))
+
+
+# ------------------------------------------------------------------ builder H's replay of #1992 over the 34 stored live replies
+
+
+def test_a_coating_schedule_is_not_a_cost_or_schedule_position():
+    """Row 16 of H's table: a reply that confirms which coating SCHEDULE applies states no cost or time position."""
+    plain = "1. COMPANY confirms that the invented coating schedule applies [S1]."
+    assert not RC.states_cost(plain) and RC.split_unsourced_cost("1. COMPANY confirms the invented coating schedule.")[1] is None
+    assert RC.states_cost("1. There is no impact on the schedule [S2].")
+    assert RC.split_unsourced_cost("1. The contractor may claim additional time.") == ("", "The contractor may claim additional time.")
+    assert RC.split_unsourced_cost("1. Class 300 applies [S1]. The contractor may claim additional time.")[0] == "1. Class 300 applies [S1]."
+
+
+def test_a_no_that_means_not_found_is_a_bare_answer_too():
+    assert RC.bare_answer("No. The provided documents do not contain the invented rating.")
+    assert RC.bare_answer("1. **No.** The documents searched do not state it.")
+    assert not RC.bare_answer("No. The invented datasheet gives class 300 [S1].")  # a real answer after "No."
+    assert not RC.bare_answer("No. The invented datasheet does not state a rating [S1].")  # sourced: an answer, not "not found"
+
+
+def test_a_question_found_on_the_form_is_cut_after_a_whole_word():
+    from app import technical_query_questions as Q
+
+    assert "cut here" not in Q.CUT and Q.CUT.endswith("The rest of the question is in the email files.")

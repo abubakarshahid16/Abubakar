@@ -71,7 +71,12 @@ export function RevisionLines({ documents, isAdmin }: { documents: string[]; isA
   return (
     <div data-testid="revision-lines" className="mt-2 text-sm text-slateish-300">
       {/* one sentence for every such document, said once (builder H's table of the 34 queries, 27 Nov 2026, 7d) */}
-      <p data-testid="revision-line" className="mt-1">We have not yet checked that {documents.length === 1 ? `${documents[0]} is the current revision` : `${documents.slice(0, -1).join(", ")} and ${documents[documents.length - 1]} are the current revisions`}.</p>
+      {documents.length === 1
+        ? <p data-testid="revision-line" className="mt-1">We have not yet checked that {documents[0]} is the current revision.</p>
+        : <>
+            <p data-testid="revision-line" className="mt-1">We have not yet checked that these {documents.length} are the current revisions:</p>
+            <ul className="mt-1 list-disc pl-5">{documents.map((name) => <li key={name}>{name}</li>)}</ul>
+          </>}
       <Fold title="How to confirm" testId="revision-how">
         {isAdmin
           ? "Press “Confirm source document” on its source below, once you have checked it is the current revision. Or open it under Documents, then Details, and save its details."

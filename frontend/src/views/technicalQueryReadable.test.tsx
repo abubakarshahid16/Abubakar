@@ -48,8 +48,9 @@ describe("the marks in their place", () => {
   it("says the unconfirmed documents in ONE plain sentence, once, with How to confirm folded (H's table, 7d)", () => {
     render(<><RevisionLines documents={["Invented Spec A", "Invented Std B"]} isAdmin /><MadeFold lines={["Written by an engineer."]} /></>);
     expect(screen.getAllByTestId("revision-line").map((l) => l.textContent)).toEqual([
-      "We have not yet checked that Invented Spec A and Invented Std B are the current revisions.",
-    ]);
+      "We have not yet checked that these 2 are the current revisions:",
+    ]); // a short lead and the names as a list: never one long sentence of names (H's replay of #1992)
+    expect(screen.getByTestId("revision-lines").querySelectorAll("li")).toHaveLength(2);
     for (const id of ["revision-how", "how-made"]) {
       const fold = screen.getByTestId(id);
       expect(fold.tagName).toBe("DETAILS");

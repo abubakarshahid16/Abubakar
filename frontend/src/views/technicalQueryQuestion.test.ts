@@ -147,7 +147,10 @@ describe("the server's marks in everyday words", () => {
 
 describe("a question cut for its length (builder H's table, 5)", () => {
   it("shows the old cut mark as the plain sentence the server now writes", () => {
-    const lines = readableLines("The contractor asks about the invented pump [cut here: the wording was longer than the limit; the rest is on the attachment pages]", []);
-    expect(lines.map((l) => l.text)).toEqual(["The contractor asks about the invented pump\u2026 The rest of the question is in the email files."]);
+    // the word before an old mark was cut mid-word ("pu"): it goes with the mark; a word that ended a sentence stays
+    const lines = readableLines("The contractor asks about the invented pu [cut here: the rest of the section is in the attachment text]", []);
+    expect(lines.map((l) => l.text)).toEqual(["The contractor asks about the invented\u2026 The rest of the question is in the email files."]);
+    expect(readableLines("It is the invented pump. [cut here: the rest of the section is in the attachment text]", [])[0].text)
+      .toBe("It is the invented pump.\u2026 The rest of the question is in the email files.");
   });
 });

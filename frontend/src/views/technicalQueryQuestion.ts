@@ -62,7 +62,7 @@ export interface ReadableLine {
 }
 
 /** A question kept before 27 Nov 2026 carries the old "[cut here: ...]" mark: shown as the plain sentence the server now writes. */
-const OLD_CUT = /\s*\[cut here: [^\]]*\]/g;
+const OLD_CUT = /(?:\s+[^\s.?!,;:)\]]+)?\s*\[cut here: [^\]]*\]/g; // the word before an old mark may be cut mid-word: it goes too
 const CUT_WORDS = "\u2026 The rest of the question is in the email files.";
 
 /** The question text as the page shows it: the lead-in, then each numbered request with where it was found. */
