@@ -77,7 +77,7 @@ export function DeliverablesView() {
           if (result.ok) onOk(result.data);
           else { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: result.error.message })); }
         })
-        .catch(() => { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: "The app's server did not answer. Nothing changed. Reload the page to try again." })); })
+        .catch(() => { onFail?.(); setPanelErrors((current) => ({ ...current, [panel]: "The app could not load this. Nothing changed. Reload the page to try again." })); })
         .finally(() => setPending((current) => ({ ...current, [panel]: false })));
     };
     settle("register", deliverablesApi.list(), (data) => { setItems(data.deliverables); setRegisterLoaded(true); }, () => { setItems([]); setRegisterLoaded(false); });
