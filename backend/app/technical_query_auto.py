@@ -511,6 +511,24 @@ def _match_terms(question: str) -> list[str]:
     return key_terms(question or "")
 
 
+def stored_reply_marks(draft: dict[str, Any] | None) -> list[str]:
+    """The marks an AI draft was written WITH, kept in its unresolved list: the advice and the cost words taken out of it, a COMPANY
+    position with no source (`reply_marks`), and a source that may not say its sentence (technical_query_source_fit). They are about
+    THAT reply's text, so they are read back as stored; the rest of that list (the question's own marks) is worked out fresh by `ready`.
+    An engineer's own reply carries none (builder H, 27 Nov 2026 on live: 11 of 33 replies held a fit mark that no screen showed)."""
+    from .technical_query_source_fit import MARK, NOT_CHECKED
+
+    if not draft or not draft.get("model"):
+        return []
+    try:
+        stored = json.loads(draft.get("unresolved_json") or "[]")
+    except ValueError:
+        return []
+    fit_start = MARK.split("{tags}")[0]
+    starts = (RC.ADVICE_MARK, RC.COST_MARK, RC.UNSOURCED_MARK, fit_start, NOT_CHECKED)
+    return [m for m in stored if isinstance(m, str) and m.startswith(starts)]
+
+
 def ready(item: dict[str, Any]) -> dict[str, Any]:
     """For the screen: what is there, and whether it was made for the current wording."""
     question, source = working(item)
@@ -559,6 +577,9 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
     )  # another held query the request names: "see it before replying"
     if named:
         found_marks.append(named)
+    for stored in stored_reply_marks(latest):  # the marks written beside the reply when it was drafted (builder H, 27 Nov 2026: never shown)
+        if stored not in found_marks:
+            found_marks.append(stored)
     from .technical_query_position import offer
 
     return {
