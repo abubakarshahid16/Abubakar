@@ -3,7 +3,8 @@
  *  company standard without opening each one - and the Dashboard's review
  *  launcher only offers documents with `document_role: CONTRACTOR_SUBMITTAL`.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { NEW_LOOK } from "../look";
 import { describe, expect, it, vi } from "vitest";
 
 import { DocumentCard } from "./DocumentCard";
@@ -94,3 +95,14 @@ describe("the document's role", () => {
     expect(screen.queryByTestId("role-chip")).toBeNull();
   });
 });
+
+describe("delete asks first, and only its confirm is red (H's note on #1993)", () => {
+  it.runIf(NEW_LOOK)("the menu's Delete is neutral; the confirm step is the red button", () => {
+    render(<DocumentCard doc={makeDoc()} classification={makeClassification({ document_role: "CONTRACTOR_SUBMITTAL" })} actions={NO_ACTIONS} />);
+    const del = screen.getByRole("button", { name: "Delete" });
+    expect(del.className).not.toContain("kit-btn--danger");
+    fireEvent.click(del);
+    expect(screen.getByRole("button", { name: "Confirm delete" }).className).toContain("kit-btn--danger");
+  });
+});
+

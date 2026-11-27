@@ -115,7 +115,7 @@ def test_one_job_proposes_finds_and_drafts_with_no_click_and_the_local_model_onl
         "cited": [],  # what the contractor's form cites, held or not (none here)
         "items": [],  # the request's numbered items (a single question here)
         # COMPANY's usual cost / schedule sentence, OFFERED beside the draft, never put in (technical_query_position); no money word here
-        "position": {"line": "On the information given, COMPANY finds no basis for a change to cost or schedule from this item.", "hint": None},
+        "position": {"line": "On the information given, COMPANY finds no basis for a change to cost or schedule from this item.", "hint": None, "reply_speaks": False},
         "cross_refs": [],  # other queries the request names (none here)
     }  # fmt: skip
     assert (

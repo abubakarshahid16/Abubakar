@@ -100,9 +100,9 @@ def test_a_system_draft_is_the_models_own_text_for_any_request(query, monkeypatc
 
 def test_the_hint_shows_for_money_or_time_words_and_not_for_plain_technical_requests():
     for ask in RAISES:
-        assert P.offer(ask) == {"line": P.POSITION_LINE, "hint": P.HINT}, ask
+        assert P.offer(ask) == {"line": P.POSITION_LINE, "hint": P.HINT, "reply_speaks": False}, ask
     for ask in TECHNICAL:
-        assert P.offer(ask) == {"line": P.POSITION_LINE, "hint": None}, ask
+        assert P.offer(ask) == {"line": P.POSITION_LINE, "hint": None, "reply_speaks": False}, ask
     # the hint is only a hint: a request it misses is still offered the sentence, and nothing is ever added without the engineer
     for ask in H_FRESH:
         assert P.offer(ask)["line"] == P.POSITION_LINE

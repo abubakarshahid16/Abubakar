@@ -174,7 +174,7 @@ _REQUEST = re.compile(
     re.IGNORECASE,
 )
 MAX_FIELD = 1200
-CUT = " [cut here: the rest of the section is in the attachment text]"
+CUT = "… The rest of the question is in the email files."
 
 
 def form_question(context: list[dict[str, Any]]) -> str:
@@ -228,7 +228,7 @@ def form_question(context: list[dict[str, Any]]) -> str:
                 # a section under a heading naming the clarification is a request by its heading (a CFC states the comment)
                 and (_REQUEST.search(text) or heading)
             ):
-                return (
-                    text if len(text) <= MAX_FIELD else text[:MAX_FIELD].rstrip() + CUT
-                )
+                from .technical_query_items import cut_whole_words
+
+                return cut_whole_words(text, MAX_FIELD, CUT)
     return ""
