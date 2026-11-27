@@ -210,7 +210,7 @@ async function openChat() {
 }
 
 async function ask(text: string) {
-  await userEvent.type(screen.getByLabelText("Your question"), text);
+  await userEvent.type(await screen.findByLabelText("Your question"), text); // Chat loads on first open: wait for its box
   await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 }
 
