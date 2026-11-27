@@ -218,7 +218,7 @@ describe("what the reader needs while waiting", () => {
       await screen.findByText(/Searchable by keyword — questions can be asked now/),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Fully indexed — wording no longer has to match the document/),
+      screen.getByText(/Fully ready — a question need not use the document's own words/),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/You can ask questions about this document now/),
@@ -285,6 +285,6 @@ describe("an idle screen teaches", () => {
     await openIngestion();
 
     expect(await screen.findByText(/Nothing is being processed/)).toBeInTheDocument();
-    expect(screen.getByText(/this is where you will watch it arrive/i)).toBeInTheDocument();
+    expect(screen.getByText(/You can then watch it arrive here, page by page/i)).toBeInTheDocument();
   });
 });
