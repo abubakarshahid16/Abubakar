@@ -75,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"rows in the team file   {team['rows_in_file']}")
     print(f"rows in the contractor  {contractor['rows_in_file']}  (accounted with the points not issued: {contractor['accounted']})")
     print(f"cut cells with mark and full text {team['cut_cells_marked']}; cut cells without mark or full text {team['cut_problems']}")
+    if team.get("stored_text_unchecked"):
+        print(f"NOT CHECKED: {team['stored_text_unchecked']}")
     bad = False
     for name, r in (("team", team), ("contractor", contractor)):
         if not r["ok"]:

@@ -269,7 +269,9 @@ def numeric_line(
     if (why := column_not_the_rules(base, cell)) is not None:
         return _undecided(base, why, "column_not_the_rules")
     base["limit"], base["observed"] = got.get("limit"), got.get("observed")
-    reason = str(got.get("rationale") or "")[:200]
+    reason = " ".join(
+        str(got.get("rationale") or "").split()
+    )  # WHOLE (order 14 W-C6: it was cut at 200 characters, no mark)
     status = got.get("status")
     if status not in (COMPLIANT, NON_COMPLIANT) or not (
         got.get("limit") and got.get("observed")
@@ -420,7 +422,9 @@ def checklist_lines(
             (cells or {}).get(str(fact_id)) if fact_id else None
         )  # its quote: the row's two cells
         line = _checklist_base(r, cell, page_texts, document_id)
-        detail = str(r.get("detail") or "")[:200]
+        detail = " ".join(
+            str(r.get("detail") or "").split()
+        )  # WHOLE (order 14 W-C6: cut at 200 characters, no mark)
         decided = (
             status in (COMPLIANT, NON_COMPLIANT)
             and not r.get(hold_reason.KEY)
@@ -489,7 +493,9 @@ def _ai_draft_line(r: Mapping, page_texts, cells, document_id) -> dict:
     fact_id = r.get("fact_id")
     cell = (cells or {}).get(str(fact_id)) if fact_id else None
     line = _checklist_base(r, cell, page_texts, document_id)
-    detail = str(r.get("detail") or "")[:200]
+    detail = " ".join(
+        str(r.get("detail") or "").split()
+    )  # WHOLE (order 14 W-C6: cut at 200 characters, no mark)
     said = r.get("rule_said") or r.get("status")
     out = _undecided(
         line,

@@ -16,7 +16,6 @@ import logging
 from typing import Any
 
 from . import agent_claude, agent_run_second
-from . import agent_review_crs as crs_lines
 from . import agent_review_two_reader as two
 from .agent_review_request import (
     FATAL,
@@ -160,7 +159,7 @@ class OtherPaperMixin:
         ev = self._evidence(item, answer, pages, None)
         rec = two.second_answer(
             answer, ai=ev["ai"], reason_code=ev["reason_code"], checks=ev["checks"], absent=ev["absent"],
-            model=model, usd=share, two_sentences=crs_lines.two_sentences,
+            model=model, usd=share,
             base=base_of(self.lines[iid]),
         )  # fmt: skip
         line = self.lines[iid]

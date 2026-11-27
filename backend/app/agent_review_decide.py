@@ -34,7 +34,6 @@ from .agent_review_request import (
     held_texts,
     reason_of,
 )
-from .agent_trace import words
 from .reader_api import _fold
 
 #: Order 14: the token limit of the ONE retry of a second opinion whose reply was cut off (twice the normal limit).
@@ -391,8 +390,9 @@ class DecideMixin:
             "clause_figure": answer.get("clause_figure") or None,
             "clause_quote_from": ev["held_kind"],
             **_book_fields(item, ev),
-            "reasoning": crs_lines.two_sentences(answer.get("reasoning")),
-            "comment": words(g["comment"], crs_lines.MAX_COMMENT_WORDS),
+            # the AI's words WHOLE (order 14 W-C6: cut at two "sentences", 40 words and 160 characters before, with no mark)
+            "reasoning": crs_lines.whole_reasoning(answer.get("reasoning")),
+            "comment": crs_lines.whole_reasoning(g["comment"]),
             "paper_quote": answer.get("paper_quote") or None,
             "paper_page": verdict._page_no(answer.get("paper_page")),
             "clause_quote": answer.get("clause_quote") or None,
