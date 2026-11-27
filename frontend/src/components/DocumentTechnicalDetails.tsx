@@ -90,11 +90,11 @@ export function DocumentTechnicalDetails({ doc }: { doc: DocumentRecord }) {
           <Field label="Pages" value={doc.page_count} />
           {/* Always together - one without the other changes its meaning. */}
           <Field
-            label="Chunks (retrievable / total)"
+            label="Pieces of text (searchable / all)"
             value={`${doc.chunk_count} / ${doc.chunk_count_total}`}
           />
-          <Field label="Embedded chunks" value={doc.embedded_count} />
-          <Field label="Pages needing OCR" value={doc.needs_ocr_pages} />
+          <Field label="Pieces ready for search" value={doc.embedded_count} />
+          <Field label="Pages that need picture reading" value={doc.needs_ocr_pages} />
           {/* A COUNT, never a badge: 12 of 546 is not "OCR'd". */}
           {doc.recognised_pages > 0 && doc.page_count ? (
             <Field

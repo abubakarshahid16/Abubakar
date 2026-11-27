@@ -440,11 +440,11 @@ describe("B3 chunk inspector", () => {
     mockApi([makeDoc()]);
     renderDocuments();
 
-    fireEvent.click(await screen.findByRole("button", { name: /page parts/i }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "What was read" : /page parts/i })); // the card's More menu in the new look (owner, 27 Nov 2026)
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();
-    expect(within(dialog).getByText(/297 tokens/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/tokens/)).toBeNull(); // a word count of the AI's, not a reader's (H, 27 Nov 2026)
     expect(within(dialog).getByText(/page 24/)).toBeInTheDocument();
     expect(within(dialog).getByText(/experimental cars drive themselves/)).toBeInTheDocument();
     expect(within(dialog).getByText(chunk.id)).toBeInTheDocument();
@@ -454,7 +454,7 @@ describe("B3 chunk inspector", () => {
       expect(within(dialog).getByText(/no_clause\(longest=1<6\)/)).toBeInTheDocument(),
     );
     expect(
-      within(dialog).getByText(/left blank rather than guessed/i),
+      within(dialog).getByText(/^not found$/i),
     ).toBeInTheDocument();
   });
 });
@@ -464,12 +464,14 @@ describe("B4 excluded viewer", () => {
     mockApi([makeDoc()]);
     renderDocuments();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Excluded" }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Left out" : "Excluded" }));
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getAllByText("content_quality_gate").length).toBeGreaterThan(0);
-    expect(within(dialog).getByText("400 chunks")).toBeInTheDocument();
-    expect(within(dialog).getByText("page_classified_toc")).toBeInTheDocument();
+    // grouped by rule, each group led by its plain sentence; the rule's stored name is only in the folded technical detail
+    expect(within(dialog).getByText("The text did not read like sentences or a table.")).toBeInTheDocument();
+    expect(within(dialog).getByText("400 pieces of text")).toBeInTheDocument();
+    expect(within(dialog).getByText(/A contents page/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/content_quality_gate/).every((el) => el.closest("details"))).toBe(true);
     expect(within(dialog).getByText(/eabeb2terfcb/)).toBeInTheDocument();
   });
 
@@ -487,7 +489,7 @@ describe("B5 page image viewer", () => {
     const fetchSpy = mockApi([makeDoc()]);
     renderDocuments();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Pages as read" : "Pages" }));
     const dialog = await screen.findByRole("dialog");
 
     const img = within(dialog).getByRole("img", { name: /Page 1 of/i });
@@ -511,7 +513,7 @@ describe("B5 page image viewer", () => {
   it("closes on Escape", async () => {
     mockApi([makeDoc()]);
     renderDocuments();
-    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Pages as read" : "Pages" }));
     await screen.findByRole("dialog");
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -752,7 +754,7 @@ describe("documents grouped by classification type", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /^All/ }));
     expect(screen.getByText("Not in the register", { selector: "[data-testid=type-chip]" })).toHaveAttribute(
       "title",
-      expect.stringMatching(/not one of them/i),
+      expect.stringMatching(/not waiting for one/i),
     );
   });
 

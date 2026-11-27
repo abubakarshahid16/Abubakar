@@ -10,11 +10,12 @@ const expectedItem = (i: number) => ({
   id: `e${i}`, wbs_code: `9.${i}`, title: `Inferred invented requirement ${i}`, deliverable_type: "Engineering submittal",
   origin: "inferred", source_name: "Invented standard", source_page: 3, state: "missing",
 });
+const rows = vi.hoisted(() => ({ list: null as unknown[] | null }));
 vi.mock("../api/client", () => ({
   deliverables: {
     list: () => ok({ deliverables: [] }),
     alerts: () => ok({ alerts: [] }),
-    expected: () => ok({ deliverables: Array.from({ length: 20 }, (_, i) => expectedItem(i)) }),
+    expected: () => ok({ deliverables: rows.list ?? Array.from({ length: 20 }, (_, i) => expectedItem(i)) }),
   },
   management: { escalationRules: () => ok({ rules: [] }) },
   risks: { list: () => ok({ risks: [], total: 0, limit: 50, offset: 0 }) },
@@ -35,7 +36,25 @@ describe("the Deliverables page in one kit", () => {
     expect(fold.tagName).toBe("DETAILS");
     expect(within(fold).getByText(/requirement 19/)).toBeInTheDocument(); // folded, never dropped
     expect(screen.queryByText("AI suggested · review before accepting")).toBeNull();
-    expect(screen.getAllByText("not in the list yet")).toHaveLength(20); // one chip per row
-    expect(screen.getAllByText(/suggested by the AI, check it before accepting/)).toHaveLength(20);
+    // every row has the same state and origin: said ONCE above the list, not on each row (H's gate of #1971)
+    expect(screen.getByTestId("expected-said-once").textContent).toBe(
+      "All 20 are not in the deliverables list yet. All were suggested by the AI: check each before accepting it.",
+    );
+    expect(screen.queryByText("not in the list yet")).toBeNull();
+    expect(screen.queryByText(/suggested by the AI, check it before accepting/)).toBeNull();
+  });
+
+  it("keeps a state or an origin on its row when the rows differ", async () => {
+    rows.list = [expectedItem(1), { ...expectedItem(2), state: "matched", origin: "manual" }];
+    try {
+      render(<DeliverablesView />);
+      expect(await screen.findByText("not in the list yet")).toBeTruthy();
+      expect(screen.getByText("matched")).toBeTruthy();
+      expect(screen.getByText(/suggested by the AI, check it before accepting/)).toBeTruthy();
+      expect(screen.getByText(/added by hand/)).toBeTruthy();
+      expect(screen.queryByTestId("expected-said-once")).toBeNull();
+    } finally {
+      rows.list = null;
+    }
   });
 });

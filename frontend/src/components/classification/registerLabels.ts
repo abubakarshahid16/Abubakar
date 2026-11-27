@@ -6,4 +6,4 @@
 export const NOT_IN_REGISTER_LABEL = "Not in the register";
 
 export const NOT_IN_REGISTER_HINT =
-  "The register lists only some deliverables. This document is not one of them, so it has no register type.";
+  "Documents with this role are not in the register, so it has no register type and is not waiting for one.";

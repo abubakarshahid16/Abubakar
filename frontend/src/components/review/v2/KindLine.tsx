@@ -29,6 +29,12 @@ export function KindLine({ documentId, pages, isAdmin, aiEquipment }: {
   const named = aiEquipment ? String(aiEquipment).replace(/_/g, " ") : null;
   const equipment = named ?? (c?.equipment_type ? String(c.equipment_type).replace(/_/g, " ") : null);
   const how = c?.document_kind_state ? HOW[c.document_kind_state] : null;
+  // The facts after the chip, joined with a dot only BETWEEN them: a line never starts with " · " (H's R9, 27 Nov 2026)
+  const facts = [
+    equipment ? `${equipment}${named ? " (named by the AI for this review)" : !c?.confirmed ? " (suggested)" : ""}` : null,
+    pages != null ? `${pages} page${pages === 1 ? "" : "s"}` : null,
+    how ? `type decided by ${how}` : null,
+  ].filter((f): f is string => f !== null);
   return (
     <p data-testid="v2-kind-line" className="flex flex-wrap items-center gap-2 text-sm text-slateish-300">
       {c && <DocumentKindChip classification={c} kinds={k?.kinds} isAdmin={isAdmin === true}
@@ -38,9 +44,7 @@ export function KindLine({ documentId, pages, isAdmin, aiEquipment }: {
           if (r.ok) { setCls(r); return null; }
           return "The type could not be saved. Try again."; // shown beside the picker, never silent (G2)
         }} />}
-      {equipment && <span>· {equipment}{named ? " (named by the AI for this review)" : !c?.confirmed && " (suggested)"}</span>}
-      {pages != null && <span>· {pages} page{pages === 1 ? "" : "s"}</span>}
-      {how && <span>· type decided by {how}</span>}
+      {facts.length > 0 && <span data-testid="v2-kind-facts">{facts.join(" · ")}</span>}
     </p>
   );
 }

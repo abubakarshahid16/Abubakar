@@ -40,10 +40,10 @@ PREPARABLE = ("received", "triage", "drafting", "changes_requested")
 
 NO_QUESTION = "no question was found to answer: write it in the question box and the draft follows"
 NO_PASSAGE = "no source was found in the documents you can open"
-TOO_WEAK = "no source answers the question closely enough. Keep a source by hand, then press Write the reply again"
-MODEL_DOWN = "the AI on this computer is not available. The reply is written when it is available again"
+TOO_WEAK = "no source answers the question closely enough. Keep a source by hand, then press Write the reply again (under Redo)"
+MODEL_DOWN = "the AI on this computer did not answer. Once it is back, press Write the reply again (under Redo)"
 OUTSIDE = "the reply used sources outside this query, so it was not kept"
-TYPED_KEPT = "an engineer's own reply is kept. Press Write the reply again for a new one"
+TYPED_KEPT = "an engineer's own reply is kept. Press Write the reply again (under Redo) for a new one"
 FOUND_NOT_KEPT = "The AI wrote this reply from the sources it found. Nobody has kept them yet."
 
 
@@ -572,7 +572,7 @@ def unanswered_mark(answer: str, question: str) -> str | None:
     if not missing:
         return None
     if len(missing) == len(items):
-        return "The reply does not say which question it answers. Check each one by hand."
+        return "The reply does not say which of the numbered questions it answers. Check each one by hand."
     plural = len(missing) > 1
     return f"The reply does not answer question{'s' if plural else ''} {', '.join(map(str, missing))}. Check {'them' if plural else 'it'} by hand."
 

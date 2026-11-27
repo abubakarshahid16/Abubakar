@@ -19,4 +19,11 @@ describe("ShowMore", () => {
     rerender(<ShowMore shown={45} total={45} step={20} onMore={() => {}} testId="more" />);
     expect(screen.queryByTestId("more")).toBeNull();
   });
+
+  it("is a link, never a boxed button (a link stays a link)", () => {
+    render(<ShowMore shown={25} total={272} step={25} onMore={() => {}} testId="more" />);
+    const more = screen.getByRole("button", { name: "Show 25 more" });
+    expect(more.className).toContain("kit-link");
+    expect(more.className).not.toContain("kit-btn");
+  });
 });
