@@ -37,6 +37,51 @@ def test_nothing_is_added_when_the_request_raises_cost_or_schedule_and_the_page_
         assert P.position_mark("Class 300 applies [S1].", ask, True) == P.RAISED_MARK
 
 
+def test_the_wider_money_and_time_requests_found_by_the_gate_are_raised_too():
+    # builder H's gate of #1963: these three got the no-impact sentence; each later pattern has its own line
+    for ask in (
+        "Please confirm who bears the cost of the extra valves.",
+        "The late drawings delay our work by 3 weeks; please confirm.",
+        "We request schedule relief for the tie-in.",
+        "Who will pay for the re-test?",
+        "At whose expense is the second coat applied?",
+        "The supply is delayed; please advise.",
+        "The fabrication will slip unless the datasheet is approved.",
+        "The work is now behind schedule.",
+        "Please confirm the extra time needed for the hydrotest.",
+        "Please confirm the schedule extension for item 4.",
+        "The delivery is 2 weeks late.",
+    ):
+        assert P.raises_cost(ask), ask
+        assert (
+            P.with_position("Class 300 applies [S1].", ask) == "Class 300 applies [S1]."
+        ), ask
+    for plain in (
+        "What is the time delay of the trip relay?",
+        "Is the scheduled maintenance interval stated?",
+        "Which flange class applies to the plate?",
+        "Which revision of the datasheet is the latest?",
+    ):
+        assert not P.raises_cost(plain), plain
+
+
+def test_the_set_sentence_is_independent_wording():
+    # invented to stand apart from any approved reply (the gate found the first wording followed one too closely)
+    assert (
+        P.POSITION_LINE
+        == "On the information given, COMPANY finds no basis for a change to cost or schedule from this item."
+    )
+    for older in (
+        "Based on the information provided",
+        "does not see grounds",
+        "to support a schedule or cost impact",
+    ):
+        assert older not in P.POSITION_LINE
+    # a draft that already speaks of cost and schedule gets nothing more
+    said = "Class 300 applies [S1]. There is no change to cost or schedule."
+    assert P.with_position(said, "Which class applies?") == said
+
+
 def test_nothing_is_added_when_the_draft_already_speaks_of_an_impact_and_a_typed_reply_gets_no_mark():
     deferring = "Class 300 applies [S1]. COMPANY to confirm any schedule impact."
     assert P.with_position(deferring, "Which class applies?") == deferring
