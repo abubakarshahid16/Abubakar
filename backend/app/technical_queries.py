@@ -1163,7 +1163,7 @@ MAX_PROPOSED_QUESTION = 12_000
 #: question attachments unread; the longest held is 41 pages). Past it the screen says which pages were not read and why (completeness).
 ATTACHMENT_PAGES_READ = 60
 NOT_READ_WHY = "the reading stops at {n} pages per attachment"
-CUT_MARK = " [cut here: the wording was longer than the limit; the rest is on the attachment pages]"
+CUT_MARK = "… The rest of the question is in the email files."
 MAX_CONFIRMED_QUESTION = 5_000
 
 
@@ -1273,7 +1273,9 @@ def propose_question(email_question: str, proposals: list[dict[str, Any]] | None
     lines += [f"{n}. {q}" for n, q in enumerate(extra, 1)]
     text = "\n".join(lines)
     if len(text) > MAX_PROPOSED_QUESTION:
-        text = text[:MAX_PROPOSED_QUESTION].rstrip() + CUT_MARK
+        from .technical_query_items import cut_whole_words
+
+        text = cut_whole_words(text, MAX_PROPOSED_QUESTION, CUT_MARK)
     return text
 
 
@@ -1809,6 +1811,10 @@ def decide(
 
             if stored_unsupported(latest, current):  # never approve a reply that credits a source with words it does not contain
                 raise ValueError(f"{FALSE_QUOTE_MARK} Press Write the reply again (under Redo), or write the reply yourself, before approval.")
+            from .technical_query_reply_checks import FIRST_PERSON_MARK, stored_first_person
+
+            if stored_first_person(latest):  # never approve an AI reply that speaks as "I" instead of as COMPANY
+                raise ValueError(f"{FIRST_PERSON_MARK} Press Write the reply again (under Redo), or write the reply yourself, before approval.")
     target = {
         "request_changes": "changes_requested",
         "approve": "approved",
