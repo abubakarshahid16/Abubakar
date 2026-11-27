@@ -616,10 +616,11 @@ describe("the required fields", () => {
     ).toBeInTheDocument();
   });
 
-  it("lists what search cannot see, with the rule that excluded it", async () => {
+  it("lists what search cannot see, with the reason in plain words (the rule's stored name folded under Technical detail)", async () => {
     mockApi();
     await openDashboard();
-    expect(await screen.findByText("content_quality_gate")).toBeInTheDocument();
+    expect(await screen.findByText(/The text did not read like sentences or a table\./)).toBeInTheDocument();
+    expect(screen.getByText("content_quality_gate").closest("details")).not.toBeNull();
     expect(screen.getByText("51,200")).toBeInTheDocument();
   });
 
