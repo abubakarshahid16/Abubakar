@@ -127,6 +127,7 @@
 .kit-ok { color: var(--kit-ok-fg); font-weight: 600; }
 .kit-late { color: var(--kit-late-fg); font-weight: 600; }
 .kit-check { color: var(--kit-check-fg); font-weight: 600; } /* a figure to check (amber), e.g. a warning count */
+.kit-show-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kit-space-3); margin-top: var(--kit-space-3); }
 .kit-small { font-size: 13px; color: var(--color-slateish-300); }
 
 /* ---- a chip that is a button; a link-style button; a list row that is one button; a neutral tag; one cut line ---- */
