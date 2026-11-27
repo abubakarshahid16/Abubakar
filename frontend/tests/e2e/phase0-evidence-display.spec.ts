@@ -37,7 +37,7 @@ test("capture the existing evidence-removed disclosure from a real stored answer
   await page.goto("/");
   await page.getByRole("button", { name: /^Chat\b/ }).click();
   await page.getByText(detail.conversation.title, { exact: true }).click();
-  await expect(page.getByText(/One source did not fit the model's context window/i)).toBeVisible();
+  await expect(page.getByText(/One source was too long for the AI to read in full/i)).toBeVisible();
   await page.screenshot({
     path: path.join(outputDir, "evidence-removed-chat.png"),
     fullPage: true,
