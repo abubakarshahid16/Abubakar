@@ -172,9 +172,17 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
             // the new look: model names and setting names are technical detail, folded (owner's rule, H's live walk 27 Nov 2026:
             // six were open on the page); the plain sentence above says what the choice is
             return NEW_LOOK ? (
+              <>
+              {/* a WARNING stays outside the fold, without the model name (H's read of #1998): the AI chosen is not the one in use */}
+              {options.answer_model_why && (
+                <p role="note" data-testid="review-model-fell-back-plain" className="text-sm text-warn-500">
+                  The AI you chose cannot run on this computer, so another one is used. The details are below.
+                </p>
+              )}
               <InfoFold title="Choose the AI on this computer (technical detail)">
                 <div className="space-y-3">{usedBy}{fellBack}{pickers}{stepsFold}<InfoFold title="Every AI and how it was measured">{lists}</InfoFold>{saveRow}</div>
               </InfoFold>
+              </>
             ) : (
               <>{usedBy}{fellBack}{lists}{pickers}{saveRow}</>
             );

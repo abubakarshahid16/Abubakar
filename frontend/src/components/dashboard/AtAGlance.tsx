@@ -61,9 +61,11 @@ export function queriesRow(m: Record<string, number> | null | "off"): GlanceRow 
   const setAside = QUERY_SET_ASIDE.reduce((n, s) => n + (m[s] ?? 0), 0);
   const inCount = m.total - setAside;
   const done = QUERY_DONE.reduce((n, s) => n + (m[s] ?? 0), 0);
-  // WAITING = waiting for a person: a reply ready for approval (F's walk, 27 Nov 2026: "34 waiting for you" counted the 13 the AI was
-  // still working on). The same number as the Queries page's own "waiting for approval".
-  const row = { label: "Technical queries and CFCs", inCount, waiting: typeof m.awaiting_review === "number" ? m.awaiting_review : null, done };
+  // WAITING = waiting for a person (F's walk, 27 Nov 2026: "34 waiting for you" counted the 13 the AI was still working on): a reply
+  // ready for approval, and an approved reply not sent yet (the engineer sends the Word file; H's read of #1998)
+  const forPerson = ["awaiting_review", "approved", "send_pending"];
+  const waiting = forPerson.every((k) => typeof m[k] === "number") ? forPerson.reduce((n, k) => n + m[k], 0) : null;
+  const row = { label: "Technical queries and CFCs", inCount, waiting, done };
   // late only with BOTH the count and its boundary, and only over a set that is not empty
   if (typeof m.overdue !== "number" || typeof m.open_with_due_date !== "number") {
     return { ...row, late: null, lateStatus: "unknown", lateNote: "could not be loaded" };

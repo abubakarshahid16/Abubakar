@@ -34,7 +34,7 @@ describe("the tiles' words", () => {
 describe.runIf(NEW_LOOK)("the three tiles on the Dashboard (new look)", () => {
   it("shows a headline and three tiles, each one button that opens its list", async () => {
     client.reviews.dashboard.mockResolvedValue({ ok: true, data: { reviews_awaiting_decision: 14, reviews_running: 2, reviews_signed: 12 } });
-    tq.technicalQueriesApi.metrics.mockResolvedValue({ ok: true, data: { total: 30, drafting: 6, awaiting_review: 21, resolved: 3, duplicate: 0, cancelled: 0, overdue: 2, open_with_due_date: 5 } });
+    tq.technicalQueriesApi.metrics.mockResolvedValue({ ok: true, data: { total: 30, drafting: 6, awaiting_review: 21, approved: 0, send_pending: 0, resolved: 3, duplicate: 0, cancelled: 0, overdue: 2, open_with_due_date: 5 } });
     client.deliverables.list.mockResolvedValue({ ok: true, data: { deliverables: [{ status: "approved", due_date: null }, { status: "draft", due_date: null }] } });
     client.deliverables.alerts.mockResolvedValue({ ok: true, data: { alerts: [] } });
     const navigate = vi.fn();

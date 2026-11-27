@@ -103,3 +103,15 @@ describe("model names are technical detail (owner's rule; H's live walk, 27 Nov 
     }
   });
 });
+
+describe("a chosen AI that is not in use is said outside the fold (H's read of #1998)", () => {
+  it.runIf(NEW_LOOK)("shows one plain warning line, with no model name, and keeps the full sentence in the fold", async () => {
+    const replaced = { ...OPTIONS, answer_model_why: "ANSWER_MODEL names invented-huge:35b, too large for this computer; the code's default is used" };
+    const api = { load: vi.fn().mockResolvedValue({ ok: true, data: replaced }), save: vi.fn() } as unknown as typeof reviewModelApi;
+    render(<ReviewModelSection api={api} />);
+    const plain = await screen.findByTestId("review-model-fell-back-plain");
+    expect(plain.closest("details")).toBeNull();
+    expect(plain.textContent).not.toMatch(/invented|ANSWER_MODEL/);
+    expect(screen.getByTestId("review-model-fell-back").closest("details")).not.toBeNull();
+  });
+});
