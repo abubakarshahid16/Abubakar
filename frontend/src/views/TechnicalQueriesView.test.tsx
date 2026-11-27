@@ -121,7 +121,7 @@ describe("Technical Queries screen", () => {
     expect(screen.queryByTestId("evidence-top-score")).toBeNull(); // the raw relevance score is not shown (Q1)
     expect(screen.getByText(/suggested, not kept yet/)).toBeTruthy(); // the source's states in words (Q2)
     expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
-    expect(screen.getByTestId("evidence-match").textContent).toBe("Weak match: this quote shares few words with the question"); // plain words (owner, 27 Nov 2026)
+    expect(screen.getByTestId("evidence-match").textContent).toBe("Few words in common with the question"); // plain words (owner, 27 Nov 2026)
     expect(screen.getByTestId("evidence-match").getAttribute("title")).toBe("1 of 5 of the question's key words"); // the counts, one hover away
     // the owner asked for "weak match" in plain words (live walk, 27 Nov 2026 01:15); "not covered" is still never said from a count
     expect(container.textContent).not.toMatch(/not covered/i);
@@ -549,6 +549,14 @@ describe("Technical Queries screen", () => {
     expect(id).toBe("c1");
     expect(body).toMatchObject({ document_role: "CONTRACT_DOCUMENT", title: "Invented Schedule", equipment_tags: ["P-1"], revision: null });
     await waitFor(() => expect(screen.queryByTestId("evidence-needs-confirm")).toBeNull()); // read again: now counts for a draft
+  });
+
+  it("says what Confirm does once per page, beside its first button, however many documents wait (builder A's walk, 27 Nov 2026)", async () => {
+    const docs = ["c1", "c2", "c3"].map((d, i) => ({ id: `e${i}`, document_id: d, page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" }));
+    api.get.mockResolvedValue({ ok: true, data: { ...query, evidence: docs } });
+    render(<TechnicalQueriesView queryId="q1" isAdmin />);
+    await waitFor(() => expect(screen.getAllByTestId("confirm-source")).toHaveLength(3)); // one button per document, as before
+    expect(screen.getAllByTestId("confirm-source-hint")).toHaveLength(1);
   });
 
   it("someone who may not confirm sees the way to do it, not a button", async () => {

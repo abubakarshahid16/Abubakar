@@ -214,9 +214,9 @@ describe("the owner's live walk (27 Nov 2026 01:15)", () => {
     expect(replyBeingRewritten(null)).toBe(false);
   });
   it("says a passage's match in plain words, the counts one hover away", () => {
-    expect(matchWords({ match_count: 8, match_terms: 22, match_ok: 0 })).toEqual({ words: "Weak match: this quote shares few words with the question", counts: "8 of 22 of the question's key words" });
-    expect(matchWords({ match_count: 4, match_terms: 6, match_ok: 1 })?.words).toBe("Shares many words with the question");
-    expect(matchWords({ match_count: 3, match_terms: 4 })?.words).toBe("Shares many words with the question");
+    expect(matchWords({ match_count: 8, match_terms: 22, match_ok: 0 })).toEqual({ words: "Few words in common with the question", counts: "8 of 22 of the question's key words" });
+    expect(matchWords({ match_count: 4, match_terms: 6, match_ok: 1 })?.words).toBe("Many words in common with the question");
+    expect(matchWords({ match_count: 3, match_terms: 4 })?.words).toBe("Many words in common with the question");
     expect(matchWords({})).toBeNull();
   });
 });

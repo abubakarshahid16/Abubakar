@@ -192,7 +192,7 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
   } else if (scored.length) {
     const best = scored.reduce((a, b) => ((b.match_count ?? 0) / (b.match_terms ?? 1) > (a.match_count ?? 0) / (a.match_terms ?? 1) ? b : a));
     if ((best.match_count ?? 0) / (best.match_terms ?? 1) < 0.5) {
-      evidence.push("Weak match: the sources share few words with the question. Read them before you rely on the reply.");
+      evidence.push("The sources have few words in common with the question. Read them before you rely on the reply.");
     }
   }
   for (const line of q.evidence_coverage?.cited_first ?? []) {
@@ -538,7 +538,7 @@ export function matchWords(e: { match_count?: number | null; match_terms?: numbe
   if (!e.match_terms) return null;
   const counts = `${e.match_count ?? 0} of ${e.match_terms} of the question's key words`;
   const ok = e.match_ok ?? ((e.match_count ?? 0) * 2 >= e.match_terms ? 1 : 0);
-  return { words: ok ? "Shares many words with the question" : "Weak match: this quote shares few words with the question", counts };
+  return { words: ok ? "Many words in common with the question" : "Few words in common with the question", counts };
 }
 
 /** While the sources or the reply are being prepared again, the reply on screen is the OLD one (owner's live walk, 27 Nov 2026 01:15). */
