@@ -532,6 +532,6 @@ describe("Quote mode: the reader can tell that Quote ran and what it produced", 
     const section = await gapSection();
     expect(within(section).queryByText(/quote mode/i)).toBeNull();
     expect(within(section).queryByText(/no AI wrote any of it/i)).toBeNull();
-    expect(within(section).getByText("baseline-controlled")).toBeInTheDocument();
+    expect(within(section).getByText("against the baseline you chose")).toBeInTheDocument();
   });
 });
