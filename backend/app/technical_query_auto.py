@@ -45,7 +45,9 @@ TOO_WEAK = "no source answers the question closely enough. Keep a source by hand
 MODEL_DOWN = "the AI on this computer did not answer. Once it is back, press Write the reply again (under Redo)"
 OUTSIDE = "the reply used sources outside this query, so it was not kept"
 TYPED_KEPT = "an engineer's own reply is kept. Press Write the reply again (under Redo) for a new one"
-FOUND_NOT_KEPT = "The AI wrote this reply from the sources it found. Nobody has kept them yet."
+FOUND_NOT_KEPT = (
+    "The AI wrote this reply from the sources it found. Nobody has kept them yet."
+)
 
 
 def key(text: str | None) -> str | None:
@@ -249,12 +251,19 @@ def checked_reply(
     first-person advice taken out of it for the engineer, the fault it may never be shown with or None). The reply is COMPANY's:
     first-person advice goes beside it, the old cost/schedule stand-in goes (the page offers COMPANY's usual sentence), and its
     sources are the ones still named in it (technical_query_reply_checks)."""
-    if RC.cut_off(result):  # judged on the model's own text, before anything is taken out of it
+    if RC.cut_off(
+        result
+    ):  # judged on the model's own text, before anything is taken out of it
         return result, [], None, RC.CUT_OFF_NOTE
     reply, advice = RC.split_advice(result.get("answer") or "")
     reply, cost = RC.split_unsourced_cost(RC.drop_cost_standin(reply))
     # a second cost / schedule message with no source goes beside the reply for the engineer (reply_marks), never in it
-    result = {**result, "answer": reply, "cited": RC.cited_in(reply, result.get("cited") or []), "cost_words": cost}
+    result = {
+        **result,
+        "answer": reply,
+        "cited": RC.cited_in(reply, result.get("cited") or []),
+        "cost_words": cost,
+    }
     if not reply:  # the whole draft was advice
         return result, [], advice, RC.FIRST_PERSON_NOTE
     citations = citations_of(result, passages)
@@ -286,9 +295,7 @@ def marks(item: dict[str, Any], cited_ids=None) -> list[str]:
     _question, source = working(item)
     out = []
     if source == "proposed":
-        out.append(
-            "The AI suggested this question. Nobody has confirmed it yet."
-        )
+        out.append("The AI suggested this question. Nobody has confirmed it yet.")
     elif source == "edited":
         out.append("An engineer changed this question. Nobody has confirmed it yet.")
     rows = [
@@ -383,10 +390,14 @@ def write_draft(
     )  # an item the draft leaves unanswered is said, never silently dropped
     if gap:
         unresolved.append(gap)
-    unresolved += reply_marks(result, advice)  # the advice is for the engineer only, never part of the reply
+    unresolved += reply_marks(
+        result, advice
+    )  # the advice is for the engineer only, never part of the reply
     from .technical_query_source_fit import marks as fit_marks
 
-    unresolved += fit_marks(result["answer"], seen_sources(result))  # a source that may not say its sentence: pointed at, never stopped
+    unresolved += fit_marks(
+        result["answer"], seen_sources(result)
+    )  # a source that may not say its sentence: pointed at, never stopped
     from .technical_query_refs import mark as refs_mark
 
     named = refs_mark(
@@ -520,7 +531,9 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         latest, item
     ):  # an older draft (written before this check) with a false quote says so
         found_marks.append(FALSE_QUOTE_MARK)
-    if RC.stored_first_person(latest):  # an older AI draft that speaks as "I" says so, and is not approved
+    if RC.stored_first_person(
+        latest
+    ):  # an older AI draft that speaks as "I" says so, and is not approved
         found_marks.append(RC.FIRST_PERSON_MARK)
     gap = (
         unanswered_mark(latest.get("answer") or "", latest.get("question") or question)
@@ -671,7 +684,9 @@ def backlog(conn) -> list[str]:
     return ids
 
 
-OUTDATED_MARK = "These sources came from an older search. Press Find the sources again, under Redo."
+OUTDATED_MARK = (
+    "These sources came from an older search. Press Find the sources again, under Redo."
+)
 
 
 def _search_version(row) -> int:
@@ -694,7 +709,10 @@ def evidence_outdated(item: dict[str, Any]) -> bool:
 def stale_system_drafts(conn) -> list[str]:
     """The queries to prepare and draft again with today's search and prompt, nothing an engineer did being undone. Oldest first:
     - awaiting review on a SYSTEM draft (a model wrote it, no decision names it) whose draft version or evidence SEARCH is older;
-    - not yet drafted or still drafting (no decision, no engineer-typed draft) whose evidence an older search found."""
+    - not yet drafted or still drafting (no decision, no engineer-typed draft) whose evidence an older search found;
+    - still drafting (or any other preparable status, no decision) whose latest draft is an OLDER system draft (F, 27 Nov 2026, H's
+      rescan of Install 1: a draft-version bump re-drafted only the queries awaiting review, so 13 queries in "drafting" kept their
+      system-draft-1/2 replies)."""
     from .technical_query_items import SEARCH_VERSION
 
     out = []
@@ -721,10 +739,8 @@ def stale_system_drafts(conn) -> list[str]:
         if row["status"] == "awaiting_review":
             if model_draft and (old_system_draft or older_search):
                 out.append(row["id"])
-        elif (
-            row["status"] in PREPARABLE
-            and older_search
-            and (not row["drafts"] or model_draft)
+        elif row["status"] in PREPARABLE and (
+            (older_search and (not row["drafts"] or model_draft)) or old_system_draft
         ):
             out.append(row["id"])
     return out

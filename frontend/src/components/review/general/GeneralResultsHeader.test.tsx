@@ -27,8 +27,10 @@ describe("GeneralResults header", () => {
     mount(review({ signoff }));
     const banner = screen.getByTestId("general-mark");
     expect(banner).toHaveTextContent("Signed off");
-    expect(banner).toHaveTextContent("signed off by Dana Engineer");
     expect(banner).not.toHaveTextContent("nothing here is signed off");
+    // F's live walk (27 Nov 2026): who signed, and when, is said ONCE, in the sign-off line, not again in this banner
+    expect(banner).not.toHaveTextContent("Dana Engineer");
+    expect((banner.textContent ?? "").match(/signed off/gi)?.length).toBe(1);
   });
 
   it("before sign-off the banner keeps the mark and the warning", () => {

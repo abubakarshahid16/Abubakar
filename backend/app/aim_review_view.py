@@ -29,7 +29,8 @@ from . import (
 from .aim_review import references as aim_review_references
 from .aim_review import unread
 from .aim_review.faults import LEGACY_WORDS, NOT_APPLIED_WORDS, counted
-from .aim_review.updates import group_mark, u7b
+from .aim_review.updates import always_by_field as by_field
+from .aim_review.updates import group_mark
 from .aim_review_learner import split as learner_split
 from .aim_review_signed_groups import groups as signed_groups
 
@@ -276,9 +277,9 @@ def _keys(sent: list[dict]) -> dict[int, tuple]:
     from .aim_review.always import TOPIC as ALWAYS
 
     def key(p: dict) -> tuple:
-        own = _field_key(p.get("field")) if p.get("topic") == ALWAYS and u7b() else ""
         return ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
-                _provisional_kind(p.get("code_note")), editor_group(p), own)  # fmt: skip
+                _provisional_kind(p.get("code_note")), editor_group(p),
+                _field_key(p.get("field")) if p.get("topic") == ALWAYS and by_field() else "")  # fmt: skip
 
     return {p["n"]: key(p) for p in sent}
 
