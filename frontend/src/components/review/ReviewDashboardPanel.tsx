@@ -308,9 +308,10 @@ export function ReviewDashboardPanel(
             No reviews have been run yet.
           </p>
         ) : (
-          <div className={NEW_LOOK ? "relative mt-3 overflow-x-auto rounded-[var(--radius-md)] bg-ink-800" : "relative mt-2 overflow-x-auto rounded-[var(--radius-md)] border border-ink-700"}
+          <div className={NEW_LOOK ? "kit-stack-wrap relative mt-3 overflow-x-auto rounded-[var(--radius-md)] bg-ink-800" : "relative mt-2 overflow-x-auto rounded-[var(--radius-md)] border border-ink-700"}
             data-testid="dashboard-runs-table-box">
-            <table className={NEW_LOOK ? "w-full text-left text-sm" : "w-full text-left text-xs"}>
+            {/* the new look: on a narrow box each row stacks, every column named (H's audit 1); a wide box keeps the table */}
+            <table className={NEW_LOOK ? "kit-stack-table w-full text-left text-sm" : "w-full text-left text-xs"}>
               <thead className={NEW_LOOK ? "text-xs font-semibold text-slateish-400" : "bg-ink-900 uppercase tracking-wide text-slateish-400"}>
                 <tr>
                   <th scope="col" className={HEAD}>Document</th>
@@ -333,10 +334,10 @@ export function ReviewDashboardPanel(
                         {formatWhen(run.created_at)}{run.method === "general" ? "" : " · earlier version"}
                       </span>
                     </td>
-                    <td className={CELL} title={run.equipment_tags.join(", ") || undefined}>
+                    <td className={CELL} data-label="Equipment" title={run.equipment_tags.join(", ") || undefined}>
                       {equipmentLabel(run.equipment_tags)}
                     </td>
-                    <td className={NEW_LOOK ? `${CELL} min-w-[10.5rem]` : CELL}>
+                    <td className={NEW_LOOK ? `${CELL} min-w-[10.5rem]` : CELL} data-label="Findings or comments">
                       {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. A general review says its own comments. */}
                       {run.method === "general" ? generalFindings(run) : run.findings_total.toLocaleString()}
                       {run.method !== "general" && run.by_status.NON_COMPLIANT ? (
@@ -345,7 +346,7 @@ export function ReviewDashboardPanel(
                         </span>
                       ) : null}
                     </td>
-                    <td className={CELL}>
+                    <td className={CELL} data-label="Suggested code">
                       {/* order 14: one run never shows an approving code; the server's note stands in its place */}
                       {run.recommended_code ?? run.recommended_code_note}
                       {/* BOTH CODES, NEVER ONE. An engineer's decision does
