@@ -249,6 +249,9 @@
 .kit-tag-fold { display: inline-flex; align-items: center; gap: var(--kit-space-1); flex-wrap: wrap; }
 .kit-tag-fold > summary { list-style: none; cursor: pointer; }
 .kit-tag-fold > summary::-webkit-details-marker { display: none; }
+/* a small arrow says the tag opens (H's note on #2002); hidden from screen readers, which announce the summary as expandable */
+.kit-tag-fold > summary::after { content: "\25B8" / ""; margin-inline-start: var(--kit-space-1); }
+.kit-tag-fold[open] > summary::after { content: "\25BE" / ""; }
 .kit-tag-fold > summary:focus-visible { outline: 2px solid var(--kit-primary-bg); outline-offset: 2px; }
 .kit-tag-fold__names { font-size: 13px; color: var(--color-slateish-300); }
 
