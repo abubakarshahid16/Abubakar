@@ -90,3 +90,15 @@ def test_the_composed_question_numbers_only_the_requests():
     # a lead-in with nothing after it introduces nothing: it stays a numbered request
     assert tq.propose_question("", [{"question": "Please confirm the following:", "lead": True}], "X") .split("\n")[-1] == \
         "1. Please confirm the following:"
+
+
+def test_a_long_paragraph_is_checked_whole_and_kept_cut_after_a_whole_word(monkeypatch):
+    """H's and F's note on #2009: the check runs on the full words (a cut item would fail it and be dropped); only what is kept is cut."""
+    long_statement = "CONTRACTOR understands that the invented header " + " ".join(f"invented{n}" for n in range(200)) + " is not volatile."
+    page = f"{long_statement}\nCOMPANY confirmation is kindly requested on the above understanding.\n"
+    monkeypatch.setattr(Q, "_ask", lambda text: ["COMPANY confirmation is kindly requested on the above understanding."])
+    out, note = Q.from_pages([{"text": page, "filename": "invented.pdf", "page": 1}])
+    assert note == "" and len(out) == 1  # kept, never dropped by the check
+    kept = out[0]["question"]
+    assert kept.endswith(Q.ITEM_CUT) and len(kept.replace(Q.ITEM_CUT, "").split()) == Q.MAX_ITEM_WORDS
+    assert Q._capped("A short invented request.") == "A short invented request."
