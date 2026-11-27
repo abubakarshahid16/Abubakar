@@ -214,6 +214,13 @@ def test_a_query_already_tried_since_its_latest_draft_is_not_queued_again_at_eve
         assert (
             auto.stale_system_drafts(conn) == []
         )  # tried after the draft, nothing written: not queued at every start
+        conn.execute(
+            "UPDATE technical_queries SET draft_note=? WHERE id=?",
+            (auto.MODEL_DOWN, item["id"]),
+        )
+        assert auto.stale_system_drafts(conn) == [
+            item["id"]
+        ]  # tried, but the local AI did not answer: that passes, so the next start drafts it again (C's read of #2022)
 
 
 def test_keeping_one_source_never_narrows_the_draft_to_it_alone(query):

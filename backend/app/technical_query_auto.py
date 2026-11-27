@@ -763,12 +763,14 @@ def stale_system_drafts(conn) -> list[str]:
         "(SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
         "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model, "
         "(SELECT COUNT(*) FROM query_drafts d WHERE d.query_id=q.id) AS drafts, "
-        # tried AFTER its latest draft, with the reason no draft was written stored: retrying at every start writes nothing new
-        "(q.draft_note IS NOT NULL AND EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state='done' AND "
+        # tried AFTER its latest draft, with the reason no draft was written stored: retrying at every start writes nothing new.
+        # NOT when the reason is that the local AI did not answer: that passes, so the next start tries again (C's read of #2022)
+        "(q.draft_note IS NOT NULL AND q.draft_note <> ? AND EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state='done' AND "
         "j.created_at > COALESCE((SELECT MAX(d.created_at) FROM query_drafts d WHERE d.query_id=q.id), ''))) AS tried "
         "FROM technical_queries q "
         "WHERE NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
-        "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at"
+        "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at",
+        (MODEL_DOWN,),
     ):
         older_search = (
             bool(row["evidence_question"]) and _search_version(row) < SEARCH_VERSION
