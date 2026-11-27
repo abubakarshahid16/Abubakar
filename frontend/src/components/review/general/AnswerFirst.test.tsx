@@ -26,7 +26,7 @@ describe("answer first", () => {
     expect(verdict(review(), status("not_signed", 3))).toBe("3 comments need your decision.");
     expect(verdict(review(), status("not_signed", 1))).toBe("1 comment needs your decision.");
     expect(verdict(review(), status("not_signed", 0))).toBe("All comments are decided: ready to sign off.");
-    expect(verdict(review(), status("signed", 0))).toBe("Signed off: 5 comments decided.");
+    expect(verdict(review(), status("signed", 0))).toBe("5 comments decided."); // "Signed off" is said once, as the box's label
     expect(verdict(review(), status("changed", 0))).toBe("Changed since sign-off: sign it off again before the contractor copy.");
     expect(verdict(review(), null)).toBe("5 comments to check (12 points reviewed).");
   });

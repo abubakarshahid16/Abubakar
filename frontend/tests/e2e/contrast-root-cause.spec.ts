@@ -59,7 +59,7 @@ test("collect every serious/critical contrast node with computed colors", async 
   for (const theme of themes) {
     for (const view of views) {
       await openView(page, view);
-      await page.getByRole("button", { name: theme, exact: true }).click();
+      await page.getByRole("button", { name: theme === "dark" ? "Dark" : "Light", exact: true }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await page.waitForTimeout(5_000);
       const result = await new AxeBuilder({ page }).analyze();

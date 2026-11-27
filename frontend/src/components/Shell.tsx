@@ -593,13 +593,14 @@ function ThemeToggle({
             aria-pressed={active}
             onClick={() => onChange(mode)}
             className={[
-              "rounded-[var(--radius-full)] px-2 py-1 font-medium capitalize motion-safe:transition-colors",
+              "rounded-[var(--radius-full)] px-2 py-1 font-medium motion-safe:transition-colors",
               active
                 ? "bg-signal-500 text-ink-950 shadow-[var(--shadow-resting)]"
                 : "text-slateish-400 hover:bg-ink-800 hover:text-slateish-200",
             ].join(" ")}
           >
-            {mode}
+            {/* the word itself is capitalised, not only drawn so: a screen reader read "dark" / "light" (A's walk, 27 Nov 2026) */}
+            {mode === "dark" ? "Dark" : "Light"}
           </button>
         );
       })}

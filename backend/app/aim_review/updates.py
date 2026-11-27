@@ -9,6 +9,8 @@ Code-only and screen-only parts stay on.
     (the editor's groups in the merge keys) and the upload-time picture stage.
   * AIM_U8_ENABLED: the second-model rule approvals in the rule pool, the cross-document check.
   * AIM_FORMULA_CHECKS_ENABLED (update 9, ON by default): the formula checks, out of AIM_U8_ENABLED.
+  * AIM_ALWAYS_BY_FIELD_ENABLED (ON by default, F 27 Nov 2026): one comment per field for the always-on items G1-G3, out of
+    AIM_U7B_ENABLED's "one point one comment" (view code only; the editor's groups stay with 7b).
   * AIM_U13_ENABLED: the always-on items G2 and G3 read the app's own consistency pairs and form entries (planner, 26 Nov 2026).
     With it on, also the nine-role read record (`roles`: what each role sent and produced; lead-4 26 Nov: no new switch)."""
 
@@ -39,6 +41,13 @@ def formula_checks() -> bool:
     """The formula checks (`formulas.add_lines`), their own switch, ON (lead-4, update 9: proven by the free code-only replay);
     off: no formula lines, as main."""
     return bool(settings.aim_formula_checks_enabled)
+
+
+def always_by_field() -> bool:
+    """The always-on items (G1-G3) give one comment per FIELD: each is a catch-all check whose findings are unrelated entries, so one
+    comment per item titled one field and carried the others (a WRONG read on a live review, 27 Nov 2026). Off: as main, unless
+    7b is on (its "one point one comment" includes this)."""
+    return bool(settings.aim_always_by_field_enabled) or u7b()
 
 
 def group_mark(p: dict) -> int | None:
