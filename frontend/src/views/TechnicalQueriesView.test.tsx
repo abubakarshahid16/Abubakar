@@ -117,8 +117,9 @@ describe("Technical Queries screen", () => {
       evidence_coverage: { searched: 20, of: 20, hits_in: 5, failed: 0, line: "Searched 20 of 20 contracts, hits in 5.", matching_passages: 0, key_terms: 5, top_rerank_score: 0.412 },
       evidence: [{ id: "e1", document_id: "c1", page_start: 4, locator: "6.1 Painting", match_count: 1, match_terms: 5, match_ok: 0, rank_score: 0.412, exact_quote: "x", evidence_state: "proposed", supersession_state: "current" }] } });
     const { container } = render(<TechnicalQueriesView />);
-    expect((await screen.findByTestId("evidence-top-score")).textContent).toContain("relevance score");
-    expect(screen.getByTestId("evidence-top-score").textContent).toContain("0.412");
+    expect(await screen.findByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
+    expect(screen.queryByTestId("evidence-top-score")).toBeNull(); // the raw relevance score is not shown (Q1)
+    expect(screen.getByText(/suggested, not kept yet/)).toBeTruthy(); // the source's states in words (Q2)
     expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
     expect(screen.getByTestId("evidence-match").textContent).toBe("Weak match: this quote shares few words with the question"); // plain words (owner, 27 Nov 2026)
     expect(screen.getByTestId("evidence-match").getAttribute("title")).toBe("1 of 5 of the question's key words"); // the counts, one hover away
