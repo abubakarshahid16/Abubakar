@@ -216,7 +216,7 @@ export function SeverityTiles({ counts, active, onPick }: {
   if (!counts) return null;
   return (
     // one even row from the kit's tile grid (H's audit #58, 27 Nov 2026: each box was as wide as its own words)
-    <Tiles label="Comments by kind" testId="severity-tiles">
+    <Tiles label="How many comments of each kind of problem" testId="severity-tiles">
       {SEVERITIES.filter((s) => counts[s] != null).map((s) => (
         <button key={s} type="button" aria-pressed={active === s} onClick={() => onPick(active === s ? null : s)}
           className={`rounded-[var(--radius-md)] border px-3 py-2 text-left ${active === s ? "border-signal-400" : "border-ink-600"} bg-ink-800`}>
