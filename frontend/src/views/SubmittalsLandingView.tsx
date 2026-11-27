@@ -30,7 +30,7 @@ import { latestGeneralRun } from "../components/review/v2/OlderFiles";
 import { NEW_LOOK } from "../look";
 import { InfoFold } from "../components/look/LookParts";
 import { REVIEW_EACH_LINE } from "../components/review/workspace/landing/WorkspaceLanding";
-import { Button } from "../components/kit/Kit";
+import { LinkButton } from "../components/kit/Kit";
 
 /** Order 95 piece 3: while a review is queued or running, the list re-reads
  *  on this interval so its state moves without a refresh. */
@@ -255,17 +255,17 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
           inbox, this list stays the default" teaser would be untrue. */}
       {!inbox && onOpenInbox && !workspace && (
         <p className="text-sm text-slateish-300">
-          <Button variant="secondary" onClick={onOpenInbox}>
+          <LinkButton tone="action" onClick={onOpenInbox}>
             Try the new inbox
-          </Button>{" "}
+          </LinkButton>{" "}
           - where each review stands, filtered to what needs you. This list stays the default for now.
         </p>
       )}
       {inbox && onOpenList && (
         <p className="text-sm text-slateish-300">
-          <Button variant="secondary" onClick={onOpenList}>
+          <LinkButton tone="action" onClick={onOpenList}>
             Back to the current list
-          </Button>
+          </LinkButton>
         </p>
       )}
 

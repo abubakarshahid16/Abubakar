@@ -11,7 +11,7 @@ import { useId, useMemo, useState } from "react";
 import type { PastReviewsButtonProps } from "./contract";
 import { PastReviewsList } from "./PastReviewsList";
 import { pastReviewsOf } from "./pastReviews";
-import { Button } from "../../kit/Kit";
+import { LinkButton } from "../../kit/Kit";
 
 /** v2.2: on the review page, `currentRunId` is the review on screen; the list
  *  then offers "Compare with this one" on each earlier finished review. */
@@ -25,14 +25,11 @@ export function PastReviewsButton({ documentId, runs, onOpenRun, currentRunId = 
 
   return (
     <div className="w-full">
-      <Button variant="secondary" size="sm"
-       
-        aria-expanded={open}
+      <LinkButton tone="action" size="xs" aria-expanded={open}
         aria-controls={listId}
-        onClick={() => setOpen((was) => !was)}
-      >
+        onClick={() => setOpen((was) => !was)}>
         All reviews of this file ({reviews.length})
-      </Button>
+      </LinkButton>
       {open && (
         <div id={listId} className="mt-2">
           <PastReviewsList reviews={reviews} onOpenRun={onOpenRun} currentRunId={currentRunId} />

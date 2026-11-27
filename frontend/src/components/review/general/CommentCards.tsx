@@ -14,7 +14,7 @@ import { useMemo, useState } from "react";
 
 import { type CommentDecision, type DecisionState, type GeneralLine, type GeneralReview, type Severity, generalReview } from "../../../api/generalReview";
 import { dayTimeWords } from "../workspace/landing/dateWords";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export const SEVERITIES: Severity[] = ["Must fix", "Check a value", "Missing information", "Please confirm"];
 
@@ -96,7 +96,7 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
             className="w-full rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 p-2 text-sm text-slateish-100" />
           <div className="flex gap-2">
             <Button variant="primary" size="sm" disabled={busy || !text.trim()} onClick={() => void send("edit")}>Save my text</Button>
-            <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+            <LinkButton tone="inherit" size="sm" onClick={() => setOpen(null)}>Cancel</LinkButton>
           </div>
         </div>
       )}
@@ -107,7 +107,7 @@ function DecisionBar({ line, decision, onDecide }: { line: GeneralLine; decision
             className="w-full rounded-[var(--radius-sm)] border border-ink-500 bg-ink-850 p-2 text-sm text-slateish-100" />
           <div className="flex gap-2">
             <Button variant="primary" size="sm" disabled={busy || reason.trim().length < MIN_REASON} onClick={() => void send("reject")}>Save rejection</Button>
-            <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+            <LinkButton tone="inherit" size="sm" onClick={() => setOpen(null)}>Cancel</LinkButton>
           </div>
         </div>
       )}
@@ -166,9 +166,9 @@ export function CommentCard({ line, mark, onViewPage, decision, onDecide }: {
             );
           })}
           {places.length > CHIPS_SHOWN && (
-            <Button variant="secondary" onClick={() => setAllChips((v) => !v)}>
+            <LinkButton tone="action" onClick={() => setAllChips((v) => !v)}>
               {allChips ? "show fewer" : `+${places.length - CHIPS_SHOWN} more`}
-            </Button>
+            </LinkButton>
           )}
         </div>
       )}
@@ -261,7 +261,7 @@ export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided 
               {pages.map((p) => <option key={p} value={p}>page {p}</option>)}
             </select>
           )}
-          {(severity != null || page != null) && <Button variant="secondary" onClick={() => { setSeverity(null); setPage(null); }}>Clear filters</Button>}
+          {(severity != null || page != null) && <LinkButton tone="action" onClick={() => { setSeverity(null); setPage(null); }}>Clear filters</LinkButton>}
         </div>
       )}
       {shown.length === 0 && <p className="text-sm text-slateish-300">{review.comments.length === 0 ? "This review has no comments." : "No comment matches this filter."}</p>}

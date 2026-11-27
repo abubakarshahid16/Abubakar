@@ -129,6 +129,15 @@
 .kit-chip-btn__detail { font-size: 13px; color: var(--color-slateish-300); }
 .kit-link, :root[data-look="new"] main button.kit-link { display: inline; min-height: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--color-slateish-100); text-decoration: underline; text-decoration-color: var(--kit-edge); text-underline-offset: 3px; cursor: pointer; }
 .kit-link[aria-pressed="true"] { font-weight: 700; text-decoration-color: var(--kit-primary-bg); text-decoration-thickness: 2px; }
+/* a link stays a link (27 Nov 2026): the three link looks the pages already had, kept exactly; two selectors each so the new look's
+   own "main button" rules never give a link a box */
+.kit-link.kit-link--action, :root[data-look="new"] main button.kit-link.kit-link--action { color: var(--color-signal-300); text-decoration-line: none; }
+.kit-link.kit-link--action:hover, :root[data-look="new"] main button.kit-link.kit-link--action:hover { text-decoration-line: underline; text-decoration-color: currentColor; text-underline-offset: 2px; }
+.kit-link.kit-link--danger, :root[data-look="new"] main button.kit-link.kit-link--danger { color: var(--color-danger-500); text-decoration-color: currentColor; }
+.kit-link.kit-link--inherit, :root[data-look="new"] main button.kit-link.kit-link--inherit { color: inherit; text-decoration-color: currentColor; }
+.kit-link.kit-link--xs, :root[data-look="new"] main button.kit-link.kit-link--xs { font-size: 12px; line-height: 16px; }
+.kit-link.kit-link--sm, :root[data-look="new"] main button.kit-link.kit-link--sm { font-size: 14px; line-height: 20px; }
+.kit-link:disabled, :root[data-look="new"] main button.kit-link:disabled { opacity: 0.5; cursor: not-allowed; background: none; border: 0; box-shadow: none; }
 .kit-row-btn, :root[data-look="new"] main button.kit-row-btn { display: flex; flex-direction: column; gap: var(--kit-space-1); width: 100%; min-height: 0; text-align: left; padding: var(--kit-space-2) var(--kit-space-3); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius); background: var(--color-ink-800); color: var(--color-slateish-200); cursor: pointer; }
 .kit-row-btn:hover { border-color: var(--kit-edge); }
 .kit-row-btn--selected, :root[data-look="new"] main button.kit-row-btn--selected { border-color: var(--kit-primary-bg); box-shadow: inset 3px 0 0 var(--kit-primary-bg); }

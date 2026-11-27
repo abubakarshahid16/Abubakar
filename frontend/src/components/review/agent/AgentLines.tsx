@@ -13,7 +13,7 @@ import {
   displayWord, lineView, tierWords,
 } from "./agentWords";
 import { lineName, plainReason } from "./plainWords";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 function Block({ title, mark, border, lines, onOpen, mode }: {
   title: string; mark: string; border: string; lines: AgentLine[]; onOpen: (itemId: string) => void; mode: AgentMode;
@@ -43,8 +43,8 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
               return (
                 <tr key={line.item_id} className="border-t border-ink-700 align-top">
                   <td className="py-1 pr-3">
-                    <Button variant="secondary" onClick={() => onOpen(line.item_id)}
-                      aria-label={`Open the trace of ${name.title}`} title={`id ${name.id}`}>{name.title}</Button>
+                    <LinkButton tone="action" onClick={() => onOpen(line.item_id)}
+                      aria-label={`Open the trace of ${name.title}`} title={`id ${name.id}`}>{name.title}</LinkButton>
                   </td>
                   <td className="pr-3" data-testid={`word-${line.item_id}`}>
                     {view.word != null ? displayWord(view.word) : (view.klass ?? "unknown class")}

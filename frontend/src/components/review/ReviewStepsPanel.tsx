@@ -11,7 +11,7 @@ import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewRunSummary, ReviewTrace } from "../../types/api";
 import { type Light, pipelineSteps } from "./pipelineLights";
 import { statusRank, statusLabel, withDenominator } from "./reviewFormat";
-import { Button } from "../kit/Kit";
+import { LinkButton } from "../kit/Kit";
 
 const LIGHT: Record<Light, { label: string; className: string }> = {
   green: { label: "Green", className: "bg-signal-500" },
@@ -65,10 +65,10 @@ export function ReviewStepsPanel({ run, onShowStatus }: {
               {onShowStatus && step.links && step.links.length > 0 && (
                 <p className="mt-0.5 flex flex-wrap gap-2 ps-8 text-xs" data-testid={`step-${step.key}-links`}>
                   {[...step.links].sort((a, b) => statusRank(a.status) - statusRank(b.status)).map((link) => (
-                    <Button variant="secondary" key={link.status}
+                    <LinkButton tone="inherit" key={link.status}
                             onClick={() => onShowStatus(link.status)}>
                       {`${statusLabel(link.status)} ${withDenominator(link.count, link.total)}`}
-                    </Button>
+                    </LinkButton>
                   ))}
                 </p>
               )}

@@ -22,7 +22,7 @@ import {
   confidenceLabel, findingLabel, kindLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusLabel, statusRank, statusTone, withDenominator,
 } from "./reviewFormat";
-import { Button } from "../kit/Kit";
+import { Button, LinkButton } from "../kit/Kit";
 
 export interface FindingsTableProps {
   findings: ReviewFinding[];
@@ -320,12 +320,9 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
       <td className="max-w-md px-3 py-2 text-slateish-300">
         {shown}
         {long && (
-          <Button variant="secondary" size="sm"
-           
-            onClick={(e) => { e.stopPropagation(); setExpanded((value) => !value); }}
-          >
+          <LinkButton tone="action" size="xs" onClick={(e) => { e.stopPropagation(); setExpanded((value) => !value); }}>
             {expanded ? "less" : "more"}
-          </Button>
+          </LinkButton>
         )}
       </td>
       <td className="px-3 py-2">
@@ -363,12 +360,9 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
         )}
       </td>
       <td className="px-3 py-2">
-        <Button variant="secondary" size="sm"
-         
-          onClick={(e) => { e.stopPropagation(); setShowEvidence((v) => !v); }}
-        >
+        <LinkButton tone="action" size="xs" onClick={(e) => { e.stopPropagation(); setShowEvidence((v) => !v); }}>
           {showEvidence ? "Hide evidence" : "Evidence"}
-        </Button>
+        </LinkButton>
       </td>
     </tr>
     {showEvidence && (

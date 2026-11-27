@@ -32,7 +32,7 @@ import { RunIncompleteNotes } from "../components/review/panels/RunIncompleteNot
 import { RunReviewControl } from "../components/review/panels/RunReviewControl";
 import { NavLink } from "../components/NavLink";
 import { CRS_SHEET_IS_DEFAULT, panelForReviewScreen } from "../routing";
-import { Button } from "../components/kit/Kit";
+import { LinkButton } from "../components/kit/Kit";
 
 type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 
@@ -167,9 +167,9 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
     <section className="mx-auto w-full max-w-7xl space-y-5" aria-labelledby="sheet-title">
       <header className="space-y-3">
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          <Button variant="secondary" onClick={onBack}>
+          <LinkButton tone="action" onClick={onBack}>
             ← Documents from contractors
-          </Button>
+          </LinkButton>
           {/* Order 95 piece 2: the way to the new comment sheet, through the
               app's own navigation (a reload would sign the reader out). */}
           <NavLink view="review" recordId={runId} panel={panelForReviewScreen("crsSheet", CRS_SHEET_IS_DEFAULT)}
@@ -260,7 +260,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             {(allAnswered || finalCode) && <DecisionCard key={`${run.review_run_id}-${finalCode ?? ""}`} run={run} onDecided={() => void refresh()} />}
             <p className="text-sm text-slateish-400">
               {passedCount(findings)} passed quietly ·{" "}
-              <Button variant="secondary" onClick={() => onOpenPanel("findings")}>see all</Button>
+              <LinkButton tone="action" onClick={() => onOpenPanel("findings")}>see all</LinkButton>
             </p>
             <p className="text-sm text-slateish-400">
               Behind the scenes:{" "}
@@ -276,7 +276,7 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
                   {i > 0 && " "}
                   <span className="whitespace-nowrap">
                     {i > 0 && <span aria-hidden="true">{"· "}</span>}
-                    <Button variant="secondary" onClick={() => onOpenPanel(panelId)}>{label}</Button>
+                    <LinkButton tone="action" onClick={() => onOpenPanel(panelId)}>{label}</LinkButton>
                   </span>
                 </span>
               ))}

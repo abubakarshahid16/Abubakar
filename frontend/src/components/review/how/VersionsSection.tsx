@@ -4,7 +4,7 @@
 import type { ReviewRunSummary } from "../../../types/api";
 import { NOT_SENT } from "./howData";
 import { Fact, FactList, HowSection, type HowSectionMeta } from "./HowPrimitives";
-import { Button } from "../../kit/Kit";
+import { LinkButton } from "../../kit/Kit";
 
 export const VERSIONS_META: HowSectionMeta = {
   id: "versions", number: 6, title: "Versions",
@@ -29,7 +29,7 @@ export function VersionsSection({ run, onOpenRun }: { run: RunWithVersions; onOp
         <Fact label="Previous completed run" testId="versions-previous"
           fact={{ value: change?.previous_run_id ?? null, source: "standards_change.previous_run_id" }}
           detail={change && onOpenRun ? (
-            <Button variant="secondary" onClick={() => onOpenRun(change.previous_run_id)}>open it</Button>
+            <LinkButton tone="action" onClick={() => onOpenRun(change.previous_run_id)}>open it</LinkButton>
           ) : undefined} />
         <Fact label="Standards used in this review but not last time" testId="versions-added"
           fact={{ value: change ? change.added : null, source: "standards_change.added" }} />

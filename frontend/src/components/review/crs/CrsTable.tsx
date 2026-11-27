@@ -12,7 +12,7 @@ import { type CrsRow as Row, DEPTHS, type Depth, CRS_COLUMNS } from "./crsRows";
 import { CrsRow, type RowMode } from "./CrsRow";
 import type { TierCounts } from "./tiers";
 import type { CrsDecisions } from "./useCrsDecisions";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 /** Rows drawn at first, and added per "Show more" press. */
 export const ROW_PAGE = 200;
@@ -126,9 +126,9 @@ export function CrsTable(props: CrsTableProps) {
           {counts.met.toLocaleString()} met, {counts.stated ? `${counts.stated.toLocaleString()} stated, not checked, ` : ""}{counts.notApplicable.toLocaleString()} not applicable
           {counts.anotherDocument > 0 ? `, ${counts.anotherDocument.toLocaleString()} for another document` : ""}
           {!showMet && spot.size > 0 ? ` (${spot.size} shown above as a sample to check)` : ""}:{" "}
-          <Button variant="secondary" onClick={() => onShowMet(!showMet)}>
+          <LinkButton tone="action" onClick={() => onShowMet(!showMet)}>
             {showMet ? "hide" : "show"}
-          </Button>
+          </LinkButton>
         </p>
       )}
       {metShown && typeof props.clausesNotApplicable === "number" && props.clausesNotApplicable > 0 && (

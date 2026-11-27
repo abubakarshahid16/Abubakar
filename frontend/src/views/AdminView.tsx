@@ -36,7 +36,7 @@ import type {
   LoadFailure,
 } from "../types/admin";
 import { management, reviews } from "../api/client";
-import { Button } from "../components/kit/Kit";
+import { Button, LinkButton } from "../components/kit/Kit";
 
 /**
  * The "seeded but useless" summary.
@@ -422,7 +422,7 @@ export function AdminView(props: AdminViewProps) {
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-4">
             <h3 className="text-sm font-medium text-slateish-200">Baseline rules</h3>
-            <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-slateish-400"><tr><th className="px-2 py-1">Submittal type</th><th className="px-2 py-1">Baseline type</th><th className="px-2 py-1">Priority</th><th /></tr></thead><tbody>{baselineRules.map((rule) => <tr key={rule.id} className="border-t border-ink-600"><td className="px-2 py-2 text-slateish-200">{rule.submittal_doc_type || "Any"}</td><td className="px-2 py-2 text-slateish-200">{rule.baseline_doc_type}</td><td className="px-2 py-2 text-slateish-400">{rule.priority}</td><td className="px-2 py-2"><Button variant="secondary" onClick={() => { setEditingBaseline(rule.id); setBaselineType(rule.submittal_doc_type || ""); setBaselineTarget(rule.baseline_doc_type); }}>Edit</Button></td></tr>)}</tbody></table></div>
+            <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-slateish-400"><tr><th className="px-2 py-1">Submittal type</th><th className="px-2 py-1">Baseline type</th><th className="px-2 py-1">Priority</th><th /></tr></thead><tbody>{baselineRules.map((rule) => <tr key={rule.id} className="border-t border-ink-600"><td className="px-2 py-2 text-slateish-200">{rule.submittal_doc_type || "Any"}</td><td className="px-2 py-2 text-slateish-200">{rule.baseline_doc_type}</td><td className="px-2 py-2 text-slateish-400">{rule.priority}</td><td className="px-2 py-2"><LinkButton tone="action" onClick={() => { setEditingBaseline(rule.id); setBaselineType(rule.submittal_doc_type || ""); setBaselineTarget(rule.baseline_doc_type); }}>Edit</LinkButton></td></tr>)}</tbody></table></div>
             <div className="mt-3 flex flex-wrap gap-2"><input aria-label="Submittal document type" value={baselineType} onChange={(e) => setBaselineType(e.target.value)} placeholder="Submittal type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><input aria-label="Baseline document type" value={baselineTarget} onChange={(e) => setBaselineTarget(e.target.value)} placeholder="Baseline type" className="w-36 rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" /><Button variant="secondary" size="sm" onClick={() => void createBaselineRule()}>{editingBaseline ? "Save rule" : "Add rule"}</Button></div>
             {baselineFailure && <p role="alert" className="mt-2 text-xs text-danger-500">{baselineFailure}</p>}
             {baselineMessage && <p role="status" className="mt-2 text-xs text-slateish-400">{baselineMessage}</p>}

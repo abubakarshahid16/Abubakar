@@ -28,7 +28,7 @@ import { ReviewNotes } from "./ReviewNotes";
 import { RequirementSplitPanel, RequirementsNotAppliedList, TableValuesNotComparedList } from "./RunDetailLists";
 import { RunSummary } from "./RunSummary";
 import { StandardsInScope } from "./StandardsInScope";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export const PANEL_TITLES: Record<string, string> = {
   findings: "All findings",
@@ -73,9 +73,9 @@ export function BehindTheScenes(props: BehindTheScenesProps) {
       {!embedded && (
         <>
         <nav aria-label="Behind the scenes" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <Button variant="secondary" onClick={() => onOpenPanel(undefined)}>
+          <LinkButton tone="action" onClick={() => onOpenPanel(undefined)}>
             ← Back to the sheet
-          </Button>
+          </LinkButton>
           {/* Only the behind-the-scenes pages: "cards" and "crs-sheet" are the
               two review screens themselves, not pages behind them. */}
           {(PANELS.review ?? []).filter((name) => name in PANEL_TITLES).map((name) => (
@@ -350,9 +350,9 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
         <p role="status" data-testid="crs-copy-waits"
           className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
           <span>{copyWaits} The sheet below shows the record as it is now.</span>
-          <Button variant="secondary" onClick={() => void readAgain()}>
+          <LinkButton tone="action" onClick={() => void readAgain()}>
             Save and read the sheet again
-          </Button>
+          </LinkButton>
         </p>
       )}
       {preview && <CrsPreviewSheet preview={preview} runId={runId} onChanged={() => void refreshPreview()} />}

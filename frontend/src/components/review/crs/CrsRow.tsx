@@ -11,7 +11,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { CrsRow as Row } from "./crsRows";
 import { SupportingClauses } from "./SupportingClauses";
 import { type Decision, REMOVE_REASONS, type RemoveReason, decisionWords, wordingOf } from "./useCrsDecisions";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export type RowMode = "edit" | "remove" | null;
 
@@ -69,10 +69,10 @@ export const CrsRow = memo(function CrsRow(props: CrsRowProps) {
         {row.tier.tier === "C" && !opened && <span className="block text-xs text-slateish-400">not opened yet</span>}
       </td>
       <td className="px-2 py-2 text-sm text-slateish-200">
-        <Button variant="secondary" onClick={(e) => { e.stopPropagation(); onSelect(row); onOpenEvidence(row); }}
+        <LinkButton tone="action" onClick={(e) => { e.stopPropagation(); onSelect(row); onOpenEvidence(row); }}
           aria-label={`Open evidence for ${label}`}>
           {row.commentNo ?? "–"}
-        </Button>
+        </LinkButton>
       </td>
       <td className="px-2 py-2 text-sm text-slateish-200">{row.pageOrSection}</td>
       <td className="px-2 py-2 text-sm text-slateish-100">{row.item}</td>

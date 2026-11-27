@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewRunMissingReference, ReviewRunStandard } from "../../types/api";
-import { Button } from "../kit/Kit";
+import { Button, LinkButton } from "../kit/Kit";
 
 /**
  * P2: the engineer adds or removes a standard on a review, with a reason.
@@ -68,10 +68,9 @@ export function StandardOverrideControl({ runId, decided, onChanged }: {
       <ul className="space-y-1">
         {applied.map((s) => (
           <li key={s.standard_document_id}>
-            <Button variant="danger" size="sm"
-              onClick={() => { setTarget({ id: s.standard_document_id, include: false }); setError(null); }}>
+            <LinkButton tone="danger" size="xs" onClick={() => { setTarget({ id: s.standard_document_id, include: false }); setError(null); }}>
               Remove {name(s)}
-            </Button>
+            </LinkButton>
           </li>
         ))}
       </ul>

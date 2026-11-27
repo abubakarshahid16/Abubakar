@@ -19,7 +19,7 @@ import type { ReviewAgainButtonProps } from "./contract";
 import { StartReviewStep } from "../panels/StartReviewStep";
 import { type PriorDecision, loadPriorDecision } from "./newReview";
 import { priorDecisionWords } from "./priorDecisionWords";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 /** `onOpenRun`: opens a run (the one already running). Left out, `onStarted`
  *  is used, which opens a run in every screen that shows this button.
@@ -119,12 +119,9 @@ export function useReviewAgain({
       )}
       {error && current && <span role="alert" className="text-xs text-danger-500">{error}</span>}
       {runningRunId && current && (
-        <Button variant="secondary" size="sm"
-         
-          onClick={() => (onOpenRun ?? onStarted)(runningRunId)}
-        >
+        <LinkButton tone="action" size="xs" onClick={() => (onOpenRun ?? onStarted)(runningRunId)}>
           Open the review that is running
-        </Button>
+        </LinkButton>
       )}
     </>
   );

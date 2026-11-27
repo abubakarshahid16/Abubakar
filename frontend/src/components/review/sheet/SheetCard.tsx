@@ -19,7 +19,7 @@ import {
   type ClauseGroup, type SheetCard as Card, cardTitle, clauseGroups, clauseSummary, findingNoun, groupLine, hasNoClause,
   isAgreed, isNotNeeded, isTickFinding, trustLine, MIN_REASON,
 } from "./sheetCards";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export const AGREE_REASON = "Engineer agreed on the review page: ask the contractor.";
 /** rule_trust (#947): the tick is the PF5 accept on the finding; the server
@@ -136,9 +136,9 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
           {groupLine(card) && <p className="text-xs text-slateish-400">{groupLine(card)}</p>}
         </div>
         {onShowOnPage && leader.contractor_page && (
-          <Button variant="secondary" size="sm" onClick={onShowOnPage} title="T">
+          <LinkButton tone="action" size="xs" onClick={onShowOnPage} title="T">
             Show on the page
-          </Button>
+          </LinkButton>
         )}
       </header>
 
@@ -191,7 +191,7 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
               {orNothing(leader.engineer_comment) || orNothing(leader.required_action) || orNothing(leader.finding)}
             </p>
             {single && !done && (
-              <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+              <LinkButton tone="action" size="xs" onClick={() => setEditing(true)}>Edit</LinkButton>
             )}
           </div>
         )}
@@ -309,9 +309,9 @@ function DoneRow({ card, working, onChange }: { card: Card; working: boolean; on
         : card.state === "agreed" ? "You agreed: the contractor is asked."
         : card.state === "not_needed" ? "You said it is not needed: it is left off the sheet."
         : "Answered, part asked and part left off."}</span>
-      <Button variant="secondary" size="sm" disabled={working} onClick={onChange}>
+      <LinkButton tone="inherit" size="xs" disabled={working} onClick={onChange}>
         Change answer
-      </Button>
+      </LinkButton>
     </div>
   );
 }

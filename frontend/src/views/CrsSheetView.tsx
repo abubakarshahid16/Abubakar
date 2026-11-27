@@ -47,7 +47,7 @@ import { runFactsOf, serverTiersOf } from "../components/review/crs/tiers";
 import { saveCrsDecisions } from "../components/review/crs/saveCrsDecisions";
 import { useCrsDecisions } from "../components/review/crs/useCrsDecisions";
 import { useCrsKeys } from "../components/review/crs/useCrsKeys";
-import { Button } from "../components/kit/Kit";
+import { Button, LinkButton } from "../components/kit/Kit";
 
 type Load = { kind: "loading" } | { kind: "ready" } | { kind: "error"; message: string };
 type Sign = { busy: boolean; message: string | null; error: string | null };
@@ -164,7 +164,7 @@ function RunNotReady({ run, active, onBack, onChanged }: { run: ReviewRunSummary
       ) : (
         <p role="alert" className="text-danger-500">This review failed{run.failure_reason ? `: ${run.failure_reason}` : "."}</p>
       )}
-      <Button variant="secondary" onClick={onBack}>← Reviews</Button>
+      <LinkButton tone="action" size="sm" onClick={onBack}>← Reviews</LinkButton>
     </section>
   );
 }

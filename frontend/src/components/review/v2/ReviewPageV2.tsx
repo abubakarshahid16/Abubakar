@@ -24,7 +24,7 @@ import { NotApplicableSection } from "./NotApplicableSection";
 import { PointsList } from "./PointsList";
 import { BookChips, NO_BOOK, NotHeldLine, type TileKey, Tiles } from "./Tiles";
 import { usePoints } from "./usePoints";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export type V2Tab = "points" | "sheet" | "how";
 const TAB_LABEL: Record<V2Tab, string> = { points: "Points", sheet: "CRS sheet", how: "How it was reviewed" };
@@ -58,7 +58,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
     <section data-testid="review-page-v2" className="mx-auto w-full max-w-7xl space-y-4" aria-labelledby="v2-title">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1 space-y-1">
-          <Button variant="secondary" onClick={onBack}>← Reviews</Button>
+          <LinkButton tone="action" size="sm" onClick={onBack}>← Reviews</LinkButton>
           <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
           <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} aiEquipment={latest?.identity?.equipment_type ?? null} />
         </div>

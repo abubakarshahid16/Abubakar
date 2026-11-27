@@ -157,9 +157,16 @@ export function ChipButton({ word, detail, expanded, controls, onClick, testId }
   );
 }
 
-/** A button that reads as a link in running text (a count that filters, "show all"). `pressed` marks the one that is on. */
-export function LinkButton({ pressed, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "type"> & { pressed?: boolean }) {
-  return <button type="button" className="kit-link" aria-pressed={pressed} {...rest} />;
+/** A button that reads as a link in running text (a count that filters, "show all"). `pressed` marks the one that is on.
+ *  A LINK STAYS A LINK (owner, 27 Nov 2026: a fix, not a redesign): every control that was a text link keeps this part, never a Button.
+ *  `tone`: action = the teal link, underlined on hover ("← Reviews", "page 4", "See all"); danger = the red underlined link (Cancel a run);
+ *  inherit = a link inside a sentence, in the sentence's own colour, underlined. No tone: the quiet underlined word (the count line).
+ *  `size`: xs (12px) or sm (14px), the link's own size where it stood apart; otherwise the text's size around it. */
+export function LinkButton({ pressed, tone, size, ...rest }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style" | "type"> & {
+  pressed?: boolean; tone?: "action" | "danger" | "inherit"; size?: "xs" | "sm";
+}) {
+  const cls = `kit-link${tone ? ` kit-link--${tone}` : ""}${size ? ` kit-link--${size}` : ""}`;
+  return <button type="button" className={cls} aria-pressed={pressed} {...rest} />;
 }
 
 /** One row of a list that opens an item: the whole row is one button, its first line the item, its second where it stands. */

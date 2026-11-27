@@ -13,7 +13,7 @@ import { AgentTrace } from "./AgentTrace";
 import { downloadAgentCrs } from "./downloadAgentCrs";
 import { OlderFileLine } from "./OlderFileLine";
 import { CONTRACTOR_CRS_LINE, INTERNAL_CRS_LINE } from "./plainWords";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export const NOT_AGENT_RUN = "This review was not made by the AI reviewer, so there is nothing to show here.";
 
@@ -57,9 +57,9 @@ export function AgentReviewPanel({ runId, onOpenRules }: { runId: string; onOpen
         </Button>
         <span className="text-xs text-slateish-400">{INTERNAL_CRS_LINE} {CONTRACTOR_CRS_LINE}</span>
         {onOpenRules && (
-          <Button variant="secondary" onClick={onOpenRules} data-testid="agent-open-rules">
+          <LinkButton tone="action" size="sm" onClick={onOpenRules} data-testid="agent-open-rules">
             Rules used
-          </Button>
+          </LinkButton>
         )}
         {fileError && <span role="alert" className="text-xs text-red-400">{fileError}</span>}
       </div>

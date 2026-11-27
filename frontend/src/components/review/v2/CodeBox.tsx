@@ -7,7 +7,7 @@ import { reviews as reviewsApi } from "../../../api/client";
 import type { PointsListing } from "../../../api/reviewPoints";
 import { REVIEW_CODES } from "../../../types/api";
 import { reasonLabel, reasonRule } from "../codeReason";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRecorded: () => void }) {
   const p = listing.proposed_code;
@@ -48,9 +48,9 @@ export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRec
       <p className="text-xs text-slateish-400">
         {listing.final_code ? `Recorded final code: ${listing.final_code_words?.team ?? listing.final_code}. ` : "The final code is not recorded yet. "}
         {listing.code_run_id && (
-          <Button variant="secondary" onClick={() => setOpen((v) => !v)}>
+          <LinkButton tone="action" onClick={() => setOpen((v) => !v)}>
             {listing.final_code ? "Change it" : "Record the code"}
-          </Button>
+          </LinkButton>
         )}
       </p>
       {open && (

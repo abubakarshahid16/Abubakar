@@ -45,7 +45,7 @@ export function DocumentRoleChip({ classification, isAdmin = false }: { classifi
         {suggestion ? suggestionWords(suggestion) : "No role suggested: choose a role."}
       </span>
       {isAdmin && suggestion?.role && !changing && (
-        <LinkButton onClick={() => void write(suggestion.role as DocumentRole)}>
+        <LinkButton tone="action" size="xs" onClick={() => void write(suggestion.role as DocumentRole)}>
           Confirm role
         </LinkButton>
       )}

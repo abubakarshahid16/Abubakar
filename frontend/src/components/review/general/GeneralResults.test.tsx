@@ -48,6 +48,15 @@ describe("GeneralResults: steps that did not run", () => {
   });
 });
 
+describe("GeneralResults: a link stays a link (look gate, 27 Nov 2026)", () => {
+  it("keeps 'see How this review was made', a link inside a sentence, as the kit link, never a boxed kit button", () => {
+    mount(review({ steps_not_applied: [{ step: "aim_edit", why: "timeout", sentence: "The editor did not run on this sheet (timeout)." }] }));
+    const link = screen.getByRole("button", { name: "see How this review was made" });
+    expect(link.className).toContain("kit-link");
+    expect(link.className).not.toContain("kit-btn");
+  });
+});
+
 describe("GeneralResults: points decided by code", () => {
   it("shows the count with its denominator when the review has points, and nothing for an older answer", () => {
     const sentence = "2 of 5 points decided by code (code compared the paper's value with the rule's limit); the other 3 are AI readings, AI opinions or questions (this paper, this review).";

@@ -26,7 +26,7 @@ import {
   LIST_MAX, runStatusLabel, statusLabel, totalFromResponse,
   truncationNote,
 } from "./reviewFormat";
-import { Button } from "../kit/Kit";
+import { Button, LinkButton } from "../kit/Kit";
 
 /** The population of the review cards: the latest review of each paper (earlier runs of a paper are not counted). */
 function boundary(data: ReviewDashboard): string {
@@ -146,11 +146,9 @@ export function ReviewDashboardPanel(
         <h2 id="review-dashboard-title" className="text-sm font-semibold text-slateish-200">
           AI Submittal Review
         </h2>
-        <Button variant="secondary" size="sm"
-          onClick={() => onOpenReview()}
-        >
+        <LinkButton tone="action" size="xs" onClick={() => onOpenReview()}>
           Open all reviews
-        </Button>
+        </LinkButton>
       </div>
 
       {/* THE BOUNDARY OF EVERY COUNT BELOW (CLAUDE.md rule 4). The review
@@ -165,9 +163,9 @@ export function ReviewDashboardPanel(
         <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
           The review figures could not be loaded - {loadError}. This is not a
           count of zero.{" "}
-          <Button variant="secondary" onClick={() => void load()}>
+          <LinkButton tone="inherit" onClick={() => void load()}>
             Try again
-          </Button>
+          </LinkButton>
         </div>
       )}
 
@@ -289,11 +287,9 @@ export function ReviewDashboardPanel(
                 wait or duplicate the screen that reports it. */}
             <p className="mt-3 text-xs text-slateish-400">
               Need to add a new datasheet?{" "}
-              <Button variant="secondary"
-                onClick={onOpenDocuments}
-              >
+              <LinkButton tone="action" onClick={onOpenDocuments}>
                 Upload it on the Documents page
-              </Button>{" "}
+              </LinkButton>{" "}
               — it appears here once it has finished processing.
             </p>
           </div>

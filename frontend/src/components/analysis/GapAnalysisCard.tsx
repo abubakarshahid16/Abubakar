@@ -20,7 +20,7 @@ import { useId, useState, type FormEvent } from "react";
 
 import type { BaselineSelection, GapAnalysis, GapItem, GapItemStatus } from "../../types/analysis";
 import type { EvidenceItem, ReviewCategory, ReviewFindingCreate, ReviewSeverity, ReviewTemplate } from "../../types/api";
-import { Button } from "../kit/Kit";
+import { Button, LinkButton } from "../kit/Kit";
 
 const REVIEW_SENTENCE = "Review and approval by a qualified engineer is required.";
 
@@ -430,12 +430,9 @@ function ItemRow({
           </blockquote>
           {item.baseline_citation_id !== null && (
             <div className="mt-1 text-xs text-slateish-400">
-              <Button variant="secondary"
-               
-                onClick={() => onCite(item.baseline_citation_id as string)}
-              >
+              <LinkButton tone="inherit" onClick={() => onCite(item.baseline_citation_id as string)}>
                 Show the baseline part of the page
-              </Button>
+              </LinkButton>
             </div>
           )}
         </>

@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 
 import type { ReviewPoint } from "../../../api/reviewPoints";
 import { groupPlaceWords, groupValuesWords, placeWords, stateWords, tagsWords } from "./words";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 type Decide = (body: { point_id: string; state: "keep" | "edit" | "remove"; text?: string; reason?: string }) => Promise<boolean>;
 
@@ -33,7 +33,7 @@ function Boxes({ p, onViewPage }: { p: ReviewPoint; onViewPage: (documentId: str
           <p className="mt-1 text-xs text-slateish-300" data-testid="v2-paper-stored">As stored (not verified by code): &ldquo;{p.paper_value}&rdquo;</p>
         )}
         {p.view_page && (
-          <Button variant="secondary" size="sm" onClick={() => onViewPage(p.view_page!.document_id, p.view_page!.page)}>View page</Button>
+          <LinkButton tone="action" size="xs" onClick={() => onViewPage(p.view_page!.document_id, p.view_page!.page)}>View page</LinkButton>
         )}
       </div>
       <div className={box} data-testid="v2-clause-box">
@@ -62,7 +62,7 @@ function Controls({ p, decide, busy }: { p: ReviewPoint; decide: Decide; busy: b
     return (
       <span className="flex items-center gap-2 text-xs text-slateish-300" data-testid="v2-state">
         {stateWords(p)}
-        <Button variant="secondary" onClick={() => setAgain(true)}>Change</Button>
+        <LinkButton tone="action" onClick={() => setAgain(true)}>Change</LinkButton>
       </span>
     );
   }

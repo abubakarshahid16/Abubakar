@@ -13,7 +13,7 @@ import { CommentCards } from "./CommentCards";
 import { SignBar } from "./SignBar";
 import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 const MARK_FALLBACK = "AI, to be checked";
 /** The shown labels in plain words for the header's counts (a label not listed is shown as written, in lower case). */
@@ -26,9 +26,9 @@ const SHOWN_WORDS: Record<string, string> = {
 function PageLink({ page, onViewPage }: { page: number | null; onViewPage: (page: number) => void }) {
   if (page == null) return null; // a null page renders as nothing, never "page 0"
   return (
-    <Button variant="secondary" onClick={() => onViewPage(page)}>
+    <LinkButton tone="action" onClick={() => onViewPage(page)}>
       page {page}
-    </Button>
+    </LinkButton>
   );
 }
 
@@ -134,13 +134,13 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
       {(review.steps_not_applied ?? []).length > 0 && (
         <p data-testid="general-steps-pointer" className="text-sm text-pill-review-fg">
           {(review.steps_not_applied ?? []).length} checking step{(review.steps_not_applied ?? []).length === 1 ? "" : "s"} did not run:{" "}
-          <Button variant="secondary" onClick={() => setTab("how")}>see How this review was made</Button>.
+          <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
         </p>
       )}
       {(review.pages_not_read ?? []).length > 0 && (
         <p data-testid="general-pages-pointer" className="text-sm text-pill-review-fg">
           {(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read:{" "}
-          <Button variant="secondary" onClick={() => setTab("how")}>see How this review was made</Button>.
+          <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
         </p>
       )}
 

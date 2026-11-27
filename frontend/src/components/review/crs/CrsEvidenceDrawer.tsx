@@ -28,7 +28,7 @@ import { cardTitle, trustLine } from "../sheet/sheetCards";
 import type { CrsRow } from "./crsRows";
 import { comparisonLine, historyOf, pagerStrip, parsePage, stepPage } from "./evidenceNav";
 import { reasonWords } from "../workspace/plainWords";
-import { Button } from "../../kit/Kit";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export interface CrsEvidenceDrawerProps {
   row: CrsRow;
@@ -232,9 +232,9 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
           </section>
         )}
         {onOpenCards && (
-          <Button variant="secondary" onClick={onOpenCards}>
+          <LinkButton tone="action" size="sm" onClick={onOpenCards}>
             Open this point on the cards view
-          </Button>
+          </LinkButton>
         )}
       </div>
     </aside>
