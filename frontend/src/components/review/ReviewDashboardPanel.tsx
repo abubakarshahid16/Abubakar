@@ -173,7 +173,7 @@ export function ReviewDashboardPanel(
       {data && (
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Card
-          label="Contractor submittals"
+          label="Submittals" // one line in its card at every width (lead 4's 07:48 audit: "Contractor submittals" wrapped at 800)
           value={data.submittals_total}
           detail={`${data.submittals_awaiting_review} of ${data.submittals_total} awaiting review`}
         />
