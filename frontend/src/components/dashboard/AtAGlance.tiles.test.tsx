@@ -39,16 +39,19 @@ describe.runIf(NEW_LOOK)("the three tiles on the Dashboard (new look)", () => {
     client.deliverables.alerts.mockResolvedValue({ ok: true, data: { alerts: [] } });
     const navigate = vi.fn();
     render(<NavigationContext.Provider value={navigate}><AtAGlance /></NavigationContext.Provider>);
-    expect(await screen.findByRole("heading", { level: 2, name: "38 items are waiting for a decision" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 2, name: "36 items are waiting for a decision" })).toBeTruthy();
     const tiles = within(screen.getByRole("group", { name: "Waiting for a decision" })).getAllByRole("button");
     expect(tiles.map((t) => t.textContent)).toEqual([
-      "Document reviews 16 waiting for you 12 done no due dates set", // real spaces between the parts (read aloud or copied)
+      // a running review is in progress, not waiting for you (F's walk): 14, not 14 + 2 running
+      "Document reviews 14 waiting for you 12 done no due dates set", // real spaces between the parts (read aloud or copied)
       "Queries and CFCs 21 waiting for you 3 done 2 late", // waiting for a person: not the 6 the AI is still drafting (F's walk)
       "Deliverables 1 waiting for you 1 done no due dates set",
     ]);
     expect(screen.queryByRole("table")).toBeNull(); // no table, no dashes (owner 03:34)
     // every count states its boundary (rule 4), one click away
     expect(screen.getByTestId("glance-boundary").textContent).toContain("These counts cover only what you may open.");
+    expect(screen.getByTestId("glance-boundary").textContent).toContain("14 waiting, 2 in progress (not waiting for you)");
+    expect(screen.getByTestId("glance-boundary").textContent).toContain("21 waiting, 6 in progress (not waiting for you)");
     fireEvent.click(tiles[1]);
     expect(navigate).toHaveBeenCalledWith("technicalQueries");
     fireEvent.click(tiles[0]);

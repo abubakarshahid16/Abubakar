@@ -44,6 +44,15 @@ describe("at a glance", () => {
     expect([undated.late, undated.lateStatus]).toEqual([null, "no_due_dates"]);
   });
 
+  it("F's walk: a running review is in progress, not waiting for you; the in-progress count is unknown when waiting is", () => {
+    const row = reviewsRow({ ...review, reviews_awaiting_decision: 4, reviews_running: 2 } as ReviewDashboard);
+    expect([row.inCount, row.waiting, row.working, row.done]).toEqual([7, 4, 2, 1]);
+    const q = queriesRow({ awaiting_review: 21, approved: 0, send_pending: 0, drafting: 13, total: 34, overdue: 0, open_with_due_date: 0 })!;
+    expect([q.inCount, q.waiting, q.working]).toEqual([34, 21, 13]);
+    const missing = queriesRow({ awaiting_review: 21, drafting: 13, total: 34, overdue: 0, open_with_due_date: 0 })!; // a count missing
+    expect([missing.waiting, missing.working]).toEqual([null, null]); // unknown, never 0
+  });
+
   it("the line never says 'nothing late' when nothing can be late", () => {
     const rows = [reviewsRow(review), queriesRow({ awaiting_review: 33, approved: 0, send_pending: 0, total: 33, overdue: 0, open_with_due_date: 0 })!, deliverablesRow([{ status: "planned", due_date: null }] as Deliverable[], [])];
     expect(glanceLine(rows)).toBe("39 waiting, nothing has a due date.");

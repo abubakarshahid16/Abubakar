@@ -19,7 +19,7 @@ export function GlanceTiles({ rows, onOpen }: { rows: GlanceRow[]; onOpen: (view
         </Tiles>
         {/* EVERY COUNT STATES ITS BOUNDARY (CLAUDE.md rule 4; H's gate, 27 Nov 2026: the tiles had dropped it) */}
         <Fold title="What these numbers count" testId="glance-boundary">
-          {rows.map((r) => <span key={r.label}>{TILE[r.label]?.name ?? r.label}: {r.inCount === null ? "how many came in is not known" : `${r.inCount} in`}, {r.waiting === null ? "waiting not known" : `${r.waiting} waiting`}, {r.done === null ? "done not known" : `${r.done} done`}; late: {r.lateNote}.</span>)}
+          {rows.map((r) => <span key={r.label}>{TILE[r.label]?.name ?? r.label}: {r.inCount === null ? "how many came in is not known" : `${r.inCount} in`}, {r.waiting === null ? "waiting not known" : `${r.waiting} waiting`}{r.working ? `, ${r.working} in progress (not waiting for you)` : ""}, {r.done === null ? "done not known" : `${r.done} done`}; late: {r.lateNote}.</span>)}
           <span>These counts cover only what you may open.</span>
         </Fold>
       </Stack>

@@ -20,6 +20,9 @@ export interface GlanceRow {
   /** null = could not be loaded (said as such, never 0). */
   inCount: number | null;
   waiting: number | null;
+  /** In progress, NOT waiting for you: a review still running, a query the AI is still working on, being sent or with the contractor.
+   *  null when it cannot be worked out (never 0 for an unknown, rule 4). */
+  working?: number | null;
   /** A number only when it was counted over a stated, non-empty set (rule 4: a count over nothing is not a 0). */
   late: number | null;
   done: number | null;
@@ -39,11 +42,14 @@ export function reviewsRow(d: ReviewDashboard | null): GlanceRow {
   // next would not add up).
   if (!d) return UNKNOWN_ROW("Document reviews");
   const signed = typeof d.reviews_signed === "number" ? d.reviews_signed : null;
-  const waiting = d.reviews_awaiting_decision + d.reviews_running;
+  // a review still RUNNING is not waiting for you (F's walk, 27 Nov 2026): it is in progress until it can be decided
+  const waiting = d.reviews_awaiting_decision;
+  const working = d.reviews_running;
   return {
     label: "Document reviews",
-    inCount: signed === null ? null : waiting + signed,
+    inCount: signed === null ? null : waiting + working + signed,
     waiting,
+    working,
     late: null,
     done: signed,
     lateStatus: "not_tracked",
@@ -65,7 +71,8 @@ export function queriesRow(m: Record<string, number> | null | "off"): GlanceRow 
   // ready for approval, and an approved reply not sent yet (the engineer sends the Word file; H's read of #1998)
   const forPerson = ["awaiting_review", "approved", "send_pending"];
   const waiting = forPerson.every((k) => typeof m[k] === "number") ? forPerson.reduce((n, k) => n + m[k], 0) : null;
-  const row = { label: "Technical queries and CFCs", inCount, waiting, done };
+  const working = waiting === null ? null : Math.max(0, inCount - done - waiting);
+  const row = { label: "Technical queries and CFCs", inCount, waiting, working, done };
   // late only with BOTH the count and its boundary, and only over a set that is not empty
   if (typeof m.overdue !== "number" || typeof m.open_with_due_date !== "number") {
     return { ...row, late: null, lateStatus: "unknown", lateNote: "could not be loaded" };
