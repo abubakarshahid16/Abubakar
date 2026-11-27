@@ -492,7 +492,7 @@ describe("Technical Queries screen", () => {
     expect(options).not.toContain("Sent");
   });
 
-  it("reads top to bottom (owner, 26 Nov 2026 22:41): one sentence, the ask, what the sources say, the reply, then everything else folded", async () => {
+  it("reads top to bottom (owner, 26 Nov 2026 22:41; Part 3, 27 Nov): one sentence, the ask, the reply, what the sources say, then everything else folded", async () => {
     render(<TechnicalQueriesView />);
     const headline = await screen.findByTestId("query-headline");
     const question = screen.getByRole("heading", { name: "What the contractor is asking" });
@@ -505,7 +505,7 @@ describe("Technical Queries screen", () => {
     const mail = screen.getByTestId("tq-folded-mail");
     const history = screen.getByTestId("review-history");
     const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    const order = [headline, question, sources, reply, more, evidence, who, email, mail, history];
+    const order = [headline, question, reply, sources, more, evidence, who, email, mail, history]; // Part 3: the reply before its sources
     expect(order.slice(1).map((part, i) => before(order[i], part))).toEqual(order.slice(1).map(() => true));
     for (const part of [more, evidence, who, email, mail, history]) {
       expect(part.tagName).toBe("DETAILS");
@@ -563,7 +563,11 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: drafted });
     api.saveQuestion.mockResolvedValue({ ok: true, data: { ...drafted, ready: { ...ready, evidence: "refreshing" } } });
     render(<TechnicalQueriesView queryId="q1" />);
-    expect((await screen.findByTestId("draft-author")).textContent).toBe("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
+    // who wrote it (it may name the model file) is inside the closed "How this was made" fold (owner's Part 3)
+    const made = await screen.findByTestId("how-made");
+    expect(made.tagName).toBe("DETAILS");
+    expect((made as HTMLDetailsElement).open).toBe(false);
+    expect(within(made).getAllByTestId("how-made-line").map((l) => l.textContent)).toContain("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
     expect(screen.getAllByTestId("question-mark").map((m) => m.textContent)).toContain("Invented server mark");
     fireEvent.click(await screen.findByRole("button", { name: "Edit" })); // shown once the ask has filled in
     fireEvent.change(screen.getByLabelText(/Edit what the contractor is asking/), { target: { value: "See attached.\n1. An invented edited request?" } });
