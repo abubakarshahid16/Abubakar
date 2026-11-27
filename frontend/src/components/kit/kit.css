@@ -114,7 +114,12 @@
 /* three in a row, or one per row, never 2 + 1 (H's gate, 27 Nov 2026) */
 /* as many tiles across as the SPACE allows, 11rem each at least (lead 4's 07:48 audit: at 800px the window rule stacked one per row
    with empty space beside each number): 3 across on a laptop, 2 then 1 beside the menu at 800, 1 on a phone */
-.kit-tiles { display: grid; gap: var(--kit-space-4); grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr)); }
+.kit-tiles { container-type: inline-size; display: grid; gap: var(--kit-space-4); grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), 1fr)); }
+/* TWO PER ROW, NO ORPHAN (lead 4's audit, 27 Nov 2026: at 800 the third tile sat alone beside empty space). Two columns fit from
+   2 x 11rem + 1 gap (368px) up to 3 x 11rem + 2 gaps (560px); there an odd last tile takes the whole row. */
+@container (min-width: 368px) and (max-width: 559.98px) {
+  .kit-tiles > .kit-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
 .kit-tile, :root[data-look="new"] main button.kit-tile, :root[data-look="new"] main a.kit-tile {
   display: flex; flex-direction: column; align-items: flex-start; gap: var(--kit-space-1); min-height: 0; text-align: left; text-decoration: none;
   background: var(--color-ink-800); border: 1px solid var(--color-ink-600); border-radius: var(--kit-radius-lg); padding: var(--kit-space-4);
