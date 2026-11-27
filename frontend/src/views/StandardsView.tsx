@@ -23,6 +23,7 @@
  * unbuilt one.
  */
 import { NEW_LOOK } from "../look";
+import { Button, LinkButton, StatusChip, Tag } from "../components/kit/Kit";
 import { formatWhen } from "../format/when";
 import { useCallback, useEffect, useState } from "react";
 
@@ -60,7 +61,8 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
   const [includeSuperseded, setIncludeSuperseded] = useState(true);
   const [query, setQuery] = useState("");
   // Rows shown per family; the rest wait behind "Show all" so 280 books are not drawn at once.
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  // H's audit 27: a family of 272 drew all 272 at once after "Show all"; it now opens 25 more at a time
+  const [shownOf, setShownOf] = useState<ReadonlyMap<string, number>>(new Map());
 
   const refresh = useCallback(async () => {
     const result = await api.standards({ include_superseded: includeSuperseded });
@@ -97,6 +99,10 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
             </p>
           )}
         </div>
+        {NEW_LOOK ? (
+          // the kit's toggle (H's audit 24: a raw checkbox): pressed while superseded books are listed
+          <Button size="sm" aria-pressed={includeSuperseded} onClick={() => setIncludeSuperseded((v) => !v)}>Show superseded</Button>
+        ) : (
         <label className="flex items-center gap-2 text-xs">
           <input
             type="checkbox"
@@ -105,6 +111,7 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
           />
           Show superseded
         </label>
+        )}
       </header>
 
       {load.standards.length === 0 ? (
@@ -121,7 +128,8 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name, number, title or family"
               aria-label="Search the standards library"
-              className="w-full max-w-md rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-sm"
+              // the kit's input (H's audit 22: no visible border in the new look)
+              className={NEW_LOOK ? "kit-input w-full max-w-md" : "w-full max-w-md rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-sm"}
             />
             <p className="text-xs opacity-70" data-testid="standards-shown">
               {matches.length === load.standards.length
@@ -133,8 +141,8 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
             <p className="text-sm opacity-70">No standard in your library matches that search.</p>
           )}
           {groups.map((group) => {
-            const all = expanded.has(group.family) || query.trim() !== "";
-            const shown = all ? group.rows : group.rows.slice(0, GROUP_PREVIEW);
+            const limit = query.trim() !== "" ? group.rows.length : (shownOf.get(group.family) ?? GROUP_PREVIEW);
+            const shown = group.rows.slice(0, limit);
             return (
               <section key={group.family} aria-label={`${group.family} standards`} className="flex flex-col gap-2">
                 <h3 className="text-sm font-medium opacity-80">
@@ -153,13 +161,12 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
                   ))}
                 </ul>
                 {shown.length < group.rows.length && (
-                  <button
-                    type="button"
-                    className="self-start text-xs text-signal-400 hover:underline"
-                    onClick={() => setExpanded(new Set([...expanded, group.family]))}
-                  >
-                    Show all {group.rows.length.toLocaleString()} {group.family} standards
-                  </button>
+                  <p className="text-xs text-slateish-400">
+                    Showing {shown.length.toLocaleString()} of {group.rows.length.toLocaleString()} {group.family} standards.{" "}
+                    <LinkButton tone="action" size="xs" onClick={() => setShownOf(new Map(shownOf).set(group.family, shown.length + GROUP_PREVIEW))}>
+                      Show {Math.min(GROUP_PREVIEW, group.rows.length - shown.length)} more
+                    </LinkButton>
+                  </p>
                 )}
               </section>
             );
@@ -192,16 +199,17 @@ function StandardRow({
     <button
       type="button"
       onClick={onOpen}
-      className="w-full rounded border border-white/10 bg-white/[0.02] p-3 text-left"
+      // the kit's full-width row in the new look (H's audit 73: boxed in dark, plain in light; the row keeps its own element)
+      className={NEW_LOOK ? "kit-row-btn" : "w-full rounded border border-white/10 bg-white/[0.02] p-3 text-left"}
     >
       <div className="flex flex-wrap items-center gap-2">
         {/* The number is how an engineer names a standard. Falls back to the
             filename rather than rendering an empty heading. */}
         <span className="font-medium">{displayName(standard)}</span>
         {standard.revision && (
-          <span className="rounded bg-white/10 px-2 py-0.5 text-xs">Rev {standard.revision}</span>
+          NEW_LOOK ? <Tag>Rev {standard.revision}</Tag> : <span className="rounded bg-white/10 px-2 py-0.5 text-xs">Rev {standard.revision}</span>
         )}
-        {standard.superseded ? (
+        {NEW_LOOK ? <StatusChip word={standard.superseded ? "Superseded" : "Active"} /> : standard.superseded ? (
           <span className="rounded bg-warn-500/20 px-2 py-0.5 text-xs text-warn-500">
             Superseded
           </span>
@@ -216,7 +224,7 @@ function StandardRow({
             The raw value is still reachable, because it is what the cover
             page actually says - and the tooltip appears ONLY when the two
             differ, so an unmapped value carries no pointless hover. */}
-        {(standard.discipline_canonical || standard.discipline) && (
+        {!NEW_LOOK && (standard.discipline_canonical || standard.discipline) && (
           <span
             className="rounded bg-white/5 px-2 py-0.5 text-xs"
             title={
@@ -238,6 +246,12 @@ function StandardRow({
         <p className="mt-1 text-xs opacity-60">File: {standard.filename}</p>
       )}
       <p className="mt-1 text-xs opacity-70">
+        {/* H's audit 23: the committee always on this line, so rows never jump between "beside the name" and "below it" */}
+        {NEW_LOOK && (standard.discipline_canonical || standard.discipline) && (
+          <span title={standard.discipline && standard.discipline_canonical && standard.discipline !== standard.discipline_canonical ? `the document says "${standard.discipline}"` : undefined}>
+            {standard.discipline_canonical || standard.discipline} ·{" "}
+          </span>
+        )}
         {standard.effective_date && <>Effective {formatWhen(standard.effective_date)} · </>}
         {/* ZERO IS A REAL ANSWER and is worded as one. "0 requirements" would
             read as "this standard requires nothing". */}
