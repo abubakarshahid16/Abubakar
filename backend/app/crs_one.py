@@ -270,19 +270,47 @@ def row_of(
 # ------------------------------------------------------------------------------------------------ the facts of the paper and its runs
 
 
-def _engine_of(conn, run_id: str, model: str, part: str) -> str:
-    """The engine of a run: from its stored model name; else from the engine choice stored with the run (Claude or Local, "model name not
-    recorded"); else NOT_RECORDED. Never a guess."""
+def _engine_of(conn, run_id: str, model: str, part: str, names: dict | None = None) -> str:
+    """The engine of a run, in the SAME words as its models row (order 14 LPV V4): from the models its own rows name by engine
+    (`run_record.models_used`: Claude, Local, or Claude and Local, with each name once); else from its stored model name; else from
+    the engine choice stored with the run ("model name not recorded" when no name is stored); else NOT_RECORDED. Never a guess."""
+    names = names or {}
+    known = [n for k in ("claude", "local") for n in names.get(k, [])]
+    words = {(True, False): "Claude", (False, True): "Local", (True, True): "Claude and Local"}.get(
+        (bool(names.get("claude")), bool(names.get("local")))
+    )
+    if words:
+        return f"{words} ({', '.join([*known, *names.get('unknown', [])])})"
     if model:
         return "Claude" if model.startswith("claude") else "Local"
+    named = ", ".join(names.get("unknown", [])) or "model name not recorded"
     try:
         row = conn.execute("SELECT plan_json FROM review_engine_choice WHERE run_id = ?", (run_id,)).fetchone()
         for p in (json.loads(row["plan_json"]).get("parts") or []) if row else []:
             if p.get("name") == part and p.get("engine") in ("claude", "local"):
-                return f"{'Claude' if p['engine'] == 'claude' else 'Local'} (model name not recorded)"
+                return f"{'Claude' if p['engine'] == 'claude' else 'Local'} ({named})"
     except Exception:  # noqa: BLE001 - no stored choice (an older run, or no table): not recorded
         logging.getLogger(__name__).debug("no engine choice stored for run %s", run_id)
     return NOT_RECORDED
+
+
+def rule_check_equipment(outcome_json: object) -> str | None:
+    """The equipment type a rule-check run recorded (order 14 LPV V4): the types its applicability step read, or "type unsure:
+    <reason>" when the step said the type is unsure; None when the run recorded neither (shown as "not recorded")."""
+    from .agent_review_kind import UNSURE_PREFIX
+
+    try:
+        got = (json.loads(outcome_json) if isinstance(outcome_json, str) else {}).get("applicability") or {}
+    except ValueError:
+        return None
+    types = [str(t) for t in got.get("submittal_equipment") or [] if t]
+    if types:
+        return ", ".join(types)
+    unsure = " ".join(str(got.get("equipment_unsure") or "").split())
+    lead = "equipment " + UNSURE_PREFIX
+    if unsure:
+        return UNSURE_PREFIX + (unsure[len(lead):] if unsure.lower().startswith(lead) else unsure)
+    return None
 
 
 def _run_facts(extra: dict) -> list[dict]:
@@ -291,12 +319,16 @@ def _run_facts(extra: dict) -> list[dict]:
     out = []
     rc, ai = extra.get("rc_run"), extra.get("ai_run")
     if rc:
+        from . import run_record
+
         r = conn.execute("SELECT * FROM review_runs WHERE id = ?", (rc,)).fetchone()
         model = (r["model_name"] if r else None) or ""
+        names = run_record.models_used(conn, rc, dict(r)) if r else {}  # V4: the local model's name too, when the run stored it
+        listed = [n for k in ("claude", "local", "unknown") for n in names.get(k, [])]
         out.append({
-            "what": "Rule check", "run": rc, "engine": _engine_of(conn, rc, model, "rule_check"),
-            "models": [model] if model else [], "date": (r["completed_at"] or r["started_at"]) if r else None, "kind": None,
-            "equipment": None, "usd": None,
+            "what": "Rule check", "run": rc, "engine": _engine_of(conn, rc, model, "rule_check", names),
+            "models": listed or ([model] if model else []), "date": (r["completed_at"] or r["started_at"]) if r else None,
+            "kind": None, "equipment": rule_check_equipment(r["outcome_json"] if r else None), "usd": None,
         })  # fmt: skip
     if ai:
         r = conn.execute(
@@ -324,7 +356,7 @@ def _paper_facts(paper_id: str, runs: list[dict]) -> dict:
     kind = next(
         (r["kind"] for r in runs if r.get("kind")), None
     ) or kind_words.decided_kind(paper_id)
-    equipment = next((r["equipment"] for r in runs if r.get("equipment")), None)
+    equipment = next((r["equipment"] for r in reversed(runs) if r.get("equipment")), None)  # the AI review's record first
     head = crs_ai_header.document_header(conn, paper_id, equipment)
     return {
         "name": (doc["filename"] if doc else None) or paper_id, "kind": kind_words.noun_of_kind(kind) if kind else NOT_RECORDED,
@@ -332,9 +364,13 @@ def _paper_facts(paper_id: str, runs: list[dict]) -> dict:
     }  # fmt: skip
 
 
+#: order 14 LPV V4: nobody has decided a point of this paper yet: a fact, not a missing record
+NO_DECISION_YET = "no point decided yet"
+
+
 def _people(paper_id: str, names: dict) -> str:
     who = sorted({names.get(p) or p for p in decisions_mod.people(paper_id)})
-    return ", ".join(who) or NOT_RECORDED
+    return ", ".join(who) or NO_DECISION_YET
 
 
 def _header_pairs(

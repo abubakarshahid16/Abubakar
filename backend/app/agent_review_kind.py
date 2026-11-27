@@ -50,6 +50,13 @@ def decided_by(method: str | None, page: int | None = None, guess: bool = False)
     return f"decided by: {words}{where}{tail}"
 
 
+#: the record of a datasheet run whose equipment type is not known (order 14 LPV V4)
+UNSURE_PREFIX = "type unsure: "
+NO_TYPE_REASON = "the paper names no equipment type the app's list knows"
+KIND_UNKNOWN_REASON = "the paper kind is not known"
+NOT_A_DATASHEET = "not a datasheet"
+
+
 @dataclass(frozen=True)
 class PaperReading:
     kind: str  # "datasheet", "procedure", ... or "unknown"
@@ -61,10 +68,25 @@ class PaperReading:
     equipment_source: str | None
     page: int | None = None
     candidates: tuple[str, ...] = ()
+    #: why the equipment type is not known (the app's one reader's doubt), or None (order 14 LPV V4)
+    equipment_unsure: str | None = None
 
     @property
     def decided_by(self) -> str:
         return decided_by(self.method, self.page, self.guess)
+
+    @property
+    def equipment_record(self) -> str:
+        """What the run RECORDS as its equipment type (order 14 LPV V4), never empty: the type; for a datasheet "type unsure:
+        <reason>"; for another kind "not a datasheet (<kind>)"; an unknown kind says so. Only the record: every rule decision still
+        reads `equipment_type` (None when unsure)."""
+        if self.equipment_type:
+            return self.equipment_type
+        if not self.known:
+            return f"{UNSURE_PREFIX}{KIND_UNKNOWN_REASON}"
+        if self.kind != "datasheet":
+            return f"{NOT_A_DATASHEET} ({self.kind.replace('_', ' ')})"
+        return f"{UNSURE_PREFIX}{self.equipment_unsure or NO_TYPE_REASON}"
 
     def as_dict(self) -> dict:
         """The kind as the item builder takes it: {'kind', 'known', 'method', 'guess'} (kind None when unknown)."""
@@ -158,16 +180,30 @@ def read_equipment(
     document_id: str, allowed: frozenset[str]
 ) -> tuple[str | None, str | None]:
     """(equipment type, where it was read) by the app's one reader; (None, None) when unknown or doubtful."""
+    return equipment_reading(document_id, allowed)[:2]
+
+
+def equipment_reading(
+    document_id: str, allowed: frozenset[str]
+) -> tuple[str | None, str | None, str | None]:
+    """(equipment type, where it was read, why it is not known) by the app's one reader (`subject_scope.read_equipment`). The
+    reason is the reader's own doubt sentence (its "equipment type unsure: " lead taken off), else None."""
     from . import classification, datasheets, subject_scope
 
     facts = datasheets.list_facts(document_id, allowed_document_ids=allowed)
     record = classification.of_document(document_id) or {}
-    found, source, _doubt = subject_scope.read_equipment(
+    found, source, doubt = subject_scope.read_equipment(
         record, facts, subject_scope.vocabulary()
     )
-    if not found:
-        return None, source
-    return sorted(found)[0], source
+    if found:
+        return sorted(found)[0], source, None
+    reason = " ".join(str((doubt or {}).get("reason") or "").split())
+    lead = "equipment " + UNSURE_PREFIX
+    return (
+        None,
+        source,
+        (reason[len(lead) :] if reason.lower().startswith(lead) else reason) or None,
+    )
 
 
 def decide(document_id: str, allowed: frozenset[str]) -> PaperReading:
@@ -181,8 +217,8 @@ def decide(document_id: str, allowed: frozenset[str]) -> PaperReading:
         kind, source = str(got["kind"]), SOURCE_GUESS
     else:
         kind, source = str(got["kind"]), SOURCE_READ
-    equipment, equipment_source = (
-        read_equipment(document_id, allowed) if known else (None, None)
+    equipment, equipment_source, unsure = (
+        equipment_reading(document_id, allowed) if known else (None, None, None)
     )
     return PaperReading(
         kind,
@@ -194,6 +230,7 @@ def decide(document_id: str, allowed: frozenset[str]) -> PaperReading:
         equipment_source,
         got.get("page"),
         tuple(got.get("candidates") or ()),
+        unsure,
     )
 
 

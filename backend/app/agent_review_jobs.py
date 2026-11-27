@@ -594,7 +594,7 @@ def _finish(
             "INSERT OR REPLACE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, equipment_type,"
             " usd, models_json, stop_reason, counts_json, items_total, partial, rule_set_changed_by, started_at, finished_at,"
             " equipment_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)",
-            (run_id, submittal, kind.kind, kind.source, kind.equipment_type, usd, json.dumps(models), stop,
+            (run_id, submittal, kind.kind, kind.source, kind.equipment_record, usd, json.dumps(models), stop,
              json.dumps(counts, default=str), len(items), 1 if partial else 0, started, _now(),
              json.dumps({**_equipment_facts(plan["block"]), "page_reread": reread})),
         )  # fmt: skip
@@ -609,7 +609,7 @@ def _write_run_start(
         conn.execute(
             "INSERT OR IGNORE INTO agent_review_run (run_id, submittal_document_id, paper_kind, kind_source, equipment_type,"
             " started_at) VALUES (?,?,?,?,?,?)",
-            (run_id, submittal, kind.kind, kind.source, kind.equipment_type, started),
+            (run_id, submittal, kind.kind, kind.source, kind.equipment_record, started),
         )
 
 
