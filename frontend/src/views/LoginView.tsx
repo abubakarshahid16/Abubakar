@@ -19,7 +19,8 @@ import { useId, useState, type FormEvent } from "react";
 import { SIGN_IN_ENDED_LINE, clearSignInEnded, useSignInEndedOnStart } from "../components/review/workspace/startFailures";
 import type { SessionExpired } from "../hooks/useSessionExpiry";
 import type { LoginRequest, Me } from "../types/api";
-import { Tag } from "../components/kit/Kit";
+import { Button, Fold, LinkButton, Tag } from "../components/kit/Kit";
+import { NEW_LOOK } from "../look";
 
 export type LoginOutcome =
   | { ok: true }
@@ -29,6 +30,7 @@ export type ResetOutcome = { ok: true } | { ok: false; message: string };
 
 // The ONE string. Never branch on which half was wrong.
 const CREDENTIALS_MESSAGE = "That email and password did not match an account.";
+const MISSING_MESSAGE = "Enter your email and password.";
 const RATE_LIMITED_MESSAGE =
   "Too many sign-in attempts. Wait a minute and try again.";
 const OFFLINE_MESSAGE =
@@ -87,6 +89,12 @@ export function LoginView({
       setError(OFFLINE_MESSAGE);
       return;
     }
+    // the button stays a real, enabled button (owner, 27 Nov 2026 08:45: a disabled "Sign in" read as plain grey text), so an
+    // empty field is said in words here instead
+    if (email.trim().length === 0 || password.length === 0) {
+      setError(MISSING_MESSAGE);
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await onLogin({ email: email.trim(), password });
@@ -127,7 +135,7 @@ export function LoginView({
           </h1>
         </div>
 
-        <div className="rounded-[var(--radius-lg)] border border-ink-700 bg-ink-800 px-6 py-6 shadow-lg shadow-black/20">
+        <div className={NEW_LOOK ? "kit-card" : "rounded-[var(--radius-lg)] border border-ink-700 bg-ink-800 px-6 py-6 shadow-lg shadow-black/20"}>
           <header className="mb-5 flex items-start justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-slateish-200">Sign in</h2>
@@ -160,7 +168,7 @@ export function LoginView({
             disabled={disabled}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200 placeholder:text-slateish-500 disabled:opacity-40"
+            className={NEW_LOOK ? "kit-input mt-1 w-full" : "mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200 placeholder:text-slateish-500 disabled:opacity-40"}
           />
         </div>
 
@@ -177,7 +185,7 @@ export function LoginView({
             disabled={disabled}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200 disabled:opacity-40"
+            className={NEW_LOOK ? "kit-input mt-1 w-full" : "mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200 disabled:opacity-40"}
           />
         </div>
 
@@ -192,6 +200,12 @@ export function LoginView({
           )}
         </div>
 
+        {NEW_LOOK ? (
+          // the kit's primary button (owner, 27 Nov 2026 08:45: "Sign in" looked like plain grey text)
+          <Button variant="primary" type="submit" disabled={disabled} aria-busy={submitting}>
+            {submitting ? "Signing in…" : "Sign in"}
+          </Button>
+        ) : (
         <button
           type="submit"
           disabled={disabled || email.length === 0 || password.length === 0}
@@ -200,7 +214,15 @@ export function LoginView({
         >
           {submitting ? "Signing in…" : "Sign in"}
         </button>
+        )}
       </form>
+          {NEW_LOOK ? (
+            <p className="mt-3 text-center">
+              <LinkButton tone="action" size="sm" onClick={() => { setResetOpen((open) => !open); setResetMessage(null); }}>
+                {resetOpen ? "Back to sign in" : "Set or reset password"}
+              </LinkButton>
+            </p>
+          ) : (
           <button
             type="button"
             onClick={() => { setResetOpen((open) => !open); setResetMessage(null); }}
@@ -208,6 +230,7 @@ export function LoginView({
           >
             {resetOpen ? "Back to sign in" : "Set or reset password"}
           </button>
+          )}
           {resetOpen && (
             <form
               className="mt-4 space-y-3 border-t border-ink-600 pt-4"
@@ -234,24 +257,26 @@ export function LoginView({
                 One-time reset code
                 <input required value={resetToken} onChange={(e) => setResetToken(e.target.value)}
                   autoComplete="one-time-code"
-                  className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+                  className={NEW_LOOK ? "kit-input mt-1 w-full" : "mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200"} />
               </label>
               <label className="block text-xs font-medium text-slateish-300">
                 New password
                 <input required minLength={12} type="password" value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password"
-                  className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+                  className={NEW_LOOK ? "kit-input mt-1 w-full" : "mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200"} />
               </label>
               <label className="block text-xs font-medium text-slateish-300">
                 Confirm new password
                 <input required minLength={12} type="password" value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password"
-                  className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200" />
+                  className={NEW_LOOK ? "kit-input mt-1 w-full" : "mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-200"} />
               </label>
               {resetMessage && <p role="status" className="text-sm text-slateish-300">{resetMessage}</p>}
+              {NEW_LOOK ? <Button variant="primary" type="submit">Save new password</Button> : (
               <button type="submit" className="w-full rounded-[var(--radius-xs)] bg-signal-500/20 px-4 py-2 text-sm font-medium text-signal-300 ring-1 ring-signal-500/50">
                 Save new password
               </button>
+              )}
             </form>
           )}
         </div>
@@ -260,6 +285,19 @@ export function LoginView({
             not instructions for signing in. They stay because they are the two
             facts a security reviewer checks first, and burying them in a
             tooltip would be hiding the product's best argument. */}
+        {NEW_LOOK ? (
+          // two short lines, the rest folded (owner, 27 Nov 2026 08:45: the long grey paragraph was hard to read)
+          <div className="mt-5 text-sm text-slateish-300">
+            <p>You stay signed in for 8 hours or until you sign out. On a shared computer, sign out.</p>
+            <Fold title="More about sign-in">
+              <p>
+                Your sign-in is kept in a protected browser cookie that this page cannot read. It survives closing the browser, and
+                reloading the page does not sign you out. Over plain http on a network address the server keeps no cookie, and then a
+                reload does sign you out.
+              </p>
+            </Fold>
+          </div>
+        ) : (
         <p className="mt-5 text-xs leading-relaxed text-slateish-400">
           Your sign-in is kept in a protected browser cookie that this page cannot
           read. It lasts 8 hours or until you sign out, and it survives closing the
@@ -267,6 +305,7 @@ export function LoginView({
           you out. Over plain http on a network address the server keeps no
           cookie, and then a reload does sign you out.
         </p>
+        )}
         {/* Whether Claude is switched on is not knowable before sign-in (the
             status route needs a session), so this states both halves, in the
             words the sidebar uses once signed in (CLAUDE.md rule 1). */}

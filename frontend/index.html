@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>RAG Intelligence System</title>
+    <!-- THE THEME AND LOOK BEFORE THE FIRST PAINT (owner, 27 Nov 2026 08:45: the sign-in page's background flipped between
+         pale blue and white from one load to the next, because App stamped them only after React's first paint). The same
+         choice App makes: the saved theme, else dark; the look from the build switch. App's own effect still runs. -->
+    <script>
+      (function () {
+        var theme = "dark";
+        try { var saved = localStorage.getItem("rag-intelligence-theme"); if (saved === "light" || saved === "dark") theme = saved; } catch (e) {}
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.setAttribute("data-look", "%VITE_UI_NEW_LOOK%" === "true" ? "new" : "classic");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
