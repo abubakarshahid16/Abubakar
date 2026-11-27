@@ -439,15 +439,33 @@ def _word_quantity(text: str) -> bool:
     return False
 
 
+def _without_citations(text: str) -> str:
+    """The text with every cited standard identifier ("NACE MR0175", "ISO 15156", "API 520") blanked, by the project's one
+    identifier matcher: the digits of a standard's NAME are not a quantity of the rule."""
+    from . import standard_ids
+
+    out = text
+    for _cited, start, end in standard_ids.find_citations(text):
+        out = out[:start] + " " * (end - start) + out[end:]
+    return out
+
+
 def quote_states_a_quantity(quote: str | None) -> bool:
     """True when the quote states a quantity, by the project's own number code (`numparse.find_numbers`). A number
     counts unless it is (1) a leading clause or paragraph number ("4.2.1 ...", "(1) The ..."; "5 mm minimum" is not one),
     (2) joined to a name by a hyphen ("T-29"), or (3) directly after a reference word (table, figure, note, clause,
     section, type, class, grade, item, no. ...) AND not followed by anything but the end, punctuation or a common word
-    (`_unit_follows`). Every other number counts. (Lifted from the lab labeller's reviewed rule, exp12 c48daa34.)"""
+    (`_unit_follows`), or (4) part of a cited standard identifier (`_without_citations`): rule (4) can only REMOVE a
+    quantity the other rules found, never add one. Every other number counts. (Lifted from the lab labeller's reviewed rule,
+    exp12 c48daa34.)"""
     original = str(quote or "")
     lead = _LEADING_CLAUSE.match(original)
-    text = numparse.fold_numbers(original[lead.end() :] if lead else original)
+    body = original[lead.end() :] if lead else original
+    return _states_a_quantity(body) and _states_a_quantity(_without_citations(body))
+
+
+def _states_a_quantity(body: str) -> bool:
+    text = numparse.fold_numbers(body)
     references = {w.rstrip(".") for w in REFERENCE_WORDS}
     for n in numparse.find_numbers(text):
         if n.value is None or n.joined:
