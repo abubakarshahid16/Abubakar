@@ -93,6 +93,9 @@ describe("the query page's lower half", () => {
     expect(local.checked).toBe(true);
     expect(claude.disabled).toBe(true);
     expect(screen.getByTestId("claude-why").textContent).toContain("the Claude account has no credit");
+    // one sentence on its own line under the label, never a stray " : " after it (H's Q5, 27 Nov 2026)
+    expect(screen.getByTestId("claude-why").textContent).toBe("Not available now: the Claude account has no credit.");
+    expect(claude.closest("label")?.textContent ?? "").not.toMatch(/\)\s*:/);
   });
 
   it("one form and one Save for who handles it: the routing fields, then the person", async () => {
