@@ -1,0 +1,687 @@
+{
+ "components/analysis/ClaimTable.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/analysis/CoverageLedger.tsx": {
+  "table": 1,
+  "card": 1,
+  "notice": 0
+ },
+ "components/analysis/GapAnalysisCard.tsx": {
+  "table": 0,
+  "card": 13,
+  "notice": 4
+ },
+ "components/analysis/MarketPanelContent.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/analysis/MarketPanelDialogs.tsx": {
+  "table": 0,
+  "card": 5,
+  "notice": 1
+ },
+ "components/analysis/MarketPanelPrimitives.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 2
+ },
+ "components/analysis/MarketPill.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/analysis/ModeSelector.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 2
+ },
+ "components/analysis/NamedNotRead.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/analysis/RemovedSentences.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/analysis/ReviewWorkflowPanel.tsx": {
+  "table": 0,
+  "card": 7,
+  "notice": 2
+ },
+ "components/analysis/SummaryCard.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/chat/AnswerActions.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/chat/AnswerCardContent.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 3
+ },
+ "components/chat/AnswerCardView.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 3
+ },
+ "components/chat/AnswerInsufficient.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/chat/AnswerNonDocument.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 2
+ },
+ "components/chat/AnswerVerdict.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 2
+ },
+ "components/chat/ChatEmptyState.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/chat/Composer.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 2
+ },
+ "components/chat/DocumentPicker.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/chat/DraftCommentCard.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 1
+ },
+ "components/chat/EvidencePanel.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 3
+ },
+ "components/chat/GeneratedAnswer.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/chat/LocalWork.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/chat/Markdown.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/chat/Provenance.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/chat/RecentChats.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/chat/SourcePreview.tsx": {
+  "table": 1,
+  "card": 2,
+  "notice": 2
+ },
+ "components/chat/UsedLine.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 2
+ },
+ "components/chat/WebAnswer.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/ChunkInspector.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 8
+ },
+ "components/classification/TypeFilter.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/CommandPalette.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 0
+ },
+ "components/dashboard/AtAGlance.tsx": {
+  "table": 1,
+  "card": 1,
+  "notice": 0
+ },
+ "components/dashboard/MetricWarning.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 2
+ },
+ "components/DocumentCard.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 13
+ },
+ "components/DocumentKindChip.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/DocumentPreview.tsx": {
+  "table": 1,
+  "card": 2,
+  "notice": 0
+ },
+ "components/DocumentRoleChip.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/Drawer.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/ErrorBoundary.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/ExcludedViewer.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 3
+ },
+ "components/FreeModelMemory.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/PageImageViewer.tsx": {
+  "table": 0,
+  "card": 4,
+  "notice": 3
+ },
+ "components/review/agent/AgentLines.tsx": {
+  "table": 1,
+  "card": 0,
+  "notice": 0
+ },
+ "components/review/agent/AgentSummary.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/review/agent/AgentTrace.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/agent/AiReviewPanel.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/agent/PaperTextNotice.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/review/agent/RulesUsedPanel.tsx": {
+  "table": 3,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/crs/BeforeYouSign.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/crs/CrsEvidenceDrawer.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 1
+ },
+ "components/review/crs/CrsHeader.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 2
+ },
+ "components/review/crs/CrsRow.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/crs/CrsTable.tsx": {
+  "table": 1,
+  "card": 0,
+  "notice": 0
+ },
+ "components/review/CrsCommentControls.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 0
+ },
+ "components/review/CrsPreviewSheet.tsx": {
+  "table": 4,
+  "card": 3,
+  "notice": 0
+ },
+ "components/review/DocumentsFromContractors.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/EvidencePageImage.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/FindingDetail.tsx": {
+  "table": 0,
+  "card": 7,
+  "notice": 3
+ },
+ "components/review/FindingsTable.tsx": {
+  "table": 1,
+  "card": 6,
+  "notice": 1
+ },
+ "components/review/general/CommentCards.tsx": {
+  "table": 0,
+  "card": 6,
+  "notice": 0
+ },
+ "components/review/general/GeneralResults.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/general/HowReviewMade.tsx": {
+  "table": 3,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/general/SignBar.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 0
+ },
+ "components/review/how/AiStepsSection.tsx": {
+  "table": 1,
+  "card": 0,
+  "notice": 0
+ },
+ "components/review/how/HowPrimitives.tsx": {
+  "table": 1,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/inbox/InboxList.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 1
+ },
+ "components/review/panels/BehindTheScenes.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 3
+ },
+ "components/review/panels/RunReviewControl.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 1
+ },
+ "components/review/panels/RunSummary.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/panels/StandardsInScope.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 2
+ },
+ "components/review/panels/StartPanel.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/ReadinessStrip.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/ReviewCodePanel.tsx": {
+  "table": 0,
+  "card": 5,
+  "notice": 1
+ },
+ "components/review/ReviewDashboardPanel.tsx": {
+  "table": 0,
+  "card": 4,
+  "notice": 3
+ },
+ "components/review/sheet/DecisionCard.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 1
+ },
+ "components/review/sheet/SheetCard.tsx": {
+  "table": 0,
+  "card": 4,
+  "notice": 1
+ },
+ "components/review/sheet/ZoomablePage.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/SideBySideEvidence.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/StandardOverrideControl.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 0
+ },
+ "components/review/v2/AddPoint.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/v2/BottomRow.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/v2/CodeBox.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 0
+ },
+ "components/review/v2/EngineBar.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/v2/HowTab.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/v2/NotApplicableSection.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/v2/OlderFiles.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 0
+ },
+ "components/review/v2/PointsList.tsx": {
+  "table": 0,
+  "card": 6,
+  "notice": 0
+ },
+ "components/review/v2/Tiles.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/workspace/ActionBar.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/review/workspace/compare/CompareReviews.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/workspace/decide/DecisionPanel.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/workspace/FinishedReviewNotice.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/workspace/landing/AllReviewsList.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/workspace/landing/LandingDocumentRow.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/review/workspace/landing/StartReviewBar.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "components/review/workspace/landing/WorkspaceLanding.tsx": {
+  "table": 0,
+  "card": 4,
+  "notice": 0
+ },
+ "components/review/workspace/LeaveConfirm.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/review/workspace/NewReviewDropZone.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/review/workspace/ReviewWorkspace.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 2
+ },
+ "components/review/workspace/sign/SignConfirm.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/review/workspace/SignOffPanel.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "components/review/workspace/standards/MissingStandardsPanel.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "components/Shell.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/standards/MissingStandards.tsx": {
+  "table": 1,
+  "card": 0,
+  "notice": 0
+ },
+ "components/states.tsx": {
+  "table": 0,
+  "card": 4,
+  "notice": 4
+ },
+ "components/Uploader.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "components/WorkerPanel.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 5
+ },
+ "views/admin/CompanyStandardsSection.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 2
+ },
+ "views/admin/DatabaseSection.tsx": {
+  "table": 2,
+  "card": 2,
+  "notice": 1
+ },
+ "views/admin/ReviewModelSection.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "views/admin/TechnicalQueryReviewersSection.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "views/AdminView.tsx": {
+  "table": 2,
+  "card": 12,
+  "notice": 3
+ },
+ "views/analysis/AnalysisControls.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 1
+ },
+ "views/analysis/AnalysisModeScreenView.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "views/analysis/AnalysisResultSections.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 2
+ },
+ "views/analysis/AnalysisRunPlan.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 1
+ },
+ "views/analysis/AnalysisSources.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "views/ChatView.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 0
+ },
+ "views/CrsSheetView.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 2
+ },
+ "views/DashboardPrimitives.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 3
+ },
+ "views/DashboardTechnicalDetails.tsx": {
+  "table": 0,
+  "card": 4,
+  "notice": 2
+ },
+ "views/DashboardViewContent.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "views/DeliverablesView.tsx": {
+  "table": 0,
+  "card": 10,
+  "notice": 3
+ },
+ "views/DocumentsView.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 0
+ },
+ "views/HowReviewedView.tsx": {
+  "table": 0,
+  "card": 0,
+  "notice": 1
+ },
+ "views/IngestionView.tsx": {
+  "table": 0,
+  "card": 5,
+  "notice": 3
+ },
+ "views/LoginView.tsx": {
+  "table": 0,
+  "card": 7,
+  "notice": 5
+ },
+ "views/ReportsScreen.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 2
+ },
+ "views/ReportsView.tsx": {
+  "table": 0,
+  "card": 3,
+  "notice": 2
+ },
+ "views/ReviewCrsList.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 0
+ },
+ "views/ReviewSheetView.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 2
+ },
+ "views/StandardsView.tsx": {
+  "table": 0,
+  "card": 2,
+  "notice": 6
+ },
+ "views/SubmittalsLandingView.tsx": {
+  "table": 0,
+  "card": 1,
+  "notice": 3
+ },
+ "views/TechnicalQueriesView.tsx": {
+  "table": 0,
+  "card": 28,
+  "notice": 0
+ }
+}
