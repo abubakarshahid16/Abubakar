@@ -505,6 +505,12 @@ def edit(
     return tq.get(query_id, user_id, is_admin, unrestricted)
 
 
+def _match_terms(question: str) -> list[str]:
+    from .technical_query_match import key_terms
+
+    return key_terms(question or "")
+
+
 def ready(item: dict[str, Any]) -> dict[str, Any]:
     """For the screen: what is there, and whether it was made for the current wording."""
     question, source = working(item)
@@ -571,6 +577,9 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
             item
         ),  # found by an older search: not fresh, so the page offers "Find the sources again"
         "evidence_outdated": evidence_outdated(item),
+        # how many key words the CURRENT question holds: a source scored against more was searched for a longer text (a whole mail),
+        # not for this question (lead-5's 1f, 27 Nov 2026: a composed ask of several items holds more than 60 on its own)
+        "question_terms": len(_match_terms(question)),
         "draft": "refreshing"
         if busy
         else "ready"
