@@ -6,6 +6,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TechnicalQueriesView } from "./TechnicalQueriesView";
+import { mostCommon } from "./TechnicalQueriesList";
+import { NEW_LOOK } from "../look";
 import { agoWords, countLine, mailboxChip, problemChips, queryTag, quickMatch, statusChip } from "./technicalQueryQuestion";
 
 const base = { contractor_name: null, department: null, assignee_user_id: null, priority: "normal", received_at: "2026-01-01T00:00:00Z", due_at: null, can_review: true, messages: [], evidence: [] };
@@ -217,3 +219,57 @@ describe("the list page's words", () => {
     expect(quickMatch("person", { status: "drafting", needs_person: 0, ref_type: null })).toBe(true);
   });
 });
+
+describe("easy to read (owner, 27 Nov 2026 12:32: 'hard to read, too much text')", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // the page remembers a chosen quick view: start each of these with the whole list
+    try { localStorage.clear(); sessionStorage.clear(); } catch { /* storage may be absent */ }
+    window.history.replaceState({}, "", "/");
+    api.get.mockResolvedValue({ ok: true, data: rows[0] });
+    api.metrics.mockResolvedValue({ ok: true, data: { total: 3 } });
+    api.mailboxes.mockResolvedValue({ ok: true, data: { items: [] } });
+    api.assignees.mockResolvedValue({ ok: true, data: { items: [] } });
+    api.routingRules.mockResolvedValue({ ok: true, data: { items: [] } });
+  });
+
+  it("mixed states: a row shows its state only when it differs from most rows, and one line says what an unmarked row is", async () => {
+    api.list.mockResolvedValue({ ok: true, data: { items: rows } }); // 1 waiting for approval, 2 in progress
+    render(<TechnicalQueriesView />);
+    await screen.findByTestId("count-line");
+    const chips = screen.getAllByTestId("status-chip").map((c) => c.textContent);
+    if (NEW_LOOK) {
+      expect(chips).toEqual(["Waiting for approval"]);
+      expect(screen.getByTestId("common-state-note").textContent).toBe("A query with no label below is in progress.");
+    } else {
+      expect(chips).toHaveLength(3); // the classic look keeps a chip on every row
+    }
+  });
+
+  it("one shared state: no row repeats it (the count line says it once), and no extra line", async () => {
+    api.list.mockResolvedValue({ ok: true, data: { items: rows.map((r) => ({ ...r, status: "awaiting_review" })) } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("count-line")).textContent).toContain("3 waiting for approval");
+    if (NEW_LOOK) {
+      expect(screen.queryAllByTestId("status-chip")).toHaveLength(0);
+      expect(screen.queryByTestId("common-state-note")).toBeNull();
+    } else {
+      expect(screen.getAllByTestId("status-chip")).toHaveLength(3);
+    }
+  });
+
+  it("a long title may take two lines before it is cut, and keeps its full text in the title", async () => {
+    api.list.mockResolvedValue({ ok: true, data: { items: rows } });
+    render(<TechnicalQueriesView />);
+    const title = await screen.findByText("Invented coating question");
+    expect(title.className).toBe(NEW_LOOK ? "kit-two-lines" : "kit-one-line");
+    expect(title.getAttribute("title")).toBe("Invented coating question");
+  });
+
+  it("mostCommon: the word most share; the first met wins a tie", () => {
+    expect(mostCommon(["a", "b", "b"])).toBe("b");
+    expect(mostCommon(["a", "b"])).toBe("a");
+    expect(mostCommon([])).toBeNull();
+  });
+});
+

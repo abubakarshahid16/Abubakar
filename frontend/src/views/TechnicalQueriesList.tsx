@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { ChipButton, LinkButton, MoreMenu, Notice, PageHeader, RowButton, Button, Small, Stack, StatusChip, Tag, OneLine } from "../components/kit/Kit";
 import type { TechnicalQuery, TechnicalQueryAssignee } from "../api/client";
 import { formatWhen } from "../format/when";
+import { NEW_LOOK } from "../look";
 import { countLine, queryTag, quickMatch, statusChip, type QuickView } from "./technicalQueryQuestion";
 
 export interface ListPanels {
@@ -43,6 +44,12 @@ export function TechnicalQueriesList(props: {
   const noContractor = items.filter((item) => !item.contractor_name).length;
   const nobodyAll = items.length > 1 && items.every((i) => !i.assignee_user_id);
   const toggle = (view: QuickView) => props.onQuick(quick === view ? null : view);
+  // SAID ONCE (owner, 27 Nov 2026 12:32: 21 rows each carried the same "Waiting for approval"): the state most of the shown rows share
+  // is not repeated on each row; a row shows its chip only when its state differs. The count line names every state with its number,
+  // and when the rows are mixed one line says which state an unmarked row is in (new look; the classic look keeps a chip on every row).
+  const shownWords = shown.map((item) => statusChip(item.status).words);
+  const common = NEW_LOOK && shownWords.length > 1 ? mostCommon(shownWords) : null;
+  const mixed = common !== null && shownWords.some((w) => w !== common);
   return (
     <Stack gap={3}>
       <PageHeader title="Technical Queries and CFCs" titleId="technical-queries-title" />
@@ -73,6 +80,7 @@ export function TechnicalQueriesList(props: {
       {noContractor > 0 ? <Notice tone="warn"><span data-testid="no-contractor-note">{noContractor === items.length ? `None of the ${items.length}` : `${noContractor} of the ${items.length}`} quer{items.length === 1 ? "y has" : "ies have"} a contractor yet. Add its code once under More, &ldquo;Rules for who it goes to&rdquo;, and every query with that code fills itself.</span></Notice> : null}
       {/* the same said-once rule (H's gate on #1971: "Nobody assigned" on every one of 34 rows) */}
       {nobodyAll ? <Small><span data-testid="nobody-assigned-note">Nobody is assigned to any of these {items.length} queries yet.</span></Small> : null}
+      {mixed ? <Small><span data-testid="common-state-note">A query with no label below is {common!.toLowerCase()}.</span></Small> : null}
       <div className="kit-stack kit-gap-2" aria-label="Technical query list">
         {items.length === 0 ? <Small>{props.importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</Small> : null}
         {items.length > 0 && quick && shown.length === 0 ? <Small>None right now.</Small> : null}
@@ -82,18 +90,27 @@ export function TechnicalQueriesList(props: {
           const title = item.title_short ?? item.subject;
           return (
             <RowButton key={item.id} selected={props.selectedId === item.id} onClick={() => props.onOpen(item.id)}
-              first={<>{tag ? <Tag testId="query-tag">{tag}</Tag> : null}{item.discipline_code ? <Tag>{item.discipline_code}</Tag> : null}<OneLine title={title}>{title}</OneLine></>}
-              second={<>
-                <StatusChip word={statusChip(item.status).words} testId="status-chip" />
+              first={<>{tag ? <Tag testId="query-tag">{tag}</Tag> : null}{item.discipline_code ? <Tag>{item.discipline_code}</Tag> : null}<OneLine title={title} lines={NEW_LOOK ? 2 : 1}>{title}</OneLine></>}
+              second={(common === null || statusChip(item.status).words !== common || item.contractor_name || who || item.due_at) ? <>
+                {common === null || statusChip(item.status).words !== common ? <StatusChip word={statusChip(item.status).words} testId="status-chip" /> : null}
                 {item.contractor_name || who ? <span>{[item.contractor_name, who].filter(Boolean).join(" · ")}</span> : null}
                 {item.due_at ? <span>due {formatWhen(item.due_at).split(",")[0]}</span> : null}
                 {/* SAID ONCE, NOT ON EVERY ROW (owner's written order, 27 Nov 2026 10:59): "No query number" is the count line's "N of them need a
                     query number" (it filters to them) and "No contractor" is the notice above; a row carries neither, and the opened query
                     still says its own problems in full */}
-              </>} />
+              </> : null} />
           );
         })}
       </div>
     </Stack>
   );
+}
+
+/** The word most of the list shares (the first one met wins a tie, so the choice is stable as the list is read top to bottom). */
+export function mostCommon(words: string[]): string | null {
+  const n = new Map<string, number>();
+  for (const w of words) n.set(w, (n.get(w) ?? 0) + 1);
+  let best: string | null = null;
+  for (const w of words) if (best === null || n.get(w)! > n.get(best)!) best = w;
+  return best;
 }
