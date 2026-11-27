@@ -217,7 +217,9 @@ export function DocumentCard({
                 fact moves to the facts line below, where it belongs. The old
                 tooltip said "OCR is not implemented", which stopped being true
                 the day it shipped. */}
-            {doc.needs_ocr_pages > doc.recognised_pages && (
+            {/* SAID ONCE (owner's 12:42 order: seven chips on a card; C's walk): when the status already says "finished, N pages waiting
+                to be read as pictures", the same fact is not a second chip; in any other state this chip is the only place it is said */}
+            {doc.needs_ocr_pages > doc.recognised_pages && !(NEW_LOOK && doc.status === "ready") && (
               <span
                 className={NEW_LOOK ? "kit-chip kit-chip--check" : "rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"}
                 title="Scanned pages with no extractable text that recognition has not yet read."
@@ -225,7 +227,7 @@ export function DocumentCard({
                 {NEW_LOOK ? `${doc.needs_ocr_pages - doc.recognised_pages} waiting to be read` : `${doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR`}
               </span>
             )}
-            {doc.equation_pages > 0 && (
+            {doc.equation_pages > 0 && !NEW_LOOK && (
               <span
                 className={NEW_LOOK ? "kit-chip kit-chip--info" : "rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"}
                 title="Mathematics did not survive extraction on these pages. Use the page image."
@@ -235,7 +237,14 @@ export function DocumentCard({
             )}
           </div>
 
-          <p className={NEW_LOOK ? "mt-1 text-xs text-slateish-400" : "mt-1 font-mono text-xs text-slateish-400"}>{NEW_LOOK ? plainProgressLine(doc) : progressLine(doc)}</p>
+          <p className={NEW_LOOK ? "mt-1 text-xs text-slateish-400" : "mt-1 font-mono text-xs text-slateish-400"}>{NEW_LOOK ? plainProgressLine(doc) : progressLine(doc)}
+            {/* a fact, not a state: "mostly equations" sits in this line in the new look, not as one more chip */}
+            {NEW_LOOK && doc.equation_pages > 0 && (
+              <span data-testid="equation-pages" title="Mathematics did not survive extraction on these pages. Use the page image.">
+                {` · ${doc.equation_pages} page${doc.equation_pages === 1 ? "" : "s"} mostly equations`}
+              </span>
+            )}
+          </p>
 
           {doc.chunk_count > 0 && doc.embedded_count < doc.chunk_count && (
             <div
