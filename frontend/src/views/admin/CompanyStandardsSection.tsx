@@ -83,7 +83,7 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
       </h2>
       <p className="text-xs text-slateish-400" data-testid="admin-held-boundary">
         {cutoff
-          ? `A Company standard uploaded by a non-administrator on or after ${cutoff} is used in reviews only after an administrator confirms it. Older ones count as confirmed and are not listed here.`
+          ? `Some Company standards wait for an administrator. Reviews use one only after an administrator confirms it. This applies to standards a non-administrator uploaded on or after ${cutoff}. Older ones count as confirmed and are not listed here.`
           : "Every Company standard a non-administrator uploaded waits here until an administrator confirms it."}
       </p>
 

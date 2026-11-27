@@ -39,7 +39,7 @@ describe("CompanyStandardsSection (#620)", () => {
     const held = vi.fn().mockResolvedValue(page([]));
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: held })} />);
     expect(await screen.findByTestId("admin-held-count")).toHaveTextContent("No Company standard is waiting for confirmation.");
-    expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent("on or after 18 Oct 2026 is used in reviews only after an administrator confirms it");
+    expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent("Reviews use one only after an administrator confirms it. This applies to standards a non-administrator uploaded on or after 18 Oct 2026.");
   });
 
   it("confirm asks first on the page (never the browser's box), calls the route, then reads the list again", async () => {

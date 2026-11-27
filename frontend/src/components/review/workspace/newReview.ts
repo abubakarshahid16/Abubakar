@@ -90,7 +90,7 @@ export function alreadyInLibraryMessage(role: string | null | undefined): string
  *  which means "unknown OR you may not read it" (the same answer on purpose).
  *  Only an administrator gets that far, so it is never about being an admin. */
 export const MARK_UNREADABLE_MESSAGE =
-  "Your file was uploaded, but it could not be marked as a contractor document: it could not be found, or you cannot open it. "
+  "Your file was uploaded, but it was not marked as a contractor document. It was not found, or you cannot open it. "
   + "No review was started.";
 
 export const UPLOADED_UNREADABLE_MESSAGE =

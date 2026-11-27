@@ -88,7 +88,7 @@ function DeadChip({ n }: { n: number }) {
   return (
     <span
       title="citation not among supplied sources"
-      aria-label={`Citation ${n} is not among the supplied sources`}
+      aria-label={`Citation ${n} is not one of the sources given`}
       data-citation-marker={n}
       className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] px-1 align-baseline font-mono text-xs leading-none line-through bg-danger-500/10 text-danger-500 ring-1 ring-danger-500/40"
     >
@@ -148,12 +148,12 @@ function Finding({
       )}
       {userStated && (
         <span className="ms-2 rounded-[var(--radius-xs)] border border-warn-500/50 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-warn-500">
-          stated by the user — not documentary evidence
+          stated by the user — not from a document
         </span>
       )}
       {finding.text_source === "recognised" && (
         <span className="ms-2 text-xs uppercase tracking-wider text-slateish-500">
-          from recognised (OCR) text
+          from a page read as a picture
         </span>
       )}
     </li>

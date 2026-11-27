@@ -67,9 +67,9 @@ describe("GapAnalysisCard: insufficient baseline", () => {
     render(
       <GapAnalysisCard gaps={INSUFFICIENT} onNominateBaseline={vi.fn()} documents={DOCS} onCite={vi.fn()} />,
     );
-    expect(screen.queryByText(/This is the requirement, not evidence/)).toBeNull();
+    expect(screen.queryByText(/This is the requirement, not a source/)).toBeNull();
     await user.type(screen.getByLabelText("Or state the requirement"), "DFT shall be at least 300 µm");
-    expect(screen.getByText(/This is the requirement, not evidence/)).toBeInTheDocument();
+    expect(screen.getByText(/This is the requirement, not a source/)).toBeInTheDocument();
   });
 
   it("submitting a typed requirement nominates a stated_requirement with no document", async () => {
@@ -97,7 +97,7 @@ describe("GapAnalysisCard: applicable", () => {
     render(<GapAnalysisCard gaps={applicable([item])} documents={DOCS} onCite={vi.fn()} />);
     expect(screen.getByText("Possible gap")).toBeInTheDocument();
     expect(
-      screen.getByText("Retrieval found nothing addressing this. That is not proof the documents say nothing."),
+      screen.getByText("The search found nothing about this. That does not prove the documents are silent."),
     ).toBeInTheDocument();
   });
 
@@ -111,7 +111,7 @@ describe("GapAnalysisCard: applicable", () => {
     expect(item.status).toBe("met");
     render(<GapAnalysisCard gaps={applicable([item])} documents={DOCS} onCite={vi.fn()} />);
     expect(screen.getByText("Met")).toBeInTheDocument();
-    expect(screen.getByText("Positive matching evidence was found.")).toBeInTheDocument();
+    expect(screen.getByText("A source matches it.")).toBeInTheDocument();
     expect(screen.queryByText(/Possible gap/)).toBeNull();
   });
 });

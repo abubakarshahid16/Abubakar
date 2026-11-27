@@ -97,7 +97,7 @@ describe("SummaryCard: citation markers", () => {
     const result = makeResult({ summary: "The stripe coat is optional [S9]." });
     expect(result.summary_cited_evidence_ids[8]).toBeUndefined();
     render(<SummaryCard result={result} onCite={vi.fn()} />);
-    const dead = screen.getByLabelText("Citation 9 is not among the supplied sources");
+    const dead = screen.getByLabelText("Citation 9 is not one of the sources given");
     expect(dead.tagName).not.toBe("BUTTON");
     expect(dead.className).toMatch(/line-through/);
     expect(screen.queryByRole("button", { name: "Show source 9" })).toBeNull();

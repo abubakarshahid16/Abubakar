@@ -59,7 +59,7 @@ function facetOrder(): string[] {
 const STATUS_TEXT: Record<GapItemStatus, string> = {
   conflict: "Conflict",
   possible_gap: "Possible gap",
-  insufficient_evidence: "Insufficient evidence",
+  insufficient_evidence: "Not enough source text",
   met: "Met",
   beyond_requirement: "Beyond requirement, not checked",
   not_applicable: "Not applicable",
@@ -133,7 +133,7 @@ describe("P2 - the tally line counts what is there and claims nothing more", () 
     ]);
 
     expect(
-      screen.getByText("3 facets compared · 1 conflict · 1 with insufficient evidence · 1 met"),
+      screen.getByText("3 facets compared · 1 conflict · 1 with too little source text · 1 met"),
     ).toBeInTheDocument();
   });
 
@@ -196,19 +196,19 @@ describe("P3 - a row with no baseline passage carries no label over nothing", ()
   it("renders neither the label nor the disclosure control", () => {
     renderCard([item({ baseline_span: "", baseline_citation_id: "ev_baseline00000001" })]);
 
-    expect(screen.queryByText("Baseline, quoted verbatim")).toBeNull();
+    expect(screen.queryByText("Baseline, in its own words")).toBeNull();
     expect(screen.queryByRole("button", { name: "Show the baseline part of the page" })).toBeNull();
   });
 
   it("treats a whitespace-only span as no span", () => {
     renderCard([item({ baseline_span: "   \n  " })]);
-    expect(screen.queryByText("Baseline, quoted verbatim")).toBeNull();
+    expect(screen.queryByText("Baseline, in its own words")).toBeNull();
     expect(screen.queryByRole("button", { name: "Show the baseline part of the page" })).toBeNull();
   });
 
   it("still renders both when there is a passage", () => {
     renderCard([item()]);
-    expect(screen.getByText("Baseline, quoted verbatim")).toBeInTheDocument();
+    expect(screen.getByText("Baseline, in its own words")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show the baseline part of the page" })).toBeInTheDocument();
     expect(screen.getByText(SPAN)).toBeInTheDocument();
   });

@@ -208,13 +208,13 @@ describe("gap baseline: named by filename", () => {
     );
     expect(screen.getByText("doc13.pdf")).toBeInTheDocument();
     expect(screen.queryByText(/doc_4e2b3648e5fb/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Shown as an identifier/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Shown by its number only/)).not.toBeInTheDocument();
   });
 
   it("shows an unresolvable id WITH the reason it is an id, never bare", () => {
     render(<GapAnalysisCard gaps={gaps("doc_not_in_ledger")} documents={DOCS} onCite={() => {}} />);
     expect(screen.getByText(/doc_not_in_ledger/)).toBeInTheDocument();
-    expect(screen.getByText(/Shown as an identifier/)).toBeInTheDocument();
+    expect(screen.getByText(/Shown by its number only/)).toBeInTheDocument();
   });
 });
 

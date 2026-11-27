@@ -122,7 +122,7 @@ describe("CoverageLedger: cancelled run", () => {
     const result = makeResult({ run_status: "cancelled", status: "cancelled" });
     expect(result.run_status).toBe("cancelled");
     render(<CoverageLedger result={result} />);
-    expect(screen.getByText(/Cancelled — partial results below are batches/)).toBeInTheDocument();
+    expect(screen.getByText(/Stopped. The results below are partial pieces/)).toBeInTheDocument();
     // No summary line, no batch-progress line: cancelled is not "still running".
     expect(screen.queryByText(/summar(y|ised)/i)).toBeNull();
     expect(screen.queryByText(/synthesis/i)).toBeNull();

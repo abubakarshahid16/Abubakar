@@ -43,12 +43,12 @@ const TOGGLES: { key: keyof AnalysisToggles; label: string; hint: string }[] = [
   {
     key: "market",
     label: "Public market sample (sample data)",
-    hint: "Offline machine: rows are illustrative samples, never live.",
+    hint: "This computer is offline: the rows are samples, never live.",
   },
   {
     key: "recommendation",
     label: "Generate recommendation",
-    hint: "Advisory only. Computed after gaps and market; shown near the top.",
+    hint: "Advice only. Worked out after the gaps and the market rows; shown near the top.",
   },
 ];
 
@@ -125,7 +125,7 @@ export function ModeSelector({
         </legend>
         {mode === "quote" && (
           <p className="mt-2 rounded-[var(--kit-radius)] border border-ink-700 bg-ink-900 px-2 py-1.5 text-xs text-slateish-500">
-            Quote mode runs only cited document evidence. Switch to Focused or
+            Quote mode shows only the documents' own cited words. Switch to Focused or
             Comprehensive to run these optional sections.
           </p>
         )}

@@ -67,7 +67,7 @@ describe("a gap row never renders as an empty bullet", () => {
     expect(screen.getByText(/1 facet not applicable/)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "One of them was reported with no facet, no part of a page, no evidence and no note, so it is not shown here.",
+        "One of them came with no facet, page part, source or note. It is not shown here.",
       ),
     ).toBeInTheDocument();
   });
@@ -83,7 +83,7 @@ describe("a gap row never renders as an empty bullet", () => {
     expect(screen.getByText(/3 facets not applicable/)).toBeInTheDocument();
     expect(
       screen.getByText(
-        "3 of them were reported with no facet, no part of a page, no evidence and no note, so they are not shown here.",
+        "3 of them came with no facet, page part, source or note. They are not shown here.",
       ),
     ).toBeInTheDocument();
     expect(within(notApplicableSection()).queryAllByRole("listitem")).toHaveLength(0);
