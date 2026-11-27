@@ -112,6 +112,7 @@ def test_one_job_proposes_finds_and_drafts_with_no_click_and_the_local_model_onl
                   "The revision of contract is not confirmed yet (Documents, Details, Save metadata)."],
         "cited": [],  # what the contractor's form cites, held or not (none here)
         "items": [],  # the request's numbered items (a single question here)
+        "cross_refs": [],  # other queries the request names (none here)
     }  # fmt: skip
     assert (
         json.loads(draft["unresolved_json"]) == ready["ready"]["marks"]
