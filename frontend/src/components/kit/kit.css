@@ -197,3 +197,8 @@
   .kit-stack-table td:last-child { margin-left: auto; }
 }
 
+/* A group's title in a list (Documents' types, H's audit 18): sentence case, its count in plain small grey, never capitals or mono */
+.kit-group-title { display: flex; align-items: baseline; gap: var(--kit-space-2); margin: 0 0 var(--kit-space-2); font-size: 15px; font-weight: 600; color: var(--color-slateish-100); }
+.kit-group-title.kit-check { color: var(--kit-check-fg); }
+.kit-group-title__count { font-size: 13px; font-weight: 400; color: var(--color-slateish-400); }
+
