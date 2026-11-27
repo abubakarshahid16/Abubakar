@@ -102,8 +102,6 @@ export function DocumentKindChip({
       {problem && <span role="alert" data-testid="kind-problem" className="text-xs text-danger-500">{problem}</span>}
       {canPick && !saving && state !== "confirmed" && !changing && (
         <LinkButton
-          
-          
           onClick={(e) => {
             const from = e.currentTarget;
             if (state === "suggested" && kind) void save(kind);
@@ -114,9 +112,10 @@ export function DocumentKindChip({
         </LinkButton>
       )}
       {canPick && !saving && (state === "suggested" || state === "confirmed") && !changing && (
-        <button type="button" className="text-xs text-slateish-400 underline" onClick={(e) => keepScroll(e.currentTarget, () => setChanging(true))}>
+        // the same kit link as "Confirm type" beside it: one link look in one line (H's R9, 27 Nov 2026)
+        <LinkButton onClick={(e) => keepScroll(e.currentTarget, () => setChanging(true))}>
           Change type
-        </button>
+        </LinkButton>
       )}
       {canPick && changing && !saving && (
         <select

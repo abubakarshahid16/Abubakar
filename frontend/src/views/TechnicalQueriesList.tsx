@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { ChipButton, LinkButton, MoreMenu, Notice, PageHeader, RowButton, Button, Small, Stack, StatusChip, Tag, OneLine } from "../components/kit/Kit";
 import type { TechnicalQuery, TechnicalQueryAssignee } from "../api/client";
 import { formatWhen } from "../format/when";
-import { countLine, problemChips, queryTag, quickMatch, statusChip, type QuickView } from "./technicalQueryQuestion";
+import { countLine, queryTag, quickMatch, statusChip, type QuickView } from "./technicalQueryQuestion";
 
 export interface ListPanels {
   /** The mailbox's details, shown when its chip is open. */
@@ -41,6 +41,7 @@ export function TechnicalQueriesList(props: {
   const line = countLine(items);
   const shown = quick ? items.filter((item) => quickMatch(quick, item)) : items;
   const noContractor = items.filter((item) => !item.contractor_name).length;
+  const nobodyAll = items.length > 1 && items.every((i) => !i.assignee_user_id);
   const toggle = (view: QuickView) => props.onQuick(quick === view ? null : view);
   return (
     <Stack gap={3}>
@@ -70,21 +71,25 @@ export function TechnicalQueriesList(props: {
       {props.panels.filters}
       {/* a problem every query shares is said ONCE above the list, never as a chip on every row (H's audit, 27 Nov 2026, (d)) */}
       {noContractor > 0 ? <Notice tone="warn"><span data-testid="no-contractor-note">{noContractor === items.length ? `None of the ${items.length}` : `${noContractor} of the ${items.length}`} quer{items.length === 1 ? "y has" : "ies have"} a contractor yet. Add its code once under More, &ldquo;Rules for who it goes to&rdquo;, and every query with that code fills itself.</span></Notice> : null}
+      {/* the same said-once rule (H's gate on #1971: "Nobody assigned" on every one of 34 rows) */}
+      {nobodyAll ? <Small><span data-testid="nobody-assigned-note">Nobody is assigned to any of these {items.length} queries yet.</span></Small> : null}
       <div className="kit-stack kit-gap-2" aria-label="Technical query list">
         {items.length === 0 ? <Small>{props.importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</Small> : null}
         {items.length > 0 && quick && shown.length === 0 ? <Small>None right now.</Small> : null}
         {shown.map((item) => {
           const tag = queryTag(item);
-          const who = item.assignee_user_id ? (props.assignees.find((p) => p.id === item.assignee_user_id)?.display_name ?? "a person") : "Nobody assigned";
+          const who = item.assignee_user_id ? (props.assignees.find((p) => p.id === item.assignee_user_id)?.display_name ?? "a person") : nobodyAll ? "" : "Nobody assigned";
           const title = item.title_short ?? item.subject;
           return (
             <RowButton key={item.id} selected={props.selectedId === item.id} onClick={() => props.onOpen(item.id)}
               first={<>{tag ? <Tag testId="query-tag">{tag}</Tag> : null}{item.discipline_code ? <Tag>{item.discipline_code}</Tag> : null}<OneLine title={title}>{title}</OneLine></>}
               second={<>
                 <StatusChip word={statusChip(item.status).words} testId="status-chip" />
-                <span>{item.contractor_name ? `${item.contractor_name} · ` : ""}{who}</span>
+                {item.contractor_name || who ? <span>{[item.contractor_name, who].filter(Boolean).join(" · ")}</span> : null}
                 {item.due_at ? <span>due {formatWhen(item.due_at).split(",")[0]}</span> : null}
-                {problemChips(item).filter((p) => p.words !== "No contractor").map((p) => <StatusChip key={p.words} word={p.words} why={p.why} testId="problem-chip" />)}
+                {/* SAID ONCE, NOT ON EVERY ROW (owner's written order, 27 Nov 2026 10:59): "No query number" is the count line's "N of them need a
+                    query number" (it filters to them) and "No contractor" is the notice above; a row carries neither, and the opened query
+                    still says its own problems in full */}
               </>} />
           );
         })}

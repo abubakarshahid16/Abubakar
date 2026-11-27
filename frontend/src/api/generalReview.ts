@@ -93,6 +93,8 @@ export interface GeneralCompleteness {
   database: number;
   file_rows: number;
   sentence: string | null;
+  /** All three counts are 0: nothing was compared, so it is not a pass (the server's own flag; 27 Nov 2026, R5). */
+  nothing_to_compare?: boolean;
 }
 
 /** One part (a Schedule) of the contract package: what the review did with it. A page counts as read only if text came back for it. */
