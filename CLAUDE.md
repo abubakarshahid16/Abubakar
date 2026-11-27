@@ -140,9 +140,9 @@ contractor copy issued only after that sign-off. Until then every file is the te
    flags AND a key - owner decision 2026-09-25, USD caps in `claude_spend`,
    which the three `claude_api` review routes reach via `claude_spend.metered`) and the datasheet AI reader (`datasheet_ai`, with `DATASHEET_AI_READER=claude`) reaches the same way and
    `notifications.py` (SMTP, off by default; in the socket-containment test
-   since #196). Known gap: the
-   `claude_api` review routes check the two egress flags but not
-   `REASONING_PROVIDER` (audit 2026-09-25 finding 1). Call graph:
+   since #196). Closed 2026-10-05 (4feb4606): the `claude_api` routes ask
+   `reasoning_provider.claude_unavailable()` first (provider, both egress flags, a key), proven by
+   `tests/test_r2_security_s5_reasoning_provider.py` across every route and provider. Call graph:
    `docs/architecture-call-graph.md`.
 2. **Never** commit `backend/.env`. Never print, log, paste or commit a secret.
    Never put a token in a URL. Keys live only in `backend/.env`.
