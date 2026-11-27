@@ -207,6 +207,21 @@ def test_schedules_consistent_give_no_line_and_package_gap_is_one_question():
     )
 
 
+def test_a_running_page_header_is_not_a_list_of_schedules():
+    """The owner's live screenshot (27 Nov 2026): one Schedule's page header on 12 pages was read as the contract's list of Schedules,
+    and the comment named "Schedules H, H, H, ..." twelve times. A list names DIFFERENT Schedules; each label counts once."""
+    header = 'SCHEDULE "H" INVENTED DIVISION OF RESPONSIBILITY'
+    pages = {n: f"{header}\nPage {n} of 12\nThe invented contractor shall supply item {n}." for n in range(1, 13)}
+    assert K._schedule_list(pages) == []  # one label twelve times: a header, never a list
+    assert _only(K.lines(pages, C, held={"A"}), "schedules") == []  # so no "Schedules H, H, H, ..." line
+    # a real list that repeats a label (a wrapped title) names each Schedule once
+    pages = _deal(["A", "B", "C"], ["A", "B", "B", "C"])
+    labels = [lab for lab, _page, _ln in K._schedule_list(pages)]
+    assert labels == ["A", "B", "C"]
+    gap = _only(K.lines(pages, C, held={"A"}), "schedules")
+    assert len(gap) == 1 and "Schedules B, C are named" in gap[0]["comment"]
+
+
 # ------------------------------------------------------------------ defined terms
 
 
