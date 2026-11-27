@@ -348,7 +348,7 @@ export function ReviewDashboardPanel(
                     </td>
                     <td className={CELL} data-label="Suggested code">
                       {/* order 14: one run never shows an approving code; the server's note stands in its place */}
-                      {run.recommended_code ?? run.recommended_code_note}
+                      {(run.recommended_code ?? run.recommended_code_note) || null}
                       {/* BOTH CODES, NEVER ONE. An engineer's decision does
                           not delete what the machine recommended. */}
                       {run.engineer_final_code && (
@@ -357,7 +357,8 @@ export function ReviewDashboardPanel(
                         </span>
                       )}
                     </td>
-                    <td className={NEW_LOOK ? "whitespace-nowrap px-3 py-3.5" : "px-3 py-2 text-slateish-300"}>
+                    {/* its own label when the row stacks (F's gate: the chip landed after "Suggested code:" and read as the code) */}
+                    <td className={NEW_LOOK ? "whitespace-nowrap px-3 py-3.5" : "px-3 py-2 text-slateish-300"} data-label="Status">
                       {NEW_LOOK ? <StatusChip tone={reviewStatusTone(rowStatus(run))}>{rowStatus(run)}</StatusChip> : rowStatus(run)}
                     </td>
                     <td className={NEW_LOOK ? "px-3 py-3.5 text-right" : "px-3 py-2"}>
