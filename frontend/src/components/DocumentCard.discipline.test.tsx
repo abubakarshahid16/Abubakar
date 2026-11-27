@@ -6,7 +6,7 @@
  * API reads out of the grant tables. Nothing here infers a category from a
  * filename, and a test that did would pass while the screen lied.
  */
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { DocumentCard } from "./DocumentCard";
@@ -53,10 +53,15 @@ describe("the document's category", () => {
   it("shows every discipline when a document is held by more than one", () => {
     render(<DocumentCard doc={makeDoc({ disciplines: ["Civil Engineering", "Mechanical"] })} actions={NO_ACTIONS} />);
     if (NEW_LOOK) {
-      // one tag for several (owner's 12:42 order, lead 4's choice (b)); every name is still on the card: on hover and read aloud
+      // one tag for several (owner's 12:42 order, lead 4's choice (b)); the names are one click, tap or Enter away (H's gate on #2002)
       const tag = screen.getByTestId("discipline-count");
-      expect(tag.textContent).toBe("2 disciplines: Civil Engineering, Mechanical");
-      expect(tag.getAttribute("title")).toBe("Civil Engineering, Mechanical");
+      expect(tag.tagName).toBe("DETAILS");
+      const summary = tag.querySelector("summary")!;
+      expect(summary.textContent).toBe("2 disciplines");
+      expect(summary.className).toBe("kit-tag");
+      fireEvent.click(summary);
+      expect((tag as HTMLDetailsElement).open).toBe(true);
+      expect(screen.getByTestId("discipline-names").textContent).toBe("Civil Engineering, Mechanical");
     } else {
       expect(screen.getByText("Civil Engineering")).toBeInTheDocument();
       expect(screen.getByText("Mechanical")).toBeInTheDocument();
@@ -86,7 +91,7 @@ describe("the document's category", () => {
     unmount();
     // a document with a different or second discipline keeps its own tags
     render(<DocumentCard doc={makeDoc({ disciplines: ["Invented Discipline", "Mechanical"] })} actions={NO_ACTIONS} sharedDiscipline="Invented Discipline" />);
-    if (NEW_LOOK) expect(screen.getByTestId("discipline-count").getAttribute("title")).toBe("Invented Discipline, Mechanical");
+    if (NEW_LOOK) expect(screen.getByTestId("discipline-names").textContent).toBe("Invented Discipline, Mechanical");
     else expect(screen.getAllByTestId("discipline").map((t) => t.textContent)).toEqual(["Invented Discipline", "Mechanical"]);
   });
   it("skips 'Admin only' when the list says once that no discipline holds any of them", () => {

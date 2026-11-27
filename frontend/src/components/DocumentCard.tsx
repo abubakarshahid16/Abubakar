@@ -193,12 +193,13 @@ export function DocumentCard({
                 read it. It is labelled as exactly that, never left blank and
                 never given a placeholder. */}
             {(sharedDiscipline && doc.disciplines.length === 1 && doc.disciplines[0] === sharedDiscipline) || (sharedDiscipline === "" && doc.disciplines.length === 0) ? null : NEW_LOOK && doc.disciplines.length > 1 ? (
-              // ONE TAG FOR SEVERAL (owner's 12:42 order, lead 4's choice (b), 27 Nov 2026): "3 disciplines", the names on hover and in
-              // Details, and read out in full to a screen reader; who may read the document is still on the card, in one tag
-              <span data-testid="discipline-count" className="kit-tag" title={doc.disciplines.join(", ")}>
-                {`${doc.disciplines.length} disciplines`}
-                <span className="sr-only">: {doc.disciplines.join(", ")}</span>
-              </span>
+              // ONE TAG FOR SEVERAL (owner's 12:42 order, lead 4's choice (b), 27 Nov 2026): "3 disciplines" that OPENS to the names. The card
+              // is the only place a document's disciplines (who may read it) are shown, so the names must be reachable by keyboard and
+              // touch, not only on mouse hover (H's gate on #2002): a native disclosure, its summary drawn as the tag
+              <details data-testid="discipline-count" className="kit-tag-fold">
+                <summary className="kit-tag" title={doc.disciplines.join(", ")}>{`${doc.disciplines.length} disciplines`}</summary>
+                <span data-testid="discipline-names" className="kit-tag-fold__names">{doc.disciplines.join(", ")}</span>
+              </details>
             ) : doc.disciplines.length > 0 ? (
               doc.disciplines.map((d) => (
                 <span
