@@ -37,9 +37,9 @@ describe("ClauseCheckDrafts", () => {
     mockFetch([draft]);
     render(<ClauseCheckDrafts />);
     const row = await screen.findByTestId("clause-check-d1");
-    expect(row).toHaveTextContent("Proposed check: cold differential test pressure <= 12 barg");
+    expect(row).toHaveTextContent("Suggested check: cold differential test pressure <= 12 barg");
     expect(row).toHaveTextContent("Clause 5.1, page 3: The cold differential test pressure");
-    expect(row).toHaveTextContent("Stands on the words:");
+    expect(row).toHaveTextContent("Based on these words:");
   });
 
   it("offers no decision to a reader who is not an administrator", async () => {
@@ -55,7 +55,7 @@ describe("ClauseCheckDrafts", () => {
     mockFetch([draft], posts);
     render(<ClauseCheckDrafts isAdmin />);
     fireEvent.click(await screen.findByRole("button", { name: "Accept as a requirement" }));
-    await waitFor(() => expect(screen.getByText("No proposals are waiting.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No suggestions are waiting.")).toBeInTheDocument());
     expect(posts).toEqual([{ url: expect.stringContaining("/standards/clause-checks/d1/decision"),
                              body: { decision: "accept" } }]);
   });

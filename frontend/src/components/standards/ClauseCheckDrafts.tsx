@@ -48,7 +48,7 @@ export function ClauseCheckDrafts({ isAdmin = false }: { isAdmin?: boolean }) {
     const result = await api.decideClauseCheck(id, decision);
     setBusy(null);
     if (!result.ok) {
-      setFailure(result.error.message || "Could not record the decision.");
+      setFailure(result.error.message || "Your decision was not saved. Nothing changed. Try again.");
       return;
     }
     await refresh();
@@ -63,32 +63,32 @@ export function ClauseCheckDrafts({ isAdmin = false }: { isAdmin?: boolean }) {
     <section aria-labelledby="clause-check-drafts" className="flex flex-col gap-2">
       <SectionFold on={NEW_LOOK} heading={
         <h3 id="clause-check-drafts" className="text-sm font-medium">
-          Checks proposed by the AI, waiting for an engineer ({load.rows.length})
+          Checks the AI suggests, waiting for an engineer ({load.rows.length})
         </h3>
       }>
       <p className="text-xs opacity-70">
-        For clause sentences the reviews could not decide. Code has checked each
-        figure against the quoted words; no review uses a proposal until an
-        engineer accepts it. Accepting writes a confirmed requirement and keeps
-        the old sentence as a superseded version.
+        These are clause sentences the reviews could not decide. The app has
+        checked each number against the quoted words. No review uses a
+        suggestion until an engineer accepts it. Accepting adds a confirmed
+        requirement and keeps the old sentence as an earlier version.
       </p>
       {failure && <p role="alert" className="text-xs text-red-400">{failure}</p>}
       {load.rows.length === 0 ? (
-        <p className="text-xs opacity-70">No proposals are waiting.</p>
+        <p className="text-xs opacity-70">No suggestions are waiting.</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {load.rows.map((d) => (
             <li key={d.id} data-testid={`clause-check-${d.id}`}
                 className="rounded border border-ink-700 p-2 text-xs">
               <p>
-                <span className="font-medium">Proposed check: {limitText(d)}</span>
+                <span className="font-medium">Suggested check: {limitText(d)}</span>
                 {d.condition ? <span> - only {d.condition}</span> : null}
               </p>
               <p className="opacity-70">
-                Clause {d.clause ?? "not identified"}{d.page != null ? `, page ${d.page}` : ""}:
+                Clause {d.clause ?? "number not found"}{d.page != null ? `, page ${d.page}` : ""}:
                 {" "}{d.source_text}
               </p>
-              <p className="opacity-70">Stands on the words: &ldquo;{d.quote}&rdquo;</p>
+              <p className="opacity-70">Based on these words: &ldquo;{d.quote}&rdquo;</p>
               {isAdmin && (
                 <div className="mt-1 flex gap-2">
                   <button type="button" disabled={busy === d.id}

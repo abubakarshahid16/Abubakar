@@ -90,9 +90,9 @@ MUTATIONS: tuple[Mutation, ...] = (
         description="render '0 requirements' instead of 'none extracted yet'",
         path=FRONTEND_SRC / "views" / "StandardsView.tsx",
         anchor='        {standard.requirement_count === 0\n'
-               '          ? "No requirements extracted yet"',
+               '          ? "No requirements read yet"',
         replacement='        {false\n'
-                    '          ? "No requirements extracted yet"',
+                    '          ? "No requirements read yet"',
         target="src/views/StandardsView.test.tsx",
         keyword="no requirements have been extracted",
         tags=("honesty", "ui"),
@@ -101,7 +101,7 @@ MUTATIONS: tuple[Mutation, ...] = (
         id="M36", phase=3, runner="vitest",
         description="guess a clause number when the parser could not identify one",
         path=FRONTEND_SRC / "views" / "StandardsView.tsx",
-        anchor='                  {row.clause ?? "Clause not identified"}',
+        anchor='                  {row.clause ?? "Clause number not found"}',
         replacement='                  {row.clause ?? "1.1"}',
         target="src/views/StandardsView.test.tsx",
         keyword="clause could not be identified",

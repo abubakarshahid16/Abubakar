@@ -33,7 +33,7 @@ const OPERATOR_SYMBOL: Readonly<Record<string, string>> = {
 
 const TYPE_LABEL: Readonly<Record<string, string>> = {
   numeric_limit: "Numeric limit",
-  statement: "Statement (no limit read)",
+  statement: "A statement, with no number limit",
   table_value: "Table value",
 };
 
@@ -95,13 +95,13 @@ export function StructuredReading({ row }: { row: StandardRequirement }) {
     >
       <h4 id={headingId} className="text-[11px] uppercase tracking-wide opacity-70">
         {confirmed
-          ? "Structured reading - confirmed by an engineer"
-          : "Machine-extracted from the quoted clause - not confirmed by an engineer"}
+          ? "How the app reads it: confirmed by an engineer"
+          : "How the app reads the quoted clause: not confirmed by an engineer yet"}
       </h4>
       <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5">
         {typeLabel && (
           <>
-            <dt className="opacity-60">Reading</dt>
+            <dt className="opacity-60">What it is</dt>
             <dd>{typeLabel}</dd>
           </>
         )}
