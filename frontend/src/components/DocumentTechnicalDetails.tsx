@@ -55,8 +55,8 @@ export function DocumentTechnicalDetails({ doc }: { doc: DocumentRecord }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <section aria-label="Document metadata">
-        <h4 className="mb-2 text-xs font-medium opacity-80">Document metadata</h4>
+      <section aria-label="Document details">
+        <h4 className="mb-2 text-xs font-medium opacity-80">Document details</h4>
         {!recorded && (
           <p className="text-xs opacity-70">
             No submittal-review metadata has been recorded for this document yet.
