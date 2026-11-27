@@ -1,7 +1,7 @@
 /** The query's ask as one readable list, and honest marks instead of gates (owner, 26 Nov 2026). Invented queries only. */
 import { describe, expect, it } from "vitest";
 
-import { pageHeaderSplit, problemChips, staleSources as staleOf } from "./technicalQueryQuestion";
+import { decisionFor as decisionOf, pageHeaderSplit, problemChips, readyLine as readyOf, staleSources as staleOf } from "./technicalQueryQuestion";
 import { LIST_FOUND, QUESTION_KEY_WORDS_MAX, boldSplit, plainMark, citedSplit, plainStatus, queryHeadline, querySteps, sharedSource, draftAuthor, honestMarks, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 
 const found = (n: number) => Array.from({ length: n }, (_, i) => ({ question: `Invented request ${i + 1}`, filename: "Invented form.pdf", page: 1 }));
@@ -186,5 +186,22 @@ describe("sources found for a longer text than the question (lead-5's 1f, 27 Nov
     expect(staleOf({ evidence: [source(80)], ready: { question_terms: 80 } } as never)).toBe(false);
     expect(staleOf({ evidence: [source(300)], ready: { question_terms: 80 } } as never)).toBe(true); // a whole mail's words
     expect(staleOf({ evidence: [source(80)] } as never)).toBe(true); // an older server: the fixed bound, as before
+  });
+});
+
+describe("an old reply after a stopped rewrite (A's scope of fault 2, 27 Nov 2026)", () => {
+  it("says a new reply was not written and the one below is older", () => {
+    const note = "no source answers the question closely enough. Keep a source by hand, then press Write the reply again (under Redo)";
+    expect(readyOf({ evidence: "ready", draft: "ready", draft_fresh: true, draft_old: true, draft_note: note } as never))
+      .toBe(`A new reply was not written: ${note}. The reply below is an older one.`);
+    expect(readyOf({ evidence: "ready", draft: "ready", draft_fresh: true, draft_old: false } as never)).toBeNull();
+  });
+});
+
+describe("an old reply is never offered for approval (H's read of #2020)", () => {
+  it("offers no Approve for an old reply, even awaiting review", () => {
+    const q = { status: "awaiting_review", can_review: true, drafts: [{}] };
+    expect(decisionOf(q).kind).toBe("decide");
+    expect(decisionOf({ ...q, ready: { draft_old: true } }).kind).toBe("none");
   });
 });

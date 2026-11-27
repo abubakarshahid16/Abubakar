@@ -63,6 +63,8 @@ export interface TechnicalQuery {
     draft: "ready" | "refreshing" | "none" | "not_written";
     draft_fresh: boolean;
     draft_note?: string | null;
+    /** The reply shown is an AI draft from before today's checks, and today's rewrite of it was stopped. */
+    draft_old?: boolean | null;
     marks?: string[];
     /** What the contractor's form cites, one plain line each, and whether we hold it (builder A, 27 Nov 2026); empty when it cites nothing. */
     cited?: Array<{ line: string; held: boolean }>;

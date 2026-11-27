@@ -322,3 +322,24 @@ def test_a_coating_schedule_in_the_question_is_not_money_or_time():
     assert not raises_cost("Confirm the coating-schedule.") and not raises_cost("Confirm the coating  schedule.")  # hyphen, two spaces
     assert raises_cost("Extra man-hours are needed.") and raises_cost("A 14-day delay.")  # a hyphen read as a space keeps these
     assert raises_cost("Will this affect the schedule?") and raises_cost("The schedule slips by two weeks.")
+
+
+# ------------------------------------------------------------------ a stopped rewrite never leaves an old reply looking current (A's scope of fault 2)
+
+
+def test_an_older_ai_reply_whose_rewrite_was_stopped_is_said_to_be_old(query, monkeypatch):
+    item, scope, _asked = query
+    _answers(monkeypatch, {"answer": "1. Class 300 applies [S1]."})
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    assert tq.get(item["id"], "u1", False, False)["ready"]["draft_old"] is False  # today's draft: current
+    with db.connect() as conn:  # the reply was written before today's checks
+        conn.execute("UPDATE query_drafts SET prompt_version='system-draft-2' WHERE query_id=?", (item["id"],))
+        conn.execute("UPDATE technical_queries SET status='drafting' WHERE id=?", (item["id"],))
+    _answers(monkeypatch, {"answer": "1. I recommend class 300 [S1]."})  # today's rewrite is stopped (first person, twice)
+    assert auto.write_draft(item["id"], frozenset({"d1"}), "u1", False, False) == RC.FIRST_PERSON_NOTE
+    ready = tq.get(item["id"], "u1", False, False)["ready"]
+    assert ready["draft"] == "ready" and ready["draft_old"] is True and ready["draft_note"] == RC.FIRST_PERSON_NOTE
+    _answers(monkeypatch, {"answer": "1. Class 300 applies [S1]."})  # a rewrite that succeeds: current again
+    assert auto.write_draft(item["id"], frozenset({"d1"}), "u1", False, False) is None
+    assert tq.get(item["id"], "u1", False, False)["ready"]["draft_old"] is False

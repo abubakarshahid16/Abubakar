@@ -207,6 +207,8 @@ export interface ReadyState {
   draft: "ready" | "refreshing" | "none" | "not_written";
   draft_fresh: boolean;
   draft_note?: string | null;
+  /** The reply shown is an AI draft from before today's checks; today's rewrite of it was stopped (draft_note says why). */
+  draft_old?: boolean | null;
   marks?: string[];
 }
 
@@ -217,6 +219,7 @@ export function readyLine(r: ReadyState | null | undefined): string | null {
   if (r.draft === "refreshing") return "Writing the reply from the sources found.";
   if (r.evidence === "failed") return "The sources could not be found. Try Find the sources again.";
   if (r.draft === "not_written") return r.draft_note ? `No reply was written: ${r.draft_note}.` : "No reply was written.";
+  if (r.draft === "ready" && r.draft_old) return `A new reply was not written: ${r.draft_note ?? "see the note below"}. The reply below is an older one.`;
   if (r.draft === "ready" && !r.draft_fresh) return "The reply answers an earlier wording of the question.";
   return null;
 }
@@ -395,8 +398,10 @@ export function markedPieces(text: string, words: string[]): Array<{ text: strin
 
 /** The decision under the reply, in the words a reviewer would say, and the one line of what happens next. */
 export type Decision = { kind: "decide" | "no_role" | "none"; hint: string };
-export function decisionFor(q: { status: string; can_review?: boolean; drafts?: unknown[] | null }): Decision {
+export function decisionFor(q: { status: string; can_review?: boolean; drafts?: unknown[] | null; ready?: { draft_old?: boolean | null } | null }): Decision {
   if (q.status !== "awaiting_review" || !q.drafts?.length) return { kind: "none", hint: "" };
+  // an old reply (written before today's checks, its rewrite stopped) is never offered for approval (H's read of #2020)
+  if (q.ready?.draft_old) return { kind: "none", hint: "" };
   if (!q.can_review) return { kind: "no_role", hint: "Approving needs the query reviewer role. Ask an administrator to give it to you." };
   return { kind: "decide", hint: "Approve means the reply is ready to send. The app does not send it. Download it as a Word file and send it yourself." };
 }
