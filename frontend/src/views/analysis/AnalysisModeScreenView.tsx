@@ -319,13 +319,13 @@ export function AnalysisModeScreen() {
         <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
           <section className="surface-card rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-slateish-400">
-              Execution-plan boundary
+              What this page cannot do yet
             </h2>
+            {/* plain words (H's audit 31, 27 Nov 2026): this box was headed "Execution-plan boundary" and opened with a release note */}
             <ul className="mt-3 space-y-2 text-xs text-slateish-300">
-              <li>How answers are found has not changed.</li>
-              <li>Live market research needs an approved data service and the privacy check.</li>
-              <li>Current market output is the labelled local sample dataset.</li>
-              <li>A long analysis cannot yet run in the background.</li>
+              <li>Live market prices need an approved price service and a privacy check first.</li>
+              <li>The market figures shown now are sample figures, and say so.</li>
+              <li>A long analysis cannot run in the background yet: keep this page open while it runs.</li>
             </ul>
           </section>
 

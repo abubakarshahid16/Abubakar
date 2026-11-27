@@ -95,6 +95,20 @@ export function Stat({
           : tone === "late"
             ? "text-warn-500"
             : "text-slateish-100";
+  if (NEW_LOOK) {
+    // the kit's card, name and number (H's audit 2: one card style on the Dashboard; no mono, no capitals)
+    return (
+      <div className="kit-card">
+        <p className="kit-tile__name">{label}</p>
+        {measured ? (
+          <p className={`kit-tile__number ${kitTone(tone)}`}>{typeof value === "number" ? nf.format(value) : value}</p>
+        ) : (
+          <NotMeasured />
+        )}
+        {hint && <p className="kit-small">{hint}</p>}
+      </div>
+    );
+  }
   return (
     <div className="surface-card rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
       <p className="text-xs uppercase tracking-wide text-slateish-500">{label}</p>
@@ -166,12 +180,12 @@ export function Headline({
           : "text-slateish-100";
   if (NEW_LOOK) {
     return (
-      <div className="rounded-[var(--radius-lg)] bg-ink-800 px-6 py-5 shadow-[var(--shadow-resting)]">
-        <p className="text-sm font-semibold text-slateish-400">{label}</p>
+      <div className="kit-card" data-kind="headline">
+        <p className="kit-tile__name">{label}</p>
         {value == null ? (
           <p className="mt-2 text-lg italic leading-tight text-slateish-500">nothing measured yet</p>
         ) : (
-          <p className={`mt-2 font-[family-name:var(--font-heading)] text-[2.5rem] font-bold leading-none ${toneClass}`}>
+          <p className={`kit-tile__number ${kitTone(tone)}`}>
             {value}
             {unit && <span className="ms-1.5 text-lg text-slateish-500">{unit}</span>}
           </p>
@@ -312,12 +326,17 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
  * never a hardcoded list of type names. A register with two types, or five,
  * or none loaded at all, must not make this component invent or drop a row.
  */
+/** A figure's tone as the kit's colour classes (kit colours win over page utilities, so a tone is a kit class, never a text-* one). */
+export function kitTone(tone: string | undefined): string {
+  return tone === "good" ? "kit-ok" : tone === "danger" ? "kit-late" : tone === "warn" || tone === "late" ? "kit-check" : "";
+}
+
 export function TypeCounts({ byType }: { byType: ClassificationCoverage["by_type"] }) {
   if (byType.length === 0) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
       {byType.map((t) => (
-        <span key={t.type} className="font-mono text-xs leading-tight">
+        <span key={t.type} className={NEW_LOOK ? "text-xs leading-tight" : "font-mono text-xs leading-tight"}>
           <span className="text-slateish-500">{t.type}</span>{" "}
           <span className="text-slateish-200">{nf.format(t.uploaded)}</span>
         </span>

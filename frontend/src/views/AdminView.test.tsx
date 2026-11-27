@@ -95,6 +95,17 @@ describe("password reset", () => {
   });
 });
 
+describe("a document nobody can see (H's audit 54, 27 Nov 2026)", () => {
+  it("is one short chip on its row, the full sentence on hover, never the two-line warning on every card", () => {
+    render(<AdminView {...props()} />);
+    const chips = screen.getAllByTestId("admin-visible-to-nobody");
+    expect(chips).toHaveLength(1); // only doc13.pdf carries the warning
+    expect(chips[0]).toHaveTextContent("Visible to nobody");
+    expect(chips[0].getAttribute("title")).toMatch(/invisible in every search/);
+    expect(screen.queryByText(/looks exactly like a failed upload\.$/)).toBeNull(); // no sentence drawn under the card
+  });
+});
+
 describe("null renders as nothing", () => {
   it("shows no dash, zero or 'never' for a user who has never signed in", () => {
     render(<AdminView {...props({ users: [neverSignedIn] })} />);

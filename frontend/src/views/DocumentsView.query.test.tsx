@@ -77,7 +77,8 @@ it("reads with the new search text without waiting for a poll", async () => {
 it("reads with the new sort order without waiting for a poll", async () => {
   mount();
   await screen.findByText("STD-A-001.pdf");
-  fireEvent.click(screen.getByRole("button", { name: /Order:/ }));
+  // one sort control (H's audit 14): the order is one of the select's choices
+  fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "uploaded_at:asc" } });
   await waitFor(() => expect(seen.some((u) => u.searchParams.get("direction") === "asc")).toBe(true));
 });
 

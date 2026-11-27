@@ -9,7 +9,8 @@ export type KitTone = "done" | "check" | "late" | "info" | "plain";
 const WORDS: Record<KitTone, string[]> = {
   done: ["approved", "signed off", "done", "closed", "sent", "ready", "active", "connected", "mailbox connected", "read", "kept", "answered", "held"],
   check: ["waiting for approval", "waiting for you", "needs a person", "not signed off", "review ready", "to check", "no contractor",
-    "no query number", "being changed", "needs a label", "mailbox needs a label", "no mailbox connected", "not held", "superseded", "changed since"],
+    "no query number", "being changed", "needs a label", "mailbox needs a label", "no mailbox connected", "not held", "superseded", "changed since",
+    "visible to nobody"],
   late: ["late", "overdue", "failed", "stopped by an error", "mailbox problem", "rejected", "not read", "blocked"],
   info: ["in progress", "running", "queued", "importing", "being read", "being rewritten", "checking"],
   plain: ["duplicate", "cancelled", "draft", "not started"],
