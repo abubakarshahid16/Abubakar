@@ -88,7 +88,7 @@ export function ModeSelector({
                 key={m.value}
                 htmlFor={inputId}
                 className={[
-                  "flex cursor-pointer items-start gap-3 rounded-[var(--radius-xs)] border px-3 py-2",
+                  "flex cursor-pointer items-start gap-3 rounded-[var(--kit-radius)] border px-3 py-2",
                   checked
                     ? "border-signal-500 bg-signal-500/10 shadow-sm"
                     : "border-ink-700 hover:bg-ink-800",
@@ -124,7 +124,7 @@ export function ModeSelector({
           Optional sections
         </legend>
         {mode === "quote" && (
-          <p className="mt-2 rounded-[var(--radius-xs)] border border-ink-700 bg-ink-900 px-2 py-1.5 text-xs text-slateish-500">
+          <p className="mt-2 rounded-[var(--kit-radius)] border border-ink-700 bg-ink-900 px-2 py-1.5 text-xs text-slateish-500">
             Quote mode runs only cited document evidence. Switch to Focused or
             Comprehensive to run these optional sections.
           </p>
@@ -138,7 +138,7 @@ export function ModeSelector({
                 key={t.key}
                 htmlFor={inputId}
                 className={[
-                  "flex cursor-pointer items-start gap-3 rounded-[var(--radius-xs)] border px-3 py-2",
+                  "flex cursor-pointer items-start gap-3 rounded-[var(--kit-radius)] border px-3 py-2",
                   toggles[t.key]
                     ? "border-signal-500/60 bg-signal-500/10"
                     : "border-ink-700 hover:bg-ink-800",

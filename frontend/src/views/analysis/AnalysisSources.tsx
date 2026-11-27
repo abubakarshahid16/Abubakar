@@ -19,7 +19,7 @@ export function AnalysisSources({ selectedItem, sourcesRef }: { selectedItem: Ev
             {selectedItem.exact_span}
           </blockquote>
           {selectedItem.relevance_score !== null && (
-            <details className="mt-3 rounded-[var(--radius-xs)] border border-ink-700 px-2.5 py-2 text-xs text-slateish-400">
+            <details className="mt-3 rounded-[var(--kit-radius)] border border-ink-700 px-2.5 py-2 text-xs text-slateish-400">
               <summary className="cursor-pointer">Retrieval details</summary>
               <p className="mt-1">This part’s {selectedItem.relevance_score_type ?? "retrieval"} score was {selectedItem.relevance_score.toFixed(3)}. It is a ranking diagnostic, not a quality verdict.</p>
             </details>
