@@ -283,11 +283,6 @@ details:not([open]) > :not(summary) {
 :where(button, a, input, select, textarea, [role="button"]) {
   min-height: 44px;
 }
-.inline-target {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -387,12 +382,6 @@ table {
 .model-prose {
   max-width: 34rem;
   line-height: 1.62;
-}
-
-/* Any block that can outgrow its track scrolls in its own container. The
-   page body must never scroll sideways. */
-.scroll-x {
-  overflow-x: auto;
 }
 
 /* Focus must always be visible - keyboard navigation is a requirement, not a
@@ -530,10 +519,6 @@ table {
   box-shadow: var(--shadow-floating);
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 45%);
 }
-.surface-glow {
-  box-shadow: var(--shadow-glow);
-}
-
 /* A subtle animated accent gradient for headline moments (the answer
    card's top edge, the active nav item) - static color alone reads flat;
    a slow-moving gradient reads alive without being distracting. */
