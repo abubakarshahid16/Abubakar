@@ -1,5 +1,5 @@
 import { InfoFold } from "../components/look/LookParts";
-import { LIST_FOUND, groupByItem, leadParagraphs, matchWords, replyBeingRewritten, mailboxChip, problemChips, quickMatch, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, groupByItem, leadParagraphs, matchWords, pageHeaderSplit, replyBeingRewritten, mailboxChip, problemChips, quickMatch, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
@@ -68,10 +68,14 @@ function Folded({ text }: { text?: string | null }) {
 export const BOX_FOUND = 6;
 
 /** A source passage, short: about three lines with the ask's words marked, and the whole passage one click away (never cut unmarked). */
-function Quote({ text, words }: { text: string; words: string[] }) {
+function Quote({ text: whole, words }: { text: string; words: string[] }) {
+  // the page's own header (document number, "Page N of M Rev X") is shown apart, small, so the quote starts with the clause (A's walk)
+  const split = pageHeaderSplit(whole);
+  const text = split ? split.body : whole;
   const { short, cut } = shortQuote(text);
   const pieces = (t: string) => markedPieces(t, words).map((p, i) => p.hit ? <strong key={i} data-testid="quote-mark" className="font-semibold text-slateish-100 underline decoration-signal-500 decoration-2 underline-offset-2">{p.text}</strong> : <span key={i}>{p.text}</span>);
   return <>
+    {split && <p data-testid="quote-page-header" className="text-xs text-slateish-400">From the page header: {split.header}</p>}
     <p data-testid="quote-short" className="text-slateish-300">{pieces(short)}{cut && <span aria-label="the quote goes on">{" \u2026"}</span>}</p>
     {cut && <details data-testid="quote-full" className="mt-1"><summary className="cursor-pointer text-xs font-semibold text-signal-300">Show the whole quote</summary><p className="mt-1 whitespace-pre-wrap text-slateish-300">{pieces(text)}</p></details>}
   </>;
@@ -586,7 +590,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {/* when NO listed query has a contractor, the list's own notice already says it once: not repeated here (Part 3 picture review) */}
           {problemChips(selected).filter((p) => !(p.words === "No contractor" && items.length > 0 && items.every((i) => !i.contractor_name))).map((p) => <p key={p.words} data-testid="query-problem" className="mt-1 text-sm text-warn-500"><strong className="font-semibold">{p.words}.</strong> {p.why}</p>)}
           <ol data-testid="query-summary" aria-label="Where this query stands" className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            {querySteps(selected, questionDraft).map((step) => <li key={step.label} className={step.state === "done" ? "text-slateish-100" : "text-slateish-400"}><span aria-hidden="true" className="mr-1 font-semibold">{step.state === "done" ? "✓" : step.state === "working" ? "…" : "○"}</span>{step.label}{step.state === "working" ? " (working)" : step.state === "todo" ? " (not yet)" : step.state === "stale" ? " (for an earlier wording)" : ""}</li>)}
+            {querySteps(selected, questionDraft).map((step) => <li key={step.label} className={step.state === "done" ? "text-slateish-100" : step.state === "warn" ? "text-pill-review-fg" : "text-slateish-400"}><span aria-hidden="true" className="mr-1 font-semibold">{step.state === "done" ? "✓" : step.state === "working" ? "…" : step.state === "warn" ? "!" : "○"}</span>{step.label}{step.state === "working" ? " (working)" : step.state === "todo" ? " (not yet)" : step.state === "stale" ? " (for an earlier wording)" : ""}</li>)}
           </ol>
           {/* WHAT THE CONTRACTOR'S FORM CITES, first (owner via builder A, 27 Nov 2026): each citation and whether we hold it */}
           {selected.ready?.cited?.length ? <div data-testid="contractor-cites" className="mt-3 text-sm">
@@ -668,7 +672,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               </div>
               <p data-testid="decision-hint" className="mt-1 text-xs text-slateish-400">{decision.hint}</p>
               {split.citesNone && currentSources(selected.evidence).length > 0 && <p data-testid="cites-none" className="mt-1 text-xs text-slateish-400">The reply cites none of the sources found, so approving keeps or rejects none of them.</p>}
-              {split.keep.length + split.reject.length > 0 && <p className="mt-1 text-xs text-slateish-400">Approving keeps the {split.keep.length} source{split.keep.length === 1 ? "" : "s"} the reply cites and rejects the other {split.reject.length} found for this question. You can change any of them under &ldquo;All sources found&rdquo; first.</p>}
+              {split.keep.length + split.reject.length > 0 && <p className="mt-1 text-xs text-slateish-400">Approving keeps the {split.keep.length} source{split.keep.length === 1 ? "" : "s"} the reply cites. It rejects the other {split.reject.length}. Change any of them first under &ldquo;All sources found&rdquo;.</p>}
               {sendingBack && <div data-testid="send-back" className="mt-2 rounded border border-ink-700 p-2">
                 <label htmlFor="technical-query-send-back" className="block text-xs text-slateish-300">What should change in the reply?</label>
                 <textarea id="technical-query-send-back" value={backNote} onChange={(event) => setBackNote(event.target.value)} rows={3} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
@@ -693,7 +697,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                   : <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download the reply as a Word file</a>}
                 {["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? <Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))}>Mark as answered</Button> : null}
               </div>
-              <p id="word-reply-hint" className="mt-1 text-xs text-slateish-400">{whyNot ? `${whyNot} ` : ""}A Word file of the approved reply. Send it to the contractor yourself: the app sends no email.{["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? " After you have sent it, press Mark as answered." : ""}</p>
+              <p id="word-reply-hint" className="mt-1 text-xs text-slateish-400">{whyNot ? `${whyNot} ` : ""}Send it to the contractor yourself. The app sends no email.{["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? " After you have sent it, press Mark as answered." : ""}</p>
             </div>;
           })() : null}
           {/* REDO, folded and quiet (owner, 27 Nov 2026 00:02): each line says what it does and that it replaces the reply above */}

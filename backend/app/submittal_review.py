@@ -1115,7 +1115,7 @@ def review_status_for(
     # and then id so the choice is deterministic when two runs share a second -
     # the timestamps are second-resolution, so ties are real.
     rows = connect().execute(
-        f"""SELECT r.submittal_document_id AS doc, {run_finishing.STATUS} AS status
+        f"""SELECT r.submittal_document_id AS doc, {run_finishing.STATUS} AS status, r.outcome_json AS outcome
             FROM review_runs r WHERE r.submittal_document_id IN ({marks})
             ORDER BY created_at DESC, id DESC""",
         visible,
@@ -1130,8 +1130,42 @@ def review_status_for(
     # made here, where it is plainly correct.
     latest: dict[str, str] = {}
     for row in rows:
-        latest.setdefault(row["doc"], row["status"])
+        # H's one-real-file pass (P8, 27 Nov 2026): a general review that STOPPED early ends its job as `completed` and keeps
+        # `partial` in its outcome; "Review complete" for it is a false claim, so it reads `stopped`
+        status = "stopped" if row["status"] == "completed" and _partial(row["outcome"]) else row["status"]
+        latest.setdefault(row["doc"], status)
     return {doc: latest.get(doc, "not_reviewed") for doc in visible}
+
+
+def _partial(outcome: str | None) -> bool:
+    """True when a run's outcome says it ended early (`partial`, set by the general review for a stopped run)."""
+    try:
+        return bool((json.loads(outcome) if outcome else {}).get("partial"))
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def last_complete_review_for(
+    document_ids: list[str], *, allowed_document_ids: frozenset[str],
+) -> dict[str, str]:
+    """`{document_id: when its newest COMPLETE review finished}` (a completed run that did not stop early), for the documents the
+    caller may read; a document with none is absent. Read only. Rule 5: the same intersection as `review_status_for`."""
+    ensure_schema()
+    visible = [d for d in document_ids if d in allowed_document_ids]
+    if not visible:
+        return {}
+    marks = ",".join("?" for _ in visible)
+    rows = connect().execute(
+        f"""SELECT r.submittal_document_id AS doc, r.outcome_json AS outcome, COALESCE(r.completed_at, r.updated_at) AS at
+            FROM review_runs r WHERE r.submittal_document_id IN ({marks}) AND r.status = 'completed'
+            ORDER BY created_at DESC, id DESC""",
+        visible,
+    ).fetchall()
+    out: dict[str, str] = {}
+    for row in rows:
+        if row["at"] and not _partial(row["outcome"]):
+            out.setdefault(row["doc"], row["at"])
+    return out
 
 
 def list_run_findings(

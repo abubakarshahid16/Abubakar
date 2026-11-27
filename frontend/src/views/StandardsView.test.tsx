@@ -125,7 +125,9 @@ describe("the library list: search and families", () => {
     ] });
     render(<StandardsView />);
     expect(await screen.findByRole("button", { name: /Pump rules/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /5521\.pdf/ })).toBeTruthy();
+    // named by its file name; the "File: 5521.pdf" line under the title "5521" said the same again, so it is gone (C's walk)
+    const byFile = screen.getByRole("button", { name: /5521/ });
+    expect(byFile.textContent).not.toMatch(/File:/);
   });
 });
 
