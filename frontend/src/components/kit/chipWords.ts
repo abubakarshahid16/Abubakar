@@ -13,7 +13,7 @@ const WORDS: Record<KitTone, string[]> = {
     "visible to nobody", "ai, to be checked"],
   late: ["late", "overdue", "failed", "stopped by an error", "mailbox problem", "rejected", "not read", "blocked"],
   info: ["in progress", "running", "queued", "importing", "being read", "being rewritten", "checking"],
-  plain: ["duplicate", "cancelled", "draft", "not started"],
+  plain: ["duplicate", "cancelled", "draft", "not started", "attached to a query"],
 };
 
 const TONE_OF = new Map<string, KitTone>(Object.entries(WORDS).flatMap(([tone, words]) => words.map((w) => [w, tone as KitTone])));
