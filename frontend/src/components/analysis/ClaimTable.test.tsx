@@ -56,7 +56,7 @@ describe("ClaimTable: possible conflict", () => {
     render(<ClaimTable clusters={[cluster]} onCite={vi.fn()} />);
     expect(screen.getByText("Possible conflict")).toBeInTheDocument();
     expect(
-      screen.getByText(/cannot be determined: documents carry no revision or approval status/),
+      screen.getByText(/so which one applies cannot be told/),
     ).toBeInTheDocument();
   });
 

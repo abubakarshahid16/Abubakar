@@ -82,7 +82,7 @@ describe("switching standards", () => {
     }));
     render(<StandardsView isAdmin />);
     fireEvent.click(await screen.findByRole("button", { name: /STD-A-001/ }));
-    fireEvent.click(screen.getByRole("tab", { name: "Revision History" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Revisions" }));
     const select = await screen.findByLabelText("Superseded by");
     fireEvent.change(select, { target: { value: "doc_b" } });
     await waitFor(() => expect(supersededBy).toBe("doc_b"));

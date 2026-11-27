@@ -5,6 +5,7 @@
  * visible at a glance rather than one row at a time. Nothing is dropped
  * silently, and this is where that promise is redeemed.
  */
+import { Tag } from "./kit/Kit";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
@@ -12,23 +13,26 @@ import type { ApiError, DocumentRecord, ExclusionsResponse } from "../types/api"
 import { Drawer } from "./Drawer";
 import { DisconnectedState, EmptyState, ErrorState, Spinner } from "./states";
 import { NEW_LOOK } from "../look";
-import { Tag } from "./kit/Kit";
 
 const PAGE_SIZE = 25;
 const nf = new Intl.NumberFormat("en-GB");
 
-const RULE_EXPLANATION: Record<string, string> = {
+/** The words for what was left out: a piece of text or a whole page (the stored names are not shown). */
+export const SCOPE_WORDS: Record<string, string> = { chunk: "piece of text", page: "page" };
+export const SCOPE_PLURAL: Record<string, string> = { chunk: "pieces of text", page: "pages" };
+
+export const RULE_EXPLANATION: Record<string, string> = {
   content_quality_gate:
-    "The text did not read like natural language and was not structured like a table.",
-  page_classified_toc: "A contents page — dense keyword lists that would outrank real answers.",
+    "The text did not read like sentences or a table.",
+  page_classified_toc: "A contents page: its keyword lists would push real answers down.",
   page_classified_frontmatter: "Title page, copyright, credits or dedication.",
   page_classified_index: "A back-of-book index.",
   page_classified_references: "A bibliography or reference list.",
   page_classified_revision_history:
-    "A Summary of Changes or revision history table. It records what changed between revisions and is not a requirement, so it is left out of search on purpose.",
-  page_empty: "The page held no text at all once control characters were stripped.",
+    "A table of changes between revisions. It is not a requirement, so search leaves it out on purpose.",
+  page_empty: "The page held no readable text.",
   page_yielded_no_chunk:
-    "The page had text but too little, or too fragmented, to form a searchable part.",
+    "The page had too little text to search.",
 
   // OCR. Four rules rather than one, because "the page is blank" and "the page
   // could not be read" are DIFFERENT FACTS and a reader acts differently on
@@ -37,15 +41,15 @@ const RULE_EXPLANATION: Record<string, string> = {
   ocr_not_run:
     NEW_LOOK
       ? "A scanned page with no text in it. It has not been read yet: it is waiting, not a judgement on the page."
-      : "A scanned page with no extractable text. Recognition has not run on it yet — it is waiting, not a judgement on the page.",
+      : "A scanned page with no text in it. It has not been read yet: it is waiting, not a judgement on the page.",
   ocr_found_no_text:
-    "Recognition ran and found nothing, at both resolutions. The page appears to be genuinely BLANK — it is not a page we failed to read.",
+    "The scan was read twice and nothing was found. The page looks truly blank, not unread.",
   ocr_failed:
-    "Recognition raised an error on this page. Unlike a blank page, there may well be text here that nothing has read.",
+    "Reading this scanned page failed. Unlike a blank page, it may hold text nobody has read.",
   ocr_yielded_no_chunk:
-    "Recognition read text from this scanned page, but it was too little or too fragmented to form a searchable part.",
+    "Some text was read from this scan, but too little to search.",
   ocr_confidence_below_threshold:
-    "Recognition was too unsure of this page to index it. No threshold is currently set, so this rule should not fire.",
+    "The reader was too unsure of this page to make it searchable. Tell your administrator you saw this.",
 };
 
 export function ExcludedViewer({
@@ -81,8 +85,8 @@ export function ExcludedViewer({
 
   return (
     <Drawer
-      title={`Excluded from search — ${doc.filename}`}
-      subtitle="Every page and part of a page that search cannot see, with the rule that left it out"
+      title={`Left out of search: ${doc.filename}`}
+      subtitle="Every page or part that search cannot see, and why it was left out"
       onClose={onClose}
     >
       {state.s === "loading" && <Spinner label="Loading exclusions" />}
@@ -95,7 +99,7 @@ export function ExcludedViewer({
 
       {state.s === "ready" && state.data.total === 0 && (
         <EmptyState
-          title="Nothing was excluded"
+          title="Nothing was left out"
           hint="Every part of this document is searchable."
         />
       )}
@@ -131,7 +135,7 @@ export function ExcludedViewer({
                             small and last, because it is what you quote in a
                             bug report. */}
                         <span className="block text-xs text-slateish-200">
-                          {RULE_EXPLANATION[s.rule] ?? `Excluded ${s.scope}s.`}
+                          {RULE_EXPLANATION[s.rule] ?? `Left out: ${SCOPE_PLURAL[s.scope] ?? `${s.scope}s`}.`}
                         </span>
                         {(s.clause_heading_pages ?? 0) > 0 && (
                           <span className="mt-1 block text-xs font-medium text-danger-500">
@@ -142,15 +146,8 @@ export function ExcludedViewer({
                       </span>
                       <span className="ms-3 shrink-0 text-right">
                         <span className={NEW_LOOK ? "block text-sm tabular-nums text-warn-500" : "block font-mono text-sm text-warn-500"}>
-                          {nf.format(s.count)} {s.scope}s
+                          {nf.format(s.count)} {SCOPE_PLURAL[s.scope] ?? `${s.scope}s`}
                         </span>
-                        <span className="block text-xs text-slateish-400">
-                          {nf.format(s.characters_dropped)} chars
-                        </span>
-                        {NEW_LOOK ? <span className="mt-0.5 block"><Tag>{s.rule}</Tag></span> : (
-                        <span className="mt-0.5 block font-mono text-xs text-slateish-500">
-                          {s.rule}
-                        </span>)}
                       </span>
                     </button>
                   </li>
@@ -159,7 +156,7 @@ export function ExcludedViewer({
             </ul>
             {activeRule && (
               <p className="mt-2 text-xs text-slateish-400">
-                Showing only {NEW_LOOK ? <Tag>{activeRule}</Tag> : <span className="font-mono">{activeRule}</span>} on this page.{" "}
+                Showing only these on this page.{" "}
                 <button
                   type="button"
                   className="underline decoration-dotted"
@@ -219,21 +216,20 @@ export function ExcludedViewer({
                   )}
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded bg-warn-500/15 px-2 py-0.5 text-warn-500">
-                      {e.scope}
+                      {SCOPE_WORDS[e.scope] ?? e.scope}
                     </span>
-                    {NEW_LOOK ? <Tag>{e.rule}</Tag> : <span className="font-mono text-slateish-300">{e.rule}</span>}
                     <span className="text-slateish-400">
                       {e.page_start === e.page_end
                         ? `page ${e.page_start}`
                         : `pages ${e.page_start}–${e.page_end}`}
                     </span>
-                    <span className="ms-auto text-slateish-400">
-                      {nf.format(e.text_length)} chars
-                    </span>
                   </div>
-                  {e.reason && (
-                    <p className={NEW_LOOK ? "mt-1 text-xs text-warn-500" : "mt-1 font-mono text-xs text-warn-500"}>{e.reason}</p>
-                  )}
+                  <details className="mt-1 text-xs text-slateish-400">
+                    <summary className="cursor-pointer">Technical detail</summary>
+                    {NEW_LOOK
+                      ? <p className="mt-1 flex flex-wrap items-center gap-2"><Tag>{e.rule}</Tag>{e.reason ? <span>{e.reason}</span> : null}<span>{nf.format(e.text_length)} characters</span></p>
+                      : <p className="font-mono">{e.rule}{e.reason ? ` · ${e.reason}` : ""} · {nf.format(e.text_length)} characters</p>}
+                  </details>
                   {/* the document's own words in the app's reading face, as in "What was read" (H, 27 Nov 2026) */}
                   <pre className={NEW_LOOK
                     ? "evidence-quote mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 text-slateish-300"

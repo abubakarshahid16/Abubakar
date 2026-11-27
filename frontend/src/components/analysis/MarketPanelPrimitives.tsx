@@ -100,7 +100,7 @@ export function verificationWords(v: string): string {
  *  sold on. The claim is gone from this file; the egress flags are the only
  *  thing that may say what the posture is. */
 export const SAMPLE_BANNER_TAIL =
-  "Every row below is an illustrative sample and must not be described as live market data.";
+  "Every row below is a sample. Never describe it as live market data.";
 
 /** Why the rows on screen are samples, in the reader's terms, from the same
  *  two flags the backend gates the request on. Never asserts a posture the
@@ -130,13 +130,13 @@ export function sampleReason(egress: EgressState): string {
 export function searchDisabledReason(egress: EgressState): string {
   const reason = sampleReason(egress);
   return reason === NO_SEARCH_YET
-    ? "The backend reported that public search is off in this build."
+    ? "Public search is off on this computer."
     : reason;
 }
 
 /** The honest limit of the whole feature. Preserved verbatim. */
 export const PUBLIC_LIMIT =
-  "Public web findings cannot prove internal project compliance. Snippets are preliminary evidence; the verification column says whether the page was read.";
+  "Public web findings cannot prove internal project compliance. Snippets are a first look only. The last column says whether the page was read.";
 
 /** Nothing safe survived scrubbing. Says plainly that no search is possible,
  *  and refuses the obvious bad offer - sending the raw text anyway - before
@@ -147,7 +147,7 @@ export const NO_SAFE_PHRASE =
 /** The preview is a read on this machine. If it cannot be read, the payload
  *  cannot be shown, and this panel does not send what it cannot show. */
 export const PREVIEW_UNREACHABLE =
-  "The backend could not be reached, so exactly what would be sent cannot be shown here.";
+  "The app's server did not answer, so what would be sent cannot be shown.";
 
 /** Confirm was pressed while the payload was unknown. Nothing left. */
 export const NOTHING_SENT_UNSHOWN =
@@ -161,7 +161,7 @@ export const CANCEL_SENDS_NOTHING = "Cancel closes this and sends nothing.";
  *  not answer") rather than what failed, because a tier returning nothing is
  *  not the same as a tier erroring, and the API does not distinguish them. */
 export const TIER_FALLBACK =
-  "One or more public sources did not answer. Any rows shown are labeled with their actual source tier; they are preliminary background evidence, not proof of internal project compliance.";
+  "One or more public sources did not answer. Each row shown names the source that gave it. They are background only, not proof that the project complies.";
 
 /** Printed under a failure, so the absence of rows is stated rather than left
  *  to be noticed. */
@@ -174,12 +174,12 @@ export const NO_RESULTS =
 /** The search request itself did not get through. Nothing was searched and
  *  nothing stale is left on screen. */
 export const SEARCH_UNREACHABLE =
-  "The backend could not be reached, so no search was made. Nothing is shown here.";
+  "The app's server did not answer, so no search was made.";
 
 /** On every reference row. The row already prints its label; this says what
  *  the label MEANS for a reader deciding whether to rely on it. */
 export const REFERENCE_CAPTION =
-  "Background only. This row is not a market finding and cannot evidence a market condition.";
+  "Background only. This row is not a market finding and does not show a market condition.";
 
 export const REFERENCE_LABEL = "reference - background only";
 

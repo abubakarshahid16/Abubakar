@@ -15,7 +15,7 @@ import type { AnalysisResult, PerDocumentStatus } from "../../types/analysis";
 import { Button } from "../kit/Kit";
 
 const STATUS_TEXT: Record<PerDocumentStatus, { icon: string; label: string }> = {
-  relevant: { icon: "●", label: "Contributed evidence" },
+  relevant: { icon: "●", label: "Gave sources" },
   no_sufficient_evidence: { icon: "○", label: "Searched, nothing credible" },
   failed: { icon: "✕", label: "Failed to search" },
   not_searchable: { icon: "∅", label: "Not yet searchable" },
@@ -55,7 +55,7 @@ export function CoverageLedger({
   if (c.documents_search_completed != null) segments.push(`${c.documents_search_completed} searched`);
   if (c.relevant_documents != null) segments.push(`${c.relevant_documents} relevant`);
   if (c.no_sufficient_evidence_documents != null)
-    segments.push(`${c.no_sufficient_evidence_documents} no sufficient evidence`);
+    segments.push(`${c.no_sufficient_evidence_documents} with too little source text`);
   if (c.failed_documents != null) segments.push(`${c.failed_documents} failed`);
   if (c.not_searchable_documents != null) segments.push(`${c.not_searchable_documents} not searchable`);
 
@@ -90,14 +90,14 @@ export function CoverageLedger({
 
       {cancelled && (
         <p role="status" className="mt-2 rounded-[var(--radius-xs)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-sm text-warn-500">
-          Cancelled — partial results below are batches, not a consolidated answer
+          Stopped. The results below are partial pieces, not one joined answer.
         </p>
       )}
 
       {total > 0 && (
         <div className="relative mt-3 overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <caption className="sr-only">Per-document search outcome</caption>
+            <caption className="sr-only">What the search found in each document</caption>
             <thead>
               <tr className="text-xs uppercase tracking-wide text-slateish-500">
                 <th scope="col" className="py-1 pe-3 font-normal">Document</th>

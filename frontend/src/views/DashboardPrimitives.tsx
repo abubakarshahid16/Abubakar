@@ -18,15 +18,15 @@ import { NEW_LOOK } from "../look";
 import { TileLine } from "../components/look/LookParts";
 
 const STAGE_LABELS: Record<string, string> = {
-  extract: "Extraction",
-  chunk: "Chunking",
+  extract: "Reading the text",
+  chunk: "Splitting into parts",
   keyword_index: "Keyword index",
   embed: "Making searchable",
 };
 
 /** Update 12: the technical-query attachments nobody filed into the library are counted APART, never inside the library's numbers. */
 function attachmentsApart(n: number | null | undefined, nf: Intl.NumberFormat): string {
-  return n ? ` (${nf.format(n)} technical-query attachment${n === 1 ? "" : "s"} counted apart: not in search, Chat or reviews until filed)` : "";
+  return n ? ` (${nf.format(n)} file${n === 1 ? "" : "s"} attached to queries counted apart: not in search, Chat or reviews until added to the library)` : "";
 }
 
 export function bytes(n: number): string {
@@ -263,12 +263,12 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
       label: "Uploads",
       ok: workerReady,
       detail: !workerReady
-        ? "processing has stopped - new uploads will wait"
+        ? "reading has stopped: new files will wait"
         : metrics.worker.reviewing && (metrics.worker.uploads_waiting_for_review ?? 0) > 0
-          ? `busy with a review: ${nf.format(metrics.worker.uploads_waiting_for_review ?? 0)} upload${metrics.worker.uploads_waiting_for_review === 1 ? "" : "s"} waiting`
+          ? `busy with a review: ${nf.format(metrics.worker.uploads_waiting_for_review ?? 0)} new file${metrics.worker.uploads_waiting_for_review === 1 ? "" : "s"} waiting`
           : metrics.worker.reviewing && metrics.worker.pending_count > 0
-            ? `a review is running; ${nf.format(metrics.worker.pending_count)} upload${metrics.worker.pending_count === 1 ? " is" : "s are"} read beside it`
-            : "new documents will be processed as they arrive",
+            ? `a review is running; ${nf.format(metrics.worker.pending_count)} new file${metrics.worker.pending_count === 1 ? " is" : "s are"} read at the same time`
+            : "new documents are read as they arrive",
     },
     {
       label: NEW_LOOK ? "Prices" : "Market data",
@@ -282,7 +282,7 @@ export function ReadinessPanel({ metrics }: { metrics: Metrics }) {
       // "not yet available" is a banned phrase here - it was true of OCR once,
       // and of the summary once, and each time it stayed on screen after the
       // thing arrived. Say what exists, not what does not.
-      detail: NEW_LOOK ? "one PDF per answer, with its sources kept as they were" : "one PDF per answer, with its evidence frozen in - reports cover single answers, not a whole analysis",
+      detail: NEW_LOOK ? "one PDF per answer, with its sources kept as they were" : "one PDF per answer, with its sources kept as they were. Reports cover single answers, not a whole analysis",
       tone: "warn" as const,
     },
   ];

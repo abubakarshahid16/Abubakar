@@ -89,7 +89,7 @@ export function HowReviewedView({ runId, onBack, onOpenRun, onOpenSteps }: {
         )}
         <p className="text-sm text-slateish-400">
           Every number on this page is one the review stored when it ran, printed with the field it came from.
-          Nothing is recounted here. A field this review did not store reads "not recorded on this review".
+          Nothing is recounted here. A field this review did not store says "not recorded".
         </p>
       </header>
 

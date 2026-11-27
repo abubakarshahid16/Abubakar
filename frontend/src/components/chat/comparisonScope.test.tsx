@@ -3,7 +3,7 @@
  *
  * THE DEFECT THIS EXISTS FOR. "Please compare the mechanical requirements from
  * all documents" came back as ONE verbatim passage from one document, with two
- * other passages collapsed beneath it, and the screen said nothing about the
+ * other sources collapsed beneath it, and the screen said nothing about the
  * comparison it had not performed. ChatView sends every composer question as
  * `tier: "extract"` and there is no mode selector on Chat, so the screen
  * structurally cannot compare across the corpus. Silence in the face of a

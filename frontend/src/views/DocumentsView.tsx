@@ -375,7 +375,7 @@ export function DocumentsView({
         // another route. A classification we cannot preserve is one we must
         // not overwrite.
         setNotice(
-          `Cannot confirm ${doc.filename} yet - its current classification has not loaded. Try again in a moment.`,
+          `Wait a moment, then try again: the type of ${doc.filename} is still loading.`,
         );
         return;
       }
@@ -393,7 +393,7 @@ export function DocumentsView({
         // says nothing about whether the document exists. This is the ONE
         // sentence in the app that treats a 404 here as "you may not do
         // this" rather than "gone" - see `classification.confirm`.
-        setNotice("You do not have permission to confirm this document's type.");
+        setNotice("Your role cannot confirm this document's type.");
       } else {
         setNotice(`Could not confirm the type for ${doc.filename}. Try again.`);
       }
@@ -424,7 +424,7 @@ export function DocumentsView({
       }
       // The problem is returned to the card (shown beside the picker, where the reader is looking) AND kept as the page notice.
       const problem = !result.disconnected && result.error.code === "not_found"
-        ? "You do not have permission to confirm this document's type."
+        ? "Your role cannot confirm this document's type."
         : `Could not save the type for ${doc.filename}${result.error?.message ? `: ${result.error.message}` : ""}. Try again.`;
       setNotice(problem);
       return problem;
@@ -691,13 +691,13 @@ export function DocumentsView({
         {load.state === "ready" && load.documents.length === 0 && (
           <EmptyState
             title="No documents yet"
-            hint="Drag a PDF onto the box above to start."
+            hint="Drag a PDF or Word file onto the box above to start."
           />
         )}
 
         {load.state === "ready" &&
           load.documents.length > 0 &&
-          !classificationsReady && <Spinner label="Loading document classifications" />}
+          !classificationsReady && <Spinner label="Loading document types" />}
 
         {load.state === "ready" && load.documents.length > 0 && classificationsReady && (
           <div className="space-y-6">
@@ -847,8 +847,8 @@ export function DocumentsView({
         <Drawer title={`Details - ${drawer.doc.filename}`} onClose={() => setDrawer({ kind: "none" })}>
           <div className="flex flex-col gap-6">
             <DocumentTechnicalDetails doc={drawer.doc} />
-            <section aria-label="Edit metadata">
-              <h4 className="mb-2 text-xs font-medium opacity-80">Edit metadata</h4>
+            <section aria-label="Edit details">
+              <h4 className="mb-2 text-xs font-medium opacity-80">Edit details</h4>
               <MetadataEditorForDocument
                 documentId={drawer.doc.id}
                 canEdit={isAdmin}
@@ -887,7 +887,7 @@ function MetadataEditorForDocument({
     return () => { cancelled = true; };
   }, [documentId]);
 
-  if (!loaded) return <p className="text-xs opacity-70">Loading metadata…</p>;
+  if (!loaded) return <p className="text-xs opacity-70">Loading details…</p>;
   return (
     <MetadataEditor
       documentId={documentId}

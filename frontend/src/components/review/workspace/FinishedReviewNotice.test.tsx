@@ -116,7 +116,7 @@ describe("FinishedReviewNotice", () => {
   });
 
   it("keeps watching when a read fails", async () => {
-    reviewRun.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    reviewRun.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } });
     watchRun("run-1", "Pump datasheet rev B.pdf");
     await checkWatchedRuns();
     expect(sessionStorage.getItem(WATCH_STORAGE_KEY)).toContain("run-1");

@@ -17,7 +17,6 @@ import { MetadataEditor } from "./classification/MetadataEditor";
 import { DocumentPreview } from "./DocumentPreview";
 import { DocumentTechnicalDetails } from "./DocumentTechnicalDetails";
 import type { DocumentClassification, DocumentRecord } from "../types/api";
-import { NEW_LOOK } from "../look";
 
 const doc: DocumentRecord = {
   id: "doc_1", filename: "pump-datasheet.pdf", sha256: "a".repeat(64),
@@ -49,7 +48,7 @@ describe("editing metadata", () => {
     fireEvent.change(screen.getByLabelText("Title"), {
       target: { value: "Pump datasheet" },
     });
-    fireEvent.click(screen.getByRole("button", { name: NEW_LOOK ? /save details/i : /save metadata/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save details/i }));
     await waitFor(() => expect(sent.length).toBe(1));
     const body = sent[0] as Record<string, unknown>;
     expect(body.title).toBe("Pump datasheet");
@@ -61,7 +60,7 @@ describe("editing metadata", () => {
 
   it("does not offer the controls to a non-admin", () => {
     render(<MetadataEditor documentId="doc_1" record={classified} canEdit={false} />);
-    expect(screen.queryByRole("button", { name: /save metadata/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /save details/i })).toBeNull();
   });
 });
 
@@ -80,7 +79,7 @@ describe("assigning a document role", () => {
     fireEvent.change(screen.getByLabelText("Document role"), {
       target: { value: "COMPANY_STANDARD" },
     });
-    fireEvent.click(screen.getByRole("button", { name: NEW_LOOK ? /save details/i : /save metadata/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save details/i }));
     await waitFor(() => expect(sent.length).toBe(1));
     // The CONTRACT value, not the human label. A label sent here would be
     // refused by the backend vocabulary and match no filter.
@@ -219,7 +218,7 @@ describe("technical details", () => {
     // recorded value.
     expect(screen.queryByText("Unknown")).toBeNull();
     expect(screen.queryByText("Revision")).toBeNull();
-    expect(screen.getByText(/no submittal-review metadata/i)).toBeTruthy();
+    expect(screen.getByText(/nothing is recorded for this document yet/i)).toBeTruthy();
   });
 
   it("shows the metadata that IS recorded", () => {

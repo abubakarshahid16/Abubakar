@@ -101,7 +101,7 @@ const LINES: ConditionChoice = {
 describe("one passage that lists several cases", () => {
   it("lists every line of the passage with its condition", () => {
     show(view({ condition_choice: LINES }));
-    expect(screen.getByTestId("condition-options")).toHaveTextContent("One passage lists every case");
+    expect(screen.getByTestId("condition-options")).toHaveTextContent("One source lists every case");
     expect(screen.getByText(/"pipes 2 inch and smaller: 3 mm"/)).toBeInTheDocument();
     expect(screen.getByText(/"pipes larger than 2 inch: 6 mm"/)).toBeInTheDocument();
   });
@@ -110,7 +110,7 @@ describe("one passage that lists several cases", () => {
     show(view({ condition_choice: { ...LINES, mode: "matched", question_names: ["6 inch"],
       options: [LINES.options[1]] } }));
     expect(screen.getByTestId("condition-matched")).toHaveTextContent(
-      "Answered for 6 inch: this passage lists several cases; the line for larger than 2 inch is highlighted");
+      "Answered for 6 inch: this source lists several cases; the line for larger than 2 inch is highlighted");
   });
 
   it("shows an options answer as having no single answer yet", () => {

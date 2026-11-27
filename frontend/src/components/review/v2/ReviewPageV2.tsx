@@ -72,7 +72,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
           {general.state === "loading" ? null : generalLatest && !again ? (
             isAdmin !== false ? (
               <Button variant="secondary" size="sm" data-testid="review-again" onClick={() => setAgain(true)}>
-                Review this paper again
+                New review
               </Button>
             ) : null
           ) : (

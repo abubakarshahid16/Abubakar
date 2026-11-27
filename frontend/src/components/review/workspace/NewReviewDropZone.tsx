@@ -24,9 +24,9 @@ function phaseWords(phase: NewReviewPhase, filename: string | null): string | nu
   switch (phase.kind) {
     case "uploading": return `Uploading ${name}: ${phase.percent}%`;
     case "marking": return `Marking ${name} as a document from a contractor…`;
-    case "waiting": return `Reading ${name} in. This can take a few minutes…`;
+    case "waiting": return `Reading ${name}. This can take a few minutes…`;
     case "starting": return "Starting the review…";
-    case "ready": return `${name} is read in. Choose who reviews it below and see what will be sent.`;
+    case "ready": return `${name} is read. Choose who reviews it below and see what will be sent.`;
     case "started": return "The review has started.";
     default: return null;
   }

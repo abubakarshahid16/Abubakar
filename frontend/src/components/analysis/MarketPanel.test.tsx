@@ -216,7 +216,7 @@ const ok = <T,>(data: T) => ({ ok: true as const, data });
 const down = (): Result<never> => ({
   ok: false,
   disconnected: true,
-  error: { code: "internal", message: "Cannot reach the backend. failed to fetch" },
+  error: { code: "internal", message: "Cannot reach the app's server. failed to fetch" },
 });
 
 // ---------------------------------------------------------------- harness
@@ -236,7 +236,7 @@ async function type(user: ReturnType<typeof userEvent.setup>) {
 
 async function openPreview(user: ReturnType<typeof userEvent.setup>) {
   await type(user);
-  await user.click(within(panel()).getByRole("button", { name: "Preview exact outbound query" }));
+  await user.click(within(panel()).getByRole("button", { name: "Preview exactly what would be sent" }));
   return await screen.findByRole("dialog");
 }
 
@@ -381,7 +381,7 @@ describe("MarketPanel: the exact payload is shown before anything is sent", () =
     mount();
     const dialog = await openPreview(user);
     await within(dialog).findByText(
-      "The backend could not be reached, so exactly what would be sent cannot be shown here.",
+      "The app's server did not answer, so what would be sent cannot be shown.",
     );
 
     await user.click(within(dialog).getByRole("button", { name: "Confirm and send" }));
@@ -440,7 +440,7 @@ describe("MarketPanel: every row wears its provenance", () => {
     expect(within(reference).getByText("reference - background only")).toBeInTheDocument();
     expect(
       within(reference).getByText(
-        "Background only. This row is not a market finding and cannot evidence a market condition.",
+        "Background only. This row is not a market finding and does not show a market condition.",
       ),
     ).toBeInTheDocument();
 
@@ -516,9 +516,8 @@ describe("MarketPanel: the fallback is visible", () => {
     expect(within(p).getByText("Tried and did not answer: web")).toBeInTheDocument();
     expect(
       within(p).getByText(
-        "One or more public sources did not answer. Any rows shown are labeled " +
-          "with their actual source tier; they are preliminary background evidence, " +
-          "not proof of internal project compliance.",
+        "One or more public sources did not answer. Each row shown names the source " +
+          "that gave it. They are background only, not proof that the project complies.",
       ),
     ).toBeInTheDocument();
   });
@@ -597,7 +596,7 @@ describe("MarketPanel: failure and empty states", () => {
     const p = panel();
     expect(
       await within(p).findByText(
-        "The backend could not be reached, so no search was made. Nothing is shown here.",
+        "The app's server did not answer, so no search was made.",
       ),
     ).toBeInTheDocument();
     expect(within(p).queryByText(MARKET_ROW.text)).toBeNull();
@@ -615,8 +614,8 @@ describe("MarketPanel: failure and empty states", () => {
     const p = panel();
     expect(await within(p).findByText(SAMPLE_ROW.text)).toBeInTheDocument();
     expect(within(p).getByRole("note")).toHaveTextContent(
-      "SAMPLE DATA — NOT LIVE. The backend reported that public search is off in this build. " +
-        "Every row below is an illustrative sample and must not be described as live market data.",
+      "SAMPLE DATA — NOT LIVE. Public search is off on this computer. " +
+        "Every row below is a sample. Never describe it as live market data.",
     );
     const sample = row(SAMPLE_ROW.text);
     expect(within(sample).getByText(/^sample$/i)).toBeInTheDocument();
@@ -627,7 +626,7 @@ describe("MarketPanel: failure and empty states", () => {
   it("gives a sample row its own provenance, not the reference row's", async () => {
     // The defect this pins: while samples were labelled
     // "reference - background only", this row read "Background only. This row
-    // is not a market finding and cannot evidence a market condition." A
+    // is not a market finding and does not show a market condition." A
     // sample IS not a market finding, so the sentence was true - and the
     // provenance was still wrong, because the row is an illustrative MARKET
     // row and a reader would carry that label away as its source. A wrong
@@ -668,8 +667,8 @@ describe("MarketPanel: the offline sample presentation", () => {
     render(<MarketPanel findings={FINDINGS} egress={OFFLINE} />);
     expect(
       within(panel()).getByText(
-        "Public web findings cannot prove internal project compliance. Snippets are preliminary " +
-          "evidence; the verification column says whether the page was read.",
+        "Public web findings cannot prove internal project compliance. Snippets are a first look only. " +
+          "The last column says whether the page was read.",
       ),
     ).toBeInTheDocument();
   });

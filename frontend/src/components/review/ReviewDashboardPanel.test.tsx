@@ -94,7 +94,7 @@ describe("four cards, each with its population", () => {
   it("states the denominator on every count rule 4 covers", async () => {
     panel();
 
-    expect(await screen.findByText("1 of 2 awaiting review")).toBeInTheDocument();
+    expect(await screen.findByText("1 of 2 not reviewed yet")).toBeInTheDocument();
     expect(screen.getByText(
       "21 of 21 cited standards are not in the library")).toBeInTheDocument();
     expect(screen.getByText(

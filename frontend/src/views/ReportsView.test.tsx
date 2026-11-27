@@ -101,8 +101,24 @@ describe("ReportsView: verification", () => {
     renderView([makeReport()], { onVerify: vi.fn(async () => drifted) });
     await user.click(screen.getByRole("button", { name: "Verify" }));
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/1 cited document has changed since this report was generated/);
+    expect(alert).toHaveTextContent(/1 cited document has changed since this report was made/);
     expect(screen.queryByText(/No cited document has changed/)).toBeNull();
+  });
+
+  it("a PDF that is only missing from this computer is said so, never called changed, and raises no alert (H's read of #1979)", async () => {
+    const user = userEvent.setup();
+    renderView([makeReport({ file_available: false, recreation_available: true })], { onVerify: vi.fn(async () => ({ ...intact, file_intact: false })) });
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+    expect(await screen.findByTestId("verify-file-missing")).toHaveTextContent("The original PDF is not on this computer, so it cannot be checked.");
+    expect(screen.queryByText(/PDF changed since it was made/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a PDF that is here but changed is said, as a problem", async () => {
+    const user = userEvent.setup();
+    renderView([makeReport()], { onVerify: vi.fn(async () => ({ ...intact, file_intact: false })) });
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("PDF changed since it was made: do not rely on it.");
   });
 
   it("an intact report with no drift is a status, not an alert", async () => {
@@ -182,7 +198,7 @@ describe("V2: a report whose file is missing", () => {
 });
 
 describe.runIf(NEW_LOOK)("a recreated copy is said once, not on every row (H's audit 42, new look)", () => {
-  const ROW_LINE = "Original PDF missing. This copy uses the saved evidence.";
+  const ROW_LINE = "Original PDF missing. This copy uses the saved sources.";
   it("says it once above the list when every report is a recreated copy, and no row repeats it", () => {
     renderView([makeReport({ id: "r1", recreation_available: true }), makeReport({ id: "r2", recreation_available: true })]);
     expect(screen.getAllByText(/The original PDFs of these reports are not on this computer/)).toHaveLength(1);

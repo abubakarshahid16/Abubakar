@@ -116,7 +116,7 @@ describe("the evidence panel", () => {
     } finally {
       globalThis.fetch = original;
     }
-    expect(screen.getByText(/as printed/i)).toBeTruthy();
+    expect(screen.getAllByText(/as printed/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Position in the document/)).toBeNull();
   });
 });

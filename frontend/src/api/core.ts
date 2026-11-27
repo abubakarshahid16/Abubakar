@@ -135,7 +135,7 @@ export function disconnected(detail: string): Result<never> {
     disconnected: true,
     error: {
       code: "internal",
-      message: `Cannot reach the backend. ${detail}`,
+      message: `Cannot reach the app's server. ${detail}`,
     },
   };
 }

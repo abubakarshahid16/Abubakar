@@ -22,7 +22,6 @@ import { useEffect, useState } from "react";
 import { classification } from "../../api/client";
 import type { DocumentClassification, DocumentRole } from "../../types/api";
 import { confirmBody, TEXT_FIELDS } from "./metadataBody";
-import { NEW_LOOK } from "../../look";
 
 /** The five roles, with the words an engineer uses for them.
  *
@@ -69,7 +68,7 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
   if (!canEdit) {
     return (
       <p className="text-xs opacity-70">
-        Only an administrator can change a document&rsquo;s metadata.
+        Only an administrator can change a document&rsquo;s details.
       </p>
     );
   }
@@ -92,7 +91,7 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
 
   return (
     <form
-      aria-label="Document metadata"
+      aria-label="Document details"
       className="flex flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault();
@@ -116,6 +115,9 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
         </select>
       </label>
 
+      {!role && !tags.trim() && TEXT_FIELDS.every(([field]) => !(text[field] ?? "").trim()) && (
+        <p className="text-xs opacity-80">Nothing is recorded yet. Fill in what you know.</p>
+      )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {TEXT_FIELDS.map(([field, label]) => (
           <label key={field} className="flex flex-col gap-1 text-xs">
@@ -123,7 +125,6 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
             <input
               aria-label={label}
               value={text[field] ?? ""}
-              placeholder="Not recorded"
               onChange={(e) =>
                 setText((prev) => ({ ...prev, [field as TextField]: e.target.value }))
               }
@@ -136,7 +137,6 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
           <input
             aria-label="Equipment tags"
             value={tags}
-            placeholder="Not recorded"
             onChange={(e) => setTags(e.target.value)}
             className="rounded border border-white/15 bg-transparent px-2 py-1"
           />
@@ -150,7 +150,7 @@ export function MetadataEditor({ documentId, record, canEdit, onSaved }: Metadat
           disabled={saving}
           className="rounded bg-white/15 px-3 py-1 text-xs disabled:opacity-50"
         >
-          {saving ? "Saving…" : NEW_LOOK ? "Save details" : "Save metadata"}
+          {saving ? "Saving…" : "Save details"}
         </button>
         {saved && <span role="status" className="text-xs opacity-80">Saved.</span>}
         {error && <span role="alert" className="text-xs text-warn-500">{error}</span>}

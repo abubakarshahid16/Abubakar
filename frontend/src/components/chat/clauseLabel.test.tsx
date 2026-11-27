@@ -26,7 +26,7 @@
  *
  * Both render sites are covered, because the label had three homes on screen
  * and fixing one would have left the others: the citation row under a quoted
- * answer (`Citation`), the "other passages matched" list and the "what was
+ * answer (`Citation`), the "other sources matched" list and the "what was
  * considered" list (`PassageLocation`), and the evidence panel (`Citation`
  * again, at the top of the panel).
  */
@@ -233,7 +233,7 @@ describe("AnswerCard: no clause anywhere on a rendered answer", () => {
     expect(text).not.toContain("3.4 Final Design Submissions");
     // The supporting list is inside a <details>; jsdom renders its children
     // regardless of the open attribute, so this really does cover that row.
-    expect(screen.getByText(/1 other passage matched/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 other source matched/i)).toBeInTheDocument();
   });
 
   it("keeps the document and both pages, so the answer stays auditable", () => {
@@ -242,7 +242,7 @@ describe("AnswerCard: no clause anywhere on a rendered answer", () => {
     expect(cite.textContent).toContain("doc16.pdf");
     expect(cite.textContent).toContain("page 22");
     // and the supporting row keeps its own page
-    const details = screen.getByText(/1 other passage matched/i).closest("details")!;
+    const details = screen.getByText(/1 other source matched/i).closest("details")!;
     expect(within(details).getByText("page 27")).toBeInTheDocument();
     expect(within(details).getByText("doc16.pdf")).toBeInTheDocument();
   });

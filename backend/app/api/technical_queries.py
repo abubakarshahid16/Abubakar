@@ -973,9 +973,9 @@ def _no_usable_evidence(current: dict, attachment_documents, scope) -> str:
     passage counts as current only once its source document is confirmed)."""
     kept = [e for e in current.get("evidence", []) if e["evidence_state"] == "verified" and e["document_id"] not in attachment_documents
             and e["document_id"] in scope.allowed_document_ids]  # fmt: skip
-    head = "verified, current evidence is required before drafting"
+    head = "a reply needs a kept source from a current document"
     if not kept:
-        return f"{head}: keep at least one passage as evidence first"
+        return f"{head}. Keep at least one source first"
     ids = sorted(
         {e["document_id"] for e in kept if e["supersession_state"] != "superseded"}
     )
@@ -984,8 +984,8 @@ def _no_usable_evidence(current: dict, attachment_documents, scope) -> str:
             f"SELECT id, filename FROM documents WHERE id IN ({','.join('?' for _ in ids)})", tuple(ids)).fetchall()} if ids else {}  # fmt: skip
     names = [named.get(d) or d for d in ids]
     if not names:
-        return f"{head}: every kept passage's source has been superseded"
-    return f"{head}: a kept passage counts as current once its source document is confirmed (Documents, Details, Save metadata): {', '.join(names)}"
+        return f"{head}. Every kept source is from a replaced revision"
+    return f"{head}. Confirm the document under Documents, Details, then Save details: {', '.join(names)}"
 
 
 @router.post("/api/technical-queries/{query_id}/generate-draft", response_model=QueryOut)

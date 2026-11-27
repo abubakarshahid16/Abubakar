@@ -35,30 +35,28 @@ function wordingFor(failure: DownloadFailure): { title: string; detail: string }
       return {
         title: "You are not signed in",
         detail:
-          "The download was refused because this browser has no valid session — " +
-          "signing in again is enough, and a page reload always ends a session " +
-          "because the sign-in is never stored. Nothing has been saved.",
+          "Sign in again, then download it. Reloading the page signs you out. " +
+          "Nothing has been saved.",
       };
     case "forbidden":
       return {
         title: "The download was refused",
         detail:
-          "The backend declined this download. Check whether it was started with " +
-          "different settings. Nothing has been saved.",
+          "The app's server refused this download. Ask whoever runs the app to check its settings. " +
+          "Nothing has been saved.",
       };
     case "unavailable":
       return {
         title: "No file came back for this report",
         detail:
-          "The backend returned no PDF. That is the same answer it gives for a " +
-          "report that has been removed and for one that is no longer open to " +
-          "you, so this screen cannot tell you which applies. Nothing has been saved.",
+          "The report was removed, or you can no longer open it. This page cannot tell which. " +
+          "Nothing has been saved.",
       };
     case "server":
       return { title: "The download failed", detail: `${failure.message} Nothing has been saved.` };
     case "network":
       return {
-        title: "Cannot reach the backend",
+        title: "Cannot reach the app's server",
         detail: `${failure.detail} The download never left this browser. Nothing has been saved.`,
       };
   }

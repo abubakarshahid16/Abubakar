@@ -85,7 +85,7 @@ describe("the two former plain-anchor sites", () => {
     render(<NavigationContext.Provider value={navigate}>
       <ReviewWorkflowPanel findings={[finding]} onUpdate={async () => undefined} />
     </NavigationContext.Provider>);
-    await userEvent.click(screen.getByRole("button", { name: "View full chain" }));
+    await userEvent.click(screen.getByRole("button", { name: "View all links" }));
     fireEvent.click(await screen.findByRole("link", { name: "submittal-a.pdf" }));
     expect(navigate).toHaveBeenCalledWith("documents", undefined);
     fireEvent.click(screen.getByRole("link", { name: "Deliverable nine" }));

@@ -55,7 +55,7 @@ const NON_TEXT_ATTRS = new Set([
 /** Files this test does not judge: their own owners (G: Shell and menu; C: answer panels) and ADVANCED (may keep internal words). */
 const NOT_JUDGED = [
   /^components\/Shell\.tsx$/, /^components\/CommandPalette\.tsx$/, /^routing\.ts$/, /^App\.tsx$/, // G
-  /^components\/chat\/(Answer|Evidence|Generated|LocalWork|Provenance|SourcePreview|UsedLine)/, // C, E5: the library's answer panel
+  // (the Chat answer panels, C's, are judged since the words job: C agreed, 27 Nov 2026)
   /^components\/review\/(crs\/|v2\/PointsList)/, // C, E5: the review result panel
   /^views\/(AdminScreen|AdminView)\.tsx$/, /^views\/admin\//, // ADVANCED: the Admin screen
   /DashboardTechnicalDetails|DocumentTechnicalDetails|ChunkInspector|FreeModelMemory/, // ADVANCED: folded technical details
@@ -130,6 +130,26 @@ export function shownTexts(source: string, file: string): { raw: string; line: n
 export const WORDS_DONE: RegExp[] = [
   /^views\/TechnicalQueriesView\.tsx$/, /^views\/technicalQueryQuestion\.ts$/, /^views\/TechnicalQueryCrossRefs\.tsx$/,
   /^views\/TechnicalQueryPosition\.tsx$/,
+  // Documents (words job page 2)
+  /^views\/DocumentsView\.tsx$/, /^components\/(DocumentCard|DocumentPreview|ExcludedViewer|PageImageViewer|Uploader|WorkerPanel)\.tsx$/,
+  /^components\/classification\/(DocumentFilters|MetadataEditor|TypeFilter)\.tsx$/, /^components\/classification\/registerLabels\.ts$/,
+  // Dashboard (words job page 3; its folded technical details may keep technical words)
+  /^views\/(DashboardView|DashboardViewContent|DashboardPrimitives)\.tsx$/, /^components\/dashboard\/(AtAGlance|GlanceTiles|MetricWarning)\.tsx$/,
+  // Review list (words job page 4)
+  /^views\/SubmittalsLandingView\.tsx$/, /^components\/review\/workspace\/landing\/[A-Za-z]+\.tsx?$/,
+  /^components\/review\/workspace\/(NewReviewDropZone|ViewModeSwitch)\.tsx$/, /^components\/review\/workspace\/(newReview|reviewWatch)\.ts$/,
+  // the opened review's own lines (words job; H's review of the owner's file R3, R4, R6, R7, R8)
+  /^components\/review\/general\/(GeneralResults|GeneralHistory|MeasuredBadge|HowReviewMade)\.tsx$/,
+  // CRS and Reports (words job)
+  /^views\/(ReportsScreen|ReportsView|ReviewCrsList)\.tsx$/,
+  // Administration (words job; it may still name the AI models a person chooses between, so it keeps its place in NOT_JUDGED)
+  /^views\/(AdminScreen|AdminView)\.tsx$/, /^views\/admin\/[A-Za-z]+\.tsx$/,
+  // Chat (words job), its answer panels included
+  /^views\/ChatView\.tsx$/, /^components\/chat\/[A-Za-z]+\.tsx?$/,
+  // Standards (words job, the rest)
+  /^views\/(StandardsView\.tsx|standardsLibrary\.ts)$/, /^components\/standards\/[A-Za-z]+\.tsx$/,
+  // Analysis Hub (words job, the rest)
+  /^views\/AnalysisModeScreen(Content)?\.tsx$/, /^components\/analysis\/[A-Za-z]+\.tsx?$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [
@@ -144,6 +164,9 @@ export const MAX_WORDS = 25;
 export function wordsDoneFindings(source: string, file: string): string[] {
   const found: string[] = [];
   for (const { raw, line } of shownTexts(source, file)) {
+    // a class list ("evidence-quote mt-1.5 rounded-[var(--radius-sm)] ...") is styling, not text a person reads
+    const tokens = raw.trim().split(/\s+/);
+    if (tokens.length >= 3 && tokens.filter((t) => /[-[\]:]/.test(t)).length * 10 >= tokens.length * 6 && !/[.!?]$/.test(raw.trim())) continue;
     for (const m of raw.matchAll(NEVER_RX)) found.push(`${file}:${line} "${m[1]}"`);
     for (const sentence of raw.split(/(?<=[.!?])\s+/)) {
       const words = sentence.trim().split(/\s+/).filter(Boolean).length;

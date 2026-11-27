@@ -252,7 +252,7 @@ describe("absence of provenance never resolves to the strongest claim", () => {
         activeSource={null}
       />,
     );
-    expect(screen.getByText(/provenance unknown/i)).toBeInTheDocument();
+    expect(screen.getByText(/Source unknown/i)).toBeInTheDocument();
   });
 
   it("still calls EXTRACTED text a verbatim quotation", () => {

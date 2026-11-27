@@ -110,7 +110,7 @@ describe("WorkspaceLanding: the New review card (L1)", () => {
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
       "Choose one of 4", "Heat exchanger sheet.pdf", "Motor sheet.pdf", "Pump datasheet rev B.pdf", "Valve list.pdf",
     ]);
-    await userEvent.type(within(card).getByLabelText("Find a paper by file name"), "valve");
+    await userEvent.type(within(card).getByLabelText("Find a document by file name"), "valve");
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose one of 1", "Valve list.pdf"]);
     expect(within(card).getByRole("button", { name: "Start review" })).toBeDisabled();
   });
@@ -323,8 +323,8 @@ describe("WorkspaceLanding: every count states its boundary (rule 4)", () => {
     const notes = screen.getAllByTestId("landing-counts-note");
     expect(notes).toHaveLength(1);
     expect(notes[0]).toHaveTextContent(LANDING_COUNTS_NOTE);
-    expect(LANDING_COUNTS_NOTE).toContain("still holds as a comment or as needing your judgement");
-    expect(LANDING_COUNTS_NOTE).toContain("Findings removed by an engineer are not counted");
+    expect(LANDING_COUNTS_NOTE).toContain("still holds: its comments, and the points waiting for your decision");
+    expect(LANDING_COUNTS_NOTE).toContain("Comments an engineer removed are not counted");
     expect(within(rowOf("Pump")).queryByTestId("landing-counts-note")).toBeNull();
   });
 
@@ -380,7 +380,7 @@ describe("WorkspaceLanding: who may start (admin only) and the empty page (L8)",
 
   it("L8: with nothing yet, the page points to the New review card, not the Documents page", () => {
     renderLanding({ documents: [], runs: [] });
-    expect(screen.getByTestId("landing-empty")).toHaveTextContent("Start one with the New review card above");
+    expect(screen.getByTestId("landing-empty")).toHaveTextContent("on the New review card above");
     expect(screen.getByTestId("landing-empty")).not.toHaveTextContent("Documents page");
   });
 });

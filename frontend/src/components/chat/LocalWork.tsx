@@ -24,7 +24,7 @@ const STAGES: { id: Progress["stage"]; label: string; blurb: string }[] = [
   {
     id: "retrieving",
     label: "Searching",
-    blurb: "Keyword and vector search across the indexed documents.",
+    blurb: "Searches the library by words and by meaning.",
   },
   {
     id: "reranking",
@@ -34,12 +34,12 @@ const STAGES: { id: Progress["stage"]; label: string; blurb: string }[] = [
   {
     id: "reading",
     label: "Reading",
-    blurb: "The best passages are prepared as evidence.",
+    blurb: "The best sources are picked out.",
   },
   {
     id: "generating",
     label: "Writing",
-    blurb: "The local model writes an answer from those passages, and cites them.",
+    blurb: "The AI on this computer writes an answer from those sources, and names them.",
   },
 ];
 

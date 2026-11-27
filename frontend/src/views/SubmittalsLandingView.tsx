@@ -59,8 +59,8 @@ export { RUN_COUNTS_MAX_IDS, loadReadyCounts } from "../components/review/worksp
 
 /** The page's purpose, the same words in both looks (the new look folds it under the title). */
 const PURPOSE =
-  "Each review compares one contractor submittal against the standards that apply to it, and writes comments with the standard, " +
-  "clause, page and quote, which an engineer checks and signs before the contractor sees them.";
+  "Each review checks one contractor document against the standards that apply. Each comment shows the standard, clause, page " +
+  "and quote. An engineer checks and signs the comments before the contractor sees them.";
 
 export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_IS_DEFAULT, onOpenInbox, onOpenList, workspace = false, isAdmin, openDocumentId = null }: {
   onOpenRun: (runId: string) => void;
@@ -213,9 +213,9 @@ export function SubmittalsLandingView({ onOpenRun, onOpenRunTab, inbox = INBOX_I
           Documents from contractors
         </h1>
         <p className="mt-2 max-w-3xl text-slateish-300">
-          Each review compares one contractor submittal against the standards
-          that apply to it, and writes comments with the standard, clause, page
-          and quote, which an engineer checks and signs before the contractor sees them.
+          Each review checks one contractor document against the standards that apply.
+          Each comment shows the standard, clause, page and quote. An engineer checks
+          and signs the comments before the contractor sees them.
         </p>
       </header>
       )}

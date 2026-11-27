@@ -135,7 +135,7 @@ describe("the library list", () => {
   it("says no requirements have been extracted, not '0 requirements'", async () => {
     mockApi({ standards: [{ ...base, requirement_count: 0 }] });
     render(<StandardsView />);
-    expect(await screen.findByText(/no requirements extracted yet/i)).toBeTruthy();
+    expect(await screen.findByText(/no requirements read yet/i)).toBeTruthy();
     // "0 requirements" would read as "this standard requires nothing".
     expect(screen.queryByText(/^0 requirements/)).toBeNull();
   });
@@ -162,7 +162,7 @@ describe("the library list", () => {
     render(<StandardsView />);
     if (NEW_LOOK) {
       // said once above the list, not on every row (owner, 27 Nov 2026): no "Active" chip, and the in-force line is there
-      expect(await screen.findByTestId("standards-in-force")).toHaveTextContent("Every book here is in force unless it is marked Superseded.");
+      expect(await screen.findByTestId("standards-in-force")).toHaveTextContent("Every standard here is in force unless it is marked Superseded.");
       expect(screen.queryByText("Active")).toBeNull();
     } else {
       expect(await screen.findByText("Active")).toBeTruthy();
@@ -173,7 +173,7 @@ describe("the library list", () => {
     mockApi({ standards: [{ ...base, discipline: null, revision: null,
                             effective_date: null, title: null }] });
     render(<StandardsView />);
-    await screen.findByText(/no requirements extracted yet/i);
+    await screen.findByText(/no requirements read yet/i);
     expect(screen.queryByText("Unknown")).toBeNull();
     expect(screen.queryByText(/^Rev /)).toBeNull();
   });
@@ -187,8 +187,8 @@ describe("the requirements tab", () => {
     });
     render(<StandardsView />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    expect(await screen.findByText("Clause not identified")).toBeTruthy();
-    expect(screen.getByText("Awaiting verification")).toBeTruthy();
+    expect(await screen.findByText("Clause number not found")).toBeTruthy();
+    expect(screen.getByText("Waiting for an engineer to check")).toBeTruthy();
   });
 
   it("shows text_quality as the reason a row awaits verification, and labels a definition", async () => {
@@ -201,7 +201,7 @@ describe("the requirements tab", () => {
     });
     render(<StandardsView />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    expect(await screen.findByText(/Text looks garbled or mirrored/)).toBeTruthy();
+    expect(await screen.findByText(/The text looks garbled or mirrored/)).toBeTruthy();
     expect(screen.getByText("Definition, not a requirement")).toBeTruthy();
   });
 
@@ -209,7 +209,7 @@ describe("the requirements tab", () => {
     mockApi({ requirements: [requirement] });
     render(<StandardsView />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    expect(await screen.findByText("Extracted, not confirmed")).toBeTruthy();
+    expect(await screen.findByText("Read by the app, not confirmed")).toBeTruthy();
     expect(screen.getByText("5.3.3")).toBeTruthy();
     expect(screen.getByText(/page 9/)).toBeTruthy();
   });
@@ -218,7 +218,7 @@ describe("the requirements tab", () => {
     mockApi({ requirements: [{ ...requirement, citation_resolves: false }] });
     render(<StandardsView />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    expect(await screen.findByText(/citation no longer resolves/i)).toBeTruthy();
+    expect(await screen.findByText(/the clause it points to has moved/i)).toBeTruthy();
   });
 
   it("says the standard has not been read, not that it has no requirements", async () => {
@@ -226,7 +226,7 @@ describe("the requirements tab", () => {
     render(<StandardsView />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
     expect(
-      await screen.findByText(/no requirements have been extracted from this standard yet/i),
+      await screen.findByText(/the requirements of this standard have not been read yet/i),
     ).toBeTruthy();
   });
 
@@ -234,14 +234,14 @@ describe("the requirements tab", () => {
     mockApi({ requirements: [] });
     const { unmount } = render(<StandardsView isAdmin={false} />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    await screen.findByText(/no requirements have been extracted/i);
-    expect(screen.queryByRole("button", { name: /extract requirements/i })).toBeNull();
+    await screen.findByText(/have not been read yet/i);
+    expect(screen.queryByRole("button", { name: /read the requirements/i })).toBeNull();
     unmount();
 
     mockApi({ requirements: [] });
     render(<StandardsView isAdmin />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    expect(await screen.findByRole("button", { name: /extract requirements/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /read the requirements/i })).toBeTruthy();
   });
 });
 
@@ -256,7 +256,7 @@ describe("the revision history tab", () => {
     });
     render(<StandardsView />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    fireEvent.click(screen.getByRole("tab", { name: "Revision History" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Revisions" }));
     expect(await screen.findByText("2019")).toBeTruthy();
     expect(screen.getByText("superseded")).toBeTruthy();
   });
@@ -269,7 +269,7 @@ describe("the revision history tab", () => {
     });
     render(<StandardsView isAdmin />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    fireEvent.click(screen.getByRole("tab", { name: "Revision History" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Revisions" }));
     const select = await screen.findByLabelText("Superseded by");
     fireEvent.change(select, { target: { value: "doc_new" } });
     await waitFor(() => expect(posts.length).toBe(1));
@@ -281,7 +281,7 @@ describe("the revision history tab", () => {
     mockApi({ revisions: [base] });
     render(<StandardsView isAdmin={false} />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    fireEvent.click(screen.getByRole("tab", { name: "Revision History" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Revisions" }));
 
     // WAIT FOR THE TAB TO HAVE LOADED BEFORE ASSERTING AN ABSENCE.
     //
@@ -306,8 +306,19 @@ describe("the tab strip", () => {
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
     const tabs = (await screen.findAllByRole("tab")).map((t) => t.textContent);
     expect(tabs).toEqual([
-      "Original Document", "Requirements", "Revision History", "Processing Details",
+      "Original document", "Requirements", "Revisions", "Details",
     ]);
+  });
+});
+
+describe("the Details tab (H's read of #1986)", () => {
+  it("says the status in plain words and keeps the stored value folded under Technical detail", async () => {
+    mockApi();
+    render(<StandardsView />);
+    fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Details" }));
+    expect(await screen.findByText("Ready")).toBeTruthy();
+    expect(screen.getByText("ready").closest("details")).not.toBeNull();
   });
 });
 
@@ -316,17 +327,17 @@ describe("audit 2026-09-30: a tab whose list failed says so, to everyone", () =>
     mockApi({ failing: "requirements" });
     render(<StandardsView isAdmin={false} />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    expect(await screen.findByText(/The requirements of this standard could not be loaded/))
+    expect(await screen.findByText(/The requirements of this standard did not load/))
       .toBeTruthy();
-    expect(screen.queryByText(/no requirements have been extracted/i)).toBeNull();
+    expect(screen.queryByText(/have not been read yet/i)).toBeNull();
   });
 
   it("shows a revisions load failure instead of spinning", async () => {
     mockApi({ failing: "revisions" });
     render(<StandardsView isAdmin={false} />);
     fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
-    fireEvent.click(screen.getByRole("tab", { name: "Revision History" }));
-    expect(await screen.findByText(/The revisions of this standard could not be loaded/))
+    fireEvent.click(screen.getByRole("tab", { name: "Revisions" }));
+    expect(await screen.findByText(/The revisions of this standard did not load/))
       .toBeTruthy();
     expect(screen.queryByText(/No other revisions/)).toBeNull();
   });
@@ -351,7 +362,7 @@ describe("the structured reading of a requirement (phase 3B)", () => {
 
   it("shows the limit, condition and exception beside the quoted clause", async () => {
     await openRequirements([limitRow]);
-    const reading = screen.getByRole("region", { name: /machine-extracted from the quoted clause/i });
+    const reading = screen.getByRole("region", { name: /how the app reads the quoted clause/i });
     // The quoted clause stays the primary content, outside the reading.
     expect(reading.textContent).not.toContain(limitRow.requirement_text);
     const pairs = [...reading.querySelectorAll("dt")].map((dt) =>
@@ -364,7 +375,7 @@ describe("the structured reading of a requirement (phase 3B)", () => {
   it("labels the reading a machine guess until an engineer confirms the row", async () => {
     await openRequirements([limitRow]);
     expect(screen.getByRole("region", {
-      name: "Machine-extracted from the quoted clause - not confirmed by an engineer",
+      name: "How the app reads the quoted clause: not confirmed by an engineer yet",
     })).toBeTruthy();
     cleanup();
     await openRequirements([{ ...limitRow, confirmed_by: "u_eng", extraction_method: "human",
@@ -375,7 +386,7 @@ describe("the structured reading of a requirement (phase 3B)", () => {
 
   it("renders nothing for a row whose structured fields are all null", async () => {
     await openRequirements([requirement]);
-    expect(screen.queryByRole("region", { name: /machine-extracted/i })).toBeNull();
+    expect(screen.queryByRole("region", { name: /how the app reads the quoted clause/i })).toBeNull();
     expect(screen.queryByText("Limit")).toBeNull();
     expect(screen.queryByText("Applies to")).toBeNull();
     expect(screen.queryByText("Except")).toBeNull();
@@ -388,21 +399,21 @@ describe("the structured reading of a requirement (phase 3B)", () => {
     await openRequirements([{ ...limitRow, condition: null, exceptions: [],
                               raw_value: null, value: null }]);
     // Only the type remains, and a type alone does not earn a box.
-    expect(screen.queryByRole("region", { name: /machine-extracted/i })).toBeNull();
+    expect(screen.queryByRole("region", { name: /how the app reads the quoted clause/i })).toBeNull();
     expect(screen.queryByText("≥")).toBeNull();
   });
 
   it("falls back to the normalised value when the raw one was not kept", async () => {
     await openRequirements([{ ...limitRow, raw_value: null, raw_unit: null,
                               operator: "<=", value: 600, unit: "psi" }]);
-    const reading = screen.getByRole("region", { name: /machine-extracted/i });
+    const reading = screen.getByRole("region", { name: /how the app reads the quoted clause/i });
     expect(reading.textContent).toContain("≤ 600 psi");
   });
 
   it("quotes the value as the document wrote it, not the normalised one", async () => {
     await openRequirements([{ ...limitRow, raw_value: "1/2", raw_unit: "in",
                               value: 12.7, unit: "mm" }]);
-    const reading = screen.getByRole("region", { name: /machine-extracted/i });
+    const reading = screen.getByRole("region", { name: /how the app reads the quoted clause/i });
     expect(reading.textContent).toContain("≥ 1/2 in");
     expect(reading.textContent).not.toContain("12.7");
   });
@@ -414,7 +425,7 @@ describe("the structured reading of a requirement (phase 3B)", () => {
       raw_value: "20", raw_unit: "mg/kg", value: 20, unit: "mg/kg",
       condition: "Arsenic", table_row: 3,
     }]);
-    const reading = screen.getByRole("region", { name: /machine-extracted/i });
+    const reading = screen.getByRole("region", { name: /how the app reads the quoted clause/i });
     const pairs = [...reading.querySelectorAll("dt")].map((dt) =>
       [dt.textContent, dt.nextElementSibling?.textContent]);
     expect(pairs).toContainEqual(["Table row", "Arsenic"]);
@@ -427,7 +438,7 @@ describe("the structured reading of a requirement (phase 3B)", () => {
   it("drops a malformed exception entry instead of rendering an empty line", async () => {
     await openRequirements([{ ...limitRow,
       exceptions: [{ applies_to: "" }, { applies_to: "flare tips" }] }]);
-    const reading = screen.getByRole("region", { name: /machine-extracted/i });
+    const reading = screen.getByRole("region", { name: /how the app reads the quoted clause/i });
     const items = [...reading.querySelectorAll("li")].map((li) => li.textContent);
     expect(items).toEqual(["flare tips"]);
   });

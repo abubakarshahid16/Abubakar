@@ -99,7 +99,7 @@ export function UsedLine({
           {verification && (
             <p className="mt-2 text-xs text-slateish-400">
               {verification.method === "verbatim quotation"
-                ? "The answer is the document's own words, so each quoted passage is on its page by definition."
+                ? "The answer is the document's own words, so each quote is on its page."
                 : "Each point's quoted words were looked up on the page it cites; a point whose words were not there was removed before you saw it."}
               {method ? ` ${method}` : ""}
             </p>

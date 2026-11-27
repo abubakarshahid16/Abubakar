@@ -29,6 +29,11 @@ const KIND_TONE: Record<string, string> = {
   references: "bg-warn-500/15 text-warn-500",
 };
 
+/** The words for a piece's kind (the stored kind names are not shown). */
+const KIND_WORDS: Record<string, string> = {
+  prose: "text", table: "table", toc: "contents list", frontmatter: "front pages", index: "index", references: "list of references",
+};
+
 export function ChunkInspector({
   doc,
   onClose,
@@ -61,8 +66,8 @@ export function ChunkInspector({
 
   return (
     <Drawer
-      title={`Chunks — ${doc.filename}`}
-      subtitle={`${doc.chunk_count} searchable of ${doc.chunk_count_total} total`}
+      title={`What was read — ${doc.filename}`}
+      subtitle={`${doc.chunk_count} of ${doc.chunk_count_total} pieces of text can be searched`}
       onClose={onClose}
     >
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -139,7 +144,7 @@ export function ChunkInspector({
             <li key={c.id} className="rounded border border-ink-700 bg-ink-850 p-3">
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className={`rounded px-2 py-0.5 ${KIND_TONE[c.kind] ?? KIND_TONE.prose}`}>
-                  {c.kind}
+                  {KIND_WORDS[c.kind] ?? c.kind}
                 </span>
                 <span
                   className={[
@@ -156,25 +161,25 @@ export function ChunkInspector({
                     ? `page ${c.page_start}`
                     : `pages ${c.page_start}–${c.page_end}`}
                 </span>
-                <span className="text-slateish-400">{c.token_count} tokens</span>
                 <span className={NEW_LOOK ? "ms-auto text-xs tabular-nums text-slateish-400" : "ms-auto font-mono text-xs text-slateish-400"}>
                   #{c.ordinal}
                 </span>
               </div>
 
               <p className="mt-2 text-xs text-slateish-400">
-                section:{" "}
+                Section:{" "}
                 {c.section ? (
                   <span className="text-slateish-300">{c.section}</span>
                 ) : (
-                  <span className="italic">not identified — left blank rather than guessed</span>
+                  <span className="italic">not found</span>
                 )}
               </p>
 
               {c.quality_flags && (
-                <p className={NEW_LOOK ? "mt-1 text-xs text-warn-500" : "mt-1 font-mono text-xs text-warn-500"}>
-                  excluded because: {c.quality_flags}
-                </p>
+                <details className="mt-1 text-xs text-warn-500">
+                  <summary className="cursor-pointer">Why it was left out (technical detail)</summary>
+                  <p className="font-mono">{c.quality_flags}</p>
+                </details>
               )}
 
               {/* the document's own words: the app's reading face (.evidence-quote), as in Chat's evidence drawer; a TABLE keeps its

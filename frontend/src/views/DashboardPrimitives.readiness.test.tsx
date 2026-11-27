@@ -17,29 +17,29 @@ function metrics(worker: Record<string, unknown>): Metrics {
 describe("Uploads line", () => {
   it("says a review is running and how many uploads wait for the model, never that processing stopped", () => {
     render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 3, uploads_waiting_for_review: 3 })} />);
-    expect(screen.getByText("busy with a review: 3 uploads waiting")).toBeInTheDocument();
-    expect(screen.queryByText(/processing has stopped/)).toBeNull();
+    expect(screen.getByText("busy with a review: 3 new files waiting")).toBeInTheDocument();
+    expect(screen.queryByText(/reading has stopped/)).toBeNull();
   });
 
   it("one upload waiting is said in the singular", () => {
     render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 1, uploads_waiting_for_review: 1 })} />);
-    expect(screen.getByText("busy with a review: 1 upload waiting")).toBeInTheDocument();
+    expect(screen.getByText("busy with a review: 1 new file waiting")).toBeInTheDocument();
   });
 
   it("uploads read beside a running review are not called waiting", () => {
     render(<ReadinessPanel metrics={metrics({ reviewing: true, pending_count: 2, uploads_waiting_for_review: 0 })} />);
-    expect(screen.getByText("a review is running; 2 uploads are read beside it")).toBeInTheDocument();
+    expect(screen.getByText("a review is running; 2 new files are read at the same time")).toBeInTheDocument();
     expect(screen.queryByText(/waiting/)).toBeNull();
   });
 
   it("a stalled worker with no document and no review still says processing has stopped", () => {
     render(<ReadinessPanel metrics={metrics({ stalled: true, reviewing: false })} />);
-    expect(screen.getByText("processing has stopped - new uploads will wait")).toBeInTheDocument();
+    expect(screen.getByText("reading has stopped: new files will wait")).toBeInTheDocument();
   });
 
   it("an idle worker says new documents will be processed", () => {
     render(<ReadinessPanel metrics={metrics({})} />);
-    expect(screen.getByText("new documents will be processed as they arrive")).toBeInTheDocument();
+    expect(screen.getByText("new documents are read as they arrive")).toBeInTheDocument();
   });
 });
 
@@ -50,7 +50,7 @@ describe("Your documents line (update 12)", () => {
   it("says how many technical-query attachments are counted apart, never inside the library's numbers", () => {
     render(<ReadinessPanel metrics={withCorpus({ technical_query_attachments: 2 })} />);
     expect(
-      screen.getByText(/3 documents loaded, 40 parts of pages a question can reach \(2 technical-query attachments counted apart/),
+      screen.getByText(/3 documents loaded, 40 parts of pages a question can reach \(2 files attached to queries counted apart/),
     ).toBeInTheDocument();
   });
 

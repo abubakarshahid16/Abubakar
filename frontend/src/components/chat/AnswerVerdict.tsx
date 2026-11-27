@@ -7,14 +7,14 @@ import type { AnswerabilityVerdict, ConditionChoice, EvidenceRef, ScopeAmbiguity
  * other verdict is a warning ABOVE the card, never a replacement for it: the
  * passages stay visible so the reader can judge for themselves.
  */
-export const NOT_DETERMINED = "I cannot determine this from the available evidence";
+export const NOT_DETERMINED = "The sources found do not answer this";
 
 const HEADLINE: Record<Exclude<AnswerabilityVerdict, "supported">, string> = {
   insufficient_evidence: NOT_DETERMINED,
-  conflicting_evidence: "The passages disagree on this - compare them before relying on either",
+  conflicting_evidence: "The sources disagree on this: compare them before you rely on either",
   ambiguous_evidence: "This text appears in more than one document - check which one applies",
-  requires_another_document: "The passage refers to another document that is not in the library",
-  requires_engineer_review: "This needs an engineer's judgement - the passages are evidence, not a verdict",
+  requires_another_document: "The source refers to another document that is not in the library",
+  requires_engineer_review: "This needs an engineer's judgement: the sources inform it, they do not decide it",
   depends_on_condition: "The value depends on a condition the question does not state - there is no single answer yet",
 };
 
@@ -81,7 +81,7 @@ export function ConditionNotice({ choice }: { choice?: ConditionChoice | null })
   if (choice.mode === "matched" && choice.within_passage) {
     return (
       <p className="text-xs text-slateish-400" data-testid="condition-matched">
-        Answered for {choice.question_names.join(", ")}: this passage lists several cases; the line for{" "}
+        Answered for {choice.question_names.join(", ")}: this source lists several cases; the line for{" "}
         {choice.options[0].conditions.join(", ")} is highlighted.
       </p>
     );
@@ -102,7 +102,7 @@ export function ConditionNotice({ choice }: { choice?: ConditionChoice | null })
       </p>
       {choice.within_passage && (
         <p className="mt-1 text-xs text-slateish-400">
-          One passage lists every case{where(choice.options[0]) ? ` (${where(choice.options[0])})` : ""}:
+          One source lists every case{where(choice.options[0]) ? ` (${where(choice.options[0])})` : ""}:
         </p>
       )}
       <ul className="mt-1 space-y-0.5 text-sm text-slateish-300">

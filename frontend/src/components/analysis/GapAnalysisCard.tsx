@@ -86,7 +86,7 @@ const STATUS: Record<
     badge: "bg-signal-500/15 text-signal-400",
     rank: 3,
     countWord: { one: "met", many: "met" },
-    caption: "Positive matching evidence was found.",
+    caption: "A source matches it.",
     // Asserts a presence. On a row citing nothing it is unsupported.
     captionRequires: "project_evidence",
   },
@@ -97,7 +97,7 @@ const STATUS: Record<
     badge: "bg-warn-500/15 text-warn-500",
     rank: 1,
     countWord: { one: "possible gap", many: "possible gaps" },
-    caption: "Retrieval found nothing addressing this. That is not proof the documents say nothing.",
+    caption: "The search found nothing about this. That does not prove the documents are silent.",
     // Asserts an absence. On a row carrying evidence chips it is false.
     captionRequires: "no_project_evidence",
   },
@@ -113,11 +113,11 @@ const STATUS: Record<
   },
   insufficient_evidence: {
     icon: "?",
-    text: "Insufficient evidence",
+    text: "Not enough source text",
     tone: "text-slateish-400",
     badge: "bg-ink-700 text-slateish-300",
     rank: 2,
-    countWord: { one: "with insufficient evidence", many: "with insufficient evidence" },
+    countWord: { one: "with too little source text", many: "with too little source text" },
     caption: null,
     captionRequires: null,
   },
@@ -153,7 +153,7 @@ const STATUS_ORDER: GapItemStatus[] = (Object.keys(STATUS) as GapItemStatus[]).s
 /**
  * `baseline_span` is typed as a string, but a run can put an empty one on a
  * row - three of the rows in the reported screen carried the label
- * "Baseline, quoted verbatim" over nothing at all. A label over nothing is
+ * "Baseline, in its own words" over nothing at all. A label over nothing is
  * the same defect class already fixed elsewhere on this screen, so the label,
  * the quote rule and the "Show baseline passage" control are all withheld
  * together when there is no passage to show. Nothing is substituted for it.
@@ -170,7 +170,7 @@ function noteOf(item: GapItem): string | null {
 }
 
 /** The facet marker is a LABEL - the word "Facet" is this component's own.
- *  Printed over an empty string it is the "Baseline, quoted verbatim" defect
+ *  Printed over an empty string it is the "Baseline, in its own words" defect
  *  again, so the whole marker is withheld when the payload sent no facet. */
 function hasFacet(item: GapItem): boolean {
   return typeof item.facet === "string" && item.facet.trim() !== "";
@@ -204,8 +204,8 @@ function hasRenderableBody(item: GapItem): boolean {
  *  the wording already used for the summary's dropped sentences. */
 function withheldLine(n: number): string {
   return n === 1
-    ? "One of them was reported with no facet, no part of a page, no evidence and no note, so it is not shown here."
-    : `${n} of them were reported with no facet, no part of a page, no evidence and no note, so they are not shown here.`;
+    ? "One of them came with no facet, page part, source or note. It is not shown here."
+    : `${n} of them came with no facet, page part, source or note. They are not shown here.`;
 }
 
 /**
@@ -289,7 +289,7 @@ function EvidenceChip({
     <Button variant="secondary" size="sm"
      
       onClick={() => onCite(evidenceId)}
-      aria-label={`Show project evidence ${n}`}
+      aria-label={`Show project source ${n}`}
     >
       {n}
     </Button>
@@ -308,7 +308,7 @@ function BaselineHeader({
     return (
       <div className="mt-2 text-sm">
         <p className="text-xs font-semibold uppercase tracking-wider text-warn-500">
-          Baseline &mdash; stated by the user. Not evidence; carries no citation.
+          Baseline &mdash; written by you. It is not a source and cites nothing.
         </p>
         <p className="mt-1 text-slateish-200">{baseline.text}</p>
       </div>
@@ -329,8 +329,8 @@ function BaselineHeader({
       </p>
       {filename === null && baseline.document_id !== null && (
         <p className="mt-1 text-xs text-slateish-500">
-          Shown as an identifier: this run cited no part of that document, so its filename
-          is not among the evidence returned.
+          Shown by its number only: this run cited no part of that document, so its file name
+          is not among the sources returned.
         </p>
       )}
     </div>
@@ -370,7 +370,7 @@ function ItemRow({
     item.status === "conflict" ? "major" : item.status === "possible_gap" ? "minor" : "observation",
   );
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [action, setAction] = useState("Review the cited evidence and record the engineering disposition.");
+  const [action, setAction] = useState("Check the cited sources and record the engineering decision.");
   const [templateId, setTemplateId] = useState("");
   const targetEvidence = ledger.find((e) => item.project_citation_ids.includes(e.evidence_id));
 
@@ -386,7 +386,7 @@ function ItemRow({
         severity,
         requirement: item.baseline_span || item.facet || "Requirement requires engineering review",
         finding: note || `${STATUS[item.status].text}: ${item.facet || "review item"}`,
-        required_action: action.trim() || "Review the cited evidence and record the engineering disposition.",
+        required_action: action.trim() || "Check the cited sources and record the engineering decision.",
         template_id: templateId || null,
         citation_ids: [item.baseline_citation_id, ...item.project_citation_ids].filter((id): id is string => Boolean(id)),
       });
@@ -416,7 +416,7 @@ function ItemRow({
       {withSpan && (
         <>
           <p className="mt-1.5 text-xs uppercase tracking-wide text-slateish-500">
-            {baselineIsStated ? "Requirement as stated by the user" : "Baseline, quoted verbatim"}
+            {baselineIsStated ? "Requirement as you wrote it" : "Baseline, in its own words"}
           </p>
           <blockquote
             className={[
@@ -439,7 +439,7 @@ function ItemRow({
       )}
 
       <div className="mt-2 flex flex-wrap items-baseline gap-x-2 text-xs text-slateish-400">
-        <span>Project evidence:</span>
+        <span>Project sources:</span>
         {evidenceCount === 0 ? (
           <span className="text-slateish-500">none cited</span>
         ) : (
@@ -462,7 +462,7 @@ function ItemRow({
             </Button>
             {editing && (
               <form onSubmit={(e) => void saveFinding(e)} className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 p-3">
-                <p className="text-xs text-slateish-400">Save this evidence-backed item for engineering assignment and response.</p>
+                <p className="text-xs text-slateish-400">Save this item with its sources, so an engineer can be given it to answer.</p>
                 {templates.length > 0 && <label className="block text-xs text-slateish-400">Review template
                   <select value={templateId} onChange={(e) => setTemplateId(e.target.value)} className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200">
                     <option value="">No template selected</option>
@@ -588,7 +588,7 @@ function NominateBaseline({
         />
         {typed !== "" && (
           <p className="mt-1 text-xs text-warn-500" aria-live="polite">
-            This is the requirement, not evidence. It carries no citation.
+            This is the requirement, not a source. It cites nothing.
           </p>
         )}
       </div>

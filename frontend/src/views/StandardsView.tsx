@@ -46,10 +46,10 @@ type Load =
 type Tab = "document" | "requirements" | "revisions" | "processing";
 
 const TABS: ReadonlyArray<{ id: Tab; label: string }> = [
-  { id: "document", label: "Original Document" },
+  { id: "document", label: "Original document" },
   { id: "requirements", label: "Requirements" },
-  { id: "revisions", label: "Revision History" },
-  { id: "processing", label: "Processing Details" },
+  { id: "revisions", label: "Revisions" },
+  { id: "processing", label: "Details" },
 ];
 
 /** Rows drawn per family before "Show all". */
@@ -95,7 +95,7 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
           <h1 className="text-lg font-medium">Standards Library</h1>
           {NEW_LOOK && (
             <p data-testid="standards-summary" className="mt-1 text-sm text-slateish-300">
-              The rule books the reviews check against. Search for one and open it to see its requirements.
+              The standards that reviews check documents against. Search for one, then open it to see its requirements.
             </p>
           )}
         </div>
@@ -128,9 +128,9 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
               // the kit's input (H's audit 22: no visible border in the new look)
               className={NEW_LOOK ? "kit-input w-full max-w-md" : "w-full max-w-md rounded border border-white/10 bg-white/[0.02] px-3 py-1.5 text-sm"}
             />
-            {NEW_LOOK && <p className="text-xs text-slateish-400" data-testid="standards-in-force">Every book here is in force unless it is marked Superseded.</p>}
+            {NEW_LOOK && <p className="text-xs text-slateish-400" data-testid="standards-in-force">Every standard here is in force unless it is marked Superseded.</p>}
             {/* the kit's toggle (H's audit 24) sits with the search it narrows, not at the top of the page where it read as the page's
-                main action (C's walk, 27 Nov 2026); pressed while superseded books are listed */}
+                main action (C's walk, 27 Nov 2026); pressed while superseded standards are listed */}
             {NEW_LOOK && <Button size="sm" aria-pressed={includeSuperseded} onClick={() => setIncludeSuperseded((v) => !v)}>Show superseded</Button>}
             <p className="text-xs opacity-70" data-testid="standards-shown">
               {matches.length === load.standards.length
@@ -229,7 +229,7 @@ function StandardRow({
               standard.discipline
               && standard.discipline_canonical
               && standard.discipline !== standard.discipline_canonical
-                ? `the document says "${standard.discipline}"`
+                ? `The standard itself says "${standard.discipline}"`
                 : undefined
             }
           >
@@ -247,7 +247,7 @@ function StandardRow({
       <p className="mt-1 text-xs opacity-70">
         {/* H's audit 23: the committee always on this line, so rows never jump between "beside the name" and "below it" */}
         {NEW_LOOK && (standard.discipline_canonical || standard.discipline) && (
-          <span title={standard.discipline && standard.discipline_canonical && standard.discipline !== standard.discipline_canonical ? `the document says "${standard.discipline}"` : undefined}>
+          <span title={standard.discipline && standard.discipline_canonical && standard.discipline !== standard.discipline_canonical ? `The standard itself says "${standard.discipline}"` : undefined}>
             {standard.discipline_canonical || standard.discipline} ·{" "}
           </span>
         )}
@@ -255,7 +255,7 @@ function StandardRow({
         {/* ZERO IS A REAL ANSWER and is worded as one. "0 requirements" would
             read as "this standard requires nothing". */}
         {standard.requirement_count === 0
-          ? "No requirements extracted yet"
+          ? "No requirements read yet"
           : `${standard.requirement_count} requirement${standard.requirement_count === 1 ? "" : "s"}`}
         {standard.awaiting_verification > 0 && (
           <span className="text-warn-500">
@@ -342,8 +342,8 @@ function asDocument(standard: StandardSummary): DocumentRecord {
 function TabLoadError({ what, message }: { what: string; message: string }) {
   return (
     <p role="alert" className="rounded border border-danger-500/40 bg-danger-500/10 p-2 text-xs text-danger-500">
-      The {what} of this standard could not be loaded - {message}. This is not
-      an empty list.
+      The {what} of this standard did not load: {message}. The list may not be
+      empty. Close the standard and open it again.
     </p>
   );
 }
@@ -394,7 +394,7 @@ function RequirementsTab({
             disabled={busy}
             className="rounded bg-white/15 px-3 py-1 text-xs disabled:opacity-50"
           >
-            {busy ? "Reading the standard…" : "Extract requirements"}
+            {busy ? "Reading the standard…" : "Read the requirements"}
           </button>
           {error && <span role="alert" className="text-xs text-warn-500">{error}</span>}
         </div>
@@ -404,7 +404,7 @@ function RequirementsTab({
         // NOT "this standard has no requirements". It has not been read yet,
         // and those are completely different statements.
         <p className="text-xs opacity-70">
-          No requirements have been extracted from this standard yet.
+          The requirements of this standard have not been read yet.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -414,19 +414,19 @@ function RequirementsTab({
                 {/* A clause the parser could not identify renders as exactly
                     that. Never a guessed number. */}
                 <span className="font-mono">
-                  {row.clause ?? "Clause not identified"}
+                  {row.clause ?? "Clause number not found"}
                 </span>
                 {row.page != null && <span className="opacity-70">page {row.page}</span>}
                 {row.needs_verification && (
                   <span className="rounded bg-warn-500/20 px-2 py-0.5 text-warn-500">
-                    Awaiting verification
+                    Waiting for an engineer to check
                   </span>
                 )}
                 {/* #597: WHY, when it is not simply a low confidence. The row
                     is kept and shown; it is only kept out of reviews. */}
                 {row.needs_verification_reason === "text_quality" && (
                   <span className="rounded bg-warn-500/20 px-2 py-0.5 text-warn-500">
-                    Text looks garbled or mirrored (text_quality)
+                    The text looks garbled or mirrored
                   </span>
                 )}
                 {/* #596: a definition is shown, never reviewed or counted. */}
@@ -437,12 +437,12 @@ function RequirementsTab({
                 )}
                 {row.extraction_method === "extracted" && !row.confirmed_by && (
                   <span className="rounded bg-white/10 px-2 py-0.5 opacity-80">
-                    Extracted, not confirmed
+                    Read by the app, not confirmed
                   </span>
                 )}
                 {!row.citation_resolves && (
                   <span role="alert" className="rounded bg-danger-500/20 px-2 py-0.5 text-danger-500">
-                    Citation no longer resolves - re-extract
+                    The clause it points to has moved. Read the requirements again.
                   </span>
                 )}
               </div>
@@ -536,8 +536,8 @@ function RevisionsTab({
             </select>
           </label>
           <p className="text-xs opacity-70">
-            A superseded standard stops being selected for new reviews. It stays
-            readable and citable.
+            New reviews do not use a superseded standard. You can still open it,
+            and earlier comments still point to it.
           </p>
           {error && <span role="alert" className="text-xs text-warn-500">{error}</span>}
         </div>
@@ -545,6 +545,13 @@ function RevisionsTab({
     </div>
   );
 }
+
+/** A standard's stored status in plain words (H's read of #1986); the stored value stays under Technical detail on the tab. */
+const STATUS_WORDS: Record<string, string> = {
+  queued: "Waiting to be read", extracting: "Being read", chunking: "Being read", indexing_keyword: "Being read",
+  partially_searchable: "Partly ready: some search still running", ready: "Ready", no_searchable_content: "No text could be read",
+  failed: "Reading stopped with an error",
+};
 
 function ProcessingTab({ standard }: { standard: StandardSummary }) {
   const [clauses, setClauses] = useState<number | null>(null);
@@ -559,12 +566,18 @@ function ProcessingTab({ standard }: { standard: StandardSummary }) {
 
   return (
     <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
-      <Field label="Processing status" value={standard.status.replace(/_/g, " ")} />
+      <Field label="Status" value={STATUS_WORDS[standard.status] ?? "Not known"} />
       <Field label="Pages" value={standard.page_count} />
-      <Field label="Clauses detected" value={clauses} />
-      <Field label="Requirements extracted" value={standard.requirement_count} />
-      <Field label="Awaiting verification" value={standard.awaiting_verification} />
+      <Field label="Clauses found" value={clauses} />
+      <Field label="Requirements read" value={standard.requirement_count} />
+      <Field label="Waiting for an engineer to check" value={standard.awaiting_verification} />
       <Field label="Uploaded" value={formatWhen(standard.uploaded_at)} />
+      <div className="col-span-full">
+        <details className="text-xs opacity-70">
+          <summary className="cursor-pointer">Technical detail</summary>
+          <span className="font-mono">{standard.status}</span>
+        </details>
+      </div>
     </dl>
   );
 }

@@ -474,7 +474,7 @@ describe("CrsSheetView", () => {
   });
 
   it("piece 4: when the decision record cannot be read, the drawer says its history may be missing decisions", async () => {
-    crsDecisions.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    crsDecisions.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } });
     mount();
     await screen.findByTestId("crs-headline");
     await userEvent.click(screen.getByRole("button", { name: /Open evidence for Comment 1/ }));
@@ -572,7 +572,7 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
   });
 
   it("when the summary read fails outright, the sheet still renders on the screen's tiers", async () => {
-    reviewRunSummary.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    reviewRunSummary.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } });
     mount();
     await screen.findByTestId("crs-headline");
     expect(screen.getByTestId("crs-tier-source")).toBeInTheDocument();
@@ -617,7 +617,7 @@ describe("CrsSheetView reads the run summary (order 95 piece 1, #1111)", () => {
       mount();
       await waitFor(() => expect(reviewRunSummary).toHaveBeenCalledTimes(1));
       reviewRuns.mockResolvedValue({ ok: true, data: { runs: [run()] } });
-      reviewRunSummary.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+      reviewRunSummary.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } });
       await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
       await screen.findByTestId("crs-headline");
       expect(screen.getAllByText(STALE_GROUPING_NOTE)).toHaveLength(1);
@@ -765,10 +765,10 @@ describe("CrsSheetView: Before you sign (order 121)", () => {
   });
 
   it("when the gate cannot be read, Sign waits and the box says so with a way to check again", async () => {
-    crsIssueGate.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    crsIssueGate.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } });
     mount();
     await screen.findByTestId("crs-headline");
-    expect(await within(screen.getByTestId("before-you-sign")).findByRole("alert")).toHaveTextContent("Cannot reach the backend.");
+    expect(await within(screen.getByTestId("before-you-sign")).findByRole("alert")).toHaveTextContent("Cannot reach the app's server.");
     expect(screen.getByRole("button", { name: /Sign and export/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Check again" })).toBeTruthy();
   });

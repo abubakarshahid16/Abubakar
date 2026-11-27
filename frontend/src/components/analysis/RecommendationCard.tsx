@@ -37,7 +37,7 @@ export function RecommendationCard({
       className="card-3d accent-edge relative surface-card rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05]"
     >
       <summary className="cursor-pointer list-item px-4 py-3 text-xs font-semibold uppercase tracking-wider text-info-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-info-500">
-        AI Advisory — not a documented requirement
+        AI advice — not a requirement from a document
       </summary>
 
       <div className="border-t border-info-500/20 px-4 pb-4">
@@ -103,7 +103,7 @@ export function RecommendationCard({
               ))}
             </ul>
             <p className="mt-1.5 text-xs text-slateish-500">
-              A fired check lowers confidence. "High" is never issued: nothing here is calibrated.
+              Each check that fails lowers confidence. It is never "High": nothing here is measured against known answers.
             </p>
           </div>
         )}

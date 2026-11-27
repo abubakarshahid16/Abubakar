@@ -22,7 +22,7 @@ const LABELS: Record<ClaimLabel, { icon: string; text: string; tone: string }> =
 };
 
 const POSSIBLE_CONFLICT_CAPTION =
-  "Values disagree. Whether one supersedes the other cannot be determined: documents carry no revision or approval status.";
+  "Values disagree. The documents show no revision or approval status, so which one applies cannot be told.";
 
 function LabelMark({ label }: { label: ClaimLabel }) {
   const l = LABELS[label];
@@ -82,7 +82,7 @@ function Row({
         role="button"
         tabIndex={0}
         aria-pressed={selected}
-        aria-label={`Show evidence from ${row.filename}, page ${row.page_start}`}
+        aria-label={`Show the source from ${row.filename}, page ${row.page_start}`}
         onClick={activate}
         onKeyDown={onKeyDown}
         className={[
@@ -157,7 +157,7 @@ export function ClaimTable({
   return (
     <section aria-label="Claim comparison" className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-signal-400">
-        Claim comparison &mdash; quoted verbatim from the documents
+        Claim comparison &mdash; the documents' own words
       </h3>
 
       {clusters.length === 0 ? (

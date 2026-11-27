@@ -1260,17 +1260,29 @@ def propose_question(email_question: str, proposals: list[dict[str, Any]] | None
     proposal, not an answer to anything."""
     own = (email_question or "").strip()
     said = _squash(own).casefold()
-    extra: list[str] = []
+    extra: list[tuple[str, bool]] = []  # (words, is a lead-in line): a lead-in is shown unnumbered above the items it introduces
     for p in proposals or []:
         q = (p.get("question") or "").strip()
-        if q and _squash(q).casefold() not in said and _squash(q).casefold() not in {_squash(e).casefold() for e in extra}:
-            extra.append(q)
+        if q and _squash(q).casefold() not in said and _squash(q).casefold() not in {_squash(e).casefold() for e, _ in extra}:
+            extra.append((q, bool(p.get("lead"))))
+    while extra and extra[-1][1]:  # a lead-in with nothing after it introduces nothing: it is a request after all
+        extra[-1] = (extra[-1][0], False)
+        break
     lead = own
     if extra and not lead:
-        title = re.sub(r"^\s*((fw|fwd|re)\s*:\s*)+", "", (about or "").strip(), flags=re.IGNORECASE).strip()
-        lead = f"About {title}, the contractor asks for the following:" if title else "The contractor asks for the following:"
+        if extra[0][1]:  # the form's own lead-in says it better than a made-up one
+            lead = extra.pop(0)[0]
+        else:
+            title = re.sub(r"^\s*((fw|fwd|re)\s*:\s*)+", "", (about or "").strip(), flags=re.IGNORECASE).strip()
+            lead = f"About {title}, the contractor asks for the following:" if title else "The contractor asks for the following:"
     lines = [lead] if lead else []
-    lines += [f"{n}. {q}" for n, q in enumerate(extra, 1)]
+    n = 0
+    for q, is_lead in extra:
+        if is_lead:  # after a blank line, so it never reads as the wrapped end of the item above it
+            lines += ["", q]
+        else:
+            n += 1
+            lines.append(f"{n}. {q}")
     text = "\n".join(lines)
     if len(text) > MAX_PROPOSED_QUESTION:
         from .technical_query_items import cut_whole_words

@@ -83,7 +83,7 @@ describe("the table list", () => {
     // "missing" and "empty" must never render alike: one is a fact about this
     // backend, the other a claim about the data.
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /does not serve the database explorer/i);
+      /has no database explorer/i);
   });
 
   it("survives an ok response whose body is the wrong shape", async () => {
@@ -120,7 +120,7 @@ describe("the table list", () => {
     render(<DatabaseSection client={client()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      /backend is not running/i);
+      /server is not running/i);
   });
 });
 

@@ -119,7 +119,7 @@ test("a question streams in, shows how many points were found, and opens its sou
 
   await expect(page.getByTestId("used-line")).toHaveText("Checked your submittal · Claude · 6 s");
   await expect(page.getByText("1 of 1 point found on the page")).toBeVisible();
-  await expect(page.getByText("Written by the model · claude — not the document's words")).toBeVisible();
+  await expect(page.getByText("Written by the AI, not the document's own words")).toBeVisible();
 
   await page.getByRole("button", { name: "Source 1" }).first().click();
   const preview = page.getByRole("region", { name: "Source 1 preview" });

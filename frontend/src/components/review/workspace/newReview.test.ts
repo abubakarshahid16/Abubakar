@@ -147,7 +147,7 @@ describe("startNewReview", () => {
   });
 
   it("if who the reader is cannot be checked, nothing is uploaded", async () => {
-    me.mockResolvedValue({ ok: false, disconnected: true, error: { code: "x", message: "Cannot reach the backend." } });
+    me.mockResolvedValue({ ok: false, disconnected: true, error: { code: "x", message: "Cannot reach the app's server." } });
     const outcome = await startNewReview(file, () => {}, noWait);
     expect(outcome).toEqual({ ok: false, message: ADMIN_UNKNOWN_MESSAGE });
     expect(uploadOne).not.toHaveBeenCalled();
@@ -241,7 +241,7 @@ describe("startNewReview", () => {
   it("a duplicate whose role cannot be read is refused", async () => {
     uploadOne.mockResolvedValue({ phase: "done", documentId: "doc-8", duplicateOf: "doc-8", awaitingGrant: false });
     document.mockReset();
-    document.mockResolvedValue({ ok: false, disconnected: true, error: { code: "x", message: "Cannot reach the backend." } });
+    document.mockResolvedValue({ ok: false, disconnected: true, error: { code: "x", message: "Cannot reach the app's server." } });
     const outcome = await startNewReview(file, () => {}, noWait);
     expect(outcome).toEqual({ ok: false, message: ROLE_UNREADABLE_MESSAGE });
     expect(setRoleBulk).not.toHaveBeenCalled();
@@ -253,7 +253,7 @@ describe("startNewReview", () => {
     const outcome = await startNewReview(file, () => {}, noWait);
     // The admin gate let the caller in, so it is never "only an administrator".
     expect(outcome).toEqual({ ok: false, message: MARK_UNREADABLE_MESSAGE });
-    expect(MARK_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(MARK_UNREADABLE_MESSAGE).toMatch(/It was not found, or you cannot open it\./);
     expect(MARK_UNREADABLE_MESSAGE).not.toMatch(/administrator/);
     expect(calls).not.toContain("start");
   });
@@ -298,7 +298,7 @@ describe("startNewReview", () => {
     document.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
     const outcome = await startNewReview(file, () => {}, noWait);
     expect(outcome).toEqual({ ok: false, message: UPLOADED_UNREADABLE_MESSAGE });
-    expect(UPLOADED_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(UPLOADED_UNREADABLE_MESSAGE).toMatch(/could not be found, or you cannot open it/);
     expect(calls).not.toContain("start");
   });
 });
@@ -326,11 +326,11 @@ describe("startRefusal (the words of a refused start, shown on the pre-start ste
 
   it("an administrator's 404 means the document could not be found or may not be read", async () => {
     expect(await startRefusal(refused("not_found", "not found"))).toEqual({ message: REVIEW_DOCUMENT_UNREADABLE_MESSAGE, runningRunId: null });
-    expect(REVIEW_DOCUMENT_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(REVIEW_DOCUMENT_UNREADABLE_MESSAGE).toMatch(/could not be found, or you cannot open it/);
   });
 
   it("a 404 when who the reader is cannot be checked names both reasons", async () => {
-    me.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    me.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } });
     expect(await startRefusal(refused("not_found", "not found"))).toEqual({ message: REVIEW_REFUSED_UNKNOWN_MESSAGE, runningRunId: null });
   });
 
@@ -364,7 +364,7 @@ describe("priorDecisionOf / loadPriorDecision", () => {
     reviewRuns.mockResolvedValueOnce({ ok: true, data: { runs: [run("run-3", "2026-03-06T08:00:00Z", { engineer_final_code: "Approved" })] } });
     expect(await loadPriorDecision("doc-1")).toEqual({ kind: "final_code", finalCode: "Approved" });
     expect(reviewRuns).toHaveBeenCalledWith("doc-1");
-    reviewRuns.mockResolvedValueOnce({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } });
+    reviewRuns.mockResolvedValueOnce({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } });
     expect(await loadPriorDecision("doc-1")).toEqual({ kind: "unknown" });
     reviewRuns.mockRejectedValueOnce(new Error("boom"));
     expect(await loadPriorDecision("doc-1")).toEqual({ kind: "unknown" });
