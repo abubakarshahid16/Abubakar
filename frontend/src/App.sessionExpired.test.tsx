@@ -54,6 +54,9 @@ async function signedIn() {
   stubApi();
   render(<App initialView="documents" />);
   expect(await screen.findByText("Eng", { exact: false })).toBeInTheDocument();
+  // Documents loads when opened (27 Nov 2026, the first-load give-back): its polls start only once its page is on screen, so wait
+  // for the page itself, not only for the shell (CI's slower machine reached the poll check before the page had loaded).
+  expect(await screen.findByRole("heading", { level: 1, name: "Documents" }, { timeout: 10_000 })).toBeInTheDocument();
 }
 
 beforeEach(() => {
