@@ -477,18 +477,31 @@ class Tier:
     label: Mapping | None = None
 
 
+def _type_key(equipment_type: str | None) -> tuple[str, str] | None:
+    """An equipment type compared through the ONE registry of equipment names (`subject_scope.equipment_key`): two registered
+    names of one type give the same key, a different type another, and a name the registry does not know (or lists under
+    several types) keeps its own folded spelling, so it matches only itself (fail closed). None: no type named."""
+    from . import subject_scope
+
+    folded = " ".join(str(equipment_type or "").casefold().split())
+    if not folded:
+        return None
+    key = subject_scope.equipment_key(folded)
+    return ("type", key) if key else ("name", folded)
+
+
 def _person_decisions(
     conn, version_id: str, equipment_type: str | None
 ) -> tuple[str | None, bool]:
     """(tier a person's approval gives this exact version, whether a person's decision refuses it). READ ONLY: nothing
     in this module writes the rule book's approvals. Per equipment type the LAST decision counts; a decision that names no
     type (a retirement) ends every approval before it (the rule book's own reading of its rows)."""
-    standing: dict[str, str | None] = {}
+    standing: dict[tuple[str, str], str | None] = {}
     declined = False
     for decision, etype, tier in compiled_rule_report.book_approval_rows(
         conn, version_id
     ):
-        kind = " ".join(str(etype or "").casefold().split())
+        kind = _type_key(etype)
         if not kind:
             standing.clear()
             declined = True
@@ -497,7 +510,7 @@ def _person_decisions(
         else:
             standing.pop(kind, None)
             declined = True
-    wanted = " ".join(str(equipment_type or "").casefold().split())
+    wanted = _type_key(equipment_type)
     tiers = (
         [standing[wanted]]
         if wanted and wanted in standing
