@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewFinding, ReviewRunSummary } from "../types/api";
 import { CrsSheetView } from "./CrsSheetView";
+import { NEW_LOOK } from "../look";
 
 const list = vi.fn();
 // Counts row renders: CrsRow calls `wordingOf` exactly once per render.
@@ -137,7 +138,8 @@ describe("CrsSheetView stays smooth (order 117)", () => {
     await userEvent.click(screen.getByLabelText("Everything"));
     const total = 256;
     expect(rows()).toHaveLength(200);
-    expect(screen.getByTestId("crs-more")).toHaveTextContent(`Showing the first 200 of ${total} lines in this list.`);
+    // the new look uses the kit's one show-more ("Showing 200 of N.", a link); the classic keeps its own sentence
+    expect(screen.getByTestId("crs-more")).toHaveTextContent(NEW_LOOK ? `Showing 200 of ${total.toLocaleString("en-US")}.` : `Showing the first 200 of ${total} lines in this list.`);
     await userEvent.click(screen.getByRole("button", { name: "Show 56 more" }));
     expect(rows()).toHaveLength(total);
     expect(screen.queryByTestId("crs-more")).not.toBeInTheDocument();
