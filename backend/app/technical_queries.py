@@ -978,6 +978,11 @@ def get(
                 "SELECT * FROM query_events WHERE query_id=? ORDER BY id", (query_id,)
             )
         ]
+        from . import technical_query_refs
+
+        # another query the request NAMES (a CFC / TQ number), looked up with the caller's own visibility (technical_query_refs)
+        seen_where, seen_args = _visible_where(user_id, is_admin, unrestricted)
+        result["cross_refs"] = technical_query_refs.cross_refs(conn, result, seen_where, seen_args)
     result["ready"] = _auto.ready(result)  # question, evidence and draft: there, refreshing, and made for the current wording
     return result
 

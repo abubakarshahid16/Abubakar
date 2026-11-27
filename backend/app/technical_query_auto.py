@@ -343,6 +343,13 @@ def write_draft(
     )  # an item the draft leaves unanswered is said, never silently dropped
     if gap:
         unresolved.append(gap)
+    from .technical_query_refs import mark as refs_mark
+
+    named = refs_mark(
+        item.get("cross_refs") or []
+    )  # another held query the request names: read it before replying
+    if named:
+        unresolved.append(named)
     tq.add_draft(query_id, result["answer"], [], unresolved, None, user_id, is_admin, unrestricted, citations=citations,
                  model=result.get("model"), prompt_version=SYSTEM_DRAFT, question=question)  # fmt: skip
     _note(query_id, None)
@@ -480,6 +487,13 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         item
     ):  # an older search found these sources: said, and "Find the sources again" is offered
         found_marks.append(OUTDATED_MARK)
+    from .technical_query_refs import mark as refs_mark
+
+    named = refs_mark(
+        item.get("cross_refs") or []
+    )  # another held query the request names: "see it before replying"
+    if named:
+        found_marks.append(named)
     return {
         "question": question,
         "question_source": source,
@@ -508,6 +522,8 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "marks": found_marks,
         "cited": cited_by_contractor(item),
         "items": items_of_question(question),
+        "cross_refs": item.get("cross_refs")
+        or [],  # other queries the request names, held or not (technical_query_refs)
     }
 
 
