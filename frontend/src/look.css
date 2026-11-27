@@ -66,7 +66,7 @@
   --color-info-500: #4b5563; /* plain information is grey (blue is kept for 'action needed') */
 
   /* Status: review = AI reading, please check; fail = late / must fix (inverted); pass = done / proved by code; cond = waiting / info. */
-  --color-pill-review-fg: #5c3700; --color-pill-review-bg: #ffe2b8; --color-pill-review-border: #e8b86a;
+  --color-pill-review-fg: #1d3f6e; --color-pill-review-bg: #e8eff8; --color-pill-review-border: #8fb0da; /* action needed: blue, not amber */
   --color-pill-fail-fg: #ffffff; --color-pill-fail-bg: #8a2a12; --color-pill-fail-border: #8a2a12;
   --color-pill-pass-fg: #0b5a3a; --color-pill-pass-bg: #ddf3ea; --color-pill-pass-border: #9ad3b8;
   --color-pill-cond-fg: #1e3a8a; --color-pill-cond-bg: #e3ecfb; --color-pill-cond-border: #a9c2ee;
@@ -102,7 +102,7 @@
   --color-danger-500: #ffb4a0;
   --color-info-500: #b8c2d1; /* plain information, dark: grey */
 
-  --color-pill-review-fg: #ffd9a3; --color-pill-review-bg: #3d2a0a; --color-pill-review-border: #8a6a2a;
+  --color-pill-review-fg: #bcd4f5; --color-pill-review-bg: #16263c; --color-pill-review-border: #3e5f8a;
   --color-pill-fail-fg: #ffffff; --color-pill-fail-bg: #9a3417; --color-pill-fail-border: #9a3417;
   --color-pill-pass-fg: #b5ecd3; --color-pill-pass-bg: #0c2e22; --color-pill-pass-border: #2f7a5c;
   --color-pill-cond-fg: #c7d7fb; --color-pill-cond-bg: #13254a; --color-pill-cond-border: #3d5a95;
