@@ -16,6 +16,7 @@ import type {
 } from "../types/admin";
 import { AdminView, type AdminViewProps } from "./AdminView";
 import { management, reviews } from "../api/client";
+import { NEW_LOOK } from "../look";
 
 /** A user who has NEVER signed in. The null rule cannot be tested on a
  *  fixture that carries a timestamp - the assertion would pass on a component
@@ -163,9 +164,13 @@ describe("destructive actions confirm first", () => {
     expect(onDeactivateUser).toHaveBeenCalledWith("usr_a1b2c3d4");
   });
 
-  it("a revoke control is not styled as a neutral button", () => {
+  it("a revoke still ends in a red step: the row's button is neutral in the new look, its confirm is the danger button", async () => {
+    // H's walk, 27 Nov 2026: a red button on every row says "problem" everywhere; red is kept for the step that removes access
     render(<AdminView {...props()} />);
-    expect(screen.getByRole("button", { name: "Revoke" }).className).toContain("kit-btn--danger"); // the kit's danger button (red words and edge)
+    const revoke = screen.getByRole("button", { name: "Revoke" });
+    expect(revoke.className).toContain(NEW_LOOK ? "kit-btn--secondary" : "kit-btn--danger");
+    await userEvent.click(revoke);
+    expect(screen.getByRole("button", { name: "Revoke" }).className).toContain("kit-btn--danger");
   });
 });
 
