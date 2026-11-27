@@ -57,7 +57,7 @@ describe("the query list page", () => {
     render(<TechnicalQueriesView />);
     const line = await screen.findByTestId("count-line");
     // the status parts add up to the total; the one needing a person is said "of them", never added (owner's live walk, 27 Nov 2026)
-    expect(line.textContent).toBe("3 queries: 1 waiting for approval, 2 in progress. 1 of them needs a person");
+    expect(line.textContent).toBe("3 queries: 1 waiting for approval, 2 in progress. 1 of them needs a query number"); // owner's words, 27 Nov 2026
     fireEvent.click(within(line).getByRole("button", { name: "1 waiting for approval" }));
     const list = screen.getByLabelText("Technical query list");
     expect(within(list).getAllByRole("button").length).toBe(1);
@@ -89,12 +89,11 @@ describe("the query list page", () => {
     expect(second.textContent).toContain("due 3 Dec 2026");
     expect(within(second).queryAllByTestId("problem-chip")).toEqual([]);
     expect(within(third).queryByTestId("query-tag")).toBeNull();
-    // "No contractor" is said once above the list, never on each row (H's audit, 27 Nov 2026 (d))
-    expect(within(third).getAllByTestId("problem-chip").map((c) => c.getAttribute("data-word"))).toEqual(["No query number"]);
+    // said once, never on each row: "No contractor" in the notice above (H's audit (d)), "No query number" in the count line
+    // (owner's written order, 27 Nov 2026 10:59); the opened query still says both in full (see "says a row's problems in full")
+    expect(within(third).queryAllByTestId("problem-chip")).toEqual([]);
     expect(screen.getByTestId("no-contractor-note").textContent).toContain("Rules for who it goes to");
-    expect(within(third).getAllByTestId("problem-chip")[0].getAttribute("title")).toContain("no full TQ or CFC number");
-    // the full sentence is in the row's own text for a screen reader and a keyboard user, not only on hover (review of #1938)
-    expect(third.textContent).toContain("No query number: The subject has no full TQ or CFC number");
+    expect(screen.getByTestId("count-line").textContent).toContain("1 of them needs a query number");
     for (const row of [first, second, third]) expect(row.textContent).not.toMatch(/_|awaiting_review|drafting/);
   });
 
@@ -145,7 +144,7 @@ describe("the query list page", () => {
     api.get.mockImplementation((id: string) => Promise.resolve({ ok: true, data: rows.find((r) => r.id === id) }));
     render(<TechnicalQueriesView />);
     expect(await screen.findByText(rows[0].subject, { selector: "h2" })).toBeTruthy(); // the first query opens on arrival
-    fireEvent.click(within(await screen.findByTestId("count-line")).getByRole("button", { name: "1 of them needs a person" }));
+    fireEvent.click(within(await screen.findByTestId("count-line")).getByRole("button", { name: "1 of them needs a query number" }));
     await waitFor(() => expect(api.get).toHaveBeenLastCalledWith("q3"));
     expect(await screen.findByText("Please advise", { selector: "h2" })).toBeTruthy();
   });
@@ -210,7 +209,7 @@ describe("the list page's words", () => {
     const line = countLine(rows);
     expect(line.parts.reduce((sum, p) => sum + p.n, 0)).toBe(line.total);
     for (const r of rows) expect(line.parts.filter((p) => quickMatch(p.view, r)).length).toBe(1);
-    expect(line.ofThem).toEqual({ view: "person", n: statuses.length, words: "need a person" });
+    expect(line.ofThem).toEqual({ view: "person", n: statuses.length, words: "need a query number" });
   });
   it("counts only the states that exist", () => {
     expect(countLine([]).parts).toEqual([]);

@@ -455,8 +455,9 @@ describe("Technical Queries screen", () => {
     expect((await screen.findAllByTestId("query-tag")).map((t) => t.textContent)).toEqual(["TQ-12"]);
     expect(screen.getByText("PIPING")).toBeTruthy();
     expect(within(screen.getByLabelText("Technical query list")).getByText("Coating question")).toBeTruthy();
-    const noNumber = screen.getAllByTestId("problem-chip").find((c) => c.getAttribute("data-word") === "No query number")!;
-    expect(noNumber.getAttribute("title")).toContain("no full TQ or CFC number");
+    // "No query number" is said once, in the count line, not as a chip on the row (owner's written order, 27 Nov 2026 10:59)
+    expect(screen.queryAllByTestId("problem-chip")).toEqual([]);
+    expect(screen.getByTestId("count-line").textContent).toContain("1 of them needs a query number");
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "CFC" } });
     fireEvent.change(screen.getByLabelText("Discipline code"), { target: { value: "civil" } });

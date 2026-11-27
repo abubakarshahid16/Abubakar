@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { ChipButton, LinkButton, MoreMenu, Notice, PageHeader, RowButton, Button, Small, Stack, StatusChip, Tag, OneLine } from "../components/kit/Kit";
 import type { TechnicalQuery, TechnicalQueryAssignee } from "../api/client";
 import { formatWhen } from "../format/when";
-import { countLine, problemChips, queryTag, quickMatch, statusChip, type QuickView } from "./technicalQueryQuestion";
+import { countLine, queryTag, quickMatch, statusChip, type QuickView } from "./technicalQueryQuestion";
 
 export interface ListPanels {
   /** The mailbox's details, shown when its chip is open. */
@@ -87,7 +87,9 @@ export function TechnicalQueriesList(props: {
                 <StatusChip word={statusChip(item.status).words} testId="status-chip" />
                 {item.contractor_name || who ? <span>{[item.contractor_name, who].filter(Boolean).join(" · ")}</span> : null}
                 {item.due_at ? <span>due {formatWhen(item.due_at).split(",")[0]}</span> : null}
-                {problemChips(item).filter((p) => p.words !== "No contractor").map((p) => <StatusChip key={p.words} word={p.words} why={p.why} testId="problem-chip" />)}
+                {/* SAID ONCE, NOT ON EVERY ROW (owner's written order, 27 Nov 2026 10:59): "No query number" is the count line's "N of them need a
+                    query number" (it filters to them) and "No contractor" is the notice above; a row carries neither, and the opened query
+                    still says its own problems in full */}
               </>} />
           );
         })}
