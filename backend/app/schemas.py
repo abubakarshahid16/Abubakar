@@ -91,6 +91,8 @@ DocumentReviewStatus = Literal[
     "cancelled",
     "completed",
     "failed",
+    # a general review that ended early (P8, 27 Nov 2026): its lines are kept, but it is never "Review complete"
+    "stopped",
 ]
 
 #: Whether a submittal meets one requirement. A SECOND vocabulary beside the
@@ -213,6 +215,8 @@ class Document(BaseModel):
     #: DERIVED from the latest review_runs row, never stored. `not_reviewed` is
     #: a real answer, not a null - see `ReviewStatus`.
     review_status: DocumentReviewStatus = "not_reviewed"
+    #: When the document's newest COMPLETE review finished (a run that did not stop early); None when there is none. Derived.
+    last_complete_review_at: str | None = None
 
 
 class OkfReport(BaseModel):
