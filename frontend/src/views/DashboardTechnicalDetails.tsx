@@ -4,6 +4,7 @@ import { bytes, nf, Stat, Section, Throughput, Bar, loadTone, NotMeasured } from
 import { humaniseReason } from "../components/WorkerPanel";
 import { FreeModelMemory } from "../components/FreeModelMemory";
 import { NEW_LOOK } from "../look";
+import { Tag } from "../components/kit/Kit";
 
 type Props = {
   metrics: Metrics;
@@ -378,8 +379,10 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
           title="Why search cannot see it"
           hint="One row per RULE, not per passage — a single page rule can cover several passages, so these counts are smaller than the Excluded total above. Nothing is dropped silently; every exclusion is recorded with the rule that caused it."
         >
-          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
-            <table className="w-full text-left text-sm">
+          {/* the new look: the kit's stacking table (rows become labelled blocks below 42rem, so "Characters" is never cut at the edge),
+              the rule's stored name a kit Tag, numbers in the normal face (planner's 12:47 hint; C's walk with folds open: 24 mono) */}
+          <div className={NEW_LOOK ? "kit-stack-wrap overflow-x-auto rounded-[var(--radius-md)] border border-ink-700" : "overflow-x-auto rounded-[var(--radius-md)] border border-ink-700"}>
+            <table className={NEW_LOOK ? "kit-stack-table w-full text-left text-sm" : "w-full text-left text-sm"}>
               <thead className="bg-ink-850 text-xs uppercase tracking-wide text-slateish-500">
                 <tr>
                   <th className="px-3 py-2 font-medium">Scope</th>
@@ -391,14 +394,14 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
               <tbody>
                 {metrics.exclusions.map((e) => (
                   <tr key={`${e.scope}-${e.rule}`} className="border-t border-ink-700">
-                    <td className="px-3 py-1.5 text-slateish-400">{e.scope}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-slateish-300">
-                      {e.rule}
+                    <td className="px-3 py-1.5 text-slateish-400" data-label="Scope">{e.scope}</td>
+                    <td className={NEW_LOOK ? "px-3 py-1.5" : "px-3 py-1.5 font-mono text-xs text-slateish-300"}>
+                      {NEW_LOOK ? <Tag>{e.rule}</Tag> : e.rule}
                     </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-slateish-200">
+                    <td className={NEW_LOOK ? "px-3 py-1.5 text-right tabular-nums text-slateish-200" : "px-3 py-1.5 text-right font-mono text-slateish-200"} data-label="Count">
                       {nf.format(e.count)}
                     </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-slateish-400">
+                    <td className={NEW_LOOK ? "px-3 py-1.5 text-right tabular-nums text-slateish-400" : "px-3 py-1.5 text-right font-mono text-slateish-400"} data-label="Characters">
                       {nf.format(e.characters_dropped)}
                     </td>
                   </tr>
