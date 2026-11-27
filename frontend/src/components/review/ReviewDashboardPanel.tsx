@@ -146,7 +146,7 @@ export function ReviewDashboardPanel(
         <h2 id="review-dashboard-title" className="text-sm font-semibold text-slateish-200">
           AI Submittal Review
         </h2>
-        <LinkButton tone="action" size="xs" onClick={() => onOpenReview()}>
+        <LinkButton weight="medium" tone="action" size="xs" onClick={() => onOpenReview()}>
           Open all reviews
         </LinkButton>
       </div>
@@ -163,7 +163,7 @@ export function ReviewDashboardPanel(
         <div role="alert" className="mt-3 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-3 py-2 text-xs text-danger-500">
           The review figures could not be loaded - {loadError}. This is not a
           count of zero.{" "}
-          <LinkButton tone="inherit" onClick={() => void load()}>
+          <LinkButton weight="medium" tone="inherit" onClick={() => void load()}>
             Try again
           </LinkButton>
         </div>
@@ -287,7 +287,7 @@ export function ReviewDashboardPanel(
                 wait or duplicate the screen that reports it. */}
             <p className="mt-3 text-xs text-slateish-400">
               Need to add a new datasheet?{" "}
-              <LinkButton tone="action" onClick={onOpenDocuments}>
+              <LinkButton weight="medium" tone="action" onClick={onOpenDocuments}>
                 Upload it on the Documents page
               </LinkButton>{" "}
               — it appears here once it has finished processing.

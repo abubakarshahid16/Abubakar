@@ -25,7 +25,7 @@ export function PastReviewsButton({ documentId, runs, onOpenRun, currentRunId = 
 
   return (
     <div className="w-full">
-      <LinkButton tone="action" size="xs" aria-expanded={open}
+      <LinkButton weight="semibold" tone="action" size="xs" aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((was) => !was)}>
         All reviews of this file ({reviews.length})

@@ -128,7 +128,7 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
         <p className="text-sm text-slateish-300">
           Drop a contractor's PDF or Word file here, or{" "}
           {/* a choice inside a sentence is the kit's link, not a boxed button (H's gate, 27 Nov 2026) */}
-          <LinkButton disabled={busy} onClick={() => inputRef.current?.click()}>
+          <LinkButton weight="medium" disabled={busy} onClick={() => inputRef.current?.click()}>
             choose a file
           </LinkButton>
           . After the upload you choose who reviews it and see what will be sent.

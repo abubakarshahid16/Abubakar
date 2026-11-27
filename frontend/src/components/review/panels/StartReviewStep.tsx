@@ -54,7 +54,7 @@ export function StartReviewStep({ documentId, filename = null, onStarted, onOpen
       <StartPanel submittalId={documentId} starting={busy} onStart={(e, ids, ticked) => void go(e, ids, ticked)} onCancel={onCancel} />
       {error && <p role="alert" className="text-xs text-danger-500">{error}</p>}
       {runningRunId && (
-        <LinkButton tone="action" size="xs" onClick={() => (onOpenRunning ?? onStarted)(runningRunId)}>
+        <LinkButton weight="semibold" tone="action" size="xs" onClick={() => (onOpenRunning ?? onStarted)(runningRunId)}>
           Open the review that is running
         </LinkButton>
       )}

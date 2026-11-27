@@ -119,7 +119,7 @@ export function useReviewAgain({
       )}
       {error && current && <span role="alert" className="text-xs text-danger-500">{error}</span>}
       {runningRunId && current && (
-        <LinkButton tone="action" size="xs" onClick={() => (onOpenRun ?? onStarted)(runningRunId)}>
+        <LinkButton weight="semibold" tone="action" size="xs" onClick={() => (onOpenRun ?? onStarted)(runningRunId)}>
           Open the review that is running
         </LinkButton>
       )}

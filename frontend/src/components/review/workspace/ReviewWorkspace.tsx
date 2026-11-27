@@ -620,7 +620,7 @@ export function ReviewWorkspace({
         <p role="status" data-testid="ws-newer-review"
           className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
           <span>A newer review of this document exists{newerAt ? ` (${newerAt})` : ""}.</span>
-          <LinkButton tone="action" onClick={() => openRun(newerRun.review_run_id)}>
+          <LinkButton weight="semibold" tone="action" onClick={() => openRun(newerRun.review_run_id)}>
             Open it
           </LinkButton>
         </p>

@@ -65,7 +65,7 @@ export function FinishedReviewNotice({ onOpenRun, panelOpen = false, openRunId =
         >
           <p>{noticeWords(review)}</p>
           <div className="mt-2 flex gap-3">
-            <LinkButton tone="action" onClick={() => {
+            <LinkButton weight="medium" tone="action" onClick={() => {
                 // The app may refuse to leave (unsaved decisions, and the
                 // reader chose to stay): it says so by returning false, and
                 // the notice stays so the review can still be opened later.
