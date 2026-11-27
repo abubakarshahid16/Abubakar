@@ -520,7 +520,7 @@ describe("Technical Queries screen", () => {
   it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
     expect(proposalNoteWords("none_found", true)).toBe("The AI found no separate question in the attached file. The question below is copied from the form. Please check it.");
     expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attached file below and type the question\./);
-    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI is not available, so it suggested no question from the attached file\./);
+    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI did not answer, so it suggested no question from the attached file\./);
     expect(proposalNoteWords(null, true)).toBeNull();
   });
 
