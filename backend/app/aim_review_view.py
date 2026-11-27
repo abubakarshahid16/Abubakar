@@ -276,7 +276,11 @@ def _keys(sent: list[dict]) -> dict[int, tuple]:
     from .aim_review.always import TOPIC as ALWAYS
 
     def key(p: dict) -> tuple:
-        own = _field_key(p.get("field")) if p.get("topic") == ALWAYS and (u7b() or always_by_field()) else ""
+        own = (
+            _field_key(p.get("field"))
+            if p.get("topic") == ALWAYS and (u7b() or always_by_field())
+            else ""
+        )
         return ("item", p.get("item_id") or f"line-{p['n']}", p["shown_label"], p.get("compare_kind") or "",
                 _provisional_kind(p.get("code_note")), editor_group(p), own)  # fmt: skip
 

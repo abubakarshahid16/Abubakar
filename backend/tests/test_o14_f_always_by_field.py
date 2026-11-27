@@ -47,7 +47,11 @@ def _page(c) -> dict:
 
 
 def _g_comments(page: dict) -> list[dict]:
-    return [cm for cm in page["comments"] + (page.get("confirmations") or []) if cm.get("item_id") == "G3"]
+    return [
+        cm
+        for cm in page["comments"] + (page.get("confirmations") or [])
+        if cm.get("item_id") == "G3"
+    ]
 
 
 def test_the_switch_is_on_by_default():
@@ -56,13 +60,17 @@ def test_the_switch_is_on_by_default():
     assert Settings.model_fields["aim_always_by_field_enabled"].default is True
 
 
-def test_each_always_on_finding_is_its_own_comment_and_off_is_one_comment(world, monkeypatch):
+def test_each_always_on_finding_is_its_own_comment_and_off_is_one_comment(
+    world, monkeypatch
+):
     monkeypatch.setattr(settings, "aim_always_by_field_enabled", True)
     on = _page(world)
     assert sorted(len(cm["lines"]) for cm in _g_comments(on)) == [1, 1, 1]
     monkeypatch.setattr(settings, "aim_always_by_field_enabled", False)
     off = _page(world)
-    assert [len(cm["lines"]) for cm in _g_comments(off)] == [3]  # the way back: as before
+    assert [len(cm["lines"]) for cm in _g_comments(off)] == [
+        3
+    ]  # the way back: as before
     # the same points either way: only how they are grouped into comments changes
     assert len(on["points"]) == len(off["points"]) == len(LINES)
 
@@ -71,17 +79,29 @@ def test_the_file_agrees_with_the_page_with_the_switch_on(world, monkeypatch):
     monkeypatch.setattr(settings, "aim_always_by_field_enabled", True)
     page = _page(world)
     r = world.get(f"{BASE}/sheet", params={"run_id": RUN})
-    assert r.status_code == 200  # completeness (page = database = file rows) holds, or the download is refused
+    assert (
+        r.status_code == 200
+    )  # completeness (page = database = file rows) holds, or the download is refused
     assert page["completeness"]["ok"] is True
 
 
-def test_a_decided_comment_keeps_its_lines_on_a_review_not_signed_yet(world, monkeypatch):
+def test_a_decided_comment_keeps_its_lines_on_a_review_not_signed_yet(
+    world, monkeypatch
+):
     """The engineer decided the joined G3 comment before the regrouping; after it, that comment is still there with its lines, and
     the undecided points of the review take today's grouping."""
     monkeypatch.setattr(settings, "aim_always_by_field_enabled", False)
     joined = _g_comments(_page(world))[0]
-    assert world.post(f"{BASE}/decision", json={"run_id": RUN, "comment": joined["n"], "state": "accept"}).status_code == 200
+    assert (
+        world.post(
+            f"{BASE}/decision",
+            json={"run_id": RUN, "comment": joined["n"], "state": "accept"},
+        ).status_code
+        == 200
+    )
     monkeypatch.setattr(settings, "aim_always_by_field_enabled", True)
     after = _page(world)
-    assert key_of(joined) in [key_of(cm) for cm in after["comments"] + (after.get("confirmations") or [])]
+    assert key_of(joined) in [
+        key_of(cm) for cm in after["comments"] + (after.get("confirmations") or [])
+    ]
     assert after["completeness"]["ok"] is True
