@@ -59,7 +59,7 @@ export function DocumentTechnicalDetails({ doc }: { doc: DocumentRecord }) {
         <h4 className="mb-2 text-xs font-medium opacity-80">Document details</h4>
         {!recorded && (
           <p className="text-xs opacity-70">
-            No submittal-review metadata has been recorded for this document yet.
+            Nothing is recorded for this document yet.
           </p>
         )}
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
