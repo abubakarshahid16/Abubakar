@@ -116,8 +116,12 @@ describe("read in ten seconds (owner, 26 Nov 2026 22:41)", () => {
     expect(plainStatus("awaiting_review", "high")).toBe("Waiting for your approval · high priority");
   });
   it("four steps, each with its own state", () => {
-    const steps = querySteps({ status: "awaiting_review", drafts: [{}], evidence: [{ for_current_question: true }], ready: { evidence: "ready", draft: "ready" } }, "x");
+    const cited = JSON.stringify([{ label: "S1", evidence_id: "e1" }]);
+    const steps = querySteps({ status: "awaiting_review", drafts: [{ citations_json: cited }], evidence: [{ for_current_question: true }], ready: { evidence: "ready", draft: "ready" } }, "x");
     expect(steps.map((s) => `${s.label}:${s.state}`)).toEqual(["Question found:done", "Sources found:done", "Reply written:done", "Approved:todo"]);
+    // a reply that cites no source is never a plain tick (F's walk, 27 Nov 2026)
+    expect(querySteps({ status: "awaiting_review", drafts: [{ citations_json: "[]" }], ready: { evidence: "ready", draft: "ready" } }, "x")[2])
+      .toEqual({ label: "Reply written: uses no source yet", state: "warn" });
     expect(querySteps({ status: "drafting", ready: { evidence: "refreshing", draft: "none" } }, "x")[1].state).toBe("working");
   });
   it("the source is said once when every request shares it", () => {
