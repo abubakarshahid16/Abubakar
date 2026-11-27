@@ -19,6 +19,7 @@ import { useState } from "react";
 import { EmptyState, Spinner } from "../components/states";
 import type { ReportRecord, ReportVerification } from "../types/api";
 import { NEW_LOOK } from "../look";
+import { Button } from "../components/kit/Kit";
 
 const nf = new Intl.NumberFormat("en-GB");
 
@@ -88,13 +89,12 @@ export function ReportsView({
             hint="Generate a report from an answer in Chat. It records the question, answer, cited evidence and document hashes."
             action={
               onGenerate && (
-                <button
-                  type="button"
+                <Button variant="primary"
+                 
                   onClick={onGenerate}
-                  className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-medium text-ink-950 shadow-[var(--shadow-raised)] motion-safe:transition-transform hover:shadow-[var(--shadow-glow)] active:scale-[0.98]"
                 >
                   Generate a report
-                </button>
+                </Button>
               )
             }
           />
@@ -151,10 +151,11 @@ function ReportRow({
             </p>
           )}
 
-          <p className="mt-1 font-mono text-xs text-slateish-400">
+          {/* when, how long, how big: no sign-in name or address on a card (H's audit, 27 Nov 2026: the signed-in person's email showed on
+              every report), and plain type, not mono */}
+          <p className="mt-1 text-xs text-slateish-400">
             {formatWhen(report.created_at)} · {nf.format(report.page_count)} page
-            {report.page_count === 1 ? "" : "s"} · {formatBytes(report.size_bytes)} ·{" "}
-            {report.owner_username ?? "authentication disabled — no user recorded"}
+            {report.page_count === 1 ? "" : "s"} · {formatBytes(report.size_bytes)}
           </p>
 
           {NEW_LOOK ? (
@@ -179,23 +180,21 @@ function ReportRow({
               File missing: this report&apos;s PDF is not on this machine
             </span>
           ) : (
-            <button
-              type="button"
+            <Button variant="secondary" size="sm"
+             
               onClick={() => onDownload(report.id)}
-              className="rounded-[var(--radius-sm)] border border-signal-500/60 bg-signal-500/10 px-2.5 py-1 text-xs text-signal-300 shadow-[var(--shadow-resting)] motion-safe:transition-colors hover:bg-signal-500/20"
             >
               {report.recreation_available ? "Download recreated copy" : "Download"}
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             onClick={runVerify}
             disabled={verify.state === "checking"}
             aria-busy={verify.state === "checking"}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:bg-ink-700 disabled:opacity-40"
           >
             {verify.state === "checking" ? "Verifying…" : "Verify"}
-          </button>
+          </Button>
         </div>
       </div>
 

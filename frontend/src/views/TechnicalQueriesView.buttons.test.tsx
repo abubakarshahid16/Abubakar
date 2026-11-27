@@ -56,13 +56,13 @@ describe("the query page's lower half", () => {
   it("the one coloured button under the reply is the decision; re-writing is quiet and folded", async () => {
     await open();
     const decision = screen.getByTestId("approve-once");
-    const filled = within(decision).getAllByRole("button").filter((b) => b.className.includes("bg-signal-500"));
+    const filled = within(decision).getAllByRole("button").filter((b) => b.className.includes("kit-btn--primary"));
     expect(filled.map((b) => b.textContent)).toEqual(["Approve the reply"]);
     expect(within(decision).getByRole("button", { name: "Send back with a note" })).toBeTruthy();
     expect(screen.getByTestId("decision-hint").textContent).toMatch(/Nothing is sent/);
     const redo = screen.getByTestId("more-actions");
     expect(within(redo).getByText("Redo: change the reply or write it again")).toBeTruthy();
-    for (const b of within(redo).getAllByRole("button")) expect(b.className).not.toContain("bg-signal-500");
+    for (const b of within(redo).getAllByRole("button")) expect(b.className).not.toContain("kit-btn--primary");
     expect(within(redo).getByRole("button", { name: "Write the reply again" })).toBeTruthy();
     expect(within(redo).getAllByText(/replaces the reply above/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Generate draft" })).toBeNull();

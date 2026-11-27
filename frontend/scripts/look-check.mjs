@@ -29,10 +29,29 @@ export const PAGES = [
   ["/ingestion", "Ingestion"], ["/technicalQueries", "Technical Queries and CFCs"], ["/admin", "Administration"],
 ];
 export const MIN_CONTRAST = 4.5;
+// LOOK_CHECK_ONLY="/kit.html|Shared kit": measure just that page (the kit's preview) instead of the 11 menu pages
+if (process.env.LOOK_CHECK_ONLY) PAGES.splice(0, PAGES.length, process.env.LOOK_CHECK_ONLY.split("|"));
 const OPEN_FOLDS = process.env.LOOK_CHECK_FOLDS !== "closed";
 const EXEMPT_DISABLED = process.env.LOOK_CHECK_DISABLED === "exempt";
 /** A narrow window (a small laptop, or a split screen): no page may scroll sideways at this width (owner's live walk, 27 Nov 2026). */
 export const NARROW_WIDTH = 803;
+
+/** Runs in the page: WORDS broken across lines inside a button, link or chip (F's scan, 27 Nov 2026: "Op / en", "No t si gn ed" passed
+ *  every other check). A word of more than 15 characters (a standard's file name) may break; a shorter one never. */
+function splitWords() {
+  const out = [];
+  const els = [...document.querySelectorAll("main button, main a, main span")].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && e.childElementCount === 0 && (e.textContent || "").trim(); });
+  for (const e of els) {
+    const n = e.firstChild; if (!n || n.nodeType !== 3) continue;
+    for (const m of n.textContent.matchAll(/\S+/g)) {
+      if (m[0].length > 15) continue;
+      const rg = document.createRange();
+      try { rg.setStart(n, m.index); rg.setEnd(n, m.index + m[0].length); } catch { continue; }
+      if (new Set([...rg.getClientRects()].map((x) => Math.round(x.top))).size > 1) { out.push(m[0]); break; }
+    }
+  }
+  return out;
+}
 
 /** Runs in the page: how much wider than the window it is, and the widest elements that stick out (tag, classes, width). */
 function tooWide() {
@@ -117,7 +136,20 @@ function readPage(EXEMPT_DISABLED) {
   // labels written in capitals by style (the spec: sentence case, bold)
   const caps = [...document.querySelectorAll("main *")].filter((el) => getComputedStyle(el).textTransform === "uppercase" && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && shown(el)).map((el) => el.textContent.trim().slice(0, 30));
   const h1 = document.querySelector("main h1")?.textContent?.trim() ?? null;
-  return { low, wraps, h1, sizes, caps };
+  // SAMENESS (owner, 27 Nov 2026 03:30: five button looks, chips boxed here and plain there, three title styles): how many DIFFERENT
+  // looks this page uses for a button, a chip and a page title; the shared kit's target is 1 each (a disabled button is its own state)
+  const look = (el, keys) => { const st = getComputedStyle(el); return keys.map((k) => st[k]).join("|"); };
+  // a button's look is its fill, edge, corner, weight and words' colour (its size, small or normal, is not a different look); a tile
+  // is a card that opens a list, counted with the cards, not the buttons. The kit's target: 2 (one primary, one secondary).
+  const btnKeys = ["backgroundColor", "borderTopColor", "borderTopWidth", "borderTopLeftRadius", "fontWeight", "color"];
+  const buttons = [...document.querySelectorAll("main button, main a.kit-btn")].filter((el) => shown(el) && !el.matches(":disabled, [aria-disabled=true], [role=tab], summary, .kit-tile, .kit-row-btn, .kit-chip-btn"));
+  // a list row, a tile and a chip button are kit parts of their own (one look each by construction), not action buttons
+  const buttonLooks = new Set(buttons.map((el) => look(el, btnKeys)));
+  const chips = [...document.querySelectorAll("main span, main a")].filter((el) => { const st = getComputedStyle(el); return shown(el) && parseFloat(st.borderTopLeftRadius) >= 9 && parseFloat(st.borderTopWidth) > 0 && el.getBoundingClientRect().height < 32; });
+  const chipShapes = new Set(chips.map((el) => look(el, ["borderTopLeftRadius", "borderTopWidth", "fontSize", "fontWeight", "paddingLeft"])));
+  const titles = [...document.querySelectorAll("main h1")].filter(shown);
+  const titleLooks = new Set(titles.map((el) => look(el, ["fontSize", "fontWeight", "color"])));
+  return { low, wraps, h1, sizes, caps, sameness: { buttonLooks: buttonLooks.size, chipShapes: chipShapes.size, titleLooks: titleLooks.size, titles: titles.length } };
 }
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -134,6 +166,7 @@ for (const mode of ["light", "dark"]) {
       await page.waitForTimeout(300);
     }
     const r = await page.evaluate(readPage, EXEMPT_DISABLED);
+    r.split = await page.evaluate(splitWords);
     // the page's visible main heading must BE its menu name (integrator, 27 Nov 2026: "Analysis" passed for "Analysis Hub" and
     // "Deliverables & timeline" for "Deliverables" while only the first word was compared); case, spacing and "&"/"and" aside
     const norm = (t) => String(t ?? "").toLowerCase().replace(/&/g, " and ").replace(/\s+/g, " ").trim();
@@ -141,12 +174,13 @@ for (const mode of ["light", "dark"]) {
     // every failure grouped by colour pair: one shared colour token usually explains many
     const pairs = {};
     for (const l of r.low) { const k = `${l.color} on ${l.background}`; pairs[k] = (pairs[k] ?? 0) + 1; }
-    report.push({ mode, path, menu, lowContrast: r.low.length, wraps: r.wraps, allCaps: r.caps, title: r.h1, titleMatchesMenu: titleOk, fontSizes: r.sizes, pairs, worst: r.low.sort((a, b) => a.ratio - b.ratio).slice(0, 8) });
+    report.push({ mode, path, menu, splitWords: r.split, sameness: r.sameness, lowContrast: r.low.length, wraps: r.wraps, allCaps: r.caps, title: r.h1, titleMatchesMenu: titleOk, fontSizes: r.sizes, pairs, worst: r.low.sort((a, b) => a.ratio - b.ratio).slice(0, 8) });
   }
   await ctx.close();
 }
 // THE NARROW WINDOW: every page at NARROW_WIDTH, once (width does not change with the theme)
 const wide = [];
+const narrowSplit = [];
 {
   const ctx = await browser.newContext({ viewport: { width: NARROW_WIDTH, height: 800 } });
   const page = await ctx.newPage();
@@ -155,13 +189,15 @@ const wide = [];
     await page.waitForTimeout(1500);
     const w = await page.evaluate(tooWide);
     if (w.over > 0) wide.push({ path, menu, overPx: w.over, culprits: w.culprits });
+    const split = await page.evaluate(splitWords);
+    if (split.length) narrowSplit.push({ path, menu, words: split.slice(0, 5), count: split.length });
   }
   await ctx.close();
 }
 await browser.close();
 
-const failing = report.filter((p) => p.lowContrast || p.wraps.length || p.allCaps.length || !p.titleMatchesMenu);
-const failingCount = failing.length + wide.length;
+const failing = report.filter((p) => p.lowContrast || p.wraps.length || p.allCaps.length || !p.titleMatchesMenu || p.splitWords.length);
+const failingCount = failing.length + wide.length + narrowSplit.length;
 const sizes = [...new Set(report.flatMap((p) => Object.keys(p.fontSizes)))].sort((a, b) => parseFloat(a) - parseFloat(b));
 const summary = {
   pages: report.length, failingPages: failing.length,
@@ -173,9 +209,14 @@ const summary = {
   foldsOpened: OPEN_FOLDS,
   disabledCounted: !EXEMPT_DISABLED,
   tooWideAt803: wide.length,
+  splitWords: report.reduce((n, p) => n + p.splitWords.length, 0),
+  splitWordsAt803: narrowSplit.reduce((n, p) => n + p.count, 0),
 };
 console.log(JSON.stringify(summary));
 for (const p of report) console.log(`${p.mode.padEnd(5)} ${p.menu.padEnd(28)} low contrast ${String(p.lowContrast).padStart(3)} · wraps ${p.wraps.length} · all caps ${p.allCaps.length} · title ${p.titleMatchesMenu ? "ok" : `"${p.title}"`}`);
+for (const p of report.filter((x) => x.mode === "light")) console.log(`looks ${p.menu.padEnd(28)} buttons ${p.sameness.buttonLooks} · chip shapes ${p.sameness.chipShapes} · title styles ${p.sameness.titleLooks} (${p.sameness.titles} h1)`);
+for (const p of report.filter((x) => x.splitWords.length)) console.log(`split ${p.mode} ${p.menu.padEnd(22)} words broken across lines: ${p.splitWords.slice(0, 5).join(", ")}`);
+for (const n of narrowSplit) console.log(`split 803 ${n.menu.padEnd(24)} ${n.count} words broken across lines: ${n.words.join(", ")}`);
 for (const w of wide) console.log(`narrow ${w.menu.padEnd(28)} ${w.overPx}px wider than a ${NARROW_WIDTH}px window: ${w.culprits[0] ?? ""}`);
-if (OUT) writeFileSync(OUT, JSON.stringify({ summary, report, wide }, null, 2));
+if (OUT) writeFileSync(OUT, JSON.stringify({ summary, report, wide, narrowSplit }, null, 2));
 process.exit(failingCount ? 1 : 0);

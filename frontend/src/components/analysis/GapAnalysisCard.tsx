@@ -20,6 +20,7 @@ import { useId, useState, type FormEvent } from "react";
 
 import type { BaselineSelection, GapAnalysis, GapItem, GapItemStatus } from "../../types/analysis";
 import type { EvidenceItem, ReviewCategory, ReviewFindingCreate, ReviewSeverity, ReviewTemplate } from "../../types/api";
+import { Button, LinkButton } from "../kit/Kit";
 
 const REVIEW_SENTENCE = "Review and approval by a qualified engineer is required.";
 
@@ -285,14 +286,13 @@ function EvidenceChip({
   selectedEvidenceId?: string | null;
 }) {
   return (
-    <button
-      type="button"
+    <Button variant="secondary" size="sm"
+     
       onClick={() => onCite(evidenceId)}
       aria-label={`Show project evidence ${n}`}
-      className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-[var(--radius-xs)] bg-ink-700 px-1 align-baseline font-mono text-xs leading-none text-slateish-300 hover:bg-ink-600"
     >
       {n}
-    </button>
+    </Button>
   );
 }
 
@@ -430,13 +430,9 @@ function ItemRow({
           </blockquote>
           {item.baseline_citation_id !== null && (
             <div className="mt-1 text-xs text-slateish-400">
-              <button
-                type="button"
-                onClick={() => onCite(item.baseline_citation_id as string)}
-                className="underline decoration-ink-500 underline-offset-2 hover:decoration-slateish-300"
-              >
+              <LinkButton tone="inherit" onClick={() => onCite(item.baseline_citation_id as string)}>
                 Show the baseline part of the page
-              </button>
+              </LinkButton>
             </div>
           )}
         </>
@@ -458,13 +454,12 @@ function ItemRow({
       {onCreateFinding && (
         targetEvidence ? (
           <div className="mt-2">
-            <button
-              type="button"
+            <Button variant="secondary" size="sm"
+             
               onClick={() => setEditing((open) => !open)}
-              className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2.5 py-1 text-xs text-signal-300 hover:bg-signal-500/10"
             >
               {editing ? "Cancel review finding" : "Add review finding"}
-            </button>
+            </Button>
             {editing && (
               <form onSubmit={(e) => void saveFinding(e)} className="mt-2 space-y-2 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 p-3">
                 <p className="text-xs text-slateish-400">Save this evidence-backed item for engineering assignment and response.</p>
@@ -498,7 +493,7 @@ function ItemRow({
                 <label className="block text-xs text-slateish-400">Required action
                   <textarea value={action} onChange={(e) => setAction(e.target.value)} rows={2} className="mt-1 w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-850 px-2 py-1.5 text-sm text-slateish-200" />
                 </label>
-                <button type="submit" className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30">Save finding</button>
+                <Button variant="secondary" size="sm" type="submit">Save finding</Button>
                 {saveError !== null && <p className="text-xs text-danger-500" role="alert">{saveError}</p>}
               </form>
             )}
@@ -597,13 +592,12 @@ function NominateBaseline({
           </p>
         )}
       </div>
-      <button
+      <Button variant="secondary" size="sm"
         type="submit"
         disabled={!canSubmit}
-        className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Use as baseline
-      </button>
+      </Button>
     </form>
   );
 }

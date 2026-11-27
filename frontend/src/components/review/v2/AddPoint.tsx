@@ -1,13 +1,14 @@
 /** SPEC 10: the engineer's own comment as a new point (text required; page, rule book and clause optional). It is "Added by <name>",
  *  counts as decided, and goes on the CRS sheets like a kept point with the engineer as its author. */
 import { useState } from "react";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export function AddPoint({ onAdd, busy }: { onAdd: (b: { text: string; page?: number; rule_book?: string; clause?: string }) => Promise<boolean>; busy: boolean }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(""); const [page, setPage] = useState(""); const [book, setBook] = useState(""); const [clause, setClause] = useState("");
   const field = "rounded border border-ink-500 bg-ink-900 px-2 py-1 text-sm text-slateish-100";
   if (!open) {
-    return <button type="button" data-testid="v2-add-open" onClick={() => setOpen(true)} className="text-sm text-signal-300 underline-offset-2 hover:underline">Add a point</button>;
+    return <LinkButton tone="action" size="sm" data-testid="v2-add-open" onClick={() => setOpen(true)}>Add a point</LinkButton>;
   }
   async function save() {
     const pageNo = page.trim() ? Number(page) : undefined;
@@ -34,9 +35,8 @@ export function AddPoint({ onAdd, busy }: { onAdd: (b: { text: string; page?: nu
         </label>
       </div>
       <div className="flex gap-3">
-        <button type="button" disabled={busy || !text.trim()} onClick={() => void save()}
-          className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Add this point</button>
-        <button type="button" onClick={() => setOpen(false)} className="text-sm text-slateish-300 underline-offset-2 hover:underline">Cancel</button>
+        <Button variant="primary" size="sm" disabled={busy || !text.trim()} onClick={() => void save()}>Add this point</Button>
+        <LinkButton tone="inherit" size="sm" onClick={() => setOpen(false)}>Cancel</LinkButton>
       </div>
     </section>
   );

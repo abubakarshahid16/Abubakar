@@ -13,6 +13,7 @@ import type { ReportRecord, ReportVerification } from "../types/api";
 import { ReportsView } from "./ReportsView";
 import { ReviewCrsList } from "./ReviewCrsList";
 import { NEW_LOOK } from "../look";
+import { Button } from "../components/kit/Kit";
 
 /** What the reader is told when a download does not produce a file.
  *
@@ -199,7 +200,7 @@ export function ReportsScreen() {
         <label className="min-w-56 flex-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">Find reports
           <input value={query} onChange={(e) => { setQuery(e.target.value); setOffset(0); }} placeholder="Question contains…" className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200" />
         </label>
-        {total !== null && reports && total > reports.length && <button type="button" onClick={() => setOffset(reports.length)} className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-2 text-sm">Load next 100</button>}
+        {total !== null && reports && total > reports.length && <Button variant="secondary" onClick={() => setOffset(reports.length)}>Load next 100</Button>}
       </div>
     </div>
   );

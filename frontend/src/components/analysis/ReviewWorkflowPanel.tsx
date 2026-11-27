@@ -5,6 +5,7 @@ import type { ReviewDisposition, ReviewFinding, ReviewFindingEvent, ReviewFindin
 import { reviews as reviewsApi } from "../../api/client";
 import type { ViewId } from "../Shell";
 import { NavLink } from "../NavLink";
+import { Button } from "../kit/Kit";
 
 type Props = {
   findings: ReviewFinding[];
@@ -173,10 +174,10 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
             <input value={rejectWhy} onChange={(e) => setRejectWhy(e.target.value)} className="ms-1 w-64 rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs text-slateish-200" />
           </label>
         )}
-        <button type="button" disabled={saving} onClick={() => void save()} className="rounded-[var(--radius-xs)] bg-signal-500/20 px-3 py-1.5 text-xs font-medium text-signal-300 ring-1 ring-signal-500/50 hover:bg-signal-500/30 disabled:opacity-50">{saving ? "Saving…" : "Save response"}</button>
+        <Button variant="secondary" size="sm" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save response"}</Button>
         {message !== null && <span className="text-xs text-slateish-400" role="status">{message}</span>}
-        <button type="button" onClick={() => void showHistory()} disabled={loadingHistory} className="rounded-[var(--radius-xs)] border border-ink-600 px-3 py-1.5 text-xs text-slateish-300 hover:border-signal-500/60 disabled:opacity-50">{loadingHistory ? "Loading history…" : history === null ? "View history" : "Refresh history"}</button>
-        <button type="button" onClick={() => void showTraceability()} className="rounded-[var(--radius-xs)] border border-signal-500/50 px-3 py-1.5 text-xs text-signal-300 hover:bg-signal-500/10">{traceability === null ? "View full chain" : "Refresh full chain"}</button>
+        <Button variant="secondary" size="sm" onClick={() => void showHistory()} disabled={loadingHistory}>{loadingHistory ? "Loading history…" : history === null ? "View history" : "Refresh history"}</Button>
+        <Button variant="secondary" size="sm" onClick={() => void showTraceability()}>{traceability === null ? "View full chain" : "Refresh full chain"}</Button>
       </div>
       {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 ps-3 text-xs text-slateish-500" aria-label="Finding history">
         {history.map((event) => <li key={event.id}><span className="text-slateish-400">{eventLabel(event.event_type)}</span> · {formatWhen(event.created_at)} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}

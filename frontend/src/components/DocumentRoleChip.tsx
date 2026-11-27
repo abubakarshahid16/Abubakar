@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { classification as classificationApi } from "../api/documents";
 import { ROLE_WORDS, type RoleSuggestionSwitch, roleSuggestionOf, roleSuggestionSwitch, suggestionWords } from "../api/roleSuggestion";
 import type { DocumentClassification, DocumentRole } from "../types/api";
+import { LinkButton } from "./kit/Kit";
 
 const CHOICES: DocumentRole[] = ["CONTRACTOR_SUBMITTAL", "COMPANY_STANDARD", "CONTRACT_DOCUMENT", "SUPPORTING_DOCUMENT"];
 
@@ -44,9 +45,9 @@ export function DocumentRoleChip({ classification, isAdmin = false }: { classifi
         {suggestion ? suggestionWords(suggestion) : "No role suggested: choose a role."}
       </span>
       {isAdmin && suggestion?.role && !changing && (
-        <button type="button" className="text-xs text-signal-400 underline" onClick={() => void write(suggestion.role as DocumentRole)}>
+        <LinkButton tone="action" size="xs" onClick={() => void write(suggestion.role as DocumentRole)}>
           Confirm role
-        </button>
+        </LinkButton>
       )}
       {isAdmin && !changing && (
         <button type="button" className="text-xs text-slateish-400 underline" onClick={() => setChanging(true)}>

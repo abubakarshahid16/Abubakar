@@ -13,6 +13,7 @@ import { AgentTrace } from "./AgentTrace";
 import { downloadAgentCrs } from "./downloadAgentCrs";
 import { OlderFileLine } from "./OlderFileLine";
 import { CONTRACTOR_CRS_LINE, INTERNAL_CRS_LINE } from "./plainWords";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export const NOT_AGENT_RUN = "This review was not made by the AI reviewer, so there is nothing to show here.";
 
@@ -48,20 +49,17 @@ export function AgentReviewPanel({ runId, onOpenRules }: { runId: string; onOpen
     <div className="space-y-6" data-testid="agent-review-panel">
       <AgentSummary summary={summary} />
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => void download("internal")}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-100">
+        <Button variant="secondary" size="sm" onClick={() => void download("internal")}>
           Download CRS, internal copy
-        </button>
-        <button type="button" onClick={() => void download("contractor")}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-100">
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => void download("contractor")}>
           Download CRS, contractor copy
-        </button>
+        </Button>
         <span className="text-xs text-slateish-400">{INTERNAL_CRS_LINE} {CONTRACTOR_CRS_LINE}</span>
         {onOpenRules && (
-          <button type="button" onClick={onOpenRules} data-testid="agent-open-rules"
-            className="text-sm text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" size="sm" onClick={onOpenRules} data-testid="agent-open-rules">
             Rules used
-          </button>
+          </LinkButton>
         )}
         {fileError && <span role="alert" className="text-xs text-red-400">{fileError}</span>}
       </div>

@@ -19,6 +19,7 @@ import type { ReviewAgainButtonProps } from "./contract";
 import { StartReviewStep } from "../panels/StartReviewStep";
 import { type PriorDecision, loadPriorDecision } from "./newReview";
 import { priorDecisionWords } from "./priorDecisionWords";
+import { Button, LinkButton } from "../../kit/Kit";
 
 /** `onOpenRun`: opens a run (the one already running). Left out, `onStarted`
  *  is used, which opens a run in every screen that shows this button.
@@ -45,8 +46,6 @@ export type ReviewAgainArgs = Pick<Props, "documentId" | "filename" | "onStarted
 
 const askWords = priorDecisionWords;
 
-const primary = "rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400 disabled:opacity-50";
-const secondary = "rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500 disabled:opacity-50";
 
 /** v2.1: the "Review again" rule in one place, so every button that starts
  *  a fresh review of a document (the workspace header, the missing
@@ -103,8 +102,8 @@ export function useReviewAgain({
       {askingNow && asking && (
         <span role="group" aria-label="Start a new review?" className="flex flex-wrap items-center justify-end gap-2 text-sm text-slateish-200">
           <span>{askWords(asking)}</span>
-          <button type="button" onClick={confirm} className={primary}>Yes, start a new review</button>
-          <button type="button" onClick={() => setAsking(null)} className={secondary}>Cancel</button>
+          <Button variant="primary" onClick={confirm}>Yes, start a new review</Button>
+          <Button onClick={() => setAsking(null)}>Cancel</Button>
         </span>
       )}
       {stepFor === documentId && (
@@ -120,13 +119,9 @@ export function useReviewAgain({
       )}
       {error && current && <span role="alert" className="text-xs text-danger-500">{error}</span>}
       {runningRunId && current && (
-        <button
-          type="button"
-          onClick={() => (onOpenRun ?? onStarted)(runningRunId)}
-          className="text-xs font-semibold text-signal-300 underline-offset-2 hover:underline"
-        >
+        <LinkButton tone="action" size="xs" onClick={() => (onOpenRun ?? onStarted)(runningRunId)}>
           Open the review that is running
-        </button>
+        </LinkButton>
       )}
     </>
   );
@@ -141,12 +136,11 @@ export function ReviewAgainButton({
   return (
     <span className="inline-flex flex-col items-end gap-1">
       {!again.asking && (
-        <button
-          type="button" disabled={again.busy || disabled} onClick={again.press} className={isPrimary ? primary : secondary}
+        <Button variant={isPrimary ? "primary" : "secondary"} disabled={again.busy || disabled} onClick={again.press}
           aria-label={again.busy ? undefined : ariaLabel}
         >
           {again.busy ? "Starting…" : label}
-        </button>
+        </Button>
       )}
       {again.question}
     </span>

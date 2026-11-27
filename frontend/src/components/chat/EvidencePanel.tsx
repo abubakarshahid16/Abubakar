@@ -14,6 +14,7 @@ import type { AnswerPassage } from "../../types/api";
 import { Spinner } from "../states";
 import { useAuthedImage } from "../useAuthedImage";
 import { useEffect, useRef, useState } from "react";
+import { Button } from "../kit/Kit";
 
 /** Exported because the answer card needs it too.
  *
@@ -194,14 +195,13 @@ export function EvidencePanel({
             The source behind the answer, as it appears in the document
           </p>
         </div>
-        <button
-          type="button"
+        <Button variant="secondary" size="sm"
+         
           onClick={onClose}
           aria-label="Close evidence panel"
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-300 motion-safe:transition-colors hover:border-signal-500/50 hover:bg-ink-700"
         >
           Close
-        </button>
+        </Button>
       </div>
 
       {passages.length > 1 && (

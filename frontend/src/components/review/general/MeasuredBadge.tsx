@@ -16,6 +16,17 @@ export interface GeneralMeasured {
   false_alarm?: { wrong: number; of: number; percent: number; target_percent: number; within_target: boolean; sentence: string } | null;
 }
 
+/** The score in plain words, from the fields themselves (never rounded up: 6.96 is said as 6.9, as the server does). */
+export function plainMeasured(m: GeneralMeasured): string {
+  if (m.verdict === "not measured" || m.found === null) return "This kind of paper has not been measured on test copies yet.";
+  const found = Math.floor(Math.round(m.found * 10 * 1e6) / 1e6) / 10;
+  const wrong = m.false_alarm ? ` ${m.false_alarm.wrong} of ${m.false_alarm.of} of its comments were wrong (the limit is ${m.false_alarm.target_percent}%).` : "";
+  // a sample says its size (CLAUDE.md rule 4; F's gate): the count of copies the server's own sentence names, else "test copies"
+  const copies = m.sentence.match(/(\d+) planted test cop(?:y|ies)/);
+  const on = copies ? `On ${copies[1]} test cop${copies[1] === "1" ? "y" : "ies"} with planted mistakes` : "On test copies with planted mistakes";
+  return `${on}, this kind of paper found ${found} of 10 (the target is ${m.target}).${wrong}`;
+}
+
 export function MeasuredBadge({ measured }: { measured: GeneralMeasured | null | undefined }) {
   if (!measured || !measured.sentence) return null; // null renders as nothing
   const below = measured.verdict === "below target";
@@ -35,7 +46,13 @@ export function MeasuredBadge({ measured }: { measured: GeneralMeasured | null |
         </strong>
       )}
       <span className="mr-1 text-xs text-slateish-400">{measured.kind_label}:</span>
-      <span data-testid="general-measured-sentence">{measured.sentence}</span>
+      {/* PLAIN WORDS FIRST (H's audit, 27 Nov 2026: a version code, "a strict reader judged" and a round note read as machine talk
+          on an engineer's screen): the score in a sentence of its own; the server's full sentence, with its date, version and
+          round, one click away under "How this was measured". Nothing is dropped, and this note is never part of a comment. */}
+      <span data-testid="general-measured-plain">{plainMeasured(measured)}</span>
+      <details className="mt-1 text-xs text-slateish-300"><summary className="cursor-pointer">How this was measured</summary>
+        <span data-testid="general-measured-sentence">{measured.sentence}</span>
+      </details>
     </div>
   );
 }

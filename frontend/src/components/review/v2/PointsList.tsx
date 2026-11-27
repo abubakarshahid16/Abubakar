@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import type { ReviewPoint } from "../../../api/reviewPoints";
 import { groupPlaceWords, groupValuesWords, placeWords, stateWords, tagsWords } from "./words";
+import { Button, LinkButton } from "../../kit/Kit";
 
 type Decide = (body: { point_id: string; state: "keep" | "edit" | "remove"; text?: string; reason?: string }) => Promise<boolean>;
 
@@ -32,8 +33,7 @@ function Boxes({ p, onViewPage }: { p: ReviewPoint; onViewPage: (documentId: str
           <p className="mt-1 text-xs text-slateish-300" data-testid="v2-paper-stored">As stored (not verified by code): &ldquo;{p.paper_value}&rdquo;</p>
         )}
         {p.view_page && (
-          <button type="button" onClick={() => onViewPage(p.view_page!.document_id, p.view_page!.page)}
-            className="mt-2 text-xs text-signal-300 underline-offset-2 hover:underline">View page</button>
+          <LinkButton tone="action" size="xs" onClick={() => onViewPage(p.view_page!.document_id, p.view_page!.page)}>View page</LinkButton>
         )}
       </div>
       <div className={box} data-testid="v2-clause-box">
@@ -62,7 +62,7 @@ function Controls({ p, decide, busy }: { p: ReviewPoint; decide: Decide; busy: b
     return (
       <span className="flex items-center gap-2 text-xs text-slateish-300" data-testid="v2-state">
         {stateWords(p)}
-        <button type="button" onClick={() => setAgain(true)} className="text-signal-300 underline-offset-2 hover:underline">Change</button>
+        <LinkButton tone="action" onClick={() => setAgain(true)}>Change</LinkButton>
       </span>
     );
   }
@@ -166,10 +166,8 @@ export function PointsList({ points, decide, keepAll, busy, onViewPage }: {
                 {groupValuesWords(it.points) && <span className="text-xs text-slateish-300" data-testid="v2-group-values">{groupValuesWords(it.points)}</span>}
               </div>
               <div className="flex gap-2 text-xs">
-                <button type="button" disabled={busy || undecided.length === 0} onClick={() => void keepAll(undecided.map((q) => q.id))}
-                  className="rounded-[var(--radius-sm)] border border-ink-500 px-2.5 py-1 text-slateish-100 hover:bg-ink-700 disabled:opacity-50">Keep all</button>
-                <button type="button" aria-expanded={expanded} onClick={() => setOpenGroups((s) => { const n = new Set(s); if (n.has(it.key)) n.delete(it.key); else n.add(it.key); return n; })}
-                  className="rounded-[var(--radius-sm)] border border-ink-500 px-2.5 py-1 text-slateish-100 hover:bg-ink-700">{expanded ? "Close the group" : `Open the ${it.points.length}`}</button>
+                <Button variant="secondary" size="sm" disabled={busy || undecided.length === 0} onClick={() => void keepAll(undecided.map((q) => q.id))}>Keep all</Button>
+                <Button variant="secondary" size="sm" aria-expanded={expanded} onClick={() => setOpenGroups((s) => { const n = new Set(s); if (n.has(it.key)) n.delete(it.key); else n.add(it.key); return n; })}>{expanded ? "Close the group" : `Open the ${it.points.length}`}</Button>
               </div>
             </div>
             {expanded && (

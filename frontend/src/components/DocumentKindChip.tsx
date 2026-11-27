@@ -21,6 +21,7 @@ import { keepScroll } from "../keepScroll";
 
 import type { DocumentClassification, DocumentKindOption } from "../types/api";
 import { DocumentRoleChip } from "./DocumentRoleChip";
+import { LinkButton } from "./kit/Kit";
 
 export function DocumentKindChip({
   classification,
@@ -100,9 +101,9 @@ export function DocumentKindChip({
       {saving && <span role="status" data-testid="kind-saving" className="text-xs text-slateish-400">Saving the type...</span>}
       {problem && <span role="alert" data-testid="kind-problem" className="text-xs text-danger-500">{problem}</span>}
       {canPick && !saving && state !== "confirmed" && !changing && (
-        <button
-          type="button"
-          className="text-xs text-signal-400 underline"
+        <LinkButton
+          
+          
           onClick={(e) => {
             const from = e.currentTarget;
             if (state === "suggested" && kind) void save(kind);
@@ -110,7 +111,7 @@ export function DocumentKindChip({
           }}
         >
           {state === "suggested" && kind ? "Confirm type" : "Choose type"}
-        </button>
+        </LinkButton>
       )}
       {canPick && !saving && (state === "suggested" || state === "confirmed") && !changing && (
         <button type="button" className="text-xs text-slateish-400 underline" onClick={(e) => keepScroll(e.currentTarget, () => setChanging(true))}>

@@ -149,11 +149,12 @@
 }
 
 /* Controls: 44-48px tall, 12px radius (buttons and inputs of every page; chips keep their own small size). */
-:root[data-look="new"] main button:not([role="tab"]):not([aria-label="Close"]),
-:root[data-look="new"] main select,
-:root[data-look="new"] main input:not([type="checkbox"]):not([type="radio"]) {
-  min-height: 2.75rem;
-  border-radius: var(--radius-sm);
+:root[data-look="new"] main button:not([role="tab"]):not([aria-label="Close"]):not(.kit-btn):not(.kit-tile):not(.kit-link):not(.kit-row-btn):not(.kit-chip-btn),
+:root[data-look="new"] main select:not(.kit-select),
+:root[data-look="new"] main input:not([type="checkbox"]):not([type="radio"]):not(.kit-input) {
+  /* the shared kit's button shape for every control not yet drawn by the kit (F's gate, 27 Nov 2026: 12px / 44px beside 8px / 40px) */
+  min-height: 40px;
+  border-radius: 8px;
 }
 
 /* THE DASHBOARD, OWNER'S NOTES (26 Nov 2026 on the screenshot): more white space, fewer borders, a real heading hierarchy (the page
@@ -164,16 +165,24 @@
 :root[data-look="new"] main#main {
   padding: 2.25rem 2.75rem 3rem;
 }
-:root[data-look="new"] main h1 {
-  font-size: 34px;
-  line-height: 1.15;
-}
-:root[data-look="new"] main h2 {
+:root[data-look="new"] main h1,
+:root[data-look="new"] main h1[class] {
+  /* ONE page-title size AND colour on every page (owner, 27 Nov 2026 03:30, A: three title styles; F's gate: Chat's was grey) */
+  color: var(--color-slateish-100);
   font-size: 22px;
   line-height: 1.3;
+  font-weight: 600;
 }
-:root[data-look="new"] main h3 {
+:root[data-look="new"] main h2,
+:root[data-look="new"] main h2[class] {
   font-size: 18px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+:root[data-look="new"] main h3,
+:root[data-look="new"] main h3[class] {
+  font-size: 15px;
+  font-weight: 600;
 }
 :root[data-look="new"] .aurora-a,
 :root[data-look="new"] .aurora-b {

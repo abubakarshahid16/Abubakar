@@ -12,6 +12,7 @@ import { type CrsRow as Row, DEPTHS, type Depth, CRS_COLUMNS } from "./crsRows";
 import { CrsRow, type RowMode } from "./CrsRow";
 import type { TierCounts } from "./tiers";
 import type { CrsDecisions } from "./useCrsDecisions";
+import { Button, LinkButton } from "../../kit/Kit";
 
 /** Rows drawn at first, and added per "Show more" press. */
 export const ROW_PAGE = 200;
@@ -114,10 +115,9 @@ export function CrsTable(props: CrsTableProps) {
       {visible.length < rows.length && (
         <p className="flex items-center gap-3 text-sm text-slateish-300" data-testid="crs-more">
           Showing the first {visible.length.toLocaleString()} of {rows.length.toLocaleString()} lines in this list.
-          <button type="button" onClick={() => setLimit({ depth, count: drawn + ROW_PAGE })}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-xs text-slateish-100 hover:border-ink-500">
+          <Button variant="secondary" size="sm" onClick={() => setLimit({ depth, count: drawn + ROW_PAGE })}>
             Show {Math.min(ROW_PAGE, rows.length - visible.length).toLocaleString()} more
-          </button>
+          </Button>
         </p>
       )}
 
@@ -126,9 +126,9 @@ export function CrsTable(props: CrsTableProps) {
           {counts.met.toLocaleString()} met, {counts.stated ? `${counts.stated.toLocaleString()} stated, not checked, ` : ""}{counts.notApplicable.toLocaleString()} not applicable
           {counts.anotherDocument > 0 ? `, ${counts.anotherDocument.toLocaleString()} for another document` : ""}
           {!showMet && spot.size > 0 ? ` (${spot.size} shown above as a sample to check)` : ""}:{" "}
-          <button type="button" onClick={() => onShowMet(!showMet)} className="text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" onClick={() => onShowMet(!showMet)}>
             {showMet ? "hide" : "show"}
-          </button>
+          </LinkButton>
         </p>
       )}
       {metShown && typeof props.clausesNotApplicable === "number" && props.clausesNotApplicable > 0 && (

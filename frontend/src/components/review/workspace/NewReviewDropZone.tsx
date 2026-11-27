@@ -17,6 +17,7 @@ import type { NewReviewDropZoneProps, NewReviewPhase } from "./contract";
 import { StartReviewStep } from "../panels/StartReviewStep";
 import { type AskFirst, type OfferMark, continueNewReview, markAndReview, markOfferWords, startNewReview } from "./newReview";
 import { priorDecisionWords } from "./priorDecisionWords";
+import { Button, LinkButton } from "../../kit/Kit";
 
 function phaseWords(phase: NewReviewPhase, filename: string | null): string | null {
   const name = filename ?? "your file";
@@ -126,14 +127,10 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
       >
         <p className="text-sm text-slateish-300">
           Drop a contractor's PDF or Word file here, or{" "}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-            className="font-medium text-signal-400 underline decoration-dotted underline-offset-4 hover:text-signal-300 disabled:opacity-50"
-          >
+          {/* a choice inside a sentence is the kit's link, not a boxed button (H's gate, 27 Nov 2026) */}
+          <LinkButton disabled={busy} onClick={() => inputRef.current?.click()}>
             choose a file
-          </button>
+          </LinkButton>
           . After the upload you choose who reviews it and see what will be sent.
         </p>
         <input
@@ -181,18 +178,16 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
         {ask && (
           <span role="group" aria-label="Start a new review?" data-testid="drop-ask-first" className="mt-3 flex flex-wrap items-center justify-center gap-2 text-sm text-slateish-200">
             <span>{ask.filename}: {priorDecisionWords(ask.prior)}</span>
-            <button
-              type="button" onClick={() => void goOn()}
-              className="rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400"
+            <Button variant="primary" size="sm"
+              onClick={() => void goOn()}
             >
               Yes, start a new review
-            </button>
-            <button
-              type="button" onClick={() => setAsk(null)}
-              className="rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
+            </Button>
+            <Button variant="secondary" size="sm"
+              onClick={() => setAsk(null)}
             >
               Cancel
-            </button>
+            </Button>
           </span>
         )}
         {offer && phase.kind === "error" && isAdmin !== false && (
@@ -200,26 +195,23 @@ export function NewReviewDropZone({ onStarted, isAdmin, heading = "New review" }
             {confirming ? (
               <span role="group" aria-label="Mark as contractor submittal?" className="flex flex-wrap items-center justify-center gap-2">
                 <span>{markOfferWords(offer)}</span>
-                <button
-                  type="button" onClick={() => void markAndStart()}
-                  className="rounded-[var(--radius-md)] bg-signal-500 px-3 py-1.5 text-sm font-medium text-ink-950 hover:bg-signal-400"
+                <Button variant="primary" size="sm"
+                  onClick={() => void markAndStart()}
                 >
                   Yes, mark it and start the review
-                </button>
-                <button
-                  type="button" onClick={() => setConfirming(false)}
-                  className="rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
+                </Button>
+                <Button variant="secondary" size="sm"
+                  onClick={() => setConfirming(false)}
                 >
                   Cancel
-                </button>
+                </Button>
               </span>
             ) : (
-              <button
-                type="button" onClick={() => setConfirming(true)}
-                className="rounded-[var(--radius-md)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
+              <Button variant="secondary" size="sm"
+                onClick={() => setConfirming(true)}
               >
                 Mark as contractor submittal and review
-              </button>
+              </Button>
             )}
           </div>
         )}

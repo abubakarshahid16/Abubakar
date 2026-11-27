@@ -15,6 +15,7 @@ import { useState } from "react";
 
 import type { ChatSource, Message } from "../../types/api";
 import { Markdown } from "./Markdown";
+import { Button } from "../kit/Kit";
 
 export function WebConsent({
   message,
@@ -51,22 +52,20 @@ export function WebConsent({
             Would send: <span className="font-mono text-slateish-100">"{phrase}"</span>
           </p>
           <div className="mt-2 flex gap-2">
-            <button
-              type="button"
+            <Button variant="primary" size="sm"
+             
               onClick={() => void search()}
               disabled={state === "searching"}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1.5 text-sm font-semibold text-ink-950 hover:bg-signal-400 disabled:opacity-50"
             >
               {state === "searching" ? "Searching…" : "Search once"}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button variant="secondary" size="sm"
+             
               onClick={() => setState("cancelled")}
               disabled={state === "searching"}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-200 hover:bg-ink-700"
             >
               Cancel
-            </button>
+            </Button>
           </div>
           {failure && (
             <p role="alert" className="mt-2 text-xs text-danger-500">

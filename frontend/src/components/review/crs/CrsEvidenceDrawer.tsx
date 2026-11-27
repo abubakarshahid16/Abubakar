@@ -28,6 +28,7 @@ import { cardTitle, trustLine } from "../sheet/sheetCards";
 import type { CrsRow } from "./crsRows";
 import { comparisonLine, historyOf, pagerStrip, parsePage, stepPage } from "./evidenceNav";
 import { reasonWords } from "../workspace/plainWords";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export interface CrsEvidenceDrawerProps {
   row: CrsRow;
@@ -125,16 +126,13 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
         <h2 id="crs-drawer-title" className="flex-1 text-base font-semibold text-slateish-100">
           {row.commentNo ? `Comment ${row.commentNo}: ` : ""}{title}
         </h2>
-        <button ref={closeRef} type="button" onClick={onClose} aria-label="Close evidence"
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-1 text-sm text-slateish-200">Close</button>
+        <Button variant="secondary" size="sm" ref={closeRef} onClick={onClose} aria-label="Close evidence">Close</Button>
       </div>
       {nav && (
         <nav aria-label="Comments" className="mt-2 flex items-center gap-2 text-sm text-slateish-300">
-          <button type="button" onClick={nav.onPrev ?? undefined} disabled={!nav.onPrev}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">← Previous</button>
+          <Button variant="secondary" size="sm" onClick={nav.onPrev ?? undefined} disabled={!nav.onPrev}>← Previous</Button>
           <span data-testid="drawer-position">{nav.position ?? `Item ${nav.index + 1} of ${nav.total}`}</span>
-          <button type="button" onClick={nav.onNext ?? undefined} disabled={!nav.onNext}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 disabled:opacity-40">Next →</button>
+          <Button variant="secondary" size="sm" onClick={nav.onNext ?? undefined} disabled={!nav.onNext}>Next →</Button>
           {showKeys && <span className="text-xs text-slateish-500">J / K</span>}
         </nav>
       )}
@@ -205,7 +203,7 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
               <label htmlFor="crs-drawer-jump">Go to page</label>
               <input id="crs-drawer-jump" inputMode="numeric" value={jump} onChange={(e) => setJump(e.target.value)}
                 className="w-16 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-950 px-1 py-0.5 text-slateish-100" />
-              <button type="submit" className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5">Go</button>
+              <Button variant="secondary" size="sm" type="submit">Go</Button>
               <span className="text-slateish-500">PageUp / PageDown: comment pages</span>
             </form>
             {jumpError && <p role="alert" className="text-xs text-danger-500">{jumpError}</p>}
@@ -234,9 +232,9 @@ export function CrsEvidenceDrawer({ row, runId, standardNames, onClose, onOpenCa
           </section>
         )}
         {onOpenCards && (
-          <button type="button" onClick={onOpenCards} className="text-sm text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" size="sm" onClick={onOpenCards}>
             Open this point on the cards view
-          </button>
+          </LinkButton>
         )}
       </div>
     </aside>

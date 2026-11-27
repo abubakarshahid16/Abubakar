@@ -9,6 +9,7 @@ import { inboxStateOf } from "../../inbox/inboxState";
 import { dayTimeWords } from "./dateWords";
 import { StatusChip } from "./LandingDocumentRow";
 import { type RunListItem, countsLine, rowChip } from "./landingRows";
+import { Button } from "../../../kit/Kit";
 
 export function AllReviewsList({ items, counts, onOpenRun }: {
   items: RunListItem[];
@@ -36,14 +37,13 @@ export function AllReviewsList({ items, counts, onOpenRun }: {
                 <span>Started {started}</span>
               </p>
             </div>
-            <button
-              type="button"
+            <Button variant="secondary" size="sm"
+             
               onClick={() => onOpenRun(run.review_run_id)}
               aria-label={`Open the review of ${filename} started ${started}`}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm font-medium text-slateish-100 hover:border-signal-500"
             >
               Open
-            </button>
+            </Button>
           </li>
         );
       })}

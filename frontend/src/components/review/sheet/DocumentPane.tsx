@@ -17,6 +17,7 @@ import { EvidencePageImage } from "../EvidencePageImage";
 import { PlainPageImage } from "./PlainPageImage";
 import { type SheetCard, cardTitle, isTickFinding, marksOn } from "./sheetCards";
 import { SheetPageImage } from "./SheetPageImage";
+import { LinkButton } from "../../kit/Kit";
 
 export interface PaneView {
   page: number | null;
@@ -89,9 +90,9 @@ export function DocumentPane({ runId, submittal, cards, selected, view, pulse = 
       >
         {view.rule ? (
           <div className="space-y-2">
-            <button type="button" onClick={onCloseRule} className="text-xs text-signal-300 underline-offset-2 hover:underline">
+            <LinkButton tone="action" size="xs" onClick={onCloseRule}>
               ← Back to the datasheet
-            </button>
+            </LinkButton>
             <EvidencePageImage findingId={view.rule.id} side="standard" page={view.rule.standard_page ?? 1} />
           </div>
         ) : marks.length > 0 && page !== null ? (

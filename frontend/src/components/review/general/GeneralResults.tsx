@@ -13,6 +13,7 @@ import { CommentCards } from "./CommentCards";
 import { SignBar } from "./SignBar";
 import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
+import { Button, LinkButton } from "../../kit/Kit";
 
 const MARK_FALLBACK = "AI, to be checked";
 /** The shown labels in plain words for the header's counts (a label not listed is shown as written, in lower case). */
@@ -25,9 +26,9 @@ const SHOWN_WORDS: Record<string, string> = {
 function PageLink({ page, onViewPage }: { page: number | null; onViewPage: (page: number) => void }) {
   if (page == null) return null; // a null page renders as nothing, never "page 0"
   return (
-    <button type="button" onClick={() => onViewPage(page)} className="text-signal-300 underline-offset-2 hover:underline">
+    <LinkButton tone="action" onClick={() => onViewPage(page)}>
       page {page}
-    </button>
+    </LinkButton>
   );
 }
 
@@ -133,23 +134,22 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
       {(review.steps_not_applied ?? []).length > 0 && (
         <p data-testid="general-steps-pointer" className="text-sm text-pill-review-fg">
           {(review.steps_not_applied ?? []).length} checking step{(review.steps_not_applied ?? []).length === 1 ? "" : "s"} did not run:{" "}
-          <button type="button" onClick={() => setTab("how")} className="underline">see How this review was made</button>.
+          <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
         </p>
       )}
       {(review.pages_not_read ?? []).length > 0 && (
         <p data-testid="general-pages-pointer" className="text-sm text-pill-review-fg">
           {(review.pages_not_read ?? []).length} part{(review.pages_not_read ?? []).length === 1 ? "" : "s"} of this paper {(review.pages_not_read ?? []).length === 1 ? "was" : "were"} not read:{" "}
-          <button type="button" onClick={() => setTab("how")} className="underline">see How this review was made</button>.
+          <LinkButton tone="inherit" onClick={() => setTab("how")}>see How this review was made</LinkButton>.
         </p>
       )}
 
       {signoff && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={() => void download()} data-testid="general-download"
-          className="rounded-[var(--radius-sm)] border border-ink-500 px-3 py-1.5 text-sm text-slateish-100 hover:bg-ink-700">
+        <Button variant="secondary" size="sm" onClick={() => void download()} data-testid="general-download">
           Download the file (team copy)
-        </button>
+        </Button>
       </div>
       {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
 

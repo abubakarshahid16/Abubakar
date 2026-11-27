@@ -9,6 +9,7 @@ import { NavLink } from "../../NavLink";
 import { orNothing } from "../reviewFormat";
 import { type CrsRow, type HeadlineFields, crsHeadline } from "./crsRows";
 import type { TierCounts } from "./tiers";
+import { LinkButton } from "../../kit/Kit";
 
 export interface CrsHeaderProps {
   run: ReviewRunSummary;
@@ -51,7 +52,7 @@ export function CrsHeader({
   return (
     <header className="space-y-3">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        <button type="button" onClick={onBack} className="text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
+        <LinkButton tone="action" onClick={onBack}>← Reviews</LinkButton>
         {/* Order 95 piece 2: the way to the card view, through the app's own
             navigation; `/review/<run>/cards` now that the comment sheet is
             the default (order 115), plain `/review/<run>` if it ever is not. */}
@@ -104,7 +105,7 @@ export function CrsHeader({
         {acceptAll.canUndo && (
           <span className="flex items-center gap-2 text-sm text-slateish-300" role="status">
             {acceptAll.kept !== null ? `${acceptAll.kept} kept.` : ""}
-            <button type="button" onClick={acceptAll.onUndo} className="text-signal-300 underline-offset-2 hover:underline">Undo</button>
+            <LinkButton tone="action" onClick={acceptAll.onUndo}>Undo</LinkButton>
           </span>
         )}
         <span className="ml-auto flex flex-wrap items-center gap-2">

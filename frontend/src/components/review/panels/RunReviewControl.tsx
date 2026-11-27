@@ -17,6 +17,7 @@ import type { ReviewReadiness } from "../../../types/api";
 import { ReadinessStrip } from "../ReadinessStrip";
 import { SIGN_IN_ENDED_LINE, clearStartFailure, isSignInEnded, recordStartFailure, startFailureReason } from "../workspace/startFailures";
 import { StartPanel } from "./StartPanel";
+import { Button } from "../../kit/Kit";
 
 export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpenStandards, onReread }: {
   submittalId: string;
@@ -77,13 +78,12 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
   return (
     <section aria-label={label} className="space-y-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button" onClick={requestRun}
+        <Button variant="primary"
+          onClick={requestRun}
           disabled={!isAdmin || launch.kind === "running"}
-          className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
         >
           {launch.kind === "running" ? "Checking…" : label}
-        </button>
+        </Button>
         {!isAdmin && (
           <p className="text-xs text-slateish-400">Only an administrator can start a review.</p>
         )}
@@ -123,14 +123,12 @@ export function RunReviewControl({ submittalId, isAdmin, label, onStarted, onOpe
             or re-read the unread pages first, or run it again anyway.
           </p>
           <div className="flex gap-2">
-            <button type="button" onClick={requestRun}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-100">
+            <Button variant="secondary" size="sm" onClick={requestRun}>
               Run again anyway
-            </button>
-            <button type="button" onClick={() => setConfirmRerun(false)}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-slateish-300">
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmRerun(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}

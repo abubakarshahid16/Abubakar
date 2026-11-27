@@ -18,6 +18,7 @@ import { useState } from "react";
 import { reviews as reviewsApi } from "../api/client";
 import type { ReviewTrace, ReviewTraceStep } from "../types/api";
 import { STEP_NAMES } from "./reviewPipelineSteps";
+import { Button } from "../components/kit/Kit";
 
 
 const BADGE: Record<string, { label: string; className: string }> = {
@@ -121,10 +122,9 @@ export function ReviewPipeline({ runId }: { runId: string }) {
           <AiUse ai={trace.ai} />
           <div className="flex flex-wrap items-center gap-3 text-xs text-slateish-400">
             <span>Source: {trace.source}</span>
-            <button type="button" onClick={download}
-              className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-slateish-200">
+            <Button variant="secondary" size="sm" onClick={download}>
               Download the step record (data file, internal)
-            </button>
+            </Button>
           </div>
         </div>
       )}

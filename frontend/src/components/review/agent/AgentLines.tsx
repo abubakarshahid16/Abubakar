@@ -13,6 +13,7 @@ import {
   displayWord, lineView, tierWords,
 } from "./agentWords";
 import { lineName, plainReason } from "./plainWords";
+import { Button, LinkButton } from "../../kit/Kit";
 
 function Block({ title, mark, border, lines, onOpen, mode }: {
   title: string; mark: string; border: string; lines: AgentLine[]; onOpen: (itemId: string) => void; mode: AgentMode;
@@ -42,9 +43,8 @@ function Block({ title, mark, border, lines, onOpen, mode }: {
               return (
                 <tr key={line.item_id} className="border-t border-ink-700 align-top">
                   <td className="py-1 pr-3">
-                    <button type="button" onClick={() => onOpen(line.item_id)}
-                      aria-label={`Open the trace of ${name.title}`} title={`id ${name.id}`}
-                      className="text-left text-signal-300 underline-offset-2 hover:underline">{name.title}</button>
+                    <LinkButton tone="action" onClick={() => onOpen(line.item_id)}
+                      aria-label={`Open the trace of ${name.title}`} title={`id ${name.id}`}>{name.title}</LinkButton>
                   </td>
                   <td className="pr-3" data-testid={`word-${line.item_id}`}>
                     {view.word != null ? displayWord(view.word) : (view.klass ?? "unknown class")}
@@ -131,10 +131,9 @@ export function AgentLines({ runId, onOpenTrace, mode = "rule review" }: {
         </p>
       )}
       {next && (
-        <button type="button" disabled={busy} onClick={() => void load(next, false)}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-100 disabled:opacity-50">
+        <Button variant="secondary" size="sm" disabled={busy} onClick={() => void load(next, false)}>
           {busy ? "Loading…" : "Load more lines"}
-        </button>
+        </Button>
       )}
     </section>
   );

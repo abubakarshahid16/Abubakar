@@ -16,6 +16,7 @@ import { useCallback, useState } from "react";
 import { reviews as reviewsApi } from "../../../api/client";
 import type { PageFact } from "../../../types/api";
 import { resultLine } from "./confirmValues";
+import { Button } from "../../kit/Kit";
 
 type Load = { kind: "idle" } | { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; facts: PageFact[] };
 
@@ -76,12 +77,11 @@ export function ConfirmPageValues({ runId, page, onConfirmed }: {
 
   return (
     <div className="space-y-2" data-testid="confirm-page-values">
-      <button
-        type="button" onClick={toggle} aria-expanded={open}
-        className="rounded-[var(--radius-sm)] border border-ink-700 px-3 py-1 text-sm text-slateish-200 hover:border-ink-600"
+      <Button variant="secondary" size="sm"
+        onClick={toggle} aria-expanded={open}
       >
         Confirm page values
-      </button>
+      </Button>
 
       {open && (
         <section aria-label={`Values read on page ${page}`} className="space-y-3 rounded-[var(--radius-sm)] border border-ink-700 p-3 text-sm">
@@ -102,13 +102,12 @@ export function ConfirmPageValues({ runId, page, onConfirmed }: {
                   <li key={f.fact_id} className="space-y-1">
                     <p><span className="font-medium">{f.field}</span>: {shown(f)}</p>
                     {f.quote && <p className="text-xs text-slateish-400">“{f.quote}”</p>}
-                    <button
-                      type="button" disabled={busy} onClick={() => void confirm([f.fact_id])}
+                    <Button variant="secondary" size="sm"
+                      disabled={busy} onClick={() => void confirm([f.fact_id])}
                       aria-label={`Confirm this value: ${f.field}`}
-                      className="rounded-[var(--radius-sm)] border border-ink-700 px-2 py-0.5 text-xs hover:border-ink-600"
                     >
                       Confirm this value
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -134,20 +133,18 @@ export function ConfirmPageValues({ runId, page, onConfirmed }: {
                 ))}
               </ul>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button" disabled={busy}
+                <Button variant="secondary" size="sm"
+                  disabled={busy}
                   onClick={() => setTicked(new Set([...waiting, ...others].map((f) => f.fact_id)))}
-                  className="rounded-[var(--radius-sm)] border border-ink-700 px-2 py-0.5 text-xs hover:border-ink-600"
                 >
                   Tick all on this page
-                </button>
-                <button
-                  type="button" disabled={busy || ticked.size === 0}
+                </Button>
+                <Button variant="secondary" size="sm"
+                  disabled={busy || ticked.size === 0}
                   onClick={() => void confirm([...ticked])}
-                  className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-0.5 text-xs text-slateish-100 disabled:opacity-50"
                 >
                   {`Confirm ${ticked.size} value${ticked.size === 1 ? "" : "s"}`}
-                </button>
+                </Button>
               </div>
             </div>
           )}

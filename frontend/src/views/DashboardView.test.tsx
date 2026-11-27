@@ -383,7 +383,8 @@ describe("warnings", () => {
     expect(warning).toHaveTextContent(/scanned\.pdf finished processing/);
     expect(warning).toHaveTextContent(/search can see none of it/);
     // and the status chip appears rather than the document reading as ready
-    expect(screen.getByText(/no_searchable_content 1/)).toBeInTheDocument();
+    // in plain words, the code kept on the chip (H's audit (g): no raw status codes on the Dashboard)
+    expect(screen.getByText(/no readable text 1/).getAttribute("data-status")).toBe("no_searchable_content");
   });
 
   it("reports a failed document as an error with its code", async () => {
@@ -621,10 +622,15 @@ describe("the required fields", () => {
     expect(screen.getByText("51,200")).toBeInTheDocument();
   });
 
-  it("declares its own refresh interval", async () => {
+  it("declares its own refresh interval (classic look); says how fresh it is in plain words (new look, owner 27 Nov 2026 03:34)", async () => {
     mockApi();
     await openDashboard();
-    expect(await screen.findByText(/every 15s/)).toBeInTheDocument();
+    if (NEW_LOOK) {
+      expect(await screen.findByText(/^Updated (just now|\d+ min ago)$/)).toBeInTheDocument();
+      expect(screen.queryByText(/every 15s/)).toBeNull();
+    } else {
+      expect(await screen.findByText(/every 15s/)).toBeInTheDocument();
+    }
   });
 });
 

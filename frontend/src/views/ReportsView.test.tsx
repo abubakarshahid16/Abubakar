@@ -72,12 +72,12 @@ describe("ReportsView: list states", () => {
 });
 
 describe("ReportsView: attribution and suppression", () => {
-  it("owner_username: null says authentication was disabled, no user recorded", () => {
-    const r = makeReport({ owner_username: null });
-    expect(r.owner_username).toBeNull();
-    renderView([r]);
-    expect(screen.getByText(/authentication disabled — no user recorded/)).toBeInTheDocument();
+  it("never shows who made a report, by name or address, on its card (H's audit, 27 Nov 2026)", () => {
+    renderView([makeReport({ owner_username: "someone@example.com" })]);
+    expect(screen.queryByText(/someone@example\.com/)).toBeNull();
+    expect(screen.queryByText(/authentication disabled/)).toBeNull();
   });
+
 
   it("suppressedCount: 2 renders a count line and names nothing", () => {
     renderView([makeReport()], { suppressedCount: 2 });

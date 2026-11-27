@@ -5,12 +5,12 @@
  * register and its overdue alerts); a figure that could not be loaded is said to be unknown, never shown as 0, and "late" says what it
  * is counted over (rule 4: every count states its boundary).
  */
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 
-import { InfoFold } from "../look/LookParts";
+import { GlanceTiles } from "./GlanceTiles";
+import { NavigationContext } from "../NavLink";
 import { NEW_LOOK } from "../../look";
-import { NavLink } from "../NavLink";
-import type { ViewId } from "../Shell";
+import { InfoFold } from "../look/LookParts";
 import { deliverables as deliverablesApi, reviews as reviewsApi } from "../../api/client";
 import { technicalQueriesApi } from "../../api/technicalQueries";
 import type { Deliverable, ReviewDashboard } from "../../types/api";
@@ -100,57 +100,36 @@ export function glanceLine(rows: GlanceRow[]): string {
   return `${waiting} waiting${someUnknown ? " (some figures could not be loaded)" : ""}, ${lateWords}.`;
 }
 
+/** The owner's headline over the tiles (27 Nov 2026 03:34): "41 items are waiting for a decision". An unknown figure is said, never 0. */
+export function waitingHeadline(rows: GlanceRow[]): string {
+  const known = rows.filter((r) => r.waiting !== null);
+  const n = known.reduce((sum, r) => sum + (r.waiting ?? 0), 0);
+  const unknown = known.length < rows.length ? " (some figures could not be loaded)" : "";
+  return `${n} item${n === 1 ? " is" : "s are"} waiting for a decision${unknown}`;
+}
+
+/** What a tile says under "done" when nothing can be late: never a dash. */
+export function lateWords(r: GlanceRow): string | undefined {
+  if (r.lateStatus === "counted") return r.late ? undefined : "none late";
+  if (r.lateStatus === "unknown") return "late not known";
+  return "no due dates set";
+}
+
+/** The tile's short name and the list it opens. */
+export const TILE: Record<string, { name: string; view: "review" | "technicalQueries" | "deliverables" }> = {
+  "Document reviews": { name: "Document reviews", view: "review" },
+  "Technical queries and CFCs": { name: "Queries and CFCs", view: "technicalQueries" },
+  Deliverables: { name: "Deliverables", view: "deliverables" },
+};
+
 function Cell({ value, tone, title }: { value: number | null; tone?: "late"; title?: string }) {
   if (value === null) return <td className="px-3 py-2 text-slateish-400" title={title}>—</td>;
   const late = tone === "late" && value > 0;
   return <td className={`px-3 py-2 text-lg font-semibold ${late ? "text-danger-500" : "text-slateish-100"}`}>{value}</td>;
 }
 
-/** Where each tile opens: the list of that kind of work. */
-const TILE_VIEW: Record<string, ViewId> = {
-  "Document reviews": "review",
-  "Technical queries and CFCs": "technicalQueries",
-  Deliverables: "deliverables",
-};
-/** The tile's own name, 1 to 3 words on ONE line (owner's design audit, 26 Nov 2026 23:05: one card pattern everywhere). */
-const TILE_NAME: Record<string, string> = {
-  "Document reviews": "Reviews",
-  "Technical queries and CFCs": "Queries and CFCs",
-  Deliverables: "Deliverables",
-};
-
-/** THE HERO OF THE DASHBOARD (owner's design audit, 26 Nov 2026 23:05, K): one large tile per kind of work, the waiting number big,
- *  late in red when above 0, done in green, and one click to the list. Every number keeps its boundary (the fold below the tiles); a
- *  late count that is not counted says why, in words, never a 0. */
-export function GlanceTiles({ rows }: { rows: GlanceRow[] }) {
-  return (
-    <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3" data-testid="at-a-glance-tiles">
-      {rows.map((r) => {
-        const lateWords = r.lateStatus === "counted" ? `${r.late} late` : r.lateStatus === "not_tracked" ? "no due dates" : r.lateStatus === "no_due_dates" ? "late: not counted" : "late: unknown";
-        return (
-          <NavLink key={r.label} view={TILE_VIEW[r.label] ?? "dashboard"}
-            className="block rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-5 shadow-[var(--shadow-resting)] hover:border-signal-500">
-            <span data-testid="glance-tile" className="block">
-              <span className="block whitespace-nowrap text-base font-semibold text-slateish-200">{TILE_NAME[r.label] ?? r.label}</span>{" "}
-              {/* the spaces between the parts are real text: a screen reader and a copy read "Reviews 5 waiting", not "Reviews5waiting" */}
-              <span className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-semibold text-slateish-100">{r.waiting ?? "—"}</span>{" "}
-                <span className="text-sm text-slateish-300">{r.waiting === null ? "could not be loaded" : "waiting"}</span>
-              </span>{" "}
-              <span className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                <span data-testid="glance-late" title={r.lateStatus === "counted" ? undefined : r.lateNote}
-                  className={r.lateStatus === "counted" && (r.late ?? 0) > 0 ? "font-semibold text-danger-500" : "text-slateish-300"}>{lateWords}</span>{" "}
-                <span data-testid="glance-done" className={r.done === null ? "text-slateish-300" : "font-semibold text-signal-300"}>{r.done === null ? "done: unknown" : `${r.done} done`}</span>
-              </span>
-            </span>
-          </NavLink>
-        );
-      })}
-    </div>
-  );
-}
-
 export function AtAGlance() {
+  const navigate = useContext(NavigationContext);
   const [review, setReview] = useState<ReviewDashboard | null | undefined>(undefined);
   const [queries, setQueries] = useState<Record<string, number> | null | "off" | undefined>(undefined);
   const [items, setItems] = useState<Deliverable[] | null | undefined>(undefined);
@@ -168,12 +147,15 @@ export function AtAGlance() {
   if (review === undefined || queries === undefined || items === undefined || alerts === undefined) return null;
   const rows = [reviewsRow(review), queriesRow(queries), deliverablesRow(items, alerts)].filter((r): r is GlanceRow => r !== null);
 
+  // THE OWNER'S THREE TILES (27 Nov 2026 03:34), built only from the shared kit (GlanceTiles.tsx, listed in kitPages.ts)
+  if (NEW_LOOK) return <GlanceTiles rows={rows} onOpen={(view) => navigate?.(view)} />;
+
   return (
     <section aria-labelledby="at-a-glance-title" data-testid="at-a-glance"
-      className={NEW_LOOK ? "mt-6" : "mt-6 rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-4"}>
-      <h2 id="at-a-glance-title" className={NEW_LOOK ? "text-xl font-semibold text-slateish-100" : "text-sm font-semibold text-slateish-200"}>At a glance</h2>
+      className="mt-6 rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-4">
+      <h2 id="at-a-glance-title" className="text-sm font-semibold text-slateish-200">At a glance</h2>
       <p data-testid="at-a-glance-summary" className="mt-1 text-sm text-slateish-200">{glanceLine(rows)}</p>
-      {NEW_LOOK ? <GlanceTiles rows={rows} /> : <div className="relative mt-3 overflow-x-auto">
+      <div className="relative mt-3 overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="text-xs font-semibold text-slateish-400">
             <tr>
@@ -196,7 +178,7 @@ export function AtAGlance() {
             ))}
           </tbody>
         </table>
-      </div>}
+      </div>
       <InfoFold title="What these numbers count" className="mt-2 text-xs">
         <ul className="space-y-0.5">
           {rows.map((r) => <li key={r.label}>{r.label}, late: {r.lateNote}.</li>)}

@@ -90,6 +90,7 @@ import {
   LEAVE_WARNING, WORKSPACE_TABS, WORKSPACE_TAB_LABELS, type ActionStep, type ActionStepId, type ReviewNumbers, type ReviewWorkspaceProps,
   type SignGuard, type SignOff, type WorkspaceLocation, type WorkspaceTab,
 } from "./contract";
+import { LinkButton } from "../../kit/Kit";
 
 /** How long "Undo" stays on offer after "Keep all remaining comments";
  *  those decisions save once it is gone. */
@@ -153,10 +154,9 @@ function ReviewHelpLine({ words }: { words: string | null }) {
   return (
     <p data-testid="ws-review-help" className="flex flex-wrap items-baseline gap-2 text-sm text-slateish-300">
       <span>{words}</span>
-      <button type="button" aria-label="Hide this help" onClick={() => { writeHelpHidden(); setHidden(true); }}
-        className="text-xs text-signal-300 underline-offset-2 hover:underline">
+      <LinkButton tone="action" size="xs" aria-label="Hide this help" onClick={() => { writeHelpHidden(); setHidden(true); }}>
         Hide
-      </button>
+      </LinkButton>
     </p>
   );
 }
@@ -206,7 +206,7 @@ function RunNotReady({ run, active, onBack, onChanged, onOpenRun, openRun, befor
           )}
         </>
       )}
-      <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
+      <LinkButton tone="action" size="sm" onClick={onBack}>← Reviews</LinkButton>
     </section>
   );
 }
@@ -581,7 +581,7 @@ export function ReviewWorkspace({
     >
       {leaveQuestion}
       <header className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={leave} className="text-sm text-signal-300 underline-offset-2 hover:underline">← Reviews</button>
+        <LinkButton tone="action" size="sm" onClick={leave}>← Reviews</LinkButton>
         <h1 id="ws-title" className="min-w-[12rem] flex-1 truncate text-2xl font-semibold text-slateish-100">
           {run.submittal_filename ?? "Review"}
         </h1>
@@ -620,10 +620,9 @@ export function ReviewWorkspace({
         <p role="status" data-testid="ws-newer-review"
           className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
           <span>A newer review of this document exists{newerAt ? ` (${newerAt})` : ""}.</span>
-          <button type="button" onClick={() => openRun(newerRun.review_run_id)}
-            className="font-semibold text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" onClick={() => openRun(newerRun.review_run_id)}>
             Open it
-          </button>
+          </LinkButton>
         </p>
       )}
 
@@ -641,10 +640,9 @@ export function ReviewWorkspace({
             onReviewAgain={standardsAgain.press} known={numbers.standardsKnown} isAdmin={isAdmin} />
           {standardsAgain.busy && <p role="status" className="text-sm text-slateish-400">Starting a new review…</p>}
           <div className="flex flex-col items-start gap-1">{standardsAgain.question}</div>
-          <button type="button" onClick={() => { setStandardsOpen(false); go({ tab: "standards" }); }}
-            className="text-sm text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" size="sm" onClick={() => { setStandardsOpen(false); go({ tab: "standards" }); }}>
             See every standard this review used
-          </button>
+          </LinkButton>
         </div>
       )}
       {signConfirmNode}

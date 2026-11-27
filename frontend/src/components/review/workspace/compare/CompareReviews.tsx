@@ -17,6 +17,7 @@ import type { CrsRow } from "../../crs/crsRows";
 import { PlainErrorLine } from "../PlainErrorLine";
 import type { PlainError } from "../plainError";
 import { type RunComparison, compareRuns, comparisonLines, loadCommentLines, reviewDay } from "./compareRuns";
+import { Button } from "../../../kit/Kit";
 
 export interface CompareReviewsProps {
   currentRunId: string;
@@ -99,12 +100,11 @@ export function CompareReviews({ currentRunId, earlierRunId, earlierAt, onClose 
           <h2 id={titleId} className="flex-1 text-lg font-semibold text-slateish-100">
             What changed since the review of {day || "the earlier date"}
           </h2>
-          <button
-            type="button" data-autofocus onClick={onClose}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 hover:bg-ink-800"
+          <Button variant="secondary" size="sm"
+            data-autofocus onClick={onClose}
           >
             Close
-          </button>
+          </Button>
         </header>
         <p className="text-xs text-slateish-400">{READ_ONLY_NOTE}</p>
         {state.kind === "loading" && <p role="status" className="text-sm text-slateish-300">Reading both reviews…</p>}

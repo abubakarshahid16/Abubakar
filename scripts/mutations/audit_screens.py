@@ -113,8 +113,9 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M1514", phase=1514, runner="vitest",
              description="Open deliverables goes nowhere",
              path=_DASH,
-             anchor='<button type="button" onClick={onOpenDeliverables} className=',
-             replacement='<button type="button" className=',
+             # the classic Dashboard's link is the kit link since 27 Nov 2026 (a link stays a link); its click is what this removes
+             anchor='onClick={onOpenDeliverables}>Open deliverables</LinkButton>',
+             replacement='>Open deliverables</LinkButton>',
              target=_T_DASH, keyword="dead hash link",
              tags=("ui",)),
     Mutation(id="M1515", phase=1515, runner="vitest",

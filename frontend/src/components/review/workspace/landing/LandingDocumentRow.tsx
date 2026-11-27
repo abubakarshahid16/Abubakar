@@ -19,19 +19,21 @@ import { useStartFailure } from "../startFailures";
 import { dayTimeWords } from "./dateWords";
 import { type ChipTone, type LandingRow, NO_ROLE_LINE, countsLine, hasFinishedReview, rowChip } from "./landingRows";
 import { NEW_LOOK } from "../../../../look";
+import { Button } from "../../../kit/Kit";
 
+/** The row's chip in the shared kit's one shape and tone colours (F's gate, 27 Nov 2026: two chip shapes on one page). */
 const TONE: Record<ChipTone, string> = {
-  attention: "border-warn-500/50 bg-warn-500/10 text-warn-500",
-  ready: "border-signal-500/50 bg-signal-500/10 text-signal-300",
-  done: "border-signal-500/50 bg-ink-800 text-slateish-100",
-  moving: "border-ink-500 bg-ink-800 text-slateish-200",
-  failed: "border-danger-500/50 bg-danger-500/10 text-danger-500",
-  quiet: "border-ink-600 bg-ink-850 text-slateish-300",
+  attention: "kit-chip kit-chip--check",
+  ready: "kit-chip kit-chip--info",
+  done: "kit-chip kit-chip--done",
+  moving: "kit-chip kit-chip--info",
+  failed: "kit-chip kit-chip--late",
+  quiet: "kit-chip kit-chip--plain",
 };
 
 export function StatusChip({ tone, text }: { tone: ChipTone; text: string }) {
   return (
-    <span data-testid="status-chip" data-tone={tone} className={`inline-block max-w-full break-words rounded-full border px-2.5 py-0.5 text-xs font-semibold ${TONE[tone]}`}>
+    <span data-testid="status-chip" data-tone={tone} className={TONE[tone]}>
       {text}
     </span>
   );
@@ -78,39 +80,38 @@ export function LandingDocumentRow({ row, counts, allRuns, mayStart, onOpenRun, 
   return (
     <li className={NEW_LOOK ? "rounded-[var(--radius-md)] bg-ink-800 p-4 shadow-[var(--shadow-resting)]" : "rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-4"} data-testid="landing-row">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
+        {/* the text keeps at least 20rem: on a narrow window the buttons drop under it instead of squeezing it (H's gate, 27 Nov 2026) */}
+        <div className="min-w-0 flex-[1_1_20rem]">
           <p className="truncate font-semibold text-slateish-100">{row.filename}</p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slateish-400">
             <StatusChip tone={chip.tone} text={chip.text} />
             {aiMark && !counts?.general && !counts?.aiLines && row.latest && row.latest.status === "completed" && <AiMark runId={row.latest.review_run_id}
               earlierRunIds={row.runs.filter((r) => r.review_run_id !== row.latest!.review_run_id && r.status === "completed").map((r) => r.review_run_id)} />}
-            {generalChip && <span data-testid="row-general-chip" className="rounded-full border border-ink-500 px-2 py-0.5 text-slateish-200">{generalChip}</span>}
-            {row.latest?.engine_words && <span data-testid="row-engine" className="rounded-full border border-ink-500 px-2 py-0.5 text-slateish-200">{row.latest.engine_words}</span>}
-            {row.latest?.newer_note && <span data-testid="row-newer" className="rounded-full border border-warn-500/60 px-2 py-0.5 text-pill-review-fg">{row.latest.newer_note}</span>}
+            {generalChip && <span data-testid="row-general-chip" className="kit-chip kit-chip--plain kit-chip--note">{generalChip}</span>}
+            {row.latest?.engine_words && <span data-testid="row-engine" className="kit-chip kit-chip--plain kit-chip--note">{row.latest.engine_words}</span>}
+            {row.latest?.newer_note && <span data-testid="row-newer" className="kit-chip kit-chip--check kit-chip--note">{row.latest.newer_note}</span>}
             {detail && <span data-testid="row-counts">{detail}</span>}
             {row.noRole && <span data-testid="row-no-role">{NO_ROLE_LINE}</span>}
             {shownWhen && <span data-testid="row-date">{shownWhen}</span>}
           </p>
         </div>
         {row.latest && (
-          <button
-            type="button"
+          <Button variant="primary"
+           
             onClick={() => onOpenRun(row.latest!.review_run_id)}
             aria-label={`Open the latest review of ${row.filename}`}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950"
           >
             Open
-          </button>
+          </Button>
         )}
         {onOpenCrs && hasFinishedReview(row) && (
-          <button
-            type="button"
+          <Button variant="secondary"
+           
             onClick={() => onOpenCrs(row.latest!.review_run_id)}
             aria-label={`Open the CRS of ${row.filename}`}
-            className="rounded-[var(--radius-sm)] border border-signal-500 px-3 py-2 text-sm font-semibold text-signal-300"
           >
             Open CRS
-          </button>
+          </Button>
         )}
         {mayStart && !moving && (
           <ReviewAgainButton

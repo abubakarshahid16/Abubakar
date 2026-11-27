@@ -12,6 +12,7 @@ import type { ReviewRunSummary } from "../../../types/api";
 import { REVIEW_CODES } from "../../../types/api";
 import { reasonLabel, reasonRule } from "../codeReason";
 import { CODE_WORDS } from "../workspace/plainWords";
+import { Button } from "../../kit/Kit";
 
 export function DecisionCard({ run, onDecided }: { run: ReviewRunSummary; onDecided: () => void }) {
   const codes: readonly string[] = run.review_codes?.length ? run.review_codes : REVIEW_CODES;
@@ -61,10 +62,9 @@ export function DecisionCard({ run, onDecided }: { run: ReviewRunSummary; onDeci
             className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100" />
         </div>
       )}
-      <button type="button" onClick={() => void save()} disabled={!code || unchanged || state.kind === "saving"}
-        className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50">
+      <Button variant="primary" onClick={() => void save()} disabled={!code || unchanged || state.kind === "saving"}>
         {state.kind === "saving" ? "Saving…" : run.engineer_final_code ? "Change my decision" : "Record my decision"}
-      </button>
+      </Button>
       {!code && <p className="text-xs text-slateish-400">Choose one of the decisions above first.</p>}
       {run.engineer_final_code && unchanged && (
         <p className="text-xs text-slateish-400">Recorded: {run.engineer_final_code}.</p>

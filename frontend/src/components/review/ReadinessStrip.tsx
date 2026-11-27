@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { reviews as reviewsApi } from "../../api/client";
 import type { ReviewReadiness, VisionReaderStatus } from "../../types/api";
 import { pageList, pagesReadLine } from "./reviewFormat";
+import { Button } from "../kit/Kit";
 
 export function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
   readiness: ReviewReadiness; onOpenStandards?: () => void;
@@ -57,8 +58,8 @@ export function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
       )}
       {readiness.unread_pages.length > 0 && (
         <span className="flex items-center gap-2">
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             onClick={() => {
               setRereading(true);
               setRereadError(null);
@@ -68,10 +69,9 @@ export function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
             }}
             disabled={rereading}
             title="Re-reads the unread pages. When the vision reader is ready, their page images are sent to Claude."
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-signal-300 disabled:opacity-50"
           >
             {rereading ? "Reading…" : "Read unread pages"}
-          </button>
+          </Button>
           {rereadError && (
             <span role="alert" className="text-xs text-danger-500">{rereadError}</span>
           )}
@@ -85,10 +85,9 @@ export function ReadinessStrip({ readiness, onOpenStandards, onReread }: {
         </span>
       )}
       {missing.length > 0 && onOpenStandards && (
-        <button type="button" onClick={onOpenStandards}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-xs text-signal-300">
+        <Button variant="secondary" size="sm" onClick={onOpenStandards}>
           Upload missing standards
-        </button>
+        </Button>
       )}
       {readiness.last_run_id && (
         <span className="text-slateish-400" data-testid="readiness-changes">

@@ -28,6 +28,7 @@ import { ReviewNotes } from "./ReviewNotes";
 import { RequirementSplitPanel, RequirementsNotAppliedList, TableValuesNotComparedList } from "./RunDetailLists";
 import { RunSummary } from "./RunSummary";
 import { StandardsInScope } from "./StandardsInScope";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export const PANEL_TITLES: Record<string, string> = {
   findings: "All findings",
@@ -72,9 +73,9 @@ export function BehindTheScenes(props: BehindTheScenesProps) {
       {!embedded && (
         <>
         <nav aria-label="Behind the scenes" className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-          <button type="button" onClick={() => onOpenPanel(undefined)} className="text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" onClick={() => onOpenPanel(undefined)}>
             ← Back to the sheet
-          </button>
+          </LinkButton>
           {/* Only the behind-the-scenes pages: "cards" and "crs-sheet" are the
               two review screens themselves, not pages behind them. */}
           {(PANELS.review ?? []).filter((name) => name in PANEL_TITLES).map((name) => (
@@ -310,10 +311,9 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
         {/* READ ACCESS SUFFICES and the server says so: exporting writes
             nothing, decides nothing and records no judgement. */}
         {oldFileOffered ? (
-          <button type="button" onClick={() => void exportCrs()} disabled={exporting}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
+          <Button variant="secondary" size="sm" onClick={() => void exportCrs()} disabled={exporting}>
             {exporting ? (savingFirst ? "Saving your decisions first…" : "Preparing…") : "Export CRS - internal review copy"}
-          </button>
+          </Button>
         ) : (
           <span data-testid="crs-old-file-off" className="text-sm text-slateish-400">{OLD_CRS_FILE_OFF_LINE}</span>
         )}
@@ -335,10 +335,9 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
             <span className="text-sm text-slateish-400">{savingFirst ? "Saving your decisions first…" : "Loading the sheet…"}</span>
           )
         ) : (
-          <button type="button" onClick={() => void togglePreview()} disabled={previewing} aria-expanded={preview !== null}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-200 disabled:opacity-50">
+          <Button variant="secondary" size="sm" onClick={() => void togglePreview()} disabled={previewing} aria-expanded={preview !== null}>
             {previewing ? "Loading…" : preview ? "Hide CRS preview" : "Preview CRS"}
-          </button>
+          </Button>
         )}
       </div>
       {exportError && (
@@ -351,10 +350,9 @@ export function CrsSheetPage({ runId, inWorkspace = false, beforeCopy }: {
         <p role="status" data-testid="crs-copy-waits"
           className="flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-3 py-2 text-sm text-slateish-100">
           <span>{copyWaits} The sheet below shows the record as it is now.</span>
-          <button type="button" onClick={() => void readAgain()}
-            className="text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" onClick={() => void readAgain()}>
             Save and read the sheet again
-          </button>
+          </LinkButton>
         </p>
       )}
       {preview && <CrsPreviewSheet preview={preview} runId={runId} onChanged={() => void refreshPreview()} />}

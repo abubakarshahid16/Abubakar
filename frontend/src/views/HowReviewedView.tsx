@@ -28,6 +28,7 @@ import { TIME_META, TimeSection } from "../components/review/how/TimeSection";
 import { VERSIONS_META, VersionsSection } from "../components/review/how/VersionsSection";
 import type { HowSectionMeta } from "../components/review/how/HowPrimitives";
 import { runStatusLabel, whenLabel } from "../components/review/reviewFormat";
+import { LinkButton } from "../components/kit/Kit";
 
 const SECTIONS: HowSectionMeta[] = [PAGES_META, STANDARDS_META, CLAUSES_META, AI_META, TIME_META, VERSIONS_META, RESULT_META];
 
@@ -75,9 +76,9 @@ export function HowReviewedView({ runId, onBack, onOpenRun, onOpenSteps }: {
   return (
     <section className="mx-auto w-full max-w-6xl space-y-5" aria-labelledby="how-title" data-testid="how-reviewed">
       <header className="space-y-2">
-        <button type="button" onClick={onBack} className="text-sm text-signal-300 underline-offset-2 hover:underline print:hidden">
+        <LinkButton tone="action" size="sm" onClick={onBack}>
           ← Back to the sheet
-        </button>
+        </LinkButton>
         <h1 id="how-title" className="text-2xl font-semibold text-slateish-100">How this was reviewed</h1>
         {load.kind === "ready" && (
           <p className="text-sm text-slateish-300" data-testid="how-subtitle">

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { NEW_LOOK } from "../look";
 import { api, structuredSearch } from "../api/client";
 import { hasAdminCapability, type Connection, type ViewId } from "./Shell";
 import type { AuthStatus } from "../types/api";
@@ -67,6 +68,8 @@ export function CommandPalette({ onNavigate, auth, connection }: {
     }, 180);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [open, query]);
+  // the new look: no floating pill over every page's content (H's audit, 27 Nov 2026 (h)); Ctrl K still opens the palette
+  if (!open && NEW_LOOK) return null;
   if (!open) return <button type="button" className="fixed bottom-4 right-4 rounded-full border border-ink-600 bg-ink-850 px-3 py-2 text-xs text-slateish-300 shadow-[var(--shadow-floating)]" onClick={() => setOpen(true)}>Ctrl K</button>;
   const commands = [...NAV_COMMANDS, ...(hasAdminCapability(auth) ? [{ id: "admin" as ViewId, label: "Open administration" }] : [])]
     .filter(item => item.label.toLowerCase().includes(query.toLowerCase()));

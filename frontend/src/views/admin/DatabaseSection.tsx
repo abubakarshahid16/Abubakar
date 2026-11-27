@@ -24,6 +24,7 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   AdminClient, DbRows, DbTable, DbTableInfo, LoadFailure,
 } from "../../types/admin";
+import { Button } from "../../components/kit/Kit";
 
 /** The server's mask string, repeated here only to recognise it for the
  *  tooltip. It is never produced by this file. */
@@ -241,18 +242,16 @@ function Paging({ page, pageSize, onGo }: {
         rows {first.toLocaleString()}–{last.toLocaleString()} of{" "}
         {page.total.toLocaleString()}
       </span>
-      <button
-        type="button" onClick={() => onGo(back)} disabled={page.offset === 0}
-        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-0.5 hover:bg-ink-700 disabled:opacity-40"
+      <Button variant="secondary" size="sm"
+        onClick={() => onGo(back)} disabled={page.offset === 0}
       >
         Previous
-      </button>
-      <button
-        type="button" onClick={() => onGo(next)} disabled={next >= page.total}
-        className="rounded-[var(--radius-xs)] border border-ink-500 px-2 py-0.5 hover:bg-ink-700 disabled:opacity-40"
+      </Button>
+      <Button variant="secondary" size="sm"
+        onClick={() => onGo(next)} disabled={next >= page.total}
       >
         Next
-      </button>
+      </Button>
       {page.limit < pageSize && (
         <span className="text-warn-500">
           the server capped this page at {page.limit.toLocaleString()} rows

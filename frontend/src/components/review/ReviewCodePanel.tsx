@@ -18,6 +18,7 @@ import type { ReviewRunSummary } from "../../types/api";
 import { REVIEW_CODES } from "../../types/api";
 import { reasonLabel, reasonRule } from "./codeReason";
 import { estimateDetail, whenLabel } from "./reviewFormat";
+import { Button } from "../kit/Kit";
 
 export interface ReviewCodePanelProps {
   run: ReviewRunSummary;
@@ -169,13 +170,12 @@ function ReviewCodePanelBody({ run, onDecided }: ReviewCodePanelProps) {
           </div>
         )}
 
-        <button
-          type="button" onClick={() => void save()}
+        <Button variant="primary"
+          onClick={() => void save()}
           disabled={!code || state.kind === "saving"}
-          className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
         >
           {state.kind === "saving" ? "Saving…" : "Record final code"}
-        </button>
+        </Button>
         {/* THE REASON, not a quietly-greyed-out button (#925 item 2). Every
             other disabled control on this screen already says why - the
             "Issue CRS to contractor" button two panels over does - this one

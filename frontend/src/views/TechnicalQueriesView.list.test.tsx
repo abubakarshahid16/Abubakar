@@ -40,7 +40,9 @@ describe("the query list page", () => {
   it("shows the mailbox as one small chip; the address, the counts and the import buttons only after a click", async () => {
     render(<TechnicalQueriesView />);
     const chip = await screen.findByTestId("mailbox-chip");
-    expect(chip.textContent).toBe("Mailbox connected · checked 4 min ago");
+    // the kit's chip: the word in its fixed colour, the detail beside it (owner, 27 Nov 2026 03:30)
+    expect(within(chip).getByText("Mailbox connected").getAttribute("data-word")).toBe("Mailbox connected");
+    expect(within(chip).getByText("checked 4 min ago")).toBeTruthy();
     expect(screen.queryByText("queries@example.com", { exact: false })).toBeNull();
     expect(screen.queryByText("Check now")).toBeNull();
     expect(screen.queryByText(/77 messages/)).toBeNull();
@@ -87,7 +89,9 @@ describe("the query list page", () => {
     expect(second.textContent).toContain("due 3 Dec 2026");
     expect(within(second).queryAllByTestId("problem-chip")).toEqual([]);
     expect(within(third).queryByTestId("query-tag")).toBeNull();
-    expect(within(third).getAllByTestId("problem-chip").map((c) => c.getAttribute("data-words"))).toEqual(["No query number", "No contractor"]);
+    // "No contractor" is said once above the list, never on each row (H's audit, 27 Nov 2026 (d))
+    expect(within(third).getAllByTestId("problem-chip").map((c) => c.getAttribute("data-word"))).toEqual(["No query number"]);
+    expect(screen.getByTestId("no-contractor-note").textContent).toContain("Rules for who it goes to");
     expect(within(third).getAllByTestId("problem-chip")[0].getAttribute("title")).toContain("no full TQ or CFC number");
     // the full sentence is in the row's own text for a screen reader and a keyboard user, not only on hover (review of #1938)
     expect(third.textContent).toContain("No query number: The subject has no full TQ or CFC number");

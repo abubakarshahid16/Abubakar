@@ -1,4 +1,5 @@
 import type { Metrics } from "../types/api";
+import "../components/kit/kit.css";
 import { bytes, nf, Stat, Section, Throughput, Bar, loadTone, NotMeasured } from "./DashboardPrimitives";
 import { humaniseReason } from "../components/WorkerPanel";
 import { FreeModelMemory } from "../components/FreeModelMemory";
@@ -14,6 +15,12 @@ type Props = {
   system: Metrics["system"];
   noSearchable: number;
   isAdmin?: boolean;
+};
+
+/** A document's processing status in plain words (the server's code stays in data-status). */
+const STATUS_WORDS: Record<string, string> = {
+  ready: "ready", needs_ocr: "waiting to be read", failed: "failed", no_searchable_content: "no readable text", queued: "waiting",
+  extracting: "being read", chunking: "being split", embedding: "being indexed", indexing_keyword: "being indexed",
 };
 
 export function DashboardTechnicalDetails({ metrics, corpus, throughput, retrieval, jobs, worker, models, system, noSearchable, isAdmin = false }: Props) {
@@ -80,18 +87,9 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
         {Object.keys(corpus.by_status).length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {Object.entries(corpus.by_status).map(([status, n]) => (
-              <span
-                key={status}
-                className={[
-                  "rounded-[var(--radius-xs)] border px-2 py-0.5 font-mono text-xs",
-                  status === "no_searchable_content"
-                    ? "border-warn-500/50 bg-warn-500/10 text-warn-500"
-                    : status === "failed"
-                      ? "border-danger-500/50 bg-danger-500/10 text-danger-500"
-                      : "border-ink-600 text-slateish-400",
-                ].join(" ")}
-              >
-                {status} {n}
+              // the kit's chip, in plain words (H's audit (g): "needs_ocr" in mono type on the Dashboard)
+              <span key={status} className={`kit-chip kit-chip--${status === "failed" ? "late" : status === "no_searchable_content" ? "check" : status === "ready" ? "done" : "plain"}`} data-status={status}>
+                {STATUS_WORDS[status] ?? status.replaceAll("_", " ")} {n}
               </span>
             ))}
           </div>

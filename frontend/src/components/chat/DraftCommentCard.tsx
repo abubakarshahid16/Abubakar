@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 
 import type { ApiError, FiledComment } from "../../types/api";
 import { plainText } from "./AnswerActions";
+import { Button } from "../kit/Kit";
 
 export type FileResult = { ok: true; data: FiledComment } | { ok: false; error: ApiError };
 export type UndoResult = { ok: true } | { ok: false; error: ApiError };
@@ -86,14 +87,13 @@ export function DraftCommentCard({
           </span>
         </div>
         {!locked && (
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             aria-pressed={editing}
             onClick={() => setEditing((e) => !e)}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-200 hover:bg-ink-700"
           >
             {editing ? "Done" : "Edit"}
-          </button>
+          </Button>
         )}
       </header>
       {editing && !locked ? (
@@ -112,27 +112,25 @@ export function DraftCommentCard({
       <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-700 px-3.5 py-2">
         <div className="flex items-center gap-2">
           {canFile && onFile && (filing.s === "idle" || filing.s === "failed" || filing.s === "withdrawn" || filing.s === "filing") && (
-            <button
-              type="button"
+            <Button variant="primary" size="sm"
+             
               onClick={() => void file()}
               disabled={filing.s === "filing" || !value.trim()}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1.5 text-sm font-semibold text-ink-950 hover:bg-signal-400 disabled:opacity-50"
             >
               {filing.s === "filing" ? "Adding…" : "Add to comment sheet"}
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button variant="secondary" size="sm"
+           
             onClick={() => {
               void navigator.clipboard?.writeText(value).then(
                 () => setCopied(true),
                 () => setCopied(false),
               );
             }}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1 text-xs text-slateish-200 hover:bg-ink-700"
           >
             {copied ? "Copied" : "Copy"}
-          </button>
+          </Button>
         </div>
         {(filing.s === "idle" || filing.s === "filing") && (
           <p className="text-xs text-slateish-500">

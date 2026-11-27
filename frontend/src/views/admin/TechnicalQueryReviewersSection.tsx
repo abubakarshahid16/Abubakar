@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { hasArrayField, request } from "../../api/core";
 import type { AdminUser } from "../../types/admin";
 import type { AuthStatus } from "../../types/api";
+import { Button } from "../../components/kit/Kit";
 
 interface Reviewer { id: string; email: string; display_name?: string | null }
 type Rows = { items: Reviewer[] };
@@ -72,10 +73,9 @@ export function TechnicalQueryReviewersSection({ users }: { users: AdminUser[] |
                     {self && !holds ? (
                       <span className="text-xs text-slateish-400">{SELF_GRANT_WORDS}</span>
                     ) : (
-                      <button type="button" disabled={busy !== null} onClick={() => void change(u.user_id, !holds)}
-                        className="rounded-[var(--radius-xs)] border border-ink-500 px-3 py-1 text-xs text-slateish-200 hover:bg-ink-700 disabled:opacity-50">
+                      <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => void change(u.user_id, !holds)}>
                         {busy === u.user_id ? "Saving…" : holds ? "Remove the role" : "Give the role"}
-                      </button>
+                      </Button>
                     )}
                   </span>
                 </li>

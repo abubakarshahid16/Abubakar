@@ -22,6 +22,7 @@ import {
   confidenceLabel, findingLabel, kindLabel, matchMethodLabel, matchMethodTone, orNothing,
   statusLabel, statusRank, statusTone, withDenominator,
 } from "./reviewFormat";
+import { Button, LinkButton } from "../kit/Kit";
 
 export interface FindingsTableProps {
   findings: ReviewFinding[];
@@ -194,14 +195,12 @@ export function FindingsTable(
           <span data-testid="findings-page-line" aria-live="polite">
             Showing rows {(page * PAGE_SIZE + 1).toLocaleString()}-{Math.min((page + 1) * PAGE_SIZE, visible.length).toLocaleString()} of {visible.length.toLocaleString()} in the table
           </span>
-          <button type="button" onClick={() => setPage(page - 1)} disabled={page === 0}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 disabled:opacity-40">
+          <Button variant="secondary" size="sm" onClick={() => setPage(page - 1)} disabled={page === 0}>
             Previous {PAGE_SIZE}
-          </button>
-          <button type="button" onClick={() => setPage(page + 1)} disabled={page >= pages - 1}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 disabled:opacity-40">
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setPage(page + 1)} disabled={page >= pages - 1}>
             Next {PAGE_SIZE}
-          </button>
+          </Button>
         </nav>
       )}
 
@@ -223,12 +222,11 @@ export function FindingsTable(
         </button>
       )}
       {missing.length > 0 && showMissing && (
-        <button
-          type="button" onClick={() => setShowMissing(false)}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+        <Button variant="secondary" size="sm"
+          onClick={() => setShowMissing(false)}
         >
           Hide the {missing.length.toLocaleString()} with no evidence
-        </button>
+        </Button>
       )}
       {outOfScope.length > 0 && !showOutOfScope && (
         <button
@@ -249,12 +247,11 @@ export function FindingsTable(
         </button>
       )}
       {outOfScope.length > 0 && showOutOfScope && (
-        <button
-          type="button" onClick={() => setShowOutOfScope(false)}
-          className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-sm text-slateish-300"
+        <Button variant="secondary" size="sm"
+          onClick={() => setShowOutOfScope(false)}
         >
           Hide the {outOfScope.length.toLocaleString()} that need another document
-        </button>
+        </Button>
       )}
       {visible.length === 0 && (
         <p className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-6 text-center text-sm text-slateish-400">
@@ -323,13 +320,9 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
       <td className="max-w-md px-3 py-2 text-slateish-300">
         {shown}
         {long && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); setExpanded((value) => !value); }}
-            className="ml-1 text-xs text-signal-300 hover:underline"
-          >
+          <LinkButton tone="action" size="xs" onClick={(e) => { e.stopPropagation(); setExpanded((value) => !value); }}>
             {expanded ? "less" : "more"}
-          </button>
+          </LinkButton>
         )}
       </td>
       <td className="px-3 py-2">
@@ -367,13 +360,9 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
         )}
       </td>
       <td className="px-3 py-2">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setShowEvidence((v) => !v); }}
-          className="text-xs text-signal-300 hover:underline"
-        >
+        <LinkButton tone="action" size="xs" onClick={(e) => { e.stopPropagation(); setShowEvidence((v) => !v); }}>
           {showEvidence ? "Hide evidence" : "Evidence"}
-        </button>
+        </LinkButton>
       </td>
     </tr>
     {showEvidence && (

@@ -4,7 +4,8 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { answersLine } from "../../views/DashboardViewContent";
-import { GlanceTiles, type GlanceRow } from "./AtAGlance";
+import { type GlanceRow } from "./AtAGlance";
+import { GlanceTiles } from "./GlanceTiles";
 import { plainWarning } from "./MetricWarning";
 
 const row = (over: Partial<GlanceRow>): GlanceRow => ({
@@ -27,18 +28,19 @@ describe("the Dashboard after the design audit", () => {
   });
 
   it("draws one large tile per kind: the waiting number big, late red only when counted and above 0, done, and never a fake 0", () => {
-    render(<GlanceTiles rows={[
+    // the tiles are the shared kit's since 27 Nov 2026 03:34 (owner: the three tiles); the same promises, on the kit's tiles
+    render(<GlanceTiles onOpen={() => undefined} rows={[
       row({ label: "Document reviews", waiting: 5, done: 1, lateStatus: "not_tracked", lateNote: "a review has no due date" }),
       row({}),
       row({ label: "Deliverables", waiting: 2, done: 1, late: 1, lateStatus: "counted", lateNote: "of 2 open with a due date" }),
     ]} />);
-    const tiles = screen.getAllByTestId("glance-tile");
+    const tiles = within(screen.getByRole("group", { name: "Waiting for a decision" })).getAllByRole("button");
     expect(tiles.map((t) => t.textContent)).toEqual([ // real spaces between the parts: read aloud or copied, never run together
-      "Reviews 5 waiting no due dates 1 done",
-      "Queries and CFCs 33 waiting late: not counted 0 done",
-      "Deliverables 2 waiting 1 late 1 done",
+      "Document reviews 5 waiting for you 1 done no due dates set",
+      "Queries and CFCs 33 waiting for you 0 done no due dates set",
+      "Deliverables 2 waiting for you 1 done 1 late",
     ]);
-    expect(within(tiles[2]).getByTestId("glance-late").className).toContain("text-danger-500");
-    expect(within(tiles[1]).getByTestId("glance-late").className).not.toContain("text-danger-500");
+    expect(tiles[2].querySelector(".kit-late")?.textContent).toBe("1 late");
+    expect(tiles[1].querySelector(".kit-late")).toBeNull();
   });
 });

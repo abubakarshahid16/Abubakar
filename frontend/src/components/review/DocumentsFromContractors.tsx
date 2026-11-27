@@ -13,6 +13,7 @@
 import type { DocumentRecord, ReviewRunSummary } from "../../types/api";
 import { groupRunsByDocument, runStatusLabel, truncationNote, whenLabel } from "./reviewFormat";
 import { PastReviewsButton } from "./workspace/PastReviewsButton";
+import { Button } from "../kit/Kit";
 
 /** NULL RENDERS AS NOTHING - a document with no run yet says so in words,
  *  never with an invented status. */
@@ -88,14 +89,13 @@ export function DocumentsFromContractors(
                 {row.latest ? ` · ${whenLabel(row.latest.created_at)}` : ""}
               </p>
             </div>
-            <button
-              type="button"
+            <Button variant="primary"
+             
               onClick={() => onReview(row.documentId)}
               disabled={startingDocumentId === row.documentId}
-              className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50"
             >
               {startingDocumentId === row.documentId ? "Starting…" : "Review"}
-            </button>
+            </Button>
             {onOpenPastRun && (
               <PastReviewsButton documentId={row.documentId} runs={runs} onOpenRun={onOpenPastRun} />
             )}

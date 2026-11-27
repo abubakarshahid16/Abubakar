@@ -7,6 +7,7 @@ import { reviews as reviewsApi } from "../../../api/client";
 import type { PointsListing } from "../../../api/reviewPoints";
 import { REVIEW_CODES } from "../../../types/api";
 import { reasonLabel, reasonRule } from "../codeReason";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRecorded: () => void }) {
   const p = listing.proposed_code;
@@ -47,9 +48,9 @@ export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRec
       <p className="text-xs text-slateish-400">
         {listing.final_code ? `Recorded final code: ${listing.final_code_words?.team ?? listing.final_code}. ` : "The final code is not recorded yet. "}
         {listing.code_run_id && (
-          <button type="button" onClick={() => setOpen((v) => !v)} className="text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" onClick={() => setOpen((v) => !v)}>
             {listing.final_code ? "Change it" : "Record the code"}
-          </button>
+          </LinkButton>
         )}
       </p>
       {open && (
@@ -65,8 +66,7 @@ export function CodeBox({ listing, onRecorded }: { listing: PointsListing; onRec
               <input value={reason} onChange={(e) => setReason(e.target.value)} className="ml-2 w-72 rounded border border-ink-500 bg-ink-800 px-2 py-1 text-sm text-slateish-100" />
             </label>
           )}
-          <button type="button" disabled={saving} onClick={() => void save()}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1 text-sm font-semibold text-ink-950 disabled:opacity-50">Record final code</button>
+          <Button variant="primary" size="sm" disabled={saving} onClick={() => void save()}>Record final code</Button>
         </div>
       )}
       {problem && <p role="alert" className="text-xs text-danger-500">{problem}</p>}

@@ -19,6 +19,7 @@ import {
   type ClauseGroup, type SheetCard as Card, cardTitle, clauseGroups, clauseSummary, findingNoun, groupLine, hasNoClause,
   isAgreed, isNotNeeded, isTickFinding, trustLine, MIN_REASON,
 } from "./sheetCards";
+import { Button, LinkButton } from "../../kit/Kit";
 
 export const AGREE_REASON = "Engineer agreed on the review page: ask the contractor.";
 /** rule_trust (#947): the tick is the PF5 accept on the finding; the server
@@ -135,10 +136,9 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
           {groupLine(card) && <p className="text-xs text-slateish-400">{groupLine(card)}</p>}
         </div>
         {onShowOnPage && leader.contractor_page && (
-          <button type="button" onClick={onShowOnPage} title="T"
-            className="text-xs text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" size="xs" onClick={onShowOnPage} title="T">
             Show on the page
-          </button>
+          </LinkButton>
         )}
       </header>
 
@@ -177,14 +177,12 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
             />
             <p className="text-xs text-slateish-400">Saving puts your words on the sheet and agrees it under your name.</p>
             <div className="flex gap-2">
-              <button type="button" disabled={working} onClick={() => void saveComment()}
-                className="rounded-[var(--radius-sm)] bg-signal-500 px-3 py-1.5 text-sm font-semibold text-ink-950 disabled:opacity-50">
+              <Button variant="primary" size="sm" disabled={working} onClick={() => void saveComment()}>
                 Save and agree
-              </button>
-              <button type="button" onClick={() => setEditing(false)}
-                className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-200">
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setEditing(false)}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -193,8 +191,7 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
               {orNothing(leader.engineer_comment) || orNothing(leader.required_action) || orNothing(leader.finding)}
             </p>
             {single && !done && (
-              <button type="button" onClick={() => setEditing(true)}
-                className="text-xs text-signal-300 underline-offset-2 hover:underline">Edit</button>
+              <LinkButton tone="action" size="xs" onClick={() => setEditing(true)}>Edit</LinkButton>
             )}
           </div>
         )}
@@ -208,14 +205,12 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
         }} />
       ) : (
         <div className="flex flex-wrap gap-2">
-          <button type="button" data-action="agree" disabled={working} onClick={() => void decide("accept", tick ? TICK_REASON : AGREE_REASON)}
-            className="rounded-[var(--radius-sm)] bg-signal-500 px-4 py-2 text-sm font-semibold text-ink-950 disabled:opacity-50">
+          <Button variant="primary" data-action="agree" disabled={working} onClick={() => void decide("accept", tick ? TICK_REASON : AGREE_REASON)}>
             {tick ? "I checked it, tick" : "Agree, ask the contractor"}
-          </button>
-          <button type="button" data-action="not-needed" disabled={working} onClick={notNeeded}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-4 py-2 text-sm text-slateish-100 disabled:opacity-50">
+          </Button>
+          <Button variant="secondary" data-action="not-needed" disabled={working} onClick={notNeeded}>
             {tick ? "Something is off" : "Not needed"}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -230,10 +225,9 @@ function OpenCard({ card, runId, standardNames, onOpenRule, onAnswered, onShowOn
             id={`why-${leader.id}`} value={why} onChange={(e) => setWhy(e.target.value)}
             className="w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm text-slateish-100"
           />
-          <button type="button" disabled={working} onClick={notNeeded}
-            className="rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1.5 text-sm text-slateish-100 disabled:opacity-50">
+          <Button variant="secondary" size="sm" disabled={working} onClick={notNeeded}>
             {tick ? "Record that something is off" : "Leave it off the sheet"}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -315,10 +309,9 @@ function DoneRow({ card, working, onChange }: { card: Card; working: boolean; on
         : card.state === "agreed" ? "You agreed: the contractor is asked."
         : card.state === "not_needed" ? "You said it is not needed: it is left off the sheet."
         : "Answered, part asked and part left off."}</span>
-      <button type="button" disabled={working} onClick={onChange}
-        className="text-xs text-slateish-300 underline-offset-2 hover:underline disabled:opacity-50">
+      <LinkButton tone="inherit" size="xs" disabled={working} onClick={onChange}>
         Change answer
-      </button>
+      </LinkButton>
     </div>
   );
 }

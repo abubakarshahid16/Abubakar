@@ -6,6 +6,7 @@ import type { ReviewRunSummary } from "../../../types/api";
 import { whenLabel } from "../reviewFormat";
 import { durationLabel, durationSeconds, readerOf } from "./howData";
 import { Fact, FactList, HowSection, type HowSectionMeta } from "./HowPrimitives";
+import { LinkButton } from "../../kit/Kit";
 
 export const TIME_META: HowSectionMeta = {
   id: "time", number: 5, title: "Time",
@@ -30,9 +31,9 @@ export function TimeSection({ run, onOpenSteps }: { run: ReviewRunSummary; onOpe
       </FactList>
       {onOpenSteps && (
         <p className="text-sm print:hidden">
-          <button type="button" onClick={onOpenSteps} className="text-signal-300 underline-offset-2 hover:underline">
+          <LinkButton tone="action" onClick={onOpenSteps}>
             Open the step-by-step record for the seconds per step
-          </button>
+          </LinkButton>
         </p>
       )}
     </HowSection>

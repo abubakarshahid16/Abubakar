@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { agentReview } from "../../../api/agentReview";
 import type { AgentTrace as Trace } from "../../../types/api";
+import { LinkButton } from "../../kit/Kit";
 
 export function AgentTrace({ runId, itemId, onClose }: { runId: string; itemId: string; onClose: () => void }) {
   const [trace, setTrace] = useState<Trace | null>(null);
@@ -26,7 +27,7 @@ export function AgentTrace({ runId, itemId, onClose }: { runId: string; itemId: 
       className="space-y-2 rounded-[var(--radius-sm)] border border-ink-600 bg-ink-850 p-3 text-sm">
       <div className="flex items-center justify-between gap-2">
         <h3 className="font-semibold text-slateish-100">Trace</h3>
-        <button type="button" onClick={onClose} className="text-signal-300 underline-offset-2 hover:underline">Close trace</button>
+        <LinkButton tone="action" onClick={onClose}>Close trace</LinkButton>
       </div>
       {error && <p role="alert" className="text-red-400">{error}</p>}
       {!trace && !error && <p role="status" className="text-slateish-400">Reading the trace…</p>}
