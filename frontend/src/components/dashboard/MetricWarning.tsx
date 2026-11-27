@@ -31,8 +31,8 @@ export function plainWarningFor(warning: Pick<MetricWarning, "code" | "message">
     case "ai_steps_model":
       if (!/^The AI review steps: /.test(warning.message)) break;
       return /They run on /.test(warning.message)
-        ? "Some review steps run on a different AI model on this computer than the one that was set. Which one is under Technical detail."
-        : "Some review steps cannot run, because their AI model is not on this computer. The details are under Technical detail.";
+        ? "Some review steps run on a different AI on this computer than the one that was set. Which one is under Technical detail."
+        : "Some review steps cannot run, because their AI is not on this computer. The details are under Technical detail.";
   }
   return plainWarning(warning.message);
 }

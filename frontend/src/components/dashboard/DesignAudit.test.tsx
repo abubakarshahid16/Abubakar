@@ -52,7 +52,7 @@ describe("the Dashboard after the design audit", () => {
     expect(plainWarningFor({ code: "equation_pages", message: "12 page(s) are equation-heavy; the mathematics did not survive text extraction. The rendered page image is the mitigation." }))
       .toBe("12 pages are mostly equations, which do not come through as text. Open the page picture to read them.");
     const ai = plainWarningFor({ code: "ai_steps_model", message: "The AI review steps: tiny:2b is not installed on the engine. They run on invented:9b instead." });
-    expect(ai).toBe("Some review steps run on a different AI model on this computer than the one that was set. Which one is under Technical detail.");
+    expect(ai).toBe("Some review steps run on a different AI on this computer than the one that was set. Which one is under Technical detail.");
     expect(ai).not.toMatch(/tiny|invented|:\d+b/);
     // a shape the words were not written for keeps its own meaning (an older "OCR is not implemented" is not "not read yet")
     expect(plainWarningFor({ code: "needs_ocr", message: "23 page(s) have no extractable text. OCR is detected but NOT implemented." }))
