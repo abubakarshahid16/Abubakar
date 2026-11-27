@@ -136,4 +136,11 @@ describe("the server's marks in everyday words", () => {
   it("says 'the AI on this computer' and 'sources'", () => {
     expect(plainMark("Written by the local model from passages the system found; no engineer has kept them yet.")).toBe("Written by the AI on this computer from sources the system found; no engineer has kept them yet.");
   });
+
+  it("keeps a request that wraps onto the next line in its item, never as a line above the list (the owner's regression query, 27 Nov 2026)", () => {
+    const text = "Please confirm the following invented points:\n\n1. first invented point\n2. second invented point\n3. as-built invented drawings before Mechanical\nCompletion?\n\nRegards";
+    const lines = readableLines(text, []);
+    expect(lines.filter((l) => l.kind === "lead").map((l) => l.text)).toEqual(["Please confirm the following invented points:", "Regards"]);
+    expect(lines.find((l) => l.n === 3)?.text).toBe("as-built invented drawings before Mechanical Completion?");
+  });
 });

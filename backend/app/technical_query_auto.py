@@ -468,7 +468,9 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
     )
     if gap and gap not in found_marks:
         found_marks.append(gap)
-    if evidence_outdated(item):  # an older search found these sources: said, and "Find the sources again" is offered
+    if evidence_outdated(
+        item
+    ):  # an older search found these sources: said, and "Find the sources again" is offered
         found_marks.append(OUTDATED_MARK)
     return {
         "question": question,
@@ -531,7 +533,13 @@ def unanswered_mark(answer: str, question: str) -> str | None:
     items = items_of_question(question)
     if len(items) < 2:
         return None
-    missing = [n for n in range(1, len(items) + 1) if n not in answered_items(answer)]
+    from . import technical_query_match as match
+
+    numbered = answered_items(answer)
+    # an item answered in prose, unnumbered, counts too: its own key words stand in the draft (the owner's regression query, 27 Nov 2026: item 3 was
+    # answered in a paragraph after "1." and "2.", and the mark wrongly said it was not)
+    missing = [n for n in range(1, len(items) + 1)
+               if n not in numbered and not match.score(match.key_terms(items[n - 1]), answer)["matches"]]  # fmt: skip
     if not missing:
         return None
     if len(missing) == len(items):
@@ -626,16 +634,22 @@ def stale_system_drafts(conn) -> list[str]:
         older_search = (
             bool(row["evidence_question"]) and _search_version(row) < SEARCH_VERSION
         )
-        system_draft = bool(row["model"]) and (row["pv"] or "").startswith(
-            "system-draft-"
+        # written by a MODEL: the automatic draft (system-draft-N) or "Write the reply again" (no version label); never an engineer's
+        # own typed draft (no model). the owner's regression query, 27 Nov 2026: its latest draft came from "Write the reply again", so the redo skipped
+        # it and its sources stayed those of the old single search.
+        model_draft = bool(row["model"])
+        old_system_draft = (
+            model_draft
+            and (row["pv"] or "").startswith("system-draft-")
+            and row["pv"] != SYSTEM_DRAFT
         )
         if row["status"] == "awaiting_review":
-            if system_draft and (row["pv"] != SYSTEM_DRAFT or older_search):
+            if model_draft and (old_system_draft or older_search):
                 out.append(row["id"])
         elif (
             row["status"] in PREPARABLE
             and older_search
-            and (not row["drafts"] or system_draft)
+            and (not row["drafts"] or model_draft)
         ):
             out.append(row["id"])
     return out

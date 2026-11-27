@@ -218,3 +218,27 @@ def test_a_query_whose_evidence_an_older_search_found_joins_the_backlog_unless_a
         conn.execute("INSERT INTO query_decisions(id,query_id,draft_id,actor_user_id,decision,comment,created_at) "
                      "VALUES ('d',?,NULL,'u1','request_changes',NULL,'x')", (item["id"],))  # fmt: skip
         assert auto.stale_system_drafts(conn) == []  # never one an engineer decided on
+
+
+def test_a_reply_written_again_by_hand_is_redone_too_when_its_sources_are_out_of_date(
+    query,
+):
+    """The owner's regression query (27 Nov 2026): its latest draft came from "Write the reply again" (a model draft with no version label), so the redo
+    skipped it and its sources stayed those of the old single search. Any model-written draft counts; an engineer's typed one never."""
+    item, scope, _asked = query
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE query_drafts SET prompt_version=NULL WHERE query_id=?",
+            (item["id"],),
+        )  # as Write the reply again stores it
+        conn.execute(
+            "UPDATE technical_queries SET evidence_search_version=NULL WHERE id=?",
+            (item["id"],),
+        )  # the old search
+        assert auto.stale_system_drafts(conn) == [item["id"]]
+        conn.execute(
+            "UPDATE query_drafts SET model=NULL WHERE query_id=?", (item["id"],)
+        )  # an engineer's own typed draft: never
+        assert auto.stale_system_drafts(conn) == []

@@ -331,3 +331,14 @@ def test_many_items_never_crowd_out_the_whole_requests_best_passages(monkeypatch
     assert sum(1 for h in hits if h.get("item")) == 21 and [
         h["text"] for h in hits[-2:]
     ] == ["whole 4", "whole 5"]
+
+
+def test_an_item_answered_in_prose_without_its_number_is_not_marked_unanswered():
+    """The owner's regression query (27 Nov 2026): item 3 was answered in a paragraph after "1." and "2."; the mark wrongly said it was not."""
+    q = "Please confirm each invented point:\n\n1. the invented flange class\n2. the invented gasket type\n3. invented as-built drawings before invented completion"
+    prose = "1. COMPANY confirms the flange class [S1].\n2. The gasket type is stated [S2].\n\nThe invented as-built drawings are due before invented completion [S3]."
+    assert auto.unanswered_mark(prose, q) is None
+    assert auto.unanswered_mark(
+        "1. COMPANY confirms the flange class [S1].\n2. The gasket type is stated [S2].",
+        q,
+    ) == ("The draft does not answer request item 3; check it by hand.")
