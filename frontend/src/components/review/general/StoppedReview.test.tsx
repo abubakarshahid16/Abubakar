@@ -41,6 +41,7 @@ describe("R1: a stopped or empty review is never ready to sign off", () => {
     render(<GeneralResults review={stopped()} howTab={null} onViewPage={() => undefined} />);
     expect(screen.getByTestId("general-verdict")).toHaveTextContent("there is nothing to sign off");
     expect(screen.queryByTestId("sign-button")).toBeNull();
+    expect(screen.queryByTestId("general-download")).toBeNull(); // nothing to compare: no file to give out
     expect(cannotSignOff(stopped(), notSigned)).toBe(true);
     expect(cannotSignOff(review(), notSigned)).toBe(false);
   });
@@ -61,6 +62,7 @@ describe("R2: a stopped review points to the last complete one", () => {
     const open = vi.fn();
     render(<GeneralResults review={stopped()} howTab={null} onViewPage={() => undefined} onOpenRun={open} />);
     await waitFor(() => expect(screen.getByTestId("general-last-complete")).toHaveTextContent("(116 points)"));
+    expect(screen.getByTestId("general-last-complete")).toHaveTextContent("from 18 Nov 2026 (116 points)");
     fireEvent.click(screen.getByRole("button", { name: "open it" }));
     expect(open).toHaveBeenCalledWith("run_complete");
   });

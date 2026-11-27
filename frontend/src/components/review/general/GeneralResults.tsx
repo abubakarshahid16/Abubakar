@@ -14,6 +14,7 @@ import { SignBar } from "./SignBar";
 import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
 import { Button, LinkButton } from "../../kit/Kit";
+import { formatDay } from "../../../format/when";
 
 const MARK_FALLBACK = "AI, to be checked";
 /** The shown labels in plain words for the header's counts (a label not listed is shown as written, in lower case). */
@@ -95,7 +96,7 @@ function LastCompleteReview({ review, onOpenRun }: { review: GeneralReview; onOp
     return () => { live = false; };
   }, [review.paper_document_id, review.run_id, review.status]);
   if (review.status !== "stopped" || !last) return null;
-  const day = last.finished_at ? new Date(last.finished_at).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : null;
+  const day = formatDay(last.finished_at) || null; // the app's own "18 Nov 2026", never the browser's locale (H on #1981)
   return (
     <p data-testid="general-last-complete" className="text-sm text-slateish-100">
       The last complete review of this paper{day ? ` is from ${day}` : ""}{last.points != null ? ` (${last.points} points)` : ""}:{" "}
@@ -184,11 +185,14 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
 
       {signoff && !cannotSignOff(review, signoff) && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button variant="secondary" size="sm" onClick={() => void download()} data-testid="general-download">
-          Download the file (team copy)
-        </Button>
-      </div>
+      {/* three counts of 0: there is no file to give out, so no button that can only be refused (H on #1981) */}
+      {!review.completeness?.nothing_to_compare && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={() => void download()} data-testid="general-download">
+            Download the file (team copy)
+          </Button>
+        </div>
+      )}
       {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
 
       <div role="tablist" aria-label="Review" className="flex gap-1 border-b border-ink-600">
