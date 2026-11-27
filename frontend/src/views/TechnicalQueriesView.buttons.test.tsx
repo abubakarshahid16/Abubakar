@@ -144,7 +144,7 @@ describe("what the contractor's form cites", () => {
       cited: [{ line: "Invented standard 12, clause 4: held", held: true }, { line: "Invented standard 99: not held among the standards you may read", held: false }] } });
     const box = screen.getByTestId("contractor-cites");
     expect([...box.querySelectorAll("li")].map((li) => [li.textContent, li.className.includes("text-warn-500")])).toEqual([
-      ["\u2713Invented standard 12, clause 4: held", false], ["!Invented standard 99: not held among the standards you may read", true]]);
+      ["\u2713Invented standard 12, clause 4: held", false], ["Invented standard 99: not held among the standards you may read", true]]); // no bare "!" (Q6): the words say it
   });
   it("is absent when the form cites nothing", async () => {
     await open();

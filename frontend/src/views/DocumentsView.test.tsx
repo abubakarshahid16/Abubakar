@@ -440,7 +440,7 @@ describe("B3 chunk inspector", () => {
     mockApi([makeDoc()]);
     renderDocuments();
 
-    fireEvent.click(await screen.findByRole("button", { name: /page parts/i }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "What was read" : /page parts/i })); // the card's More menu in the new look (owner, 27 Nov 2026)
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();
@@ -464,7 +464,7 @@ describe("B4 excluded viewer", () => {
     mockApi([makeDoc()]);
     renderDocuments();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Excluded" }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Left out" : "Excluded" }));
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getAllByText("content_quality_gate").length).toBeGreaterThan(0);
@@ -487,7 +487,7 @@ describe("B5 page image viewer", () => {
     const fetchSpy = mockApi([makeDoc()]);
     renderDocuments();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Pages as read" : "Pages" }));
     const dialog = await screen.findByRole("dialog");
 
     const img = within(dialog).getByRole("img", { name: /Page 1 of/i });
@@ -511,7 +511,7 @@ describe("B5 page image viewer", () => {
   it("closes on Escape", async () => {
     mockApi([makeDoc()]);
     renderDocuments();
-    fireEvent.click(await screen.findByRole("button", { name: "Pages" }));
+    fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Pages as read" : "Pages" }));
     await screen.findByRole("dialog");
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
