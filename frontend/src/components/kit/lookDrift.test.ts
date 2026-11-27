@@ -27,7 +27,12 @@ const KIT_PART = /\bkit-(?:card|row-btn|tile|notice|stack-table|table|tag|chip|b
  *  `NEW_LOOK ? "kit-..." : "classic classes"` draws only the kit part in the new look, so the else-branch of a ternary whose first
  *  string names a kit part is NOT counted (H's read of #2010: it failed every new file written with a classic fallback). */
 function classStrings(source: string): string[] {
-  const kitElse = source.replace(/\?\s*("[^"\n]*"|`[^`]*`)\s*:\s*("[^"\n]*"|`[^`]*`)/g, (whole, first: string) => (KIT_PART.test(first) ? `? ${first} : ""` : whole));
+  // ONLY a NEW_LOOK ternary (F's gate: any `x ? "kit-tag" : "<one-off card>"` hid the card), in both orders (H's note (a)):
+  //   NEW_LOOK ? "kit-..." : "classic"   and   !NEW_LOOK ? "classic" : "kit-..."
+  const S = '("[^"\\n]*"|`[^`]*`)';
+  const kitElse = source
+    .replace(new RegExp(`(?<![!\\w.])NEW_LOOK\\s*\\?\\s*${S}\\s*:\\s*${S}`, "g"), (whole, first: string) => (KIT_PART.test(first) ? `NEW_LOOK ? ${first} : ""` : whole))
+    .replace(new RegExp(`!\\s*NEW_LOOK\\s*\\?\\s*${S}\\s*:\\s*${S}`, "g"), (whole, _first: string, second: string) => (KIT_PART.test(second) ? `!NEW_LOOK ? "" : ${second}` : whole));
   const out: string[] = [];
   for (const m of kitElse.matchAll(/"([^"\n]{3,})"|`([^`]{3,})`/g)) out.push(m[1] ?? m[2]);
   return out;
@@ -106,6 +111,10 @@ describe("look-kit drift ratchet: one table, card and notice style (owner, 27 No
     // the both-looks pattern: the classic branch of a kit ternary is not drift (H)
     expect(drift('<div className={NEW_LOOK ? "kit-card" : "rounded border border-ink-700 bg-ink-850 p-3"}>')).toEqual({ table: 0, card: 0, notice: 0 });
     expect(drift('<div className={NEW_LOOK ? "p-2" : "rounded border border-ink-700 bg-ink-850 p-3"}>')).toEqual({ table: 0, card: 1, notice: 0 });
+    // only a NEW_LOOK ternary hides its classic branch: any other condition never hides a one-off (F's planted case 6)
+    expect(drift('<span className={open ? "kit-tag" : "rounded-md border border-ink-700 bg-ink-850 p-3"}>')).toEqual({ table: 0, card: 1, notice: 0 });
+    // the reversed order, classic first (H's note (a))
+    expect(drift('<div className={!NEW_LOOK ? "rounded border border-ink-700 bg-ink-850 p-3" : "kit-card"}>')).toEqual({ table: 0, card: 0, notice: 0 });
     // H's slip-throughs: a shadow card, a left-bar notice, a bracket-opacity tint
     expect(drift('<section className="rounded-[var(--radius-md)] bg-ink-800 p-5 shadow-[var(--shadow-resting)]">')).toEqual({ table: 0, card: 1, notice: 0 });
     expect(drift('<div className="border-l-4 border-warn-500 px-3 py-2 text-sm">')).toEqual({ table: 0, card: 0, notice: 1 });
