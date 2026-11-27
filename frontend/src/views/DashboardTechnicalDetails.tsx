@@ -1,4 +1,5 @@
 import type { Metrics } from "../types/api";
+import { RULE_EXPLANATION, SCOPE_PLURAL } from "../components/ExcludedViewer";
 import "../components/kit/kit.css";
 import { bytes, nf, Stat, Section, Throughput, Bar, loadTone, NotMeasured } from "./DashboardPrimitives";
 import { humaniseReason } from "../components/WorkerPanel";
@@ -376,14 +377,14 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
       {metrics.exclusions.length > 0 && (
         <Section
           title="Why search cannot see it"
-          hint="One row per RULE, not per passage — a single page rule can cover several passages, so these counts are smaller than the Excluded total above. Nothing is dropped silently; every exclusion is recorded with the rule that caused it."
+          hint="One row for each reason. One reason about a page can cover several pieces of text, so these counts are smaller than the total above. Every piece left out is recorded with its reason."
         >
           <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-700">
             <table className="w-full text-left text-sm">
               <thead className="bg-ink-850 text-xs uppercase tracking-wide text-slateish-500">
                 <tr>
-                  <th className="px-3 py-2 font-medium">Scope</th>
-                  <th className="px-3 py-2 font-medium">Rule</th>
+                  <th className="px-3 py-2 font-medium">Left out</th>
+                  <th className="px-3 py-2 font-medium">Why</th>
                   <th className="px-3 py-2 text-right font-medium">Count</th>
                   <th className="px-3 py-2 text-right font-medium">Characters</th>
                 </tr>
@@ -391,9 +392,13 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
               <tbody>
                 {metrics.exclusions.map((e) => (
                   <tr key={`${e.scope}-${e.rule}`} className="border-t border-ink-700">
-                    <td className="px-3 py-1.5 text-slateish-400">{e.scope}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs text-slateish-300">
-                      {e.rule}
+                    <td className="px-3 py-1.5 text-slateish-400">{SCOPE_PLURAL[e.scope] ?? e.scope}</td>
+                    <td className="px-3 py-1.5 text-xs text-slateish-300">
+                      {RULE_EXPLANATION[e.rule] ?? "A reason the app has no plain words for yet."}
+                      <details className="text-slateish-500">
+                        <summary className="cursor-pointer">Technical detail</summary>
+                        <span className="font-mono">{e.rule}</span>
+                      </details>
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono text-slateish-200">
                       {nf.format(e.count)}
