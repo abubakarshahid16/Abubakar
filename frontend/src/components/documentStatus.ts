@@ -11,6 +11,7 @@
  *    over-rejecting an unfamiliar layout is otherwise silent
  */
 import type { DocumentRecord } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 export type Tone = "neutral" | "progress" | "success" | "warning" | "danger";
 
@@ -51,7 +52,10 @@ export function presentStatus(doc: DocumentRecord): StatusPresentation {
         // document is finished and N pages are still waiting for OCR.
         const waiting = doc.needs_ocr_pages - doc.recognised_pages;
         return {
-          label: `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,
+          // everyday words in the new look (H's gate on #1968): "read as a picture", the Dashboard's own words, not "OCR"
+          label: NEW_LOOK
+            ? `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting to be read as ${waiting === 1 ? "a picture" : "pictures"}`
+            : `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,
           tone: "neutral",
           answerable: true,
         };
