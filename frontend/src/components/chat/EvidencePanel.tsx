@@ -261,7 +261,7 @@ export function EvidencePanel({
           {boxed && image.answerLocated !== false
             ? "The answering sentence is outlined on the page as printed. Read as text, tables and equations can lose their shape."
             : boxed && image.answerLocated === false
-              ? "The page is shown, but the answering sentence could not be found on it to outline. Read as text, tables and equations can lose their shape."
+              ? "The page is shown, but the answer's sentence could not be marked on it. Read as text, tables and equations can lose their shape."
             : "Read as text, tables and equations can lose their shape. This is the page as printed."}
         </p>
         {boxed && image.answerLocated === false && (

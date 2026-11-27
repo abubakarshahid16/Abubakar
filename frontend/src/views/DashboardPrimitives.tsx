@@ -26,7 +26,7 @@ const STAGE_LABELS: Record<string, string> = {
 
 /** Update 12: the technical-query attachments nobody filed into the library are counted APART, never inside the library's numbers. */
 function attachmentsApart(n: number | null | undefined, nf: Intl.NumberFormat): string {
-  return n ? ` (${nf.format(n)} file${n === 1 ? "" : "s"} attached to queries counted apart: not in search, Chat or reviews until added to the library)` : "";
+  return n ? ` (${nf.format(n)} file${n === 1 ? "" : "s"} attached to queries ${n === 1 ? "is" : "are"} counted apart. They join search, Chat and reviews once added to the library)` : "";
 }
 
 export function bytes(n: number): string {
