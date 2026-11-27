@@ -194,15 +194,8 @@ export function TypeFilter({
       {vocabulary.types.map((type) => {
         const on = selected.includes(type);
         const count = vocabulary.countByType[type];
-        return (
-          // the shared kit's small button, its checked state the kit's "on" look: one filter look on Documents (H's gate carry-on)
-          <Button
-            key={type}
-            size="sm"
-            role="checkbox"
-            aria-checked={on}
-            onClick={() => onToggle(type)}
-          >
+        const inner = (
+          <>
             <span
               aria-hidden
               className={[
@@ -217,6 +210,33 @@ export function TypeFilter({
             {count != null && (
               <span className="text-xs text-slateish-300">{count}</span>
             )}
+          </>
+        );
+        // A ROW STAYS A ROW (H's gate on 5c142650): in a column (Analysis, "Search in") each type is a left-aligned list row with its
+        // box at the left, as approved; only the row of filters (Documents) is the kit's small button with its checked state.
+        if (layout === "column") {
+          return (
+            <button
+              key={type}
+              type="button"
+              role="checkbox"
+              aria-checked={on}
+              onClick={() => onToggle(type)}
+              className={[
+                "inline-flex items-center justify-start gap-2 rounded border px-2.5 py-1 text-[13px] motion-safe:transition-colors",
+                on
+                  ? "border-signal-500/40 bg-signal-500/10 text-signal-400"
+                  : "border-ink-600 bg-ink-800 text-slateish-300 hover:bg-ink-700",
+              ].join(" ")}
+            >
+              {inner}
+            </button>
+          );
+        }
+        return (
+          // the shared kit's small button, its checked state the kit's "on" look: one filter look on Documents (H's gate carry-on)
+          <Button key={type} size="sm" role="checkbox" aria-checked={on} onClick={() => onToggle(type)}>
+            {inner}
           </Button>
         );
       })}
