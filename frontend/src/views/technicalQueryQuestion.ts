@@ -68,17 +68,33 @@ export function readableLines(text: string, found: FoundQuestion[] | null | unde
     const key = f.question.trim();
     if (key && !where.has(key)) where.set(key, [f.filename, f.page != null ? `page ${f.page}` : null].filter(Boolean).join(", "));
   }
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const m = NUMBERED.exec(line);
-      if (!m) return { kind: "lead" as const, text: line, source: where.get(line) || undefined };
-      // a form's own list marker ("- Matching line list") is not part of the request: shown without it, its source still found
-      const shown = m[2].replace(/^[-–•*]\s+/, "");
-      return { kind: "item" as const, n: Number(m[1]), text: shown, source: where.get(m[2]) || where.get(shown) || undefined };
-    });
+  const out: ReadableLine[] = [];
+  // a request that WRAPS onto the next line belongs to its item (the owner's regression query, 27 Nov 2026: item 3 ended "... before Mechanical" and its
+  // last word "Completion?" was shown as a lead-in ABOVE the list); a blank line ends an item, as on the server (items_of)
+  let inItem = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) {
+      inItem = false;
+      continue;
+    }
+    const m = NUMBERED.exec(line);
+    const last = out[out.length - 1];
+    if (!m && inItem && last?.kind === "item") {
+      last.text = `${last.text} ${line}`;
+      continue;
+    }
+    if (!m) {
+      out.push({ kind: "lead", text: line, source: where.get(line) || undefined });
+      inItem = false;
+      continue;
+    }
+    // a form's own list marker ("- Matching line list") is not part of the request: shown without it, its source still found
+    const shown = m[2].replace(/^[-–•*]\s+/, "");
+    out.push({ kind: "item", n: Number(m[1]), text: shown, source: where.get(m[2]) || where.get(shown) || undefined });
+    inItem = true;
+  }
+  return out;
 }
 
 /** The found requests not in the text (the ones beyond LIST_FOUND, or taken out): the "may have missed a request" mark counts them. */
