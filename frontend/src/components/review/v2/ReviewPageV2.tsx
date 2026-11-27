@@ -85,7 +85,7 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
         <p data-testid="v2-newer-note" className="text-sm text-pill-review-fg">{run.newer_note}. It is listed under &quot;How this review was made&quot;.</p>
       )}
       {latest && (
-        <GeneralResults review={latest} onViewPage={(page) => setViewing({ page })} onReload={reloadGeneral}
+        <GeneralResults review={latest} onViewPage={(page) => setViewing({ page })} onReload={reloadGeneral} onOpenRun={onOpenRun}
           howTab={<><GeneralHistory documentId={latest.paper_document_id} />{howTab}</>} />
       )}
       {drawOld && (general.state === "ok" || method === "general") && (
