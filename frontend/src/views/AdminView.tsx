@@ -144,8 +144,9 @@ export function DangerAction({
 
   if (!asking) {
     return (
-      <Button variant="danger" size="sm"
-       
+      // red is for the confirm step only: a routine button on every row is neutral (H's walk, 27 Nov 2026: a red "Deactivate" on every
+      // user row); the question that follows keeps the red, as Documents' Delete does
+      <Button variant={NEW_LOOK ? "secondary" : "danger"} size="sm"
         disabled={busy}
         onClick={() => setAsking(true)}
       >

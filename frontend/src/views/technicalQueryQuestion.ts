@@ -241,15 +241,18 @@ export interface SourceRow {
 export function citedSplit(
   evidence: SourceRow[] | null | undefined,
   citationsJson: string | null | undefined,
-): { keep: SourceRow[]; reject: SourceRow[] } {
+): { keep: SourceRow[]; reject: SourceRow[]; citesNone: boolean } {
   let cited: Set<string>;
   try {
     cited = new Set((JSON.parse(citationsJson || "[]") as { evidence_id?: string }[]).map((c) => c.evidence_id ?? "").filter(Boolean));
   } catch {
     cited = new Set();
   }
+  // NEVER REJECT EVERYTHING (H's review of the owner's file, Q3: a reply citing 0 sources offered to reject all 12): when the reply cites
+  // none of this question's sources (no citation, or only sources of an earlier search), nothing is kept or rejected by the bulk step
+  if (!currentSources(evidence).some((e) => cited.has(e.id))) return { keep: [], reject: [], citesNone: true };
   const open = currentSources(evidence).filter((e) => e.evidence_state === "proposed");
-  return { keep: open.filter((e) => cited.has(e.id)), reject: open.filter((e) => !cited.has(e.id)) };
+  return { keep: open.filter((e) => cited.has(e.id)), reject: open.filter((e) => !cited.has(e.id)), citesNone: false };
 }
 
 // ---------------------------------------------------------------------- the page read in ten seconds (owner, 26 Nov 2026 22:41)
@@ -284,7 +287,7 @@ export function plainStatus(status: string, priority?: string | null): string {
   return `${word[status] ?? status.replaceAll("_", " ")}${p && p !== "normal" ? ` · ${p} priority` : ""}`;
 }
 
-export type StepState = "done" | "working" | "todo" | "warn";
+export type StepState = "done" | "working" | "todo" | "stale" | "warn";
 export interface Step { label: string; state: StepState }
 
 /** Three steps and the approval, each with its own mark (owner: instead of the dense status sentence). */
@@ -292,7 +295,7 @@ export function querySteps(q: {
   status: string;
   drafts?: Array<{ citations_json?: string | null }> | null;
   evidence?: { for_current_question?: boolean | null }[] | null;
-  ready?: { evidence?: string | null; draft?: string | null } | null;
+  ready?: { evidence?: string | null; draft?: string | null; draft_fresh?: boolean | null } | null;
 }, askText: string): Step[] {
   const approved = ["approved", "send_pending", "sent", "awaiting_confirmation", "resolved"].includes(q.status);
   const sources = currentSources(q.evidence).length;
@@ -301,6 +304,8 @@ export function querySteps(q: {
     { label: "Sources found", state: q.ready?.evidence === "refreshing" ? "working" : sources ? "done" : "todo" },
     q.ready?.draft === "refreshing" ? { label: "Reply written", state: "working" }
       : !q.drafts?.length ? { label: "Reply written", state: "todo" }
+      // ticked only when the reply answers the CURRENT question (H's review of the owner's file, Q4): a reply to an earlier wording is said so
+      : q.ready?.draft_fresh === false ? { label: "Reply written", state: "stale" }
       // a reply that cites no source is written, but not ready: never a plain tick (F's walk, 27 Nov 2026)
       : citesNoSource(q.drafts[q.drafts.length - 1]) ? { label: "Reply written: uses no source yet", state: "warn" }
       : { label: "Reply written", state: "done" },
