@@ -116,12 +116,13 @@ export function Composer({
             {picked.map((d) => d.name).join(" · ")}
           </span>
           {onPickerOpen && (
-            <Button variant="secondary"
-             
+            <button
+              type="button"
               onClick={() => onPickerOpen(true)}
+              className="ms-auto shrink-0 text-signal-300 underline underline-offset-2"
             >
               Change
-            </Button>
+            </button>
           )}
         </div>
       )}
@@ -204,27 +205,29 @@ export function Composer({
               aria-label="More options"
               className="absolute bottom-10 left-0 z-30 w-60 rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-1 shadow-[var(--shadow-floating)]"
             >
-              <Button variant="secondary"
-               
+              <button
+                type="button"
                 onClick={() => {
                   setMenu(false);
                   onRecords();
                 }}
+                className="block w-full rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm text-slateish-200 hover:bg-ink-700"
               >
                 Search workflow records
                 <span className="block text-xs text-slateish-500">Deliverables, findings, risks</span>
-              </Button>
+              </button>
               {onUpload && (
-                <Button variant="secondary"
-                 
+                <button
+                  type="button"
                   onClick={() => {
                     setMenu(false);
                     onUpload();
                   }}
+                  className="block w-full rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm text-slateish-200 hover:bg-ink-700"
                 >
                   Add a document
                   <span className="block text-xs text-slateish-500">Opens the Documents screen</span>
-                </Button>
+                </button>
               )}
             </div>
           )}

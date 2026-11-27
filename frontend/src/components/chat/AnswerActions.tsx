@@ -10,7 +10,6 @@
  * one (NotReportable) and a button that fails every time is worse than none.
  */
 import { useState } from "react";
-import { Button } from "../kit/Kit";
 
 const quiet =
   "rounded-[var(--radius-sm)] px-2 py-1 text-xs text-slateish-400 motion-safe:transition-colors hover:bg-ink-800 hover:text-slateish-200 disabled:opacity-50";
@@ -133,12 +132,13 @@ export function AnswerActions({
           {onOpenReports && (
             <>
               {" · "}
-              <Button variant="secondary"
-               
+              <button
+                type="button"
                 onClick={onOpenReports}
+                className="min-h-0 text-signal-400 underline decoration-signal-500/40 underline-offset-2 hover:text-signal-300"
               >
                 Open
-              </Button>
+              </button>
             </>
           )}
         </p>

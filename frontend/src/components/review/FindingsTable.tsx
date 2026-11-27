@@ -205,8 +205,9 @@ export function FindingsTable(
       )}
 
       {missing.length > 0 && !showMissing && (
-        <Button variant="secondary"
-          onClick={() => setShowMissing(true)}
+        <button
+          type="button" onClick={() => setShowMissing(true)}
+          className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-300 hover:border-ink-500"
         >
           <span className="font-semibold text-slateish-200">
             {missing.length.toLocaleString()} requirements had no evidence on this submittal
@@ -218,7 +219,7 @@ export function FindingsTable(
             No value was submitted against these. That is a question for the
             contractor, not a breach.
           </span>
-        </Button>
+        </button>
       )}
       {missing.length > 0 && showMissing && (
         <Button variant="secondary" size="sm"
@@ -228,8 +229,9 @@ export function FindingsTable(
         </Button>
       )}
       {outOfScope.length > 0 && !showOutOfScope && (
-        <Button variant="secondary"
-          onClick={() => setShowOutOfScope(true)}
+        <button
+          type="button" onClick={() => setShowOutOfScope(true)}
+          className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-700 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-400 hover:border-ink-500"
         >
           <span className="font-semibold text-slateish-300">
             {outOfScope.length.toLocaleString()} requirements need another document
@@ -242,7 +244,7 @@ export function FindingsTable(
             documents that govern them - not a contractor omission, and not a
             breach.
           </span>
-        </Button>
+        </button>
       )}
       {outOfScope.length > 0 && showOutOfScope && (
         <Button variant="secondary" size="sm"
@@ -303,12 +305,13 @@ function FindingRow({ finding, name, standardName, selected, onSelect, documents
       aria-selected={selected}
     >
       <td className="px-3 py-2">
-        <Button variant="secondary"
-         
+        <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onSelect(); }}
+          className="text-left text-signal-300 hover:underline"
         >
           {name ?? orNothing(finding.standard_document_id)}
-        </Button>
+        </button>
         <span className="mt-0.5 block text-xs text-slateish-400">
           {finding.standard_clause ? `clause ${finding.standard_clause}` : ""}
           {finding.standard_page ? ` · p${finding.standard_page}` : ""}

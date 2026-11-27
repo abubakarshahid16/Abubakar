@@ -183,9 +183,9 @@ export function ReportsScreen() {
           <p className="mt-1 text-slateish-300">
             {loadError}. This is not an empty list
             {reports !== null ? "; the reports already shown are unchanged" : ""}.{" "}
-            <Button variant="secondary" onClick={() => void load()}>
+            <button type="button" onClick={() => void load()} className="font-medium underline">
               Try again
-            </Button>
+            </button>
           </p>
         </div>
       )}

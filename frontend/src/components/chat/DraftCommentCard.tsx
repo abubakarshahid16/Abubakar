@@ -149,20 +149,21 @@ export function DraftCommentCard({
           {filing.result.review_run_id && onOpenReview && (
             <>
               {" "}
-              <Button variant="secondary"
-               
+              <button
+                type="button"
                 onClick={() => onOpenReview(filing.result.review_run_id!)}
+                className="min-h-0 text-signal-400 underline"
               >
                 Open review
-              </Button>
+              </button>
             </>
           )}
           {undoOpen && onUndo && (
             <>
               {" "}
-              <Button variant="secondary" onClick={() => void undo()}>
+              <button type="button" onClick={() => void undo()} className="min-h-0 font-semibold text-signal-400 underline">
                 Undo
-              </Button>
+              </button>
             </>
           )}
         </p>

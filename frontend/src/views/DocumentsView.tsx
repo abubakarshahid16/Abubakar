@@ -30,7 +30,7 @@ import {
   typeOf,
 } from "./documentTypeGroups";
 import { NOT_IN_REGISTER_LABEL } from "../components/classification/registerLabels";
-import { Button } from "../components/kit/Kit";
+import { Button, LinkButton } from "../components/kit/Kit";
 
 type Load =
   | { state: "loading" }
@@ -660,12 +660,9 @@ export function DocumentsView({
             // Repeating it here would be noise, so this is a short pointer.
             <p className="text-sm text-warn-500">
               Document list unavailable while the backend is unreachable.{" "}
-              <Button variant="secondary"
-               
-                onClick={onRetryConnection}
-              >
+              <LinkButton onClick={onRetryConnection}>
                 Retry
-              </Button>
+              </LinkButton>
             </p>
           ) : (
             <ErrorState error={load.error} onRetry={refresh} />

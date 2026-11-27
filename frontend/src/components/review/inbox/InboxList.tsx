@@ -182,13 +182,14 @@ export function InboxList(
                     <li key={run.review_run_id} className="flex flex-wrap items-center gap-2">
                       <span>{whenLabel(run.created_at) || "date not recorded"}</span>
                       <span>· {stateLabel(inboxStateOf(run))}</span>
-                      <Button variant="secondary"
-                       
+                      <button
+                        type="button"
                         onClick={() => onOpenRun(run.review_run_id)}
+                        className="underline"
                         aria-label={`Open the run of ${whenLabel(run.created_at) || "unknown date"}`}
                       >
                         Open
-                      </Button>
+                      </button>
                     </li>
                   ))}
                 </ul>

@@ -247,9 +247,10 @@ export function ReviewSheetView({ runId, panel, onBack, onOpenPanel, onOpenRun, 
             ))}
             {cards.length === 0 && <p className="text-sm text-slateish-300">Nothing on this datasheet needs your answer.</p>}
             {cardsShown.length < cards.length && (
-              <Button variant="secondary" data-testid="more-cards" onClick={() => setShownCards(shownCards + CARD_CHUNK)}>
+              <button type="button" data-testid="more-cards" onClick={() => setShownCards(shownCards + CARD_CHUNK)}
+                className="w-full rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-900 px-4 py-3 text-left text-sm text-slateish-300 hover:border-ink-500">
                 Showing cards {firstShown}-{lastShown} of {cards.length} - show {Math.min(CARD_CHUNK, cards.length - cardsShown.length)} more
-              </Button>
+              </button>
             )}
             {cards.length > 0 && (
               <p className="text-xs text-slateish-500 max-sm:hidden" data-testid="sheet-keys">

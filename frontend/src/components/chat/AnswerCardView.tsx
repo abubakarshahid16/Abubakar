@@ -291,13 +291,14 @@ ollama serve
             <ul className="mt-1.5 space-y-1">
               {view.supporting.map((s, i) => (
                   <li key={s.chunk_id}>
-                  <Button variant="secondary" size="sm"
-                   
+                  <button
+                    type="button"
                     onClick={() => onSelectSource(i + 1)}
+                    className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
                   >
                     <ChipMark n={i + 2} active={activeSource === i + 1} />
                     <PassageLocation passage={s} />
-                  </Button>
+                  </button>
                   <RetrievalDetails passage={s} />
                 </li>
               ))}
@@ -464,13 +465,14 @@ ollama serve
         <ul className="mt-3 space-y-1">
           {sources.map((s, i) => (
               <li key={s.chunk_id}>
-              <Button variant="secondary" size="sm"
-               
+              <button
+                type="button"
                 onClick={() => onSelectSource(i)}
+                className="flex w-full items-center gap-2 rounded-[var(--radius-sm)] border border-ink-700 px-2 py-1.5 text-left hover:bg-ink-800"
               >
                 <ChipMark n={i + 1} active={activeSource === i} />
                 <PassageLocation passage={s} />
-              </Button>
+              </button>
               <RetrievalDetails passage={s} />
             </li>
           ))}

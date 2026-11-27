@@ -46,13 +46,14 @@ export function SheetCard(props: SheetCardProps) {
   const done = card.state !== "open";
   if (!selected) {
     return (
-      <Button variant="secondary"
-        onClick={onSelect}
+      <button
+        type="button" onClick={onSelect}
+        className="flex w-full items-center gap-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2 text-left text-sm text-slateish-200 hover:border-ink-600"
       >
         <span aria-hidden="true" className={done ? "text-signal-400" : isTickFinding(card.findings[0]) ? "text-signal-500" : "text-warn-500"}>{done ? "✓" : "●"}</span>
         <span className={`flex-1 truncate ${done ? "text-slateish-400" : ""}`}>{cardTitle(card)}</span>
         {done && <span className="text-xs text-slateish-500">{doneWords(card)}</span>}
-      </Button>
+      </button>
     );
   }
   return <OpenCard key={card.key} {...props} />;

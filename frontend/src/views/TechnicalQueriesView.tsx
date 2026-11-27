@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
 import { TechnicalQueriesList } from "./TechnicalQueriesList";
-import { Button } from "../components/kit/Kit";
+import { Button, LinkButton } from "../components/kit/Kit";
 import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, peopleLine, prepareAllWords, proposalNoteWords, type PrepareAll } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
 
@@ -575,7 +575,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           ) : null}
           {questionMarks.map((mark) => <p key={mark} data-testid="question-mark" className="mt-1 text-xs text-warn-500">{mark}</p>)}
           {!selected.confirmed_question && notInText(questionDraft, selected.proposed_questions).length > 0 && <details className="mt-1" data-testid="found-more"><summary className="cursor-pointer text-xs text-slateish-300">Show the other lines found on the form</summary>
-            {notInText(questionDraft, selected.proposed_questions).map((part, index) => <p key={`${part.filename}-${part.page}-${index}`} className="mt-1 text-sm text-slateish-300">{part.question}<span className="block text-xs text-slateish-500">found in {part.filename}, page {part.page} · <Button variant="secondary" onClick={() => setQuestionDraft((current) => withRequest(current, part.question))}>Add to the list</Button></span></p>)}
+            {notInText(questionDraft, selected.proposed_questions).map((part, index) => <p key={`${part.filename}-${part.page}-${index}`} className="mt-1 text-sm text-slateish-300">{part.question}<span className="block text-xs text-slateish-500">found in {part.filename}, page {part.page} · <LinkButton onClick={() => setQuestionDraft((current) => withRequest(current, part.question))}>Add to the list</LinkButton></span></p>)}
           </details>}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-2">
             {editingQuestion || !questionDraft.trim() ? <>

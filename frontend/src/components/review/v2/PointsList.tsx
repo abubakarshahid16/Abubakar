@@ -98,11 +98,11 @@ function Row({ p, open, onToggle, decide, busy, onViewPage }: {
   return (
     <li data-testid="v2-point" className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <Button variant="secondary" aria-expanded={open} onClick={onToggle}>
+        <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-[14rem] flex-1 flex-col items-start gap-1 text-left">
           <Pill p={p} />
           <span className="text-slateish-100">{p.name}</span>
           <span className="text-xs text-slateish-400">{placeWords(p)}</span>
-        </Button>
+        </button>
         <Controls p={p} decide={decide} busy={busy} />
       </div>
       {open && (
