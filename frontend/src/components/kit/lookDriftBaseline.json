@@ -242,7 +242,7 @@
  "components/ExcludedViewer.tsx": {
   "table": 0,
   "card": 2,
-  "notice": 3
+  "notice": 2
  },
  "components/FreeModelMemory.tsx": {
   "table": 0,
