@@ -175,6 +175,54 @@ def test_an_older_system_draft_still_drafting_is_written_again_too(query):
         assert auto.stale_system_drafts(conn) == []  # never one an engineer decided on
 
 
+def test_a_query_already_tried_since_its_latest_draft_is_not_queued_again_at_every_start(
+    query,
+):
+    """F after Install 2c (27 Nov 2026): 6 drafting queries on an older system draft whose sources are too weak were re-queued at EVERY
+    start; each run stored "no source answers ... closely enough" and wrote no draft, so the next start picked them again. Once a
+    preparation ran after the latest draft and stored why no draft was written, it is not queued again (a person keeps a source)."""
+    item, scope, _asked = query
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET status='drafting', draft_note=NULL WHERE id=?",
+            (item["id"],),
+        )
+        conn.execute(
+            "UPDATE query_drafts SET prompt_version='system-draft-1', created_at='2026-11-27T01:00:00Z' WHERE query_id=?",
+            (item["id"],),
+        )
+        conn.execute(
+            "UPDATE query_evidence_jobs SET created_at='2026-11-27T00:00:00Z' WHERE query_id=?",
+            (item["id"],),
+        )
+        assert auto.stale_system_drafts(conn) == [
+            item["id"]
+        ]  # an older system draft, never tried since: drafted again
+        conn.execute(
+            "UPDATE technical_queries SET draft_note=? WHERE id=?",
+            (auto.TOO_WEAK, item["id"]),
+        )
+        assert auto.stale_system_drafts(conn) == [
+            item["id"]
+        ]  # a note, but no preparation ran after the draft yet
+        conn.execute(
+            "UPDATE query_evidence_jobs SET created_at='2026-11-27T02:00:00Z' WHERE query_id=?",
+            (item["id"],),
+        )
+        assert (
+            auto.stale_system_drafts(conn) == []
+        )  # tried after the draft, nothing written: not queued at every start
+        conn.execute(
+            "UPDATE technical_queries SET draft_note=? WHERE id=?",
+            (auto.MODEL_DOWN, item["id"]),
+        )
+        assert auto.stale_system_drafts(conn) == [
+            item["id"]
+        ]  # tried, but the local AI did not answer: that passes, so the next start drafts it again (C's read of #2022)
+
+
 def test_keeping_one_source_never_narrows_the_draft_to_it_alone(query):
     """F's walk (26 Nov 2026): with 1 of 5 good sources kept, the draft rested on that 1 only. Now: the kept ones first, then the system's
     close-enough finds for this wording that nobody rejected, up to MAX_DRAFT_PASSAGES; a weak or a rejected find is never one."""

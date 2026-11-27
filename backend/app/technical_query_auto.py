@@ -20,8 +20,8 @@ import logging
 import re
 from typing import Any
 
-from .db import connect
 from . import technical_query_reply_checks as RC
+from .db import connect
 
 log = logging.getLogger(__name__)
 
@@ -577,7 +577,9 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
     )  # another held query the request names: "see it before replying"
     if named:
         found_marks.append(named)
-    for stored in stored_reply_marks(latest):  # the marks written beside the reply when it was drafted (builder H, 27 Nov 2026: never shown)
+    for stored in stored_reply_marks(
+        latest
+    ):  # the marks written beside the reply when it was drafted (builder H, 27 Nov 2026: never shown)
         if stored not in found_marks:
             found_marks.append(stored)
     from .technical_query_position import offer
@@ -611,8 +613,12 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "draft_fresh": bool(latest) and (latest.get("question") or "") == question,
         # the latest reply is an AI draft from before today's draft checks, and today's rewrite of it was STOPPED (its note says why): the
         # page shows it as an old reply, never as the current proposal (builder A's scope of fault 2, 27 Nov 2026: 13 such on live)
-        "draft_old": not busy and bool(latest) and bool(item.get("draft_note")) and bool(latest.get("model"))
-        and (latest.get("prompt_version") or "").startswith("system-draft-") and latest.get("prompt_version") != SYSTEM_DRAFT,
+        "draft_old": not busy
+        and bool(latest)
+        and bool(item.get("draft_note"))
+        and bool(latest.get("model"))
+        and (latest.get("prompt_version") or "").startswith("system-draft-")
+        and latest.get("prompt_version") != SYSTEM_DRAFT,
         "draft_note": None if busy else item.get("draft_note"),
         "marks": found_marks,
         "cited": cited_by_contractor(item),
@@ -746,7 +752,9 @@ def stale_system_drafts(conn) -> list[str]:
     - not yet drafted or still drafting (no decision, no engineer-typed draft) whose evidence an older search found;
     - still drafting (or any other preparable status, no decision) whose latest draft is an OLDER system draft (F, 27 Nov 2026, H's
       rescan of Install 1: a draft-version bump re-drafted only the queries awaiting review, so 13 queries in "drafting" kept their
-      system-draft-1/2 replies)."""
+      system-draft-1/2 replies). NOT one that was already tried after its latest draft and stored why no draft was written (F, after
+      Install 2c: 6 queries whose sources are too weak were re-queued at EVERY start, never writing a draft; their note asks a person
+      to keep a source by hand, and "Write the reply again" retries them then)."""
     from .technical_query_items import SEARCH_VERSION
 
     out = []
@@ -754,9 +762,15 @@ def stale_system_drafts(conn) -> list[str]:
         "SELECT q.id, q.status, q.evidence_question, q.evidence_search_version, "
         "(SELECT d.prompt_version FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS pv, "
         "(SELECT d.model FROM query_drafts d WHERE d.query_id=q.id ORDER BY d.version DESC LIMIT 1) AS model, "
-        "(SELECT COUNT(*) FROM query_drafts d WHERE d.query_id=q.id) AS drafts FROM technical_queries q "
+        "(SELECT COUNT(*) FROM query_drafts d WHERE d.query_id=q.id) AS drafts, "
+        # tried AFTER its latest draft, with the reason no draft was written stored: retrying at every start writes nothing new.
+        # NOT when the reason is that the local AI did not answer: that passes, so the next start tries again (C's read of #2022)
+        "(q.draft_note IS NOT NULL AND q.draft_note <> ? AND EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state='done' AND "
+        "j.created_at > COALESCE((SELECT MAX(d.created_at) FROM query_drafts d WHERE d.query_id=q.id), ''))) AS tried "
+        "FROM technical_queries q "
         "WHERE NOT EXISTS (SELECT 1 FROM query_decisions x WHERE x.query_id=q.id) "
-        "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at"
+        "AND NOT EXISTS (SELECT 1 FROM query_evidence_jobs j WHERE j.query_id=q.id AND j.state IN ('queued','running')) ORDER BY q.received_at",
+        (MODEL_DOWN,),
     ):
         older_search = (
             bool(row["evidence_question"]) and _search_version(row) < SEARCH_VERSION
@@ -774,7 +788,8 @@ def stale_system_drafts(conn) -> list[str]:
             if model_draft and (old_system_draft or older_search):
                 out.append(row["id"])
         elif row["status"] in PREPARABLE and (
-            (older_search and (not row["drafts"] or model_draft)) or old_system_draft
+            (older_search and (not row["drafts"] or model_draft))
+            or (old_system_draft and not row["tried"])
         ):
             out.append(row["id"])
     return out
