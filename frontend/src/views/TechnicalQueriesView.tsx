@@ -5,6 +5,7 @@ import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
+import { REFS_MARK, TechnicalQueryCrossRefs } from "./TechnicalQueryCrossRefs";
 import { TechnicalQueriesList } from "./TechnicalQueriesList";
 import { Button, LinkButton } from "../components/kit/Kit";
 import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, peopleLine, prepareAllWords, proposalNoteWords, type PrepareAll } from "../api/technicalQueries";
@@ -282,7 +283,10 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     return technicalQueriesApi.get(selected!.id);
   });
 
-  const questionMarks = selected ? [...new Set([...honestMarks(selected, questionDraft).question, ...(selected.ready?.marks ?? []).map(plainMark)])] : [];
+  // the references' own mark is shown as the references themselves (TechnicalQueryCrossRefs), one sentence each, never twice
+  const refsShown = Boolean(selected?.cross_refs?.length);
+  const questionMarks = selected ? [...new Set([...honestMarks(selected, questionDraft).question, ...(selected.ready?.marks ?? []).filter((m) => !(refsShown && REFS_MARK.test(m))).map(plainMark)])] : [];
+  const openQuery = (id: string) => void technicalQueriesApi.get(id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } });
   const searching = selected?.evidence_job?.state === "queued" || selected?.evidence_job?.state === "running";
   // the ask as shown differs from what the sources were found for (the confirmed wording, else the proposal)
   const questionEdited = Boolean(selected) && questionDraft.trim() !== (selected ? startingText(selected) : "").trim();
@@ -414,7 +418,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           loading={visibleTotal === null} items={items} activeFilters={activeFilters} quick={quick} onQuick={setQuick}
           handOpen={handOpen} onHand={() => setHandOpen((open) => !open)} filtersOpen={filtersOpen} onFilters={() => setFiltersOpen((open) => !open)}
           importing={importing} selectedId={selected?.id ?? null} assignees={assignees}
-          onOpen={(id) => void technicalQueriesApi.get(id).then((detail) => { if (detail.ok) { setSelected(detail.data); showDetail(); setEditedAnswer(detail.data.drafts?.at(-1)?.answer || ""); } })}
+          onOpen={openQuery}
           panels={{
             mailbox: <>
         {canManageGmail && mailboxes.length === 0 && <div className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200">
@@ -574,6 +578,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             </div>
           ) : null}
           {questionMarks.map((mark) => <p key={mark} data-testid="question-mark" className="mt-1 text-xs text-warn-500">{mark}</p>)}
+          <TechnicalQueryCrossRefs refs={selected.cross_refs} onOpen={openQuery} />
           {!selected.confirmed_question && notInText(questionDraft, selected.proposed_questions).length > 0 && <details className="mt-1" data-testid="found-more"><summary className="cursor-pointer text-xs text-slateish-300">Show the other lines found on the form</summary>
             {notInText(questionDraft, selected.proposed_questions).map((part, index) => <p key={`${part.filename}-${part.page}-${index}`} className="mt-1 text-sm text-slateish-300">{part.question}<span className="block text-xs text-slateish-500">found in {part.filename}, page {part.page} · <LinkButton onClick={() => setQuestionDraft((current) => withRequest(current, part.question))}>Add to the list</LinkButton></span></p>)}
           </details>}
