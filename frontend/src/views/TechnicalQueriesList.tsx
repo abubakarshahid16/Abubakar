@@ -48,7 +48,9 @@ export function TechnicalQueriesList(props: {
   // is not repeated on each row; a row shows its chip only when its state differs. The count line names every state with its number,
   // and when the rows are mixed one line says which state an unmarked row is in (new look; the classic look keeps a chip on every row).
   const shownWords = shown.map((item) => statusChip(item.status).words);
-  const common = NEW_LOOK && shownWords.length > 1 ? mostCommon(shownWords) : null;
+  // only a CLEAR majority loses its chips: near a half/half split hiding one group saves little and adds words (F's gate on #1987)
+  const top = NEW_LOOK && shownWords.length > 1 ? mostCommon(shownWords) : null;
+  const common = top !== null && shownWords.filter((w) => w === top).length * 2 > shownWords.length ? top : null;
   const mixed = common !== null && shownWords.some((w) => w !== common);
   return (
     <Stack gap={3}>
@@ -64,7 +66,9 @@ export function TechnicalQueriesList(props: {
       {props.loading ? <Small>Loading queries</Small> : (
         <p data-testid="count-line" className="kit-lead">
           <strong>{line.total} quer{line.total === 1 ? "y" : "ies"}{props.activeFilters > 0 ? " match the filters" : ""}</strong>{line.parts.length ? ": " : ""}
-          {line.parts.map((part, index) => <span key={part.view}>{index ? ", " : ""}<LinkButton pressed={quick === part.view} onClick={() => toggle(part.view)}>{part.n} {part.words}</LinkButton></span>)}
+          {/* the state an unmarked row is in is said HERE, in the count sentence ("32 waiting for approval (no label)"), not as a third note
+              over the list (F's gate on #1987, 27 Nov 2026) */}
+          {line.parts.map((part, index) => <span key={part.view}>{index ? ", " : ""}<LinkButton pressed={quick === part.view} onClick={() => toggle(part.view)}>{part.n} {part.words}</LinkButton>{mixed && part.words.toLowerCase() === common!.toLowerCase() ? <span data-testid="no-label-part"> (no label)</span> : null}</span>)}
           {line.ofThem ? <>. <LinkButton pressed={quick === "person"} onClick={() => toggle("person")}>{line.ofThem.n} of them {line.ofThem.words}</LinkButton></> : null}
           {quick ? <> · <LinkButton onClick={() => props.onQuick(null)}>show all</LinkButton></> : null}
         </p>
@@ -80,7 +84,6 @@ export function TechnicalQueriesList(props: {
       {noContractor > 0 ? <Notice tone="warn"><span data-testid="no-contractor-note">{noContractor === items.length ? `None of the ${items.length}` : `${noContractor} of the ${items.length}`} quer{items.length === 1 ? "y has" : "ies have"} a contractor yet. Add its code once under More, &ldquo;Rules for who it goes to&rdquo;, and every query with that code fills itself.</span></Notice> : null}
       {/* the same said-once rule (H's gate on #1971: "Nobody assigned" on every one of 34 rows) */}
       {nobodyAll ? <Small><span data-testid="nobody-assigned-note">Nobody is assigned to any of these {items.length} queries yet.</span></Small> : null}
-      {mixed ? <Small><span data-testid="common-state-note">A query with no label below is {common!.toLowerCase()}.</span></Small> : null}
       <div className="kit-stack kit-gap-2" aria-label="Technical query list">
         {items.length === 0 ? <Small>{props.importing ? "The import is running: queries appear here as their messages arrive." : "No technical queries have been imported."}</Small> : null}
         {items.length > 0 && quick && shown.length === 0 ? <Small>None right now.</Small> : null}
