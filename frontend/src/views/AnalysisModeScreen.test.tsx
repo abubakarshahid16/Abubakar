@@ -251,7 +251,7 @@ describe("AnalysisModeScreen: rules that must hold on screen", () => {
     render(<AnalysisModeScreen />);
     await user.click(screen.getByRole("checkbox", { name: /generate recommendation/i }));
     await ask(user);
-    await screen.findByText(/AI Advisory/);
+    await screen.findByText(/AI advice/);
     // "high" is not a word this system issues. It becomes "not assessed".
     expect(screen.queryByText("high")).toBeNull();
     expect(screen.getByText("not assessed")).toBeInTheDocument();
@@ -615,7 +615,7 @@ describe("AnalysisModeScreen: selected work is explicit", () => {
     // #607: Gap analysis is listed, and OFF, in Quote mode - it is not what runs.
     expect(within(plan).getByText("Gap analysis")).toBeInTheDocument();
     expect(within(plan).getAllByText("Off")).toHaveLength(2);
-    expect(screen.getByText(/Quote mode runs only cited document evidence/)).toBeInTheDocument();
+    expect(screen.getByText(/Quote mode shows only the documents' own cited words/)).toBeInTheDocument();
   });
 });
 

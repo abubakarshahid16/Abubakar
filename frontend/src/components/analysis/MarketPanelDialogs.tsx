@@ -80,7 +80,7 @@ export function QueryForm({ onPreview }: { onPreview: (q: PublicMarketQuery) => 
         type="submit"
         disabled={!trimmed}
       >
-        Preview exact outbound query
+        Preview exactly what would be sent
       </Button>
     </form>
   );
@@ -178,7 +178,7 @@ export function ConfirmDialog({
         className="w-full max-w-lg rounded-[var(--radius-md)] border border-ink-500 bg-ink-850 p-4"
       >
         <h4 id={titleId} className="text-sm font-semibold text-slateish-200">
-          Confirm outbound query
+          Confirm what is sent
         </h4>
         <p id={descId} className="mt-1 text-xs text-slateish-300">
           This is the exact text that would leave the machine. Nothing else.
@@ -220,7 +220,7 @@ export function ConfirmDialog({
             <p className="mt-3 text-xs uppercase tracking-wider text-slateish-500">
               {preview.data.payloads.length === 1
                 ? "Exactly what would be sent, as the server states it"
-                : `The exact outbound payloads, as the backend states them (${preview.data.payloads.length})`}
+                : `Exactly what would be sent, as the server states it (${preview.data.payloads.length})`}
             </p>
             {preview.data.payloads.map((entry) => (
               <div key={entry.tier} className="mt-2">
@@ -240,8 +240,7 @@ export function ConfirmDialog({
                 to trust the panel about what the request contained. */}
             {preview.data.payloads.length === 0 && (
               <p className="mt-2 text-xs text-warn-500">
-                No tier is configured in this build, so there is nothing to
-                send and nothing would be sent.
+                No public source is set up on this computer, so nothing can be sent.
               </p>
             )}
             {preview.data.tiers_unconfigured.length > 0 && (

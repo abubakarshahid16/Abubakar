@@ -19,8 +19,8 @@ import type { GapAnalysis, GapItem, GapItemStatus } from "../../types/analysis";
 
 const DOCS = [{ id: "doc_baseline", filename: "Contract-Conditions.pdf" }];
 
-const NOTHING_FOUND = "Retrieval found nothing addressing this. That is not proof the documents say nothing.";
-const POSITIVE_EVIDENCE = "Positive matching evidence was found.";
+const NOTHING_FOUND = "The search found nothing about this. That does not prove the documents are silent.";
+const POSITIVE_EVIDENCE = "A source matches it.";
 
 /** The baseline text from the reported defect, verbatim. */
 const SPAN =
@@ -60,7 +60,7 @@ describe("a row that cites evidence does not claim retrieval found nothing", () 
       note: "One row carries a measurement or identifier the others lack; nothing is contradicted.",
     });
     // The row really does carry the three chips from the report.
-    expect(within(row).getAllByRole("button", { name: /Show project evidence/ })).toHaveLength(3);
+    expect(within(row).getAllByRole("button", { name: /Show project source/ })).toHaveLength(3);
     expect(within(row).queryByText(/Retrieval found nothing addressing this/)).toBeNull();
     expect(screen.queryByText(NOTHING_FOUND)).toBeNull();
   });
@@ -81,7 +81,7 @@ describe("a row that cites nothing keeps the hedge", () => {
   it("renders the absence sentence, in full, when no evidence is cited", () => {
     const row = renderRow({ status: "possible_gap", project_citation_ids: [] });
     expect(within(row).getByText("none cited")).toBeInTheDocument();
-    expect(within(row).queryByRole("button", { name: /Show project evidence/ })).toBeNull();
+    expect(within(row).queryByRole("button", { name: /Show project source/ })).toBeNull();
     expect(screen.getByText(NOTHING_FOUND)).toBeInTheDocument();
   });
 });
@@ -169,7 +169,7 @@ describe("the row still shows what it always showed", () => {
         />,
       );
       expect(screen.getByText("Possible gap")).toBeInTheDocument();
-      expect(screen.getByText("Baseline, quoted verbatim")).toBeInTheDocument();
+      expect(screen.getByText("Baseline, in its own words")).toBeInTheDocument();
       expect(screen.getByText(SPAN)).toBeInTheDocument();
       unmount();
     }
@@ -180,7 +180,7 @@ describe("the row still shows what it always showed", () => {
       met: "Met",
       possible_gap: "Possible gap",
       conflict: "Conflict",
-      insufficient_evidence: "Insufficient evidence",
+      insufficient_evidence: "Not enough source text",
       beyond_requirement: "Beyond requirement, not checked",
       not_applicable: "Not applicable",
     };

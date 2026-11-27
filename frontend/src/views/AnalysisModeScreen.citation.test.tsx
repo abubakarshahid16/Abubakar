@@ -100,7 +100,7 @@ async function runQuoteAnalysis(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("radio", { name: /Quote/ }));
   await user.type(screen.getByLabelText("Question"), "what is the pressure floor");
   await user.click(screen.getByRole("button", { name: "Run analysis" }));
-  return await screen.findByRole("button", { name: /Show evidence from doc17\.pdf, page 12/ });
+  return await screen.findByRole("button", { name: /Show the source from doc17\.pdf, page 12/ });
 }
 
 /** jsdom implements neither of these. Both are installed per-test so a test
@@ -245,7 +245,7 @@ describe("citation row: the selected row is distinguishable", () => {
     await user.click(within(row).getByText(PASSAGE));
 
     const after = await screen.findByRole("button", {
-      name: /Show evidence from doc17\.pdf, page 12/,
+      name: /Show the source from doc17\.pdf, page 12/,
     });
     expect(after).toHaveAttribute("aria-pressed", "true");
     // Text, not colour alone.
@@ -318,7 +318,7 @@ function MarketHarness({ egress }: { egress: EgressState }) {
 async function openDialog(user: ReturnType<typeof userEvent.setup>, egress: EgressState) {
   render(<MarketHarness egress={egress} />);
   await user.type(screen.getByLabelText("Query"), "pump pressure standards");
-  const trigger = screen.getByRole("button", { name: "Preview exact outbound query" });
+  const trigger = screen.getByRole("button", { name: "Preview exactly what would be sent" });
   trigger.focus();
   await user.click(trigger);
   const dialog = await screen.findByRole("dialog");

@@ -39,7 +39,7 @@ export function ReviewWorkflowPanel({ findings, total = null, onUpdate, document
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wider text-slateish-300">Engineering review workflow</h3>
-          <p className="mt-1 text-xs text-slateish-500">Respond to cited findings, record the disposition, and submit them for approval.</p>
+          <p className="mt-1 text-xs text-slateish-500">Answer each cited finding, record the decision, and send it for approval.</p>
         </div>
         <span className="text-xs text-slateish-500">{total !== null && total > findings.length
           ? `the ${findings.length.toLocaleString()} most severe of ${total.toLocaleString()} findings`
@@ -144,7 +144,7 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
         </div>
       )}
       <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_auto]">
-        <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={2} placeholder="Engineer response or corrective-action explanation" className="w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200" />
+        <textarea value={response} onChange={(e) => setResponse(e.target.value)} rows={2} placeholder="The engineer's answer, or how it will be put right" className="w-full rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200" />
         <select value={disposition} onChange={(e) => setDisposition(e.target.value as ReviewDisposition | "")} className="rounded-[var(--radius-xs)] border border-ink-600 bg-ink-900 px-2 py-1.5 text-sm text-slateish-200">
           <option value="">Disposition</option>
           <option value="accepted">Accepted</option>
@@ -177,7 +177,7 @@ function FindingRow({ finding, onUpdate, documents }: { finding: ReviewFinding; 
         <Button variant="secondary" size="sm" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save response"}</Button>
         {message !== null && <span className="text-xs text-slateish-400" role="status">{message}</span>}
         <Button variant="secondary" size="sm" onClick={() => void showHistory()} disabled={loadingHistory}>{loadingHistory ? "Loading history…" : history === null ? "View history" : "Refresh history"}</Button>
-        <Button variant="secondary" size="sm" onClick={() => void showTraceability()}>{traceability === null ? "View full chain" : "Refresh full chain"}</Button>
+        <Button variant="secondary" size="sm" onClick={() => void showTraceability()}>{traceability === null ? "View all links" : "Refresh all links"}</Button>
       </div>
       {history !== null && <ol className="mt-3 space-y-1 border-l border-ink-600 ps-3 text-xs text-slateish-500" aria-label="Finding history">
         {history.map((event) => <li key={event.id}><span className="text-slateish-400">{eventLabel(event.event_type)}</span> · {formatWhen(event.created_at)} · {Object.keys(event.changes).join(", ") || "no field changes"}</li>)}
@@ -198,8 +198,8 @@ function TraceabilityTimeline({ traceability, finding }: { traceability: import(
     { label: "Owner", value: traceability.owner?.display_name || traceability.owner?.email || "No owner assigned", link: null },
     { label: "Action", value: traceability.action || finding.required_action, link: null },
   ];
-  return <section aria-label="Finding traceability" className="mt-3 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3 text-xs text-slateish-300">
-    <p className="font-semibold uppercase tracking-wide text-signal-400">Full traceability chain</p>
+  return <section aria-label="What this finding is linked to" className="mt-3 rounded-[var(--radius-xs)] border border-signal-500/30 bg-signal-500/[0.04] p-3 text-xs text-slateish-300">
+    <p className="font-semibold uppercase tracking-wide text-signal-400">Everything this finding is linked to</p>
     <ol className="mt-3 border-s border-signal-500/40 ps-4">
       {nodes.map((node) => <li key={node.label} className="relative pb-3 last:pb-0">
         <span aria-hidden className="absolute -start-[1.2rem] top-0.5 h-2 w-2 rounded-full bg-signal-400 ring-4 ring-ink-850" />

@@ -45,7 +45,7 @@ describe("RecommendationCard: mandated wording", () => {
     const { container } = render(<RecommendationCard recommendation={makeRec()} onCite={vi.fn()} />);
     const summary = container.querySelector("summary");
     expect(summary).not.toBeNull();
-    expect(summary!.textContent).toMatch(/AI Advisory — not a documented requirement/);
+    expect(summary!.textContent).toMatch(/AI advice — not a requirement from a document/);
   });
 });
 

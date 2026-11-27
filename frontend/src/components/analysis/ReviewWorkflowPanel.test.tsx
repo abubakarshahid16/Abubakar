@@ -9,11 +9,11 @@ const finding = { id: "f1", document_id: "d1", baseline_document_id: null, templ
 it("renders the complete traceability chain returned by the API", async () => {
   vi.spyOn(reviews, "traceability").mockResolvedValue({ ok: true, data: { finding, document: { id: "d1", filename: "submittal.pdf" }, baseline: { filename: "requirements.pdf" }, citations: ["c1"], events: [], deliverables: [], owner: null, action: "Resolve the deviation" } });
   render(<ReviewWorkflowPanel findings={[finding]} onUpdate={async () => undefined} />);
-  await userEvent.click(screen.getByRole("button", { name: "View full chain" }));
-  expect(await screen.findByRole("region", { name: "Finding traceability" })).toHaveTextContent("Finding");
-  expect(screen.getByRole("region", { name: "Finding traceability" })).toHaveTextContent("submittal.pdf");
-  expect(screen.getByRole("region", { name: "Finding traceability" })).toHaveTextContent("requirements.pdf");
-  expect(screen.getByRole("region", { name: "Finding traceability" })).toHaveTextContent("1 citation");
+  await userEvent.click(screen.getByRole("button", { name: "View all links" }));
+  expect(await screen.findByRole("region", { name: "What this finding is linked to" })).toHaveTextContent("Finding");
+  expect(screen.getByRole("region", { name: "What this finding is linked to" })).toHaveTextContent("submittal.pdf");
+  expect(screen.getByRole("region", { name: "What this finding is linked to" })).toHaveTextContent("requirements.pdf");
+  expect(screen.getByRole("region", { name: "What this finding is linked to" })).toHaveTextContent("1 citation");
   expect(screen.getByText(/Resolve the deviation/)).toBeInTheDocument();
   vi.restoreAllMocks();
 });
@@ -21,7 +21,7 @@ it("renders the complete traceability chain returned by the API", async () => {
 it("surfaces a traceability failure instead of failing silently", async () => {
   vi.spyOn(reviews, "traceability").mockResolvedValue({ ok: false, disconnected: false, error: { code: "internal", message: "Traceability is temporarily unavailable" } });
   render(<ReviewWorkflowPanel findings={[finding]} onUpdate={async () => undefined} />);
-  await userEvent.click(screen.getByRole("button", { name: "View full chain" }));
+  await userEvent.click(screen.getByRole("button", { name: "View all links" }));
   expect(await screen.findByRole("status")).toHaveTextContent("Traceability is temporarily unavailable");
   vi.restoreAllMocks();
 });

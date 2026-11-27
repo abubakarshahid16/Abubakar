@@ -148,6 +148,8 @@ export const WORDS_DONE: RegExp[] = [
   /^views\/ChatView\.tsx$/, /^components\/chat\/[A-Za-z]+\.tsx?$/,
   // Standards (words job, the rest)
   /^views\/(StandardsView\.tsx|standardsLibrary\.ts)$/, /^components\/standards\/[A-Za-z]+\.tsx$/,
+  // Analysis Hub (words job, the rest)
+  /^views\/AnalysisModeScreen(Content)?\.tsx$/, /^components\/analysis\/[A-Za-z]+\.tsx?$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [
