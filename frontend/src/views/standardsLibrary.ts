@@ -38,7 +38,8 @@ export function familyOf(s: Pick<StandardSummary, "document_number" | "filename"
 
 /** What the row is called: the stored number, else the stored title, else the file name. Never made up. */
 export function displayName(s: Pick<StandardSummary, "document_number" | "filename" | "title">): string {
-  return s.document_number?.trim() || s.title?.trim() || s.filename;
+  // a file's name without its extension (H's audit 26: "x.pdf" was a book's title); the row still shows the file's own name under it
+  return s.document_number?.trim() || s.title?.trim() || s.filename.replace(/\.(pdf|docx?|xlsx?)$/i, "");
 }
 
 /** Rows matching every word of the search, in the name, number, title, file name, family or discipline. */

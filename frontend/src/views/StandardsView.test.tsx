@@ -108,8 +108,13 @@ describe("the library list: search and families", () => {
     render(<StandardsView />);
     await screen.findByRole("region", { name: "SAES standards" });
     expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(25);
-    fireEvent.click(screen.getByRole("button", { name: "Show all 60 SAES standards" }));
+    // 25 more at a time (H's audit 27: a family of 272 drew all of them at once): 25 -> 50 -> 60, and the count says so
+    expect(screen.getByText(/Showing 25 of 60 SAES standards/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show 25 more" }));
+    expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(50);
+    fireEvent.click(screen.getByRole("button", { name: "Show 10 more" }));
     expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(60);
+    expect(screen.queryByText(/Showing \d+ of 60/)).toBeNull();
   });
 
   it("names a book by its title when it has no number, and by the file name when it has neither", async () => {
