@@ -253,7 +253,7 @@ describe("startNewReview", () => {
     const outcome = await startNewReview(file, () => {}, noWait);
     // The admin gate let the caller in, so it is never "only an administrator".
     expect(outcome).toEqual({ ok: false, message: MARK_UNREADABLE_MESSAGE });
-    expect(MARK_UNREADABLE_MESSAGE).toMatch(/could not be found, or you cannot open it/);
+    expect(MARK_UNREADABLE_MESSAGE).toMatch(/It was not found, or you cannot open it\./);
     expect(MARK_UNREADABLE_MESSAGE).not.toMatch(/administrator/);
     expect(calls).not.toContain("start");
   });

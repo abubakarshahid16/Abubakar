@@ -204,8 +204,8 @@ function hasRenderableBody(item: GapItem): boolean {
  *  the wording already used for the summary's dropped sentences. */
 function withheldLine(n: number): string {
   return n === 1
-    ? "One of them was reported with no facet, no part of a page, no source and no note, so it is not shown here."
-    : `${n} of them were reported with no facet, no part of a page, no source and no note, so they are not shown here.`;
+    ? "One of them came with no facet, page part, source or note. It is not shown here."
+    : `${n} of them came with no facet, page part, source or note. They are not shown here.`;
 }
 
 /**
@@ -416,7 +416,7 @@ function ItemRow({
       {withSpan && (
         <>
           <p className="mt-1.5 text-xs uppercase tracking-wide text-slateish-500">
-            {baselineIsStated ? "Requirement as stated by the user" : "Baseline, in its own words"}
+            {baselineIsStated ? "Requirement as you wrote it" : "Baseline, in its own words"}
           </p>
           <blockquote
             className={[
