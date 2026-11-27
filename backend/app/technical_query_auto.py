@@ -167,6 +167,8 @@ FALSE_QUOTE = (
     "press Write the reply again (under Redo), or write the reply yourself"
 )
 FALSE_QUOTE_MARK = "A quote in this draft is not in its cited source."
+#: How many more times the automatic draft is written when the only fault is a false quote (the model varies from run to run).
+FALSE_QUOTE_RETRIES = 1
 
 
 def _found_in(quote: str, source: str, *, exact: bool = True) -> bool:
@@ -302,31 +304,37 @@ def write_draft(
         return note
     from .answer import query_reply
 
-    try:
-        with (
-            query_reply()
-        ):  # the query-reply prompt: each request answered, no "Yes." / "No." opening
-            result = verified_passages.answer(question, evidence=passages, tier="generated",
-                                              allowed_document_ids=frozenset(p["document_id"] for p in passages), model="local")  # fmt: skip
-    except Exception as exc:  # noqa: BLE001 - logged by its class; the page says the draft waits for the model
-        log.info("technical query: system draft not written (%s)", type(exc).__name__)
-        _note(query_id, MODEL_DOWN)
-        return MODEL_DOWN
-    if result.get("answer_type") != "generated" or not result.get("answer"):
-        reason = "the passages were not enough for a grounded draft" + (
-            f": {result['reason']}" if result.get("reason") else ""
-        )
-        _note(query_id, reason)
-        return reason
-    citations = citations_of(result, passages)
-    if citations is None:
-        _note(query_id, OUTSIDE)
-        return OUTSIDE
-    if unsupported_quotes(
-        result["answer"], seen_sources(result), question
-    ):  # a false quote is never shown as a proposed reply
-        _note(query_id, FALSE_QUOTE)
-        return FALSE_QUOTE
+    # ONE retry when the only fault is a false quote (27 Nov 2026, measured on a live snapshot: redrafting the three queries stopped
+    # for one, 8 of 9 attempts passed; 6 of the 7 rejected phrases were the contractor's own words credited to a source). The new
+    # draft faces the same check: the guard is never weakened, a second false quote still stops it.
+    for attempt in range(1 + FALSE_QUOTE_RETRIES):
+        try:
+            with query_reply():  # the query-reply prompt: each request answered, no "Yes." / "No." opening
+                result = verified_passages.answer(question, evidence=passages, tier="generated",
+                                                  allowed_document_ids=frozenset(p["document_id"] for p in passages), model="local")  # fmt: skip
+        except Exception as exc:  # noqa: BLE001 - logged by its class; the page says the draft waits for the model
+            log.info(
+                "technical query: system draft not written (%s)", type(exc).__name__
+            )
+            _note(query_id, MODEL_DOWN)
+            return MODEL_DOWN
+        if result.get("answer_type") != "generated" or not result.get("answer"):
+            reason = "the passages were not enough for a grounded draft" + (
+                f": {result['reason']}" if result.get("reason") else ""
+            )
+            _note(query_id, reason)
+            return reason
+        citations = citations_of(result, passages)
+        if citations is None:
+            _note(query_id, OUTSIDE)
+            return OUTSIDE
+        if not unsupported_quotes(result["answer"], seen_sources(result), question):
+            break  # no false quote
+        if (
+            attempt == FALSE_QUOTE_RETRIES
+        ):  # a false quote is never shown as a proposed reply
+            _note(query_id, FALSE_QUOTE)
+            return FALSE_QUOTE
     unresolved = ([result["reason"]] if result.get("reason") else []) + marks(
         item, {c["evidence_id"] for c in citations}
     )

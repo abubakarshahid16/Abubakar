@@ -773,6 +773,9 @@ _QUERY_REPLY_LEAD = """- This is the draft of COMPANY's reply to a contractor's 
   answers.
 - Where a source leaves the matter to the contractor's own design or layout
   development, say so, with its citation.
+- Put words in quotation marks only when they are copied exactly from the source
+  you cite. Never put the contractor's own words in quotation marks as a source's
+  words: say "the contractor asks ..." in plain words instead.
 - Where a source shows that a clause or reference the contractor cites is wrong,
   or that the contractor's submission lacks something a source requires (for
   example a technical assessment), say so and cite the source.
