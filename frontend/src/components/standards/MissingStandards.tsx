@@ -27,7 +27,7 @@ type Load =
 const STATUS_LABEL: Record<string, string> = {
   MISSING_LOCALLY: "Missing",
   REQUESTED: "Requested",
-  OBTAINED: "Obtained",
+  OBTAINED: "Received",
 };
 
 export function MissingStandards() {
@@ -49,7 +49,7 @@ export function MissingStandards() {
     const result = await api.requestMissingStandard(identifier, null);
     setBusy(null);
     if (!result.ok) {
-      setFailure(result.error.message || "Could not record the request.");
+      setFailure(result.error.message || "Your request was not saved. Nothing changed. Try again.");
       return;
     }
     await refresh();
@@ -68,9 +68,9 @@ export function MissingStandards() {
         </h3>
       }>
       <p className="text-xs opacity-70">
-        Cited by the submittals and standards you can read. Nothing is downloaded:
-        each is sold under licence, so obtain the copy through your normal
-        channel and upload it here.
+        Documents and standards you can read cite these. The app downloads
+        nothing. Each is sold under licence: get a copy the usual way, then
+        upload it here.
       </p>
       {failure && <p role="alert" className="text-xs text-red-400">{failure}</p>}
       {load.rows.length === 0 ? (
@@ -82,7 +82,7 @@ export function MissingStandards() {
             <tr>
               <th scope="col">Standard</th>
               <th scope="col">Cited by</th>
-              <th scope="col">Where to obtain</th>
+              <th scope="col">Where to get it</th>
               <th scope="col">Status</th>
               <th scope="col"><span className="sr-only">Action</span></th>
             </tr>
