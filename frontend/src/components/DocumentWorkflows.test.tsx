@@ -241,6 +241,23 @@ describe("technical details", () => {
     expect(screen.getByText("Not reviewed")).toBeTruthy();
   });
 
+  it("P8: a review that stopped early is never 'Review complete', and names the last complete one", () => {
+    render(<DocumentTechnicalDetails doc={{ ...doc, review_status: "stopped", last_complete_review_at: "2026-11-18T10:00:00Z" }} />);
+    expect(screen.getByText("Review stopped early")).toBeTruthy();
+    expect(screen.queryByText("Review complete")).toBeNull();
+    expect(screen.getByText("Last complete review")).toBeTruthy();
+    expect(screen.getByText("18 Nov 2026")).toBeTruthy();
+  });
+
+  it("P8: a stopped review with no complete one says so; a finished review shows no extra line", () => {
+    const { unmount } = render(<DocumentTechnicalDetails doc={{ ...doc, review_status: "stopped", last_complete_review_at: null }} />);
+    expect(screen.getByText("none yet")).toBeTruthy();
+    unmount();
+    render(<DocumentTechnicalDetails doc={{ ...doc, review_status: "completed", last_complete_review_at: "2026-11-18T10:00:00Z" }} />);
+    expect(screen.getByText("Review complete")).toBeTruthy();
+    expect(screen.queryByText("Last complete review")).toBeNull();
+  });
+
   it("explains why a stored workbook is not searchable", () => {
     render(<DocumentTechnicalDetails doc={{ ...doc, status: "stored_not_indexed" }} />);
     expect(screen.getByText(/not searchable/i)).toBeTruthy();

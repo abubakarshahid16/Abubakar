@@ -142,6 +142,11 @@ def review_statuses(ids: list[str]) -> dict[str, str]:
     return {d: got.get(d, "not_reviewed") for d in ids}
 
 
+def last_complete_reviews(ids: list[str]) -> dict[str, str]:
+    """P8: when each document's newest complete review finished (`submittal_review.last_complete_review_for`); absent when none."""
+    return submittal_review_mod.last_complete_review_for(ids, allowed_document_ids=frozenset(ids))
+
+
 @router.get("/api/documents", response_model=list[schemas.Document],
             responses=schemas.ERRORS_422)
 def list_documents(request: Request, response: Response,
@@ -268,6 +273,7 @@ def list_documents(request: Request, response: Response,
     # this keeps the authority for "has it been reviewed" in that module.
     page_ids = [row["id"] for row in rows]
     review_status = review_statuses(page_ids)
+    last_complete = last_complete_reviews(page_ids)
     metadata = {}
     if page_ids:
         marks = ",".join("?" * len(page_ids))
@@ -300,6 +306,7 @@ def list_documents(request: Request, response: Response,
             # the same answer - not recorded - and neither becomes a default.
             doc[field] = meta.get(field)
         doc["review_status"] = review_status[row["id"]]
+        doc["last_complete_review_at"] = last_complete.get(row["id"])
         info = dropped.get(row["id"], {})
         doc["pages_excluded"] = info.get("pages_excluded", 0)
         doc["pages_excluded_characters"] = info.get("characters_dropped", 0)
@@ -414,6 +421,7 @@ def get_document(document_id: str, request: Request,
     doc = upload_mod.to_api(row)
     # FTU-1: the list's own derivation, never the schema's default "not_reviewed" for every paper
     doc["review_status"] = review_statuses([document_id])[document_id]
+    doc["last_complete_review_at"] = last_complete_reviews([document_id]).get(document_id)
     return doc
 
 
