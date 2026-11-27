@@ -385,7 +385,7 @@ describe("B2 documents list", () => {
     ]);
     renderDocuments();
     expect(
-      await screen.findByText((NEW_LOOK ? /12 of 546 pages were scanned and read as pictures/ : /12 of 546 pages\s+read by OCR/)),
+      await screen.findByText((NEW_LOOK ? /12 of 546 pages were scanned and read as pictures/ : /12 of 546 pages\s+read from a scan/)),
     ).toBeInTheDocument();
     // Nothing is outstanding, so the warning must be GONE - asserting the
     // absence, because a stale amber badge is a false alarm.
@@ -404,7 +404,7 @@ describe("B2 documents list", () => {
     ]);
     renderDocuments();
     expect(await screen.findByText(NEW_LOOK ? "finished, 7 pages waiting to be read as pictures" : "7 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read by OCR/))).toBeInTheDocument();
+    expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read from a scan/))).toBeInTheDocument();
   });
 
   it("requires a second click to delete", async () => {
@@ -474,7 +474,7 @@ describe("B3 chunk inspector", () => {
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();
-    expect(within(dialog).getByText(/297 tokens/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/tokens/)).toBeNull(); // a word count of the AI's, not a reader's (H, 27 Nov 2026)
     expect(within(dialog).getByText(/page 24/)).toBeInTheDocument();
     expect(within(dialog).getByText(/experimental cars drive themselves/)).toBeInTheDocument();
     expect(within(dialog).getByText(chunk.id)).toBeInTheDocument();
@@ -484,7 +484,7 @@ describe("B3 chunk inspector", () => {
       expect(within(dialog).getByText(/no_clause\(longest=1<6\)/)).toBeInTheDocument(),
     );
     expect(
-      within(dialog).getByText(/left blank rather than guessed/i),
+      within(dialog).getByText(/^not found$/i),
     ).toBeInTheDocument();
   });
 });
@@ -497,9 +497,11 @@ describe("B4 excluded viewer", () => {
     fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Left out" : "Excluded" }));
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getAllByText("content_quality_gate").length).toBeGreaterThan(0);
-    expect(within(dialog).getByText("400 chunks")).toBeInTheDocument();
-    expect(within(dialog).getByText("page_classified_toc")).toBeInTheDocument();
+    // grouped by rule, each group led by its plain sentence; the rule's stored name is only in the folded technical detail
+    expect(within(dialog).getByText("The text did not read like sentences or a table.")).toBeInTheDocument();
+    expect(within(dialog).getByText("400 pieces of text")).toBeInTheDocument();
+    expect(within(dialog).getByText(/A contents page/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/content_quality_gate/).every((el) => el.closest("details"))).toBe(true);
     expect(within(dialog).getByText(/eabeb2terfcb/)).toBeInTheDocument();
   });
 
@@ -508,7 +510,7 @@ describe("B4 excluded viewer", () => {
     renderDocuments();
 
     fireEvent.click(await screen.findByRole("button", { name: /see what was excluded/i }));
-    expect(await screen.findByRole("dialog")).toHaveAccessibleName(/Excluded from search/i);
+    expect(await screen.findByRole("dialog")).toHaveAccessibleName(/Left out of search/i);
   });
 });
 
@@ -837,7 +839,7 @@ describe("documents grouped by classification type", () => {
 
     await screen.findByText("guessed.pdf");
     expect(
-      screen.getByText(/Awaiting confirmation by an administrator/i),
+      screen.getByText(/Waiting for an administrator to confirm it/i),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Confirm$/ })).toBeNull();
   });
@@ -888,7 +890,7 @@ describe("documents grouped by classification type", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
 
     expect(
-      await screen.findByText(/do not have permission to confirm/i),
+      await screen.findByText(/Your role cannot confirm/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/does not exist|not found|gone/i)).toBeNull();
   });

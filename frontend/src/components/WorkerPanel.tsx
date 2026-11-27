@@ -223,7 +223,7 @@ export function WorkerPanel({
               : ""}
           </>
         ) : (
-          "Nothing is being processed right now."
+          "Nothing is being read right now."
         )}
       </p>
 

@@ -56,11 +56,11 @@ export function DocumentTechnicalDetails({ doc }: { doc: DocumentRecord }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <section aria-label="Document metadata">
-        <h4 className="mb-2 text-xs font-medium opacity-80">Document metadata</h4>
+      <section aria-label="Document details">
+        <h4 className="mb-2 text-xs font-medium opacity-80">Document details</h4>
         {!recorded && (
           <p className="text-xs opacity-70">
-            No submittal-review metadata has been recorded for this document yet.
+            Nothing is recorded for this document yet.
           </p>
         )}
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -95,11 +95,11 @@ export function DocumentTechnicalDetails({ doc }: { doc: DocumentRecord }) {
           <Field label="Pages" value={doc.page_count} />
           {/* Always together - one without the other changes its meaning. */}
           <Field
-            label="Chunks (retrievable / total)"
+            label="Pieces of text (searchable / all)"
             value={`${doc.chunk_count} / ${doc.chunk_count_total}`}
           />
-          <Field label="Embedded chunks" value={doc.embedded_count} />
-          <Field label="Pages needing OCR" value={doc.needs_ocr_pages} />
+          <Field label="Pieces ready for search" value={doc.embedded_count} />
+          <Field label="Pages that need picture reading" value={doc.needs_ocr_pages} />
           {/* A COUNT, never a badge: 12 of 546 is not "OCR'd". */}
           {doc.recognised_pages > 0 && doc.page_count ? (
             <Field
