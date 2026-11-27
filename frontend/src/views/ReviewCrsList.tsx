@@ -95,6 +95,11 @@ export function ReviewCrsList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, []);
 
+  // the state MOST rows share (more than half: a clear majority, the Queries page's rule) is said once; a row keeps its state only when it differs
+  const counts = new Map<string, number>(); for (const r of runs ?? []) counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  const sharedStatus = runs && runs.length > 1 && top && top[1] * 2 > runs.length ? top[0] : null;
+  const allShare = sharedStatus !== null && counts.size === 1;
   return (
     <section aria-label="Review CRSs" className={NEW_LOOK ? "space-y-2 rounded-[var(--radius-md)] bg-ink-800 p-5 shadow-[var(--shadow-resting)]" : "space-y-2 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3"}>
       <h2 className="text-sm font-semibold text-slateish-100">{NEW_LOOK ? "Comment resolution sheets of your reviews" : "Comment Resolution Sheets (review runs)"}</h2>
@@ -109,6 +114,11 @@ export function ReviewCrsList() {
       {runs !== null && runs.length === 0 && (
         <p className="text-sm text-slateish-400">{NEW_LOOK ? "No reviews on documents you can read yet." : "No review runs on documents you can read yet."}</p>
       )}
+      {/* SAID ONCE (C's walk, 27 Nov 2026: "completed" and "Download CRS (internal review copy)" on every one of 30+ rows): when every
+          review shown shares its state, one line says it and what each file is; a row keeps its state only when it differs */}
+      {NEW_LOOK && runs !== null && runs.length > 1 && sharedStatus !== null && (
+        <p data-testid="crs-said-once" className="text-xs text-slateish-400">{allShare ? `Every review below is ${sharedStatus}` : `Every review below is ${sharedStatus} unless its row says otherwise`}; each file is the internal review copy.</p>
+      )}
       {runs !== null && runs.length > 0 && (
         <ul className="divide-y divide-ink-700 text-sm">
           {runs.map((run) => (
@@ -116,15 +126,16 @@ export function ReviewCrsList() {
               <span className="text-slateish-200">
                 {run.submittal_filename ?? run.submittal_document_id}
                 <span className="ml-2 text-xs text-slateish-400">
-                  {run.status}{run.created_at ? ` · ${formatWhen(run.created_at)}` : ""}
+                  {NEW_LOOK && sharedStatus !== null && run.status === sharedStatus ? (run.created_at ? formatWhen(run.created_at) : "") : <>{run.status}{run.created_at ? ` · ${formatWhen(run.created_at)}` : ""}</>}
                 </span>
               </span>
               <Button variant="secondary" size="sm"
-               
                 disabled={busy !== null}
                 onClick={() => void download(run.review_run_id)}
+                // the new look shows one word; the full name (what it is, and of which file) stays for screen readers and starts with it
+                aria-label={NEW_LOOK ? `Download CRS (internal review copy) of ${run.submittal_filename ?? "this review"}` : undefined}
               >
-                Download CRS (internal review copy)
+                {NEW_LOOK ? "Download" : "Download CRS (internal review copy)"}
               </Button>
             </li>
           ))}

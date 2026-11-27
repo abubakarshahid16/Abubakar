@@ -25,6 +25,7 @@ import { PointsList } from "./PointsList";
 import { BookChips, NO_BOOK, NotHeldLine, type TileKey, Tiles } from "./Tiles";
 import { usePoints } from "./usePoints";
 import { Button, LinkButton } from "../../kit/Kit";
+import { NEW_LOOK } from "../../../look";
 
 export type V2Tab = "points" | "sheet" | "how";
 const TAB_LABEL: Record<V2Tab, string> = { points: "Points", sheet: "CRS sheet", how: "How it was reviewed" };
@@ -59,11 +60,13 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-[16rem] flex-1 space-y-1">
           <LinkButton tone="action" size="sm" onClick={onBack}>← Reviews</LinkButton>
-          <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
+          <h1 id="v2-title" title={run.submittal_filename ?? undefined} className={NEW_LOOK ? "text-2xl font-semibold text-slateish-100 [overflow-wrap:anywhere]" : "truncate text-2xl font-semibold text-slateish-100"}>{run.submittal_filename ?? "Review"}</h1>
           <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} aiEquipment={latest?.identity?.equipment_type ?? null} />
         </div>
         {/* the page's main action at the header's right edge, as the kit header places its actions (C's rule for H's audit #68) */}
-        <div className={generalLatest && !again ? "flex min-w-[18rem] justify-end" : "min-w-[18rem]"}>
+        {/* new look: the file name WRAPS (C's walk at 480: it was cut with "..."), and "Review this paper again" sits in a box only as
+            wide as itself, so when the header wraps it starts at the left under the title instead of floating mid-row */}
+        <div className={generalLatest && !again ? (NEW_LOOK ? "flex" : "flex min-w-[18rem] justify-end") : "min-w-[18rem]"}>
           {/* A finished review's page is about THAT review: the engine choice and the plan of a NEW review wait behind "Review again" (a
               plan shown here read like the plan of the run on screen, and its "Checking..." could hang under the button). */}
           {general.state === "loading" ? null : generalLatest && !again ? (
