@@ -12,8 +12,6 @@ import { DisconnectedState, Spinner } from "./components/states";
 import { CommandPalette } from "./components/CommandPalette";
 import { RecentChats } from "./components/chat/RecentChats";
 import { DashboardView } from "./views/DashboardView";
-import { DocumentsView } from "./views/DocumentsView";
-import { IngestionView } from "./views/IngestionView";
 import { LoginView, RoleBadge, type LoginOutcome } from "./views/LoginView";
 import { useSessionExpiry } from "./hooks/useSessionExpiry";
 import type { AuthStatus, Me } from "./types/api";
@@ -39,6 +37,10 @@ const DeliverablesView = lazy(() => import("./views/DeliverablesView").then((m) 
 const ChatView = lazy(() => import("./views/ChatView").then((m) => ({ default: m.ChatView })));
 const TechnicalQueriesView = lazy(() => import("./views/TechnicalQueriesView").then((m) => ({ default: m.TechnicalQueriesView })));
 const SubmittalsLandingView = lazy(() => import("./views/SubmittalsLandingView").then((m) => ({ default: m.SubmittalsLandingView })));
+// The give-back for the shared kit (27 Nov 2026, lead 4: trim, do not raise the budget again): Documents and Ingestion load when
+// opened too. The first screen is the Dashboard; these two were the last whole pages in every first visit (first load -11,207 gzip).
+const DocumentsView = lazy(() => import("./views/DocumentsView").then((m) => ({ default: m.DocumentsView })));
+const IngestionView = lazy(() => import("./views/IngestionView").then((m) => ({ default: m.IngestionView })));
 const ReviewWorkspace = lazy(() => import("./components/review/workspace/ReviewWorkspace").then((m) => ({ default: m.ReviewWorkspace })));
 
 //: One key, named once. A typo in a second literal is a preference that
