@@ -221,7 +221,7 @@ export function DashboardView({
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="text-sm font-semibold text-slateish-200">EPC delivery overview</h2>
-              <p className="mt-1 text-xs text-slateish-500">Deliverables, reviews and late risks, for the projects you can open.</p>
+              <p className="mt-1 text-xs text-slateish-500">Counts of deliverables, reviews and late risks, for the projects you can open.</p>
             </div>
             {onOpenDeliverables && (
               <LinkButton weight="medium" tone="action" size="xs" onClick={onOpenDeliverables}>Open deliverables</LinkButton>
@@ -310,7 +310,7 @@ export function DashboardView({
           tone={corpus.documents > 0 ? "normal" : "warn"}
           note={
             corpus.documents === 0 ? (
-              "Add a PDF on the Documents page to begin."
+              "Add a PDF or Word file on the Documents page to begin."
             ) : (
               <>
                 {`${nf.format(corpus.pages_extracted)} pages read. ${
