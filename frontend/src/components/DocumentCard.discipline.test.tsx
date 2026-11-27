@@ -71,4 +71,17 @@ describe("the document's category", () => {
     expect(screen.queryByText("Civil Engineering")).toBeNull();
     expect(screen.getByTestId("discipline")).toHaveTextContent("Admin only");
   });
+
+  it("skips the tag the whole list already says once above it (owner, 27 Nov 2026: a state on every row is one message)", () => {
+    const { unmount } = render(<DocumentCard doc={makeDoc({ disciplines: ["Invented Discipline"] })} actions={NO_ACTIONS} sharedDiscipline="Invented Discipline" />);
+    expect(screen.queryAllByTestId("discipline")).toHaveLength(0);
+    unmount();
+    // a document with a different or second discipline keeps its own tags
+    render(<DocumentCard doc={makeDoc({ disciplines: ["Invented Discipline", "Mechanical"] })} actions={NO_ACTIONS} sharedDiscipline="Invented Discipline" />);
+    expect(screen.getAllByTestId("discipline").map((t) => t.textContent)).toEqual(["Invented Discipline", "Mechanical"]);
+  });
+  it("skips 'Admin only' when the list says once that no discipline holds any of them", () => {
+    render(<DocumentCard doc={makeDoc({ disciplines: [] })} actions={NO_ACTIONS} sharedDiscipline="" />);
+    expect(screen.queryByText("Admin only")).toBeNull();
+  });
 });
