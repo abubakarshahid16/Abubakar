@@ -33,6 +33,8 @@ _TIME = (
     r"|\bpush(?:es|ed|ing)?\s+(?:back|out)\b|\bpush(?:es|ed|ing)?\s+(?:the|our|its)\s+[\w\s-]{0,30}?\bdates?\b"
     r"|\bpostpon\w*|\baccelerat\w*\s+(?:the\s+)?(?:work|works|schedule|programme|program|delivery|completion)\b"
     r"|\b\d+\s*(?:-\s*)?(?:days?|weeks?|months?)\b|\bschedule\b(?!\s*(?:[A-H]\b|[A-H]-?\d|\d|XS\b|XXS\b|STD\b))(?<!pipe schedule)"
+    # a technical LIST called a schedule ("Coating Schedule", "valve schedule") is not time (builder H's replay of #1992, row 16)
+    r"(?<!coating schedule)(?<!painting schedule)(?<!paint schedule)(?<!insulation schedule)(?<!line schedule)(?<!valve schedule)(?<!equipment schedule)(?<!cable schedule)(?<!lubrication schedule)(?<!inspection schedule)(?<!test schedule)(?<!testing schedule)(?<!maintenance schedule)(?<!material schedule)(?<!data schedule)(?<!drawing schedule)(?<!document schedule)(?<!instrument schedule)(?<!piping schedule)(?<!welding schedule)(?<!heat treatment schedule)(?<!pwht schedule)(?<!hydrotest schedule)"
 )
 _RAISES = re.compile(f"{_MONEY}|{_TIME}", re.IGNORECASE)
 

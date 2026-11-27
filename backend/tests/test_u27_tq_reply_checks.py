@@ -250,3 +250,73 @@ def test_a_question_found_on_the_form_is_cut_after_a_whole_word():
     from app import technical_query_questions as Q
 
     assert "cut here" not in Q.CUT and Q.CUT.endswith("The rest of the question is in the email files.")
+
+
+# ------------------------------------------------------------------ fault 2: a cited source that may not say its sentence (a mark only)
+
+
+def _local_ai(monkeypatch, answer):
+    calls = []
+
+    def fake(system, prompt, **kw):
+        calls.append(kw.get("preference"))
+        if isinstance(answer, Exception):
+            raise answer
+        return {"response": answer}
+
+    monkeypatch.setattr("app.chat_model.generate", fake)
+    return calls
+
+
+def test_a_source_that_shares_the_sentences_words_is_not_judged(monkeypatch):
+    from app import technical_query_source_fit as F
+
+    calls = _local_ai(monkeypatch, "NONE")
+    assert F.marks("1. The flange rating shall be class 300 for the invented header [S1].",
+                   {1: "Invented clause 4.1: the flange rating shall be class 300 for the invented header."}) == []
+    assert calls == []  # enough key words in the source: no AI call at all
+
+
+def test_a_source_about_something_else_is_marked_when_the_ai_cannot_show_the_words(monkeypatch):
+    from app import technical_query_source_fit as F
+
+    sentence = "1. The pump casing hydrotest pressure is one and a half times the design pressure [S2]."
+    invoices = {2: "Invented clause 9.2: invoices are paid within thirty days of receipt by the paying office."}
+    calls = _local_ai(monkeypatch, "NONE")
+    assert F.marks(sentence, invoices) == [F.MARK.format(tags="[S2]")]
+    assert calls == ["local"]  # the AI on this computer only, never Claude
+    _local_ai(monkeypatch, "invoices are paid within thirty days")  # words that are in the source, but say nothing of the claim
+    assert F.marks(sentence, invoices) == []  # shown words in the source: no mark (the measured rule)
+    _local_ai(monkeypatch, "the hydrotest pressure is 1.5 times")  # words NOT in the source: not shown
+    assert F.marks(sentence, invoices) == [F.MARK.format(tags="[S2]")]
+
+
+def test_a_judge_that_did_not_answer_is_said_never_taken_as_a_pass(monkeypatch):
+    from app import technical_query_source_fit as F
+
+    _local_ai(monkeypatch, RuntimeError("down"))
+    assert F.marks("1. The pump casing hydrotest pressure is one and a half times the design pressure [S2].",
+                   {2: "Invented clause 9.2: invoices are paid within thirty days."}) == [F.NOT_CHECKED]
+    assert F.marks("1. Not found in the documents searched [S1].", {1: "anything"}) == []  # a not-found sentence is not judged
+
+
+def test_the_mark_reaches_a_system_draft(query, monkeypatch):
+    from app import technical_query_source_fit as F
+
+    item, scope, _asked = query
+    _answers(monkeypatch, {"answer": "1. The pump casing hydrotest pressure is one and a half times the design pressure [S1]."})
+    _local_ai(monkeypatch, "NONE")
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    draft = tq.get(item["id"], "u1", False, False)["drafts"][-1]
+    assert draft["answer"].startswith("1. The pump casing")  # never changed or stopped
+    assert F.MARK.format(tags="[S1]") in json.loads(draft["unresolved_json"])
+
+
+def test_a_coating_schedule_in_the_question_is_not_money_or_time():
+    """H's replay of #1992, row 16: the hint said "money or time" because the question named a Coating Schedule."""
+    from app.technical_query_position import raises_cost
+
+    assert not raises_cost("Confirm the Coating Schedule for the invented tank.")
+    assert not raises_cost("Please confirm the invented valve schedule.")
+    assert raises_cost("Will this affect the schedule?") and raises_cost("The schedule slips by two weeks.")

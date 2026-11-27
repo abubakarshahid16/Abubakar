@@ -1086,6 +1086,9 @@ def generate_query_draft(
         raise _refuse(409, fault)
     unresolved = [result.get("reason")] if result.get("reason") else []
     unresolved += technical_query_auto.reply_marks(result, advice)
+    from ..technical_query_source_fit import marks as fit_marks
+
+    unresolved += fit_marks(result["answer"], technical_query_auto.seen_sources(result))
     unresolved += technical_query_auto.marks(current, {c["evidence_id"] for c in citations})
     if unread_standards:
         unresolved.append(f"{unread_standards} held standard(s) you may not read were not sent.")
