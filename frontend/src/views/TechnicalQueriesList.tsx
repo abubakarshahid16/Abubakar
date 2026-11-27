@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { ChipButton, LinkButton, MoreMenu, Notice, PageHeader, RowButton, Button, Small, Stack, StatusChip, Tag, OneLine } from "../components/kit/Kit";
 import type { TechnicalQuery, TechnicalQueryAssignee } from "../api/client";
 import { formatWhen } from "../format/when";
+import { NEW_LOOK } from "../look";
 import { countLine, queryTag, quickMatch, statusChip, type QuickView } from "./technicalQueryQuestion";
 
 export interface ListPanels {
@@ -43,6 +44,14 @@ export function TechnicalQueriesList(props: {
   const noContractor = items.filter((item) => !item.contractor_name).length;
   const nobodyAll = items.length > 1 && items.every((i) => !i.assignee_user_id);
   const toggle = (view: QuickView) => props.onQuick(quick === view ? null : view);
+  // SAID ONCE (owner, 27 Nov 2026 12:32: 21 rows each carried the same "Waiting for approval"): the state most of the shown rows share
+  // is not repeated on each row; a row shows its chip only when its state differs. The count line names every state with its number,
+  // and when the rows are mixed one line says which state an unmarked row is in (new look; the classic look keeps a chip on every row).
+  const shownWords = shown.map((item) => statusChip(item.status).words);
+  // only a CLEAR majority loses its chips: near a half/half split hiding one group saves little and adds words (F's gate on #1987)
+  const top = NEW_LOOK && shownWords.length > 1 ? mostCommon(shownWords) : null;
+  const common = top !== null && shownWords.filter((w) => w === top).length * 2 > shownWords.length ? top : null;
+  const mixed = common !== null && shownWords.some((w) => w !== common);
   return (
     <Stack gap={3}>
       <PageHeader title="Technical Queries and CFCs" titleId="technical-queries-title" />
@@ -57,7 +66,9 @@ export function TechnicalQueriesList(props: {
       {props.loading ? <Small>Loading queries</Small> : (
         <p data-testid="count-line" className="kit-lead">
           <strong>{line.total} quer{line.total === 1 ? "y" : "ies"}{props.activeFilters > 0 ? " match the filters" : ""}</strong>{line.parts.length ? ": " : ""}
-          {line.parts.map((part, index) => <span key={part.view}>{index ? ", " : ""}<LinkButton pressed={quick === part.view} onClick={() => toggle(part.view)}>{part.n} {part.words}</LinkButton></span>)}
+          {/* the state an unmarked row is in is said HERE, in the count sentence ("32 waiting for approval (no label)"), not as a third note
+              over the list (F's gate on #1987, 27 Nov 2026) */}
+          {line.parts.map((part, index) => <span key={part.view}>{index ? ", " : ""}<LinkButton pressed={quick === part.view} onClick={() => toggle(part.view)}>{part.n} {part.words}</LinkButton>{mixed && part.words.toLowerCase() === common!.toLowerCase() ? <span data-testid="no-label-part"> (no label)</span> : null}</span>)}
           {line.ofThem ? <>. <LinkButton pressed={quick === "person"} onClick={() => toggle("person")}>{line.ofThem.n} of them {line.ofThem.words}</LinkButton></> : null}
           {quick ? <> · <LinkButton onClick={() => props.onQuick(null)}>show all</LinkButton></> : null}
         </p>
@@ -82,18 +93,27 @@ export function TechnicalQueriesList(props: {
           const title = item.title_short ?? item.subject;
           return (
             <RowButton key={item.id} selected={props.selectedId === item.id} onClick={() => props.onOpen(item.id)}
-              first={<>{tag ? <Tag testId="query-tag">{tag}</Tag> : null}{item.discipline_code ? <Tag>{item.discipline_code}</Tag> : null}<OneLine title={title}>{title}</OneLine></>}
-              second={<>
-                <StatusChip word={statusChip(item.status).words} testId="status-chip" />
+              first={<>{tag ? <Tag testId="query-tag">{tag}</Tag> : null}{item.discipline_code ? <Tag>{item.discipline_code}</Tag> : null}<OneLine title={title} lines={NEW_LOOK ? 2 : 1}>{title}</OneLine></>}
+              second={(common === null || statusChip(item.status).words !== common || item.contractor_name || who || item.due_at) ? <>
+                {common === null || statusChip(item.status).words !== common ? <StatusChip word={statusChip(item.status).words} testId="status-chip" /> : null}
                 {item.contractor_name || who ? <span>{[item.contractor_name, who].filter(Boolean).join(" · ")}</span> : null}
                 {item.due_at ? <span>due {formatWhen(item.due_at).split(",")[0]}</span> : null}
                 {/* SAID ONCE, NOT ON EVERY ROW (owner's written order, 27 Nov 2026 10:59): "No query number" is the count line's "N of them need a
                     query number" (it filters to them) and "No contractor" is the notice above; a row carries neither, and the opened query
                     still says its own problems in full */}
-              </>} />
+              </> : null} />
           );
         })}
       </div>
     </Stack>
   );
+}
+
+/** The word most of the list shares (the first one met wins a tie, so the choice is stable as the list is read top to bottom). */
+export function mostCommon(words: string[]): string | null {
+  const n = new Map<string, number>();
+  for (const w of words) n.set(w, (n.get(w) ?? 0) + 1);
+  let best: string | null = null;
+  for (const w of words) if (best === null || n.get(w)! > n.get(best)!) best = w;
+  return best;
 }

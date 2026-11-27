@@ -34,12 +34,22 @@ describe("SignBar", () => {
     expect(screen.getByTestId("sign-button")).toBeDisabled();
   });
 
+  it("counts comments and points to confirm apart, never as one number of 'comments' (rule 4; C's re-measure)", () => {
+    const undecided = [
+      ...Array.from({ length: 11 }, (_, i) => ({ part: "comment" as const, n: i + 1, title: `C${i}` })),
+      ...Array.from({ length: 7 }, (_, i) => ({ part: "confirmation" as const, n: i + 1, title: `P${i}` })),
+    ];
+    mount(status({ undecided_count: 18, undecided }));
+    expect(screen.getByTestId("sign-undecided")).toHaveTextContent("11 comments and 7 points to confirm still need your decision.");
+    expect(screen.getByRole("button", { name: "Accept the rest (11 comments and 7 points to confirm)" })).toBeTruthy();
+  });
+
   it("a reader who is not a super user sees the sentence, no sign controls, no Accept the rest and no contractor download", () => {
     const words = "Only a super user can sign this review for now.";
     const { unmount } = render(<SignBar review={review} signoff={status({ undecided_count: 1, may_sign: false, may_sign_words: words })} onStatus={vi.fn()} onChanged={vi.fn()} />);
     expect(screen.getByTestId("sign-super-user")).toHaveTextContent(words);
     expect(screen.queryByTestId("sign-button")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Accept the rest (1)" })).toBeNull(); // it decides everything at once: the super user's
+    expect(screen.queryByRole("button", { name: /^Accept the rest/ })).toBeNull(); // it decides everything at once: the super user's
     unmount();
     mount(status({ state: "signed", signed, may_sign: false, may_sign_words: words }));
     expect(screen.queryByTestId("contractor-download")).toBeNull();
@@ -60,7 +70,7 @@ describe("SignBar", () => {
     acceptRest.mockResolvedValue({ ok: true, data: { run_id: "run1", accepted: 2 } });
     const onChanged = vi.fn();
     mount(status({ undecided_count: 2, can_sign: false }), { onChanged });
-    fireEvent.click(screen.getByRole("button", { name: "Accept the rest (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Accept the rest/ }));
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(acceptRest).toHaveBeenCalledWith("doc1", "run1");
   });
@@ -122,7 +132,7 @@ describe("SignBar", () => {
 
   it("keeps Accept the rest on a Claude review", () => {
     mount(status({ undecided_count: 3, bulk_accept: true, rough_draft_words: null }));
-    expect(screen.getByRole("button", { name: "Accept the rest (3)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept the rest (3 items)" })).toBeInTheDocument(); // kinds not listed: said as items, never as comments
     expect(screen.queryByTestId("sign-rough-draft")).toBeNull();
   });
 
