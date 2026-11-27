@@ -34,16 +34,16 @@ describe("the tiles' words", () => {
 describe.runIf(NEW_LOOK)("the three tiles on the Dashboard (new look)", () => {
   it("shows a headline and three tiles, each one button that opens its list", async () => {
     client.reviews.dashboard.mockResolvedValue({ ok: true, data: { reviews_awaiting_decision: 14, reviews_running: 2, reviews_signed: 12 } });
-    tq.technicalQueriesApi.metrics.mockResolvedValue({ ok: true, data: { total: 30, resolved: 3, duplicate: 0, cancelled: 0, overdue: 2, open_with_due_date: 5 } });
+    tq.technicalQueriesApi.metrics.mockResolvedValue({ ok: true, data: { total: 30, drafting: 6, awaiting_review: 21, resolved: 3, duplicate: 0, cancelled: 0, overdue: 2, open_with_due_date: 5 } });
     client.deliverables.list.mockResolvedValue({ ok: true, data: { deliverables: [{ status: "approved", due_date: null }, { status: "draft", due_date: null }] } });
     client.deliverables.alerts.mockResolvedValue({ ok: true, data: { alerts: [] } });
     const navigate = vi.fn();
     render(<NavigationContext.Provider value={navigate}><AtAGlance /></NavigationContext.Provider>);
-    expect(await screen.findByRole("heading", { level: 2, name: "44 items are waiting for a decision" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 2, name: "38 items are waiting for a decision" })).toBeTruthy();
     const tiles = within(screen.getByRole("group", { name: "Waiting for a decision" })).getAllByRole("button");
     expect(tiles.map((t) => t.textContent)).toEqual([
       "Document reviews 16 waiting for you 12 done no due dates set", // real spaces between the parts (read aloud or copied)
-      "Queries and CFCs 27 waiting for you 3 done 2 late",
+      "Queries and CFCs 21 waiting for you 3 done 2 late", // waiting for a person: not the 6 the AI is still drafting (F's walk)
       "Deliverables 1 waiting for you 1 done no due dates set",
     ]);
     expect(screen.queryByRole("table")).toBeNull(); // no table, no dashes (owner 03:34)

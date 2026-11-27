@@ -154,23 +154,31 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
               Reviews are made by Claude. The AI on this computer only makes rough drafts, for a Local only review: choose which one below.
             </p>
           )}
-          <p className="text-xs text-slateish-300">{options.used_by}</p>
-          {options.answer_model_why && (
-            <p role="note" data-testid="review-model-fell-back" className="text-xs text-warn-500">{options.answer_model_why}.</p>
-          )}
-          {NEW_LOOK ? (
-            <>{pickers}{stepsFold}<InfoFold title="Every AI and how it was measured">{lists}</InfoFold></>
-          ) : (
-            <>{lists}{pickers}</>
-          )}
-          <div className="flex items-center gap-3">
-            <Button variant="primary" size="sm" onClick={() => void save()} disabled={busy}>
-              Save
-            </Button>
-            {options.stored.set_at && (
-              <span className="text-xs text-slateish-400">Last saved {formatWhen(options.stored.set_at)}</span>
-            )}
-          </div>
+          {(() => {
+            const usedBy = <p className="text-xs text-slateish-300">{options.used_by}</p>;
+            const fellBack = options.answer_model_why && (
+              <p role="note" data-testid="review-model-fell-back" className="text-xs text-warn-500">{options.answer_model_why}.</p>
+            );
+            const saveRow = (
+              <div className="flex items-center gap-3">
+                <Button variant="primary" size="sm" onClick={() => void save()} disabled={busy}>
+                  Save
+                </Button>
+                {options.stored.set_at && (
+                  <span className="text-xs text-slateish-400">Last saved {formatWhen(options.stored.set_at)}</span>
+                )}
+              </div>
+            );
+            // the new look: model names and setting names are technical detail, folded (owner's rule, H's live walk 27 Nov 2026:
+            // six were open on the page); the plain sentence above says what the choice is
+            return NEW_LOOK ? (
+              <InfoFold title="Choose the AI on this computer (technical detail)">
+                <div className="space-y-3">{usedBy}{fellBack}{pickers}{stepsFold}<InfoFold title="Every AI and how it was measured">{lists}</InfoFold>{saveRow}</div>
+              </InfoFold>
+            ) : (
+              <>{usedBy}{fellBack}{lists}{pickers}{saveRow}</>
+            );
+          })()}
           {(options.history ?? []).length === 0 && options.history_since && (
             <p data-testid="review-model-no-history" className="text-xs text-slateish-400">
               No change recorded since {formatWhen(options.history_since)}{options.history_since_update ? ` (${options.history_since_update})` : ""}.

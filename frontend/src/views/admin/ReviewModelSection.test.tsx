@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { formatWhen } from "../../format/when";
+import { NEW_LOOK } from "../../look";
 import { ReviewModelSection, type ReviewModelOptions, reviewModelApi } from "./ReviewModelSection";
 
 const OPTIONS: ReviewModelOptions = {
@@ -86,5 +87,19 @@ describe("ReviewModelSection", () => {
     render(<ReviewModelSection api={fake(save)} />);
     await userEvent.click(await screen.findByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("invented refusal");
+  });
+});
+
+describe("model names are technical detail (owner's rule; H's live walk, 27 Nov 2026)", () => {
+  it.runIf(NEW_LOOK)("keeps every model and setting name inside a closed fold, with the plain sentence open", async () => {
+    render(<ReviewModelSection api={fake()} />);
+    expect(await screen.findByTestId("review-model-plain")).toBeTruthy();
+    for (const name of ["invented-small:14b", "invented-huge:35b", "invented-claude-lead"]) {
+      const found = screen.queryAllByText(new RegExp(name.replace(/[.:]/g, "\\$&")));
+      expect(found.length, name).toBeGreaterThan(0); // still on the page (the choice needs it), never vacuous
+      for (const el of found) {
+        expect(el.closest("details")?.open ?? false).toBe(false); // folded, and the fold starts closed
+      }
+    }
   });
 });

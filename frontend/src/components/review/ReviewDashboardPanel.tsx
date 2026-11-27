@@ -175,7 +175,7 @@ export function ReviewDashboardPanel(
         <Card
           label="Submittals" // one line in its card at every width (lead 4's 07:48 audit: "Contractor submittals" wrapped at 800)
           value={data.submittals_total}
-          detail={`${data.submittals_awaiting_review} of ${data.submittals_total} awaiting review`}
+          detail={`${data.submittals_awaiting_review} of ${data.submittals_total} not reviewed yet`}
         />
         <Card
           label="Active standards"
