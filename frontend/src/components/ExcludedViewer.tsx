@@ -5,6 +5,7 @@
  * visible at a glance rather than one row at a time. Nothing is dropped
  * silently, and this is where that promise is redeemed.
  */
+import { Tag } from "./kit/Kit";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "../api/client";
@@ -225,7 +226,9 @@ export function ExcludedViewer({
                   </div>
                   <details className="mt-1 text-xs text-slateish-400">
                     <summary className="cursor-pointer">Technical detail</summary>
-                    <p className="font-mono">{e.rule}{e.reason ? ` · ${e.reason}` : ""} · {nf.format(e.text_length)} characters</p>
+                    {NEW_LOOK
+                      ? <p className="mt-1 flex flex-wrap items-center gap-2"><Tag>{e.rule}</Tag>{e.reason ? <span>{e.reason}</span> : null}<span>{nf.format(e.text_length)} characters</span></p>
+                      : <p className="font-mono">{e.rule}{e.reason ? ` · ${e.reason}` : ""} · {nf.format(e.text_length)} characters</p>}
                   </details>
                   {/* the document's own words in the app's reading face, as in "What was read" (H, 27 Nov 2026) */}
                   <pre className={NEW_LOOK
