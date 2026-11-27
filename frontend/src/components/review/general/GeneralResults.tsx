@@ -116,7 +116,10 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
   const [tab, setTab] = useState<"comments" | "how">("comments");
   const [showAll, setShowAll] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [askRough, setAskRough] = useState(false);
   const [signoff, setSignoff] = useState(review.signoff ?? null);
+  // a rough draft from the local model that no engineer has signed: its file is given only after an explicit OK (lead-5, 27 Nov 2026)
+  const roughUnsigned = review.engine?.local === true && signoff?.state !== "signed";
   useEffect(() => { setSignoff(review.signoff ?? null); }, [review.signoff]);
   const c = review.completeness;
   /** Read the sign-off state again (a decision or "accept the rest" changed what is undecided, or the sign-off itself went stale). */
@@ -126,9 +129,14 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
   }
   const lines = showAll ? review.points : review.comments;
 
-  async function download() {
+  async function download(roughOk = false) {
     setProblem(null);
-    const bad = await downloadGeneralSheet(review.paper_document_id, review.run_id);
+    if (roughUnsigned && !roughOk) {
+      setAskRough(true);
+      return;
+    }
+    setAskRough(false);
+    const bad = await downloadGeneralSheet(review.paper_document_id, review.run_id, "team", roughOk);
     if (bad) setProblem(bad);
     else onDownloaded?.();
   }
@@ -197,6 +205,17 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
           <Button variant="secondary" size="sm" onClick={() => void download()} data-testid="general-download">
             Download the file (team copy)
           </Button>
+        </div>
+      )}
+      {askRough && (
+        <div data-testid="general-rough-confirm">
+          <Notice tone="warn">
+            This review is a rough draft by the AI on this computer, not scored as reliable. Check every comment before you use the file.
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" onClick={() => void download(true)} data-testid="general-rough-ok">I will check every comment: download</Button>
+              <LinkButton tone="action" onClick={() => setAskRough(false)}>Cancel</LinkButton>
+            </div>
+          </Notice>
         </div>
       )}
       {problem && <p role="alert" data-testid="general-download-problem" className="text-sm text-danger-500">{problem}</p>}
