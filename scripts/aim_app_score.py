@@ -415,7 +415,8 @@ def fetch_general(
     code, blob = c.call(
         "GET",
         f"/api/reviews/papers/{q}/general/sheet",
-        params={"run_id": run_id, "copy": "team"},
+        # the scorer is a reader, not a signer: a local rough draft's team file needs the explicit OK the page asks for (#2007; H)
+        params={"run_id": run_id, "copy": "team", "rough_draft_ok": "true"},
     )
     if code == 200 and blob[:2] == b"PK":
         (out / f"{label}-sheet.xlsx").write_bytes(blob)

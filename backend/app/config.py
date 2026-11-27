@@ -468,6 +468,10 @@ class Settings(SettingsExt, BaseSettings):
     #: The formula checks (`aim_review/formulas.py`), their own switch since update 9 (lead-4: proven by the free code-only replay,
     #: found unchanged, 3 new Not met lines all true, no comment duplicated). Off: no formula lines, as main 475adb91.
     aim_formula_checks_enabled: bool = True
+    #: One point, one comment for the ALWAYS-ON items G1-G3 (`aim_review_view._keys`), out of AIM_U7B_ENABLED (F, 27 Nov 2026: a
+    #: WRONG comment on a live review titled one field and carried five other, unrelated missing entries). View code only: no prompt,
+    #: no model, the same points; a signed review keeps the groups it was signed with. Off: as before (one comment per G item).
+    aim_always_by_field_enabled: bool = True
     #: Page pictures in a review (owner, 26 Nov 2026, #1584 7188761254; `aim_review.pictures`): off until a scored run.
     aim_page_pictures_enabled: bool = False
     #: Discipline reviewers (owner 25 Nov 2026): the judge with a mechanical or contract section and worked examples
