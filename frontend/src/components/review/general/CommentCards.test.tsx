@@ -9,7 +9,7 @@ vi.mock("../../../api/generalReview", async (orig) => ({
 }));
 
 import type { GeneralLine, GeneralReview } from "../../../api/generalReview";
-import { CommentCards, SeverityTiles } from "./CommentCards";
+import { COMMENTS_PAGE, CommentCards, SeverityTiles } from "./CommentCards";
 
 const MARK = "AI, to be checked";
 
@@ -263,5 +263,28 @@ describe("side-claim cut mark (A, update 6)", () => {
   it("shows no mark when nothing was cut", () => {
     mount(review([card(1, { cut: [] }), card(2)]));
     expect(screen.queryByTestId("card-cut")).toBeNull();
+  });
+});
+
+describe("a long review's cards (H's audit #58, #59)", () => {
+  it("draws the first cards, states how many of how many, and shows the rest on request; a filter starts again from the top", () => {
+    const many = Array.from({ length: COMMENTS_PAGE + 7 }, (_, i) => card(i + 1, { severity: i % 2 ? "Check a value" : "Missing information" }));
+    mount(review(many, [], { "Check a value": 11, "Missing information": 11 }));
+    expect(screen.getByText(`Invented problem ${COMMENTS_PAGE}`)).toBeInTheDocument();
+    expect(screen.queryByText(`Invented problem ${COMMENTS_PAGE + 1}`)).toBeNull();
+    expect(screen.getByText(`Showing ${COMMENTS_PAGE} of ${COMMENTS_PAGE + 7}.`)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show 7 more" }));
+    expect(screen.getByText(`Invented problem ${COMMENTS_PAGE + 7}`)).toBeInTheDocument();
+    expect(screen.queryByTestId("comments-more")).toBeNull();
+    fireEvent.click(within(screen.getByTestId("severity-tiles")).getByRole("button", { name: /Check a value/ }));
+    expect(screen.queryByTestId("comments-more")).toBeNull(); // 11 of one kind: all on screen
+    expect(screen.getByTestId("card-filter-count")).toHaveTextContent("11 of 22");
+  });
+
+  it("lays the severity boxes in the kit's even tile row", () => {
+    render(<SeverityTiles counts={{ "Must fix": 0, "Check a value": 30 }} active={null} onPick={() => {}} />);
+    const tiles = screen.getByTestId("severity-tiles");
+    expect(tiles.className).toContain("kit-tiles");
+    for (const b of within(tiles).getAllByRole("button")) expect(b.className).not.toMatch(/min-w-/);
   });
 });
