@@ -215,8 +215,23 @@ def _schedule_list(pages: dict[int, str]) -> list[tuple[str, int, str]]:
         cur.append((part[0][1], page, ln))
     if cur:
         runs.append(cur)
-    best = max(runs, key=len) if runs else []
+    # a LIST names different Schedules: a label that repeats is a running page header or footer, not a list (the owner's live
+    # screenshot, 27 Nov 2026: one Schedule's header on 12 pages became "Schedules H, H, H, ..."). Each label counts once, at its first
+    # line, and a run is a list only with three or more DIFFERENT labels.
+    distinct = [_first_of_each(run) for run in runs]
+    best = max(distinct, key=len) if distinct else []
     return best if len(best) >= 3 else []
+
+
+def _first_of_each(run: list[tuple[str, int, str]]) -> list[tuple[str, int, str]]:
+    """The run with each Schedule label once, at its first line, in order."""
+    seen: set[str] = set()
+    out = []
+    for lab, page, ln in run:
+        if lab not in seen:
+            seen.add(lab)
+            out.append((lab, page, ln))
+    return out
 
 
 def _rank_line(pages: dict[int, str], page: int, label: str) -> str:
