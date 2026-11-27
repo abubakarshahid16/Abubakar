@@ -61,6 +61,10 @@ export interface ReadableLine {
   source?: string;
 }
 
+/** A question kept before 27 Nov 2026 carries the old "[cut here: ...]" mark: shown as the plain sentence the server now writes. */
+const OLD_CUT = /(?:\s+[^\s.?!,;:)\]]+)?\s*\[cut here: [^\]]*\]/g; // the word before an old mark may be cut mid-word: it goes too
+const CUT_WORDS = "\u2026 The rest of the question is in the email files.";
+
 /** The question text as the page shows it: the lead-in, then each numbered request with where it was found. */
 export function readableLines(text: string, found: FoundQuestion[] | null | undefined): ReadableLine[] {
   const where = new Map<string, string>();
@@ -73,7 +77,7 @@ export function readableLines(text: string, found: FoundQuestion[] | null | unde
   // last word "Completion?" was shown as a lead-in ABOVE the list); a blank line ends an item, as on the server (items_of)
   let inItem = false;
   for (const raw of text.split("\n")) {
-    const line = raw.trim();
+    const line = raw.replace(OLD_CUT, CUT_WORDS).trim();
     if (!line) {
       inItem = false;
       continue;
@@ -180,7 +184,7 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
   if (!running && all.length === 0) evidence.push("No source found for this question yet. The reply has nothing to rest on.");
   const scored = all.filter((e) => (e.match_terms ?? 0) > 0);
   if (staleSources(q)) {
-    evidence.push("Find the sources again: these were found for the whole email, not for the question.");
+    evidence.push("These sources were found for the whole email, not for this question. Press Find the sources again.");
   } else if (scored.length) {
     const best = scored.reduce((a, b) => ((b.match_count ?? 0) / (b.match_terms ?? 1) > (a.match_count ?? 0) / (a.match_terms ?? 1) ? b : a));
     if ((best.match_count ?? 0) / (best.match_terms ?? 1) < 0.5) {
@@ -274,8 +278,8 @@ export function queryHeadline(q: { contractor_name?: string | null; title_short?
 /** The status in everyday words (owner: "DRAFTING - NORMAL means nothing to me"); a priority is said only when it is not normal. */
 export function plainStatus(status: string, priority?: string | null): string {
   const word: Record<string, string> = {
-    received: "In progress", triage: "In progress", drafting: "In progress", awaiting_review: "In progress: waiting for your approval",
-    changes_requested: "In progress: the reply is being changed", approved: "Approved, not sent yet", send_pending: "Being sent",
+    received: "In progress", triage: "In progress", drafting: "In progress", awaiting_review: "Waiting for your approval",
+    changes_requested: "The reply is being changed", approved: "Approved, not sent yet", send_pending: "Being sent",
     sent: "Sent", awaiting_confirmation: "Sent, waiting for the contractor to confirm", resolved: "Closed",
     duplicate: "Closed as a duplicate", cancelled: "Cancelled", failed: "Stopped by an error",
   };
@@ -283,13 +287,13 @@ export function plainStatus(status: string, priority?: string | null): string {
   return `${word[status] ?? status.replaceAll("_", " ")}${p && p !== "normal" ? ` · ${p} priority` : ""}`;
 }
 
-export type StepState = "done" | "working" | "todo" | "stale";
+export type StepState = "done" | "working" | "todo" | "stale" | "warn";
 export interface Step { label: string; state: StepState }
 
 /** Three steps and the approval, each with its own mark (owner: instead of the dense status sentence). */
 export function querySteps(q: {
   status: string;
-  drafts?: unknown[] | null;
+  drafts?: Array<{ citations_json?: string | null }> | null;
   evidence?: { for_current_question?: boolean | null }[] | null;
   ready?: { evidence?: string | null; draft?: string | null; draft_fresh?: boolean | null } | null;
 }, askText: string): Step[] {
@@ -298,10 +302,25 @@ export function querySteps(q: {
   return [
     { label: "Question found", state: askText.trim() ? "done" : "todo" },
     { label: "Sources found", state: q.ready?.evidence === "refreshing" ? "working" : sources ? "done" : "todo" },
-    // ticked only when the reply answers the CURRENT question (H's review of the owner's file, Q4): a reply to an earlier wording is said so
-    { label: "Reply written", state: q.ready?.draft === "refreshing" ? "working" : !q.drafts?.length ? "todo" : q.ready?.draft_fresh === false ? "stale" : "done" },
+    q.ready?.draft === "refreshing" ? { label: "Reply written", state: "working" }
+      : !q.drafts?.length ? { label: "Reply written", state: "todo" }
+      // ticked only when the reply answers the CURRENT question (H's review of the owner's file, Q4): a reply to an earlier wording is said so
+      : q.ready?.draft_fresh === false ? { label: "Reply written", state: "stale" }
+      // a reply that cites no source is written, but not ready: never a plain tick (F's walk, 27 Nov 2026)
+      : citesNoSource(q.drafts[q.drafts.length - 1]) ? { label: "Reply written: uses no source yet", state: "warn" }
+      : { label: "Reply written", state: "done" },
     { label: "Approved", state: approved ? "done" : "todo" },
   ];
+}
+
+/** The latest reply cites no source: its citations are empty (an unreadable record counts as none). */
+function citesNoSource(draft: { citations_json?: string | null } | undefined): boolean {
+  try {
+    const cited = JSON.parse(draft?.citations_json || "[]");
+    return !Array.isArray(cited) || cited.length === 0;
+  } catch {
+    return true;
+  }
 }
 
 /** "file, page 1" said once under the list when every request was found in the same place (owner: it repeated under each item). */
@@ -417,10 +436,24 @@ export function statusChip(status: string): { words: string; tone: ChipTone } {
   return { words: "In progress", tone: "neutral" };
 }
 
+/** A TQ or CFC number in a subject, in any form ("CFC-00007", "TQ 12"). */
+const SHORT_NUMBER = /\b(?:TQ|CFC)\s*[-\u2013]?\s*\d+/i;
+
+/** A source passage that starts with its page's header (a document number, "Page 7 of 84 Rev 06"): the header and the rest, so the page can
+ *  show the header apart from the quote. Every word is kept, in order; null when the passage has no such header. */
+export function pageHeaderSplit(text: string): { header: string; body: string } | null {
+  const m = /^(.{0,120}?\bPage\s+\d+\s+of\s+\d+(?:\s+Rev(?:ision)?\.?\s*[A-Za-z0-9]{1,4})?)\s+(\S[\s\S]*)$/.exec(text ?? "");
+  if (!m || m[1].split(/\s+/).length > 16) return null;
+  return { header: m[1].trim(), body: m[2] };
+}
+
 /** The short amber chips of a row; the full sentence goes on hover (and inside the query). */
-export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null; contractor_code?: string | null }): Array<{ words: string; why: string }> {
+export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null; contractor_code?: string | null; subject?: string | null }): Array<{ words: string; why: string }> {
   const out: Array<{ words: string; why: string }> = [];
-  if (q.needs_person || !q.ref_type) out.push({ words: "No query number", why: "Check which query this is. The subject has no full TQ or CFC number." });
+  // a number IS in the subject but not in the full form: say that, never "no number" under a number the page shows (A's walk, 27 Nov 2026)
+  if (q.needs_person || !q.ref_type) out.push(SHORT_NUMBER.test(q.subject ?? "")
+    ? { words: "Query number not confirmed", why: "The subject has a number, but not a full TQ or CFC number. Check which query this is." }
+    : { words: "No query number", why: "Check which query this is. The subject has no full TQ or CFC number." });
   // the code printed in the reference number, when there is one, is named (never a guessed contractor; lead-4, 26 Nov 2026)
   if (!q.contractor_name) out.push({ words: "No contractor", why: q.contractor_code
     ? `Under More, “Rules for who it goes to”, say which contractor the code ${q.contractor_code} is. Every query with this code then gets it.`

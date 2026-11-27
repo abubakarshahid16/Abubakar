@@ -15,7 +15,7 @@
  * `chunk_count_total` is every chunk row; publishing one alone is how "19% of
  * pages vanished" stayed invisible, so they are always shown together.
  */
-import { formatWhen } from "../format/when";
+import { formatDay, formatWhen } from "../format/when";
 import type { DocumentRecord, DocumentReviewStatus } from "../types/api";
 import { ROLE_OPTIONS } from "./classification/MetadataEditor";
 
@@ -29,6 +29,7 @@ const REVIEW_STATUS_LABEL: Record<DocumentReviewStatus, string> = {
   cancelled: "Review cancelled",
   completed: "Review complete",
   failed: "Review failed",
+  stopped: "Review stopped early",
 };
 
 function roleLabel(value: string | null | undefined): string | null {
@@ -87,6 +88,10 @@ export function DocumentTechnicalDetails({ doc }: { doc: DocumentRecord }) {
             label="Review status"
             value={REVIEW_STATUS_LABEL[doc.review_status ?? "not_reviewed"]}
           />
+          {/* P8: a review that stopped early is not the paper's review; the last complete one is named beside it */}
+          {doc.review_status === "stopped" && (
+            <Field label="Last complete review" value={formatDay(doc.last_complete_review_at) || "none yet"} />
+          )}
           <Field label="Pages" value={doc.page_count} />
           {/* Always together - one without the other changes its meaning. */}
           <Field
