@@ -431,7 +431,10 @@ def _models_refused(counter: list[int], installed: tuple[str, ...] = ()):
 @contextmanager
 def _on_copy(db_path: Path, under: Path | None = None):
     """Point the app at a throw-away copy of `db_path` for the block (in `under`
-    when given, else the OS temp folder)."""
+    when given, else the OS temp folder). The Claude spend ledger goes there too:
+    it lives in the MAIN checkout's backend/data (`config.shared_backend_dir`), so a
+    replay's refused Claude calls ("refused:not_approved", USD 0) were written into
+    the live app's ledger every 2 hours by the board's bench run (27 Nov 2026)."""
     from app import db
     from app.config import settings
 
@@ -441,14 +444,15 @@ def _on_copy(db_path: Path, under: Path | None = None):
             src = Path(str(db_path) + suffix)
             if src.exists():
                 shutil.copy2(src, str(target) + suffix)
-        old = (settings.db_path, settings.data_dir)
+        old = (settings.db_path, settings.data_dir, settings.claude_spend_log)
         settings.db_path, settings.data_dir = target, Path(tmp)
+        settings.claude_spend_log = Path(tmp) / "claude_spend.jsonl"
         db.reset_connection()
         try:
             yield target
         finally:
             db.reset_connection()
-            settings.db_path, settings.data_dir = old
+            settings.db_path, settings.data_dir, settings.claude_spend_log = old
 
 
 def replay(db_path: Path, case: dict) -> dict:
