@@ -40,6 +40,13 @@ describe("MeasuredBadge", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("says one wrong comment in the singular, in plain words (H's audit 57)", () => {
+    const wrong = "A strict reader judged 1 of 49 comments wrong.";
+    render(<MeasuredBadge measured={{ ...BELOW, found: 8, sentence: `Measured on 1 planted test copy. ${wrong}`,
+      false_alarm: { wrong: 1, of: 49, percent: 2, target_percent: 10, within_target: true, sentence: wrong } }} />);
+    expect(screen.getByTestId("general-measured-plain").textContent).toBe("Checked on 1 practice copy with known mistakes: this kind of paper found 8 of 10 (target 7); 1 of its 49 comments was wrong (limit 10%).");
+    expect(screen.getByTestId("general-measured-plain").textContent).not.toMatch(/planted|test cop/);
+  });
   it("draws the wrong-comment share exactly as the server worded it, with its N of M", () => {
     const wrong = "A strict reader judged 23 of 124 comments wrong across those test copies (19%; target 10% or less).";
     render(<MeasuredBadge measured={{ ...BELOW, sentence: `${BELOW.sentence} ${wrong}`,
@@ -49,7 +56,7 @@ describe("MeasuredBadge", () => {
   it("says the score in plain words first, the full sentence with its version one click away (H's audit, 27 Nov 2026)", () => {
     render(<MeasuredBadge measured={{ ...BELOW, found: 5.79, sentence: "Measured on 1 planted test copy (measured 18 Nov 2026, version 0000abcd). Update 9 round cut short." }} />);
     // the sample says its size (F's gate, 27 Nov 2026): "Measured on 1 planted test copy" -> "On 1 test copy"
-    expect(screen.getByTestId("general-measured-plain").textContent).toBe("On 1 test copy with planted mistakes, this kind of paper found 5.7 of 10 (the target is 7).");
+    expect(screen.getByTestId("general-measured-plain").textContent).toBe("Checked on 1 practice copy with known mistakes: this kind of paper found 5.7 of 10 (target 7).");
     expect(screen.getByTestId("general-measured-plain").textContent).not.toMatch(/version|round|strict reader/);
     expect(screen.getByText("How this was measured")).toBeTruthy();
     expect(screen.getByTestId("general-measured-sentence").textContent).toContain("version 0000abcd");

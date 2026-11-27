@@ -75,7 +75,7 @@ function Tile({
     <div className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-3 py-2.5">
       <p className="text-xs uppercase tracking-wide text-slateish-500">{label}</p>
       {measured ? (
-        <p className={`mt-1 font-mono text-lg leading-tight ${toneClass}`}>
+        <p className={`mt-1 text-lg leading-tight tabular-nums ${toneClass}`}>
           {typeof value === "number" ? nf.format(value) : value}
         </p>
       ) : (
@@ -421,7 +421,7 @@ function WatchedFolderPanel() {
   if (!status.enabled) {
     return (
       <Section title="Watched folder">
-        <p className="text-sm text-slateish-300">The watched folder is not configured.</p>
+        <p className="text-sm text-slateish-300">No folder is set up to be watched for new files.</p>
       </Section>
     );
   }
@@ -611,8 +611,8 @@ export function IngestionView({
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>{pageIdentity}</div>
-        <p className="font-mono text-xs text-slateish-500">
-          every {metrics.refresh_seconds}s
+        <p className="text-xs text-slateish-500">
+          Updates every {metrics.refresh_seconds} seconds
         </p>
       </div>
 
@@ -626,14 +626,14 @@ export function IngestionView({
       <Section title="Right now">
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Tile
-            label="Background reader"
+            label="Document reader"
             value={
               activeWorker?.current_document != null
                 ? "working"
                 : worker.stalled
                   ? "not moving"
                   : worker.alive
-                    ? "idle"
+                    ? "waiting for work"
                     : "stopped"
             }
             tone={
@@ -648,13 +648,14 @@ export function IngestionView({
           <Tile label="Waiting" value={activeWorker?.pending_count} hint="documents waiting" />
           <Tile
             label="Oldest wait"
-            value={formatAge((activeWorker?.oldest_pending_age_seconds ?? null))}
+            // never a dash (owner, 03:30): nothing waiting is said in words; an unknown age is "not measured yet" (the tile's own null)
+            value={(activeWorker?.pending_count ?? 0) === 0 ? "nothing waiting" : activeWorker?.oldest_pending_age_seconds == null ? null : formatAge(activeWorker.oldest_pending_age_seconds)}
             hint="how long the longest-waiting document has waited"
           />
           <Tile
             label="Finished"
             value={activeWorker?.documents_completed}
-            hint="since the background reader started"
+            hint="since the document reader started"
           />
         </div>
       </Section>

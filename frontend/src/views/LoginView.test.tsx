@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { LoginView, RoleBadge, roleWords, type LoginOutcome } from "./LoginView";
 import type { Me } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 async function attempt(outcome: LoginOutcome, connected = true) {
   const onLogin = vi.fn(async () => outcome);
@@ -113,6 +114,20 @@ describe("LoginView: password reset", () => {
     await user.click(screen.getByRole("button", { name: "Save new password" }));
     expect(onResetPassword).not.toHaveBeenCalled();
     expect(screen.getByText("The two passwords do not match.")).toBeInTheDocument();
+  });
+});
+
+describe.runIf(NEW_LOOK)("the Sign in button (owner, 27 Nov 2026 08:45: it read as plain grey text)", () => {
+  it("is the kit's primary button and enabled before anything is typed; an empty field is said in words", async () => {
+    const onLogin = vi.fn();
+    const user = userEvent.setup();
+    render(<LoginView onLogin={onLogin} connected={true} />);
+    const button = screen.getByRole("button", { name: "Sign in" });
+    expect(button).toBeEnabled();
+    expect(button.className).toContain("kit-btn--primary");
+    await user.click(button);
+    expect(onLogin).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Enter your email and password.");
   });
 });
 

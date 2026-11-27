@@ -30,7 +30,7 @@ import {
   typeOf,
 } from "./documentTypeGroups";
 import { NOT_IN_REGISTER_LABEL } from "../components/classification/registerLabels";
-import { Button, LinkButton } from "../components/kit/Kit";
+import { Button, LinkButton, SelectField, TextField } from "../components/kit/Kit";
 
 type Load =
   | { state: "loading" }
@@ -474,18 +474,22 @@ export function DocumentsView({
     [selectedTypes, classifications],
   );
 
+  // ONE SORT CONTROL (H's audit 14: a "Sort" select and an "Order: Newest" button said the same thing twice): the kit's search field
+  // and one kit select whose choices carry the order too.
+  const sortChoice = `${sort}:${direction}`;
   const finder = (
-      <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 p-3">
-        <label className="min-w-56 flex-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
-          Find documents
-          <input value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="Filename contains…" className="mt-1 w-full rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200" />
-        </label>
-        <label className="text-xs font-semibold uppercase tracking-wide text-slateish-400">Sort
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className="mt-1 block rounded-[var(--radius-sm)] border border-ink-600 bg-ink-900 px-3 py-2 text-sm font-normal text-slateish-200">
-            <option value="uploaded_at">Newest</option><option value="filename">Filename</option><option value="status">Status</option>
-          </select>
-        </label>
-        <Button variant="secondary" onClick={() => setDirection((d) => d === "asc" ? "desc" : "asc")}>Order: {direction === "asc" ? "A–Z" : "Newest"}</Button>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-56 flex-1">
+          <TextField id="documents-find" label="Find documents" value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="Filename contains…" />
+        </div>
+        <SelectField id="documents-sort" label="Sort" value={sortChoice}
+          onChange={(e) => { const [field, dir] = e.target.value.split(":"); setSort(field); setDirection(dir === "asc" ? "asc" : "desc"); }}>
+          <option value="uploaded_at:desc">Newest first</option>
+          <option value="uploaded_at:asc">Oldest first</option>
+          <option value="filename:asc">Filename A–Z</option>
+          <option value="filename:desc">Filename Z–A</option>
+          <option value="status:asc">Status</option>
+        </SelectField>
       </div>
   );
   const workerPanel = (
@@ -714,11 +718,11 @@ export function DocumentsView({
                     .map((group) => (
                       <div key={group.name}>
                         <h3
-                          className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"
+                          className={NEW_LOOK ? "kit-group-title" : "mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"}
                           aria-label={`${group.name}, ${group.documents.length} document(s)`}
                         >
                           {group.name}
-                          <span className="font-mono text-slateish-500">
+                          <span className={NEW_LOOK ? "kit-group-title__count" : "font-mono text-slateish-500"}>
                             {group.documents.length}
                           </span>
                         </h3>
@@ -744,11 +748,11 @@ export function DocumentsView({
                   {showAwaiting && awaiting.documents.length > 0 && (
                     <div key={awaiting.name}>
                       <h3
-                        className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-warn-500"
+                        className={NEW_LOOK ? "kit-group-title kit-check" : "mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-warn-500"}
                         aria-label={`${awaiting.name}, ${awaiting.documents.length} document(s)`}
                       >
                         {awaiting.name}
-                        <span className="font-mono text-warn-500">
+                        <span className={NEW_LOOK ? "kit-group-title__count" : "font-mono text-warn-500"}>
                           {awaiting.documents.length}
                         </span>
                       </h3>
@@ -760,11 +764,11 @@ export function DocumentsView({
                   {showNotInRegister && notInRegister.documents.length > 0 && (
                     <div key={notInRegister.name}>
                       <h3
-                        className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"
+                        className={NEW_LOOK ? "kit-group-title" : "mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wider text-slateish-400"}
                         aria-label={`${notInRegister.name}, ${notInRegister.documents.length} of the ${filtered.length} document(s) listed here`}
                       >
                         {notInRegister.name}
-                        <span className="font-mono text-slateish-500">
+                        <span className={NEW_LOOK ? "kit-group-title__count" : "font-mono text-slateish-500"}>
                           {notInRegister.documents.length} of {filtered.length} listed
                         </span>
                       </h3>
@@ -890,7 +894,7 @@ function FilterChip({
       {label}
       {/* A COUNT ONLY WHEN COVERAGE ANSWERED. See TypeFilter.tsx: rendering 0
           for "we do not know" reads as "there are none of these". */}
-      {count != null && <span className="font-mono text-xs text-slateish-300">{count}</span>}
+      {count != null && <span className={NEW_LOOK ? "text-xs" : "font-mono text-xs text-slateish-300"}>{count}</span>}
     </Button>
   );
 }
