@@ -13,6 +13,7 @@
  * regression.
  */
 import { render, screen, waitFor } from "@testing-library/react";
+import { within as withinGroup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -65,4 +66,10 @@ describe("the theme attribute", () => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("light"),
     );
   });
+  it("names the two theme buttons 'Dark' and 'Light', as a screen reader reads them (A's walk, 27 Nov 2026)", async () => {
+    render(<App />);
+    const group = (await screen.findAllByRole("group", { name: "Theme mode" }))[0];
+    expect(withinGroup(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["Dark", "Light"]);
+  });
 });
+
