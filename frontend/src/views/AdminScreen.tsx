@@ -42,11 +42,11 @@ const GATEWAY_STATUSES = new Set([502, 503, 504]);
  *  the contract's own; anything else is a generic failure. */
 const MESSAGES: Record<string, string> = {
   email_in_use: "That email address already has an account.",
-  invalid_email: "That is not an email address the backend will accept.",
-  unknown_discipline: "That discipline does not exist on the backend.",
+  invalid_email: "Enter a valid email address.",
+  unknown_discipline: "That discipline does not exist.",
   cannot_deactivate_self: "You cannot deactivate your own account. Ask another administrator.",
-  unknown_document: "That document is no longer on the backend.",
-  not_found: "The backend does not know about that.",
+  unknown_document: "That document is no longer in the app.",
+  not_found: "That item was not found. Reload the page and try again.",
 };
 
 async function adminRequest<T>(
@@ -77,14 +77,14 @@ async function adminRequest<T>(
       return {
         ok: false,
         disconnected: true,
-        error: { code: "internal", message: "Cannot reach the app's server. Nothing answered on the API port." },
+        error: { code: "internal", message: "Cannot reach the app's server. Ask whoever runs the app to check it is running." },
       };
     }
     // The same 401 handling as api/client.ts: drop the dead token and tell the
     // app once, so an expired session on this screen returns to sign-in.
     reportResponseStatus(response.status);
     let code = response.status === 404 ? "not_found" : "internal";
-    let message = MESSAGES[code] ?? "The backend could not complete this request.";
+    let message = MESSAGES[code] ?? "The app's server could not finish this. Please try again.";
     try {
       const body = await response.json();
       const raw = body?.detail ?? body;
@@ -108,7 +108,7 @@ async function adminRequest<T>(
       disconnected: false,
       error: {
         code: "internal",
-        message: "The backend's reply could not be read. If you changed something, it may or may not have been saved - reload to check before trying again.",
+        message: "The server's answer could not be read. Reload the page to see whether your change was saved, then try again if needed.",
       },
     };
   }
@@ -155,7 +155,7 @@ export function makeAdminClient(token: () => string | null): AdminClient {
  *  a contract error code gets wording the UI owns rather than whatever prose
  *  the server happened to send. */
 function explain(r: Extract<AdminResult<unknown>, { ok: false }>, consequence: string): string {
-  if (r.disconnected) return `The backend is not running, ${consequence}.`;
+  if (r.disconnected) return `The app's server is not running, ${consequence}.`;
   return MESSAGES[r.error.code] ?? r.error.message;
 }
 
@@ -268,7 +268,7 @@ export function AdminScreen({
           error: { code: "not_found", message: "Password reset could not be completed." } };
     setBusyKey(null);
     if (result.ok) setCreated(result.data);
-    else setCreateError(explain(result, "so no reset token was issued"));
+    else setCreateError(explain(result, "so no one-time code was made"));
   }, [api]);
 
   const changeGrant = useCallback(

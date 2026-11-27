@@ -66,7 +66,7 @@ export function DatabaseSection({ client, pageSize = 25 }: DatabaseSectionProps)
         : !r.ok && r.error.code === "not_found" ? { kind: "missing" }
         : !r.ok ? { kind: "failed", code: r.error.code, message: r.error.message }
         : { kind: "failed", code: "internal",
-            message: "The backend answered with something this screen cannot read." });
+            message: "The app's server sent an answer this page cannot read." });
     });
   }, [client]);
 
@@ -100,9 +100,9 @@ export function DatabaseSection({ client, pageSize = 25 }: DatabaseSectionProps)
       {failure && (
         <p role="alert" className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
           {failure.kind === "offline"
-            ? "The backend is not running, so the tables cannot be listed."
+            ? "The app's server is not running, so the tables cannot be listed."
             : failure.kind === "missing"
-              ? "This backend does not serve the database explorer."
+              ? "This version of the app has no database explorer."
               : failure.message}
         </p>
       )}

@@ -18,7 +18,7 @@ interface Reviewer { id: string; email: string; display_name?: string | null }
 type Rows = { items: Reviewer[] };
 
 export const SELF_GRANT_WORDS =
-  "You cannot give yourself this role: another administrator gives it (the server's rule: being qualified is someone else's call).";
+  "Another administrator must give you this role. You cannot give it to yourself.";
 
 export function TechnicalQueryReviewersSection({ users }: { users: AdminUser[] | null }) {
   const [reviewers, setReviewers] = useState<Set<string> | null | "off">(null);
@@ -51,8 +51,8 @@ export function TechnicalQueryReviewersSection({ users }: { users: AdminUser[] |
       className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-850 p-4">
       <h2 id="tq-reviewers-title" className="text-sm font-semibold text-slateish-200">Technical query reviewers</h2>
       <p className="mt-1 text-xs text-slateish-400">
-        A reviewer confirms a query&apos;s question, keeps or rejects its evidence, and approves and sends its answer. Without one, the
-        Confirm button is refused for everyone.
+        A reviewer confirms a query&apos;s question, keeps or rejects its sources, and approves its reply. Without a reviewer, nobody
+        can use Confirm.
       </p>
       {failure && <p role="alert" className="mt-2 text-sm text-danger-500">{failure}</p>}
       {reviewers === null && !failure ? <p className="mt-2 text-sm text-slateish-400">Reading who holds the role…</p> : null}

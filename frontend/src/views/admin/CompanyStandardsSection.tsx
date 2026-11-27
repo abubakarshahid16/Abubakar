@@ -45,7 +45,7 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
       !r.ok && r.disconnected ? { kind: "offline" }
       : !r.ok && r.error.code === "not_found" ? { kind: "missing" }
       : !r.ok ? { kind: "failed", code: r.error.code, message: r.error.message }
-      : { kind: "failed", code: "internal", message: "The backend answered with something this screen cannot read." });
+      : { kind: "failed", code: "internal", message: "The app's server sent an answer this page cannot read." });
   }, [client]);
 
   useEffect(() => { void load(); }, [load]);
@@ -62,7 +62,7 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
     const r = await client.confirmCompanyStandard(row.id);
     setBusy(null);
     if (!r.ok) {
-      setMessage({ error: true, text: r.disconnected ? "The backend is not running, so nothing was confirmed." : r.error.message });
+      setMessage({ error: true, text: r.disconnected ? "The app's server is not running, so nothing was confirmed." : r.error.message });
       return;
     }
     setMessage({
@@ -83,16 +83,16 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
       </h2>
       <p className="text-xs text-slateish-400" data-testid="admin-held-boundary">
         {cutoff
-          ? `A Company standard a non-administrator uploads on or after ${cutoff} is not used in reviews until an administrator confirms it. Company standards uploaded before ${cutoff} count as confirmed and are not listed here.`
+          ? `A Company standard uploaded by a non-administrator on or after ${cutoff} is used in reviews only after an administrator confirms it. Older ones count as confirmed and are not listed here.`
           : "Every Company standard a non-administrator uploaded waits here until an administrator confirms it."}
       </p>
 
       {failure && (
         <p role="alert" className="rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-warn-500">
           {failure.kind === "offline"
-            ? "The backend is not running, so the waiting standards cannot be listed."
+            ? "The app's server is not running, so the waiting standards cannot be listed."
             : failure.kind === "missing"
-              ? "This backend does not serve the Company standard confirmation list."
+              ? "This version of the app has no Company standard confirmation list."
               : failure.message}
         </p>
       )}
