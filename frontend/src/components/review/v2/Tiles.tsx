@@ -59,7 +59,7 @@ export function BookChips({ counts, selected, onSelect }: { counts: PointsListin
       )}
       {counts.other_rule_books_points > 0 && (
         <span className="px-1 text-xs text-slateish-400" title={counts.other_rule_books_note ?? undefined}>
-          {counts.other_rule_books_points} on rule books you may not read
+          {counts.other_rule_books_points} on rule books that are not available to you
         </span>
       )}
     </div>
