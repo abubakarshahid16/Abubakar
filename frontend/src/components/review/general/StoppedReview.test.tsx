@@ -80,6 +80,30 @@ describe("R2: a stopped review points to the last complete one", () => {
   });
 });
 
+describe("C's notes on #1981: first, one red, no 'points below' when there are none", () => {
+  it("the last complete review comes before the stop line; 0/0/0 is a quiet note; no 'points below' with 0 points", async () => {
+    vi.spyOn(generalReview, "history").mockResolvedValue({ ok: true, data: { paper_document_id: "doc_inv", boundary: "x", runs: [
+      { run_id: "run_complete", version: "general", part: "p", status: "done", started_at: null, finished_at: "2026-11-18T10:00:00Z", points: 116, files: [] },
+    ] } } as never);
+    render(<GeneralResults review={stopped()} howTab={null} onViewPage={() => undefined} onOpenRun={vi.fn()} />);
+    const last = await screen.findByTestId("general-last-complete");
+    const stop = screen.getByTestId("general-stopped");
+    expect(last.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(stop).not.toHaveTextContent("points below");
+    const incomplete = screen.getByTestId("general-incomplete");
+    expect(incomplete.getAttribute("role")).toBeNull();
+    expect(incomplete.querySelector("[role=alert]")).toBeNull();
+    expect(incomplete).toHaveTextContent("Nothing to compare");
+  });
+
+  it("a stopped review WITH points still says the points below are the ones it reached", () => {
+    vi.spyOn(generalReview, "history").mockResolvedValue({ ok: true, data: { paper_document_id: "doc_inv", boundary: "x", runs: [] } } as never);
+    render(<GeneralResults review={stopped({ counts: { points: 4, comments: 2, by_label: {}, boundary: "x" }, completeness: { ok: true, page: 4, database: 4, file_rows: 4, sentence: null } })}
+      howTab={null} onViewPage={() => undefined} />);
+    expect(screen.getByTestId("general-stopped")).toHaveTextContent("The points below are the ones it reached.");
+  });
+});
+
 describe("R5: three counts of 0 are nothing to compare, never 'all three agree'", () => {
   it("words the result", () => {
     expect(completenessResult({ ok: true, page: 0, database: 0, file_rows: 0, sentence: null })).toBe("nothing to compare: the review has no points");

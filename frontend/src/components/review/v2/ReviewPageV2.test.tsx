@@ -1038,7 +1038,7 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.queryByText(/Sign and issue/)).toBeNull();
     expect(screen.getAllByRole("button", { name: /Download/ })).toHaveLength(1);
     fireEvent.click(screen.getByTestId("general-download"));
-    await waitFor(() => expect(api.downloadGeneral).toHaveBeenCalledWith("doc1", "g1"));
+    await waitFor(() => expect(api.downloadGeneral).toHaveBeenCalledWith("doc1", "g1", "team", false));
     expect(api.downloadPaperCrs).not.toHaveBeenCalled();
   });
 

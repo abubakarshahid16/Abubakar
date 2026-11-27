@@ -172,6 +172,8 @@ describe("the watched folder when it cannot be reached", () => {
     expect(banner.closest("li")).toBeNull();
     expect(within(section).getAllByRole("listitem")).toHaveLength(1);
     expect(within(banner).queryByText("pump-datasheet.pdf")).toBeNull();
+    // F's live walk: a check that could not open the folder never claims it "found nothing new"
+    expect(within(section).queryByText(/found nothing new/)).toBeNull();
   });
 
   it("keeps saying it while the rest of the panel still reports", async () => {

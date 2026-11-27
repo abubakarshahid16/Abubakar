@@ -223,6 +223,7 @@ EGRESS_SAFE: dict[str, object] = {
     "aim_u8_enabled": False,
     "aim_u13_enabled": False,  # update 13's method part (G2/G3 read the app's form and pair data), off until a quick score
     "aim_page_pictures_enabled": False,  # J3: page pictures in a review, off by default (owner 26 Nov, #1584 7188761254)
+    "aim_always_by_field_enabled": True,  # one comment per field for the always-on items, ON by default (F, 27 Nov 2026)
     "aim_formula_checks_enabled": True,  # the formula checks, ON by default (update 9); "all off = main" pins it off itself
     "aim_discipline_reviewers_enabled": False,  # discipline reviewers on Claude, off; the local route gives their examples
     "ai_review_calculator_enabled": False,  # 12 Nov: the calculator step of the AI review, off

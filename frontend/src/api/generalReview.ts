@@ -151,6 +151,8 @@ export interface GeneralReview {
   checklist: { key: string | null; items: number | null; always_items?: number; reused: boolean | null; built_from: string | null };
   /** Piece G: the measured score of this paper's kind (found of 10 on planted test copies, target 7); null when no kind is named. */
   measured?: GeneralMeasured | null;
+  /** The engine the run's own calls name; `local` true for a rough draft from the local model (absent on an older answer). */
+  engine?: { local?: boolean } | null;
   cost: { usd: number | null; note?: string };
   /** A checking step whose answer was not applied to this sheet, in plain words (a failed AI step is shown in the run). */
   /** One row per step; a counted local set-aside, one row per cause (`count` set). */
@@ -218,12 +220,12 @@ export const generalReview = {
   history: (documentId: string) =>
     request<PaperHistory>(`${paper(documentId)}/history`, undefined, (b) => isObject(b) && Array.isArray(b.runs)),
   /** The team file of one general review. The server refuses it (409, with the sentence) unless page, database and rows agree. */
-  sheet: async (documentId: string, runId?: string, copy: "team" | "contractor" = "team"): Promise<Result<{ blob: Blob; filename: string }>> => {
+  sheet: async (documentId: string, runId?: string, copy: "team" | "contractor" = "team", roughDraftOk = false): Promise<Result<{ blob: Blob; filename: string }>> => {
     let response: Response;
     try {
       const headers = new Headers();
       markSession(headers);
-      response = await fetch(`${BASE}${paper(documentId)}/general/sheet?${runId ? `run_id=${encodeURIComponent(runId)}&` : ""}copy=${copy}`, { headers });
+      response = await fetch(`${BASE}${paper(documentId)}/general/sheet?${runId ? `run_id=${encodeURIComponent(runId)}&` : ""}copy=${copy}${roughDraftOk ? "&rough_draft_ok=true" : ""}`, { headers });
     } catch (e) {
       return { ok: false, disconnected: true, error: { code: "internal", message: e instanceof Error ? e.message : "Network request failed." } };
     }
@@ -238,8 +240,8 @@ export const generalReview = {
 };
 
 /** Fetch the file and hand it to the browser. Returns the server's own sentence on a refusal, or null when handed over. */
-export async function downloadGeneralSheet(documentId: string, runId?: string, copy: "team" | "contractor" = "team"): Promise<string | null> {
-  const result = await generalReview.sheet(documentId, runId, copy);
+export async function downloadGeneralSheet(documentId: string, runId?: string, copy: "team" | "contractor" = "team", roughDraftOk = false): Promise<string | null> {
+  const result = await generalReview.sheet(documentId, runId, copy, roughDraftOk);
   if (!result.ok) return result.error.message;
   const url = URL.createObjectURL(result.data.blob);
   const link = document.createElement("a");
