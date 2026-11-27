@@ -142,7 +142,7 @@ function ReportRow({
   return (
     <li className="card-3d surface-card overflow-hidden rounded-[var(--radius-md)] border border-ink-700 bg-ink-850">
       <div className="flex flex-wrap items-start justify-between gap-3 p-4">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-[1_1_20rem]">
           <h3 className="font-medium text-slateish-200">{displayQuestion(report.question)}</h3>
           {report.resolved_question &&
             displayQuestion(report.resolved_question) !== displayQuestion(report.question) && (
@@ -171,7 +171,9 @@ function ReportRow({
           )}
         </div>
 
-        <div className="flex shrink-0 flex-wrap gap-1.5">
+        {/* the report's buttons are one group that may wrap but never runs past the card ("Download recreated copy" was cut at
+            800, the card hides what overflows); the text keeps 20rem and the group drops under it when both do not fit (27 Nov 2026) */}
+        <div className="flex min-w-0 max-w-full flex-wrap gap-1.5">
           {report.recreation_available && (
             <span className="text-xs text-warn-500">Original PDF missing. This copy uses the saved evidence.</span>
           )}
