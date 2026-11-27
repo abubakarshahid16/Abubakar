@@ -66,6 +66,8 @@ export interface TechnicalQuery {
     cited?: Array<{ line: string; held: boolean }>;
     /** The current wording's numbered requests, in order; [] for a single request (builder A, 27 Nov 2026). */
     items?: string[];
+    /** COMPANY's usual cost / schedule sentence, offered beside the draft (never put in by code); `hint` when the request mentions money or time. */
+    position?: { line: string; hint: string | null } | null;
   } | null;
   decisions?: Array<{ decision: string; comment: string | null; created_at: string }>;
   source_access_revoked?: boolean;

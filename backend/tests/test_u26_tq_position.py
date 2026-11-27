@@ -1,8 +1,12 @@
 # ruff: noqa: F811 - pytest fixtures imported from the ready-query tests are used as parameters
-"""COMPANY's usual cost / schedule position in a system draft: a set sentence added by code, never by the model, and marked for the
-engineer (lead-4's decision, 27 Nov 2026). Invented values; no model."""
+"""COMPANY's usual cost / schedule sentence: OFFERED to the engineer beside the draft, never put in by code; the money / time word check
+is only a hint (lead-4's final design, 27 Nov 2026, after builder H's three gates). Invented values; no model."""
 
 from __future__ import annotations
+
+import inspect
+
+import pytest
 
 from app import technical_queries as tq
 from app import technical_query_auto as auto
@@ -12,30 +16,6 @@ from tests.test_tq_g_feature_off import (
     storage,  # noqa: F401 - the autouse database fixture
 )
 from tests.test_u16_tq_ready import _run, query  # noqa: F401 - the ready-query fixture
-
-
-def test_the_set_sentence_closes_a_plain_technical_reply():
-    out = P.with_position(
-        "1. Class 300 applies [S1].", "1. Which flange class applies?\n2. Which gasket?"
-    )
-    assert out == f"1. Class 300 applies [S1].\n\n{P.POSITION_LINE}"
-    assert P.position_mark(out, "Which flange class applies?", True) == P.POSITION_MARK
-    assert P.with_position(out, "Which flange class applies?") == out  # never twice
-
-
-def test_nothing_is_added_when_the_request_raises_cost_or_schedule_and_the_page_says_it_is_the_engineers_call():
-    for ask in (
-        "Please confirm the cost impact of the revised routing.",
-        "CONTRACTOR requests an extension of time for item 2.",
-        "Will a variation order be issued for the added valves?",
-        "CONTRACTOR seeks compensation for the re-work.",
-    ):
-        assert P.raises_cost(ask), ask
-        assert (
-            P.with_position("Class 300 applies [S1].", ask) == "Class 300 applies [S1]."
-        )
-        assert P.position_mark("Class 300 applies [S1].", ask, True) == P.RAISED_MARK
-
 
 RAISES = (
     # builder H's second gate of #1963: these got the sentence before the rule was flipped
@@ -69,23 +49,63 @@ TECHNICAL = (
     "Which seismic acceleration applies?",
     "Is the drain behind the column acceptable?",
 )
+# builder H's third gate: money / time requests no word list caught. The sentence is never put in, so they are safe by construction.
+H_FRESH = (
+    "The contractor seeks a revised quotation for the extra pumps.",
+    "This affects our lump sum.",
+    "We will need overtime to recover.",
+    "Please approve the change in scope for the flare tie-in.",
+    "This deviation requires a variation.",
+    "Our float is consumed by this redesign.",
+    "Will COMPANY fund the redesign?",
+    "Liquidated damages may apply if this is not resolved.",
+    "The redesign requires an extra week.",
+    "Please confirm whether this is extra work.",
+    "Can the shutdown window be extended?",
+    "Who is responsible for the additional scope?",
+    "The vendor quoted a higher figure for the alloy.",
+)
 
 
-def test_the_flipped_rule_any_money_or_time_word_means_no_sentence():
+def test_code_never_writes_the_sentence_into_a_draft():
+    # nothing in the draft pipeline can add it: the old helpers are gone and the pipeline does not name the sentence
+    assert not hasattr(P, "with_position") and not hasattr(P, "position_mark")
+    pipeline = inspect.getsource(auto)
+    assert "POSITION_LINE" not in pipeline and "with_position" not in pipeline
+
+
+@pytest.mark.parametrize(
+    "ask", ["1. What flange rating applies?", *RAISES[:3], *H_FRESH[:3], *TECHNICAL[:2]]
+)
+def test_a_system_draft_is_the_models_own_text_for_any_request(query, monkeypatch, ask):
+    item, scope, _asked = query
+    with tq.connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET confirmed_question=? WHERE id=?",
+            (ask, item["id"]),
+        )
+    monkeypatch.setattr("app.answer.answer", lambda q, **k: {
+        "answer_type": "generated", "answer": "1. Class 300 applies [S1].", "cited": [1], "model": "synthetic-local",
+        "passages": [{"document_id": "d1", "page_start": 3, "page_end": 3, "text": "Invented clause 7.1: the flange rating shall be class 300."}]})  # fmt: skip
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    got = tq.get(item["id"], "u1", False, False)
+    assert got["drafts"][-1]["question"] == ask  # the draft answers this very request
+    assert (
+        got["drafts"][-1]["answer"] == "1. Class 300 applies [S1]."
+    )  # exactly the model's text
+    assert P.POSITION_LINE not in got["drafts"][-1]["answer"]
+    assert got["ready"]["position"]["line"] == P.POSITION_LINE  # offered beside it
+
+
+def test_the_hint_shows_for_money_or_time_words_and_not_for_plain_technical_requests():
     for ask in RAISES:
-        assert P.raises_cost(ask), ask
-        assert (
-            P.with_position("Class 300 applies [S1].", ask) == "Class 300 applies [S1]."
-        ), ask
-        assert P.position_mark("Class 300 applies [S1].", ask, True) == P.RAISED_MARK
-
-
-def test_technical_words_that_only_look_like_money_or_time_still_get_the_sentence():
+        assert P.offer(ask) == {"line": P.POSITION_LINE, "hint": P.HINT}, ask
     for ask in TECHNICAL:
-        assert not P.raises_cost(ask), ask
-        assert P.with_position("Class 300 applies [S1].", ask).endswith(
-            P.POSITION_LINE
-        ), ask
+        assert P.offer(ask) == {"line": P.POSITION_LINE, "hint": None}, ask
+    # the hint is only a hint: a request it misses is still offered the sentence, and nothing is ever added without the engineer
+    for ask in H_FRESH:
+        assert P.offer(ask)["line"] == P.POSITION_LINE
 
 
 def test_the_set_sentence_is_independent_wording():
@@ -100,38 +120,3 @@ def test_the_set_sentence_is_independent_wording():
         "to support a schedule or cost impact",
     ):
         assert older not in P.POSITION_LINE
-    # a draft that already speaks of cost and schedule gets nothing more
-    said = "Class 300 applies [S1]. There is no change to cost or schedule."
-    assert P.with_position(said, "Which class applies?") == said
-
-
-def test_nothing_is_added_when_the_draft_already_speaks_of_an_impact_and_a_typed_reply_gets_no_mark():
-    deferring = "Class 300 applies [S1]. COMPANY to confirm any schedule impact."
-    assert P.with_position(deferring, "Which class applies?") == deferring
-    assert P.position_mark(deferring, "Which class applies?", True) is None
-    assert (
-        P.position_mark(f"Typed.\n\n{P.POSITION_LINE}", "Which class applies?", False)
-        is None
-    )
-    # technical words that only look like money or time are not a cost request
-    assert not P.raises_cost(
-        "What is the time delay of the trip relay? Is the scheduled maintenance interval stated?"
-    )
-
-
-def test_the_system_draft_carries_the_sentence_and_the_page_marks_it(
-    query, monkeypatch
-):
-    item, scope, _asked = query
-    monkeypatch.setattr("app.answer.answer", lambda q, **k: {
-        "answer_type": "generated", "answer": "1. Class 300 applies [S1].", "cited": [1], "model": "synthetic-local",
-        "passages": [{"document_id": "d1", "page_start": 3, "page_end": 3, "text": "Invented clause 7.1: the flange rating shall be class 300."}]})  # fmt: skip
-    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
-    _run(item["id"])
-    got = tq.get(item["id"], "u1", False, False)
-    draft = got["drafts"][-1]
-    assert draft["answer"].endswith(P.POSITION_LINE)
-    assert (
-        draft["prompt_version"] == auto.SYSTEM_DRAFT == "system-draft-2"
-    )  # unchanged: no backlog redo for this line
-    assert P.POSITION_MARK in got["ready"]["marks"]

@@ -27,8 +27,6 @@ log = logging.getLogger(__name__)
 #: `query_drafts.prompt_version` of a draft the system wrote by itself after preparing the evidence. 2 = the query-reply prompt (no
 #: "Yes." / "No." opening; each numbered request answered, or "Not found in the documents searched") and the relevance floor; a query whose
 #: latest draft is an older system draft, with no decision on it, is drafted again at the next start (builder C's walk, 26 Nov 2026).
-#: The cost / schedule sentence (technical_query_position, 27 Nov 2026) did NOT move it: new drafts carry it, older ones at their next
-#: natural redo (lead-4: no extra backlog redo for a closing line).
 SYSTEM_DRAFT = "system-draft-2"
 #: A passage the SYSTEM found is a draft's source only at or above this reranker score: the answer lane's own calibration (answer.py:
 #: answerable questions -1.19 .. 7.36, plausible but wrong -10.32 .. -4.73). Measured on a copy of live (32 drafts): 29 of 82 cited
@@ -352,14 +350,7 @@ def write_draft(
     )  # another held query the request names: read it before replying
     if named:
         unresolved.append(named)
-    from .technical_query_position import position_mark, with_position
-
-    # COMPANY's usual cost / schedule position: a set sentence added by CODE, never by the model, marked for the engineer to confirm
-    answer = with_position(result["answer"], question)
-    stated = position_mark(answer, question, True)
-    if stated:
-        unresolved.append(stated)
-    tq.add_draft(query_id, answer, [], unresolved, None, user_id, is_admin, unrestricted, citations=citations,
+    tq.add_draft(query_id, result["answer"], [], unresolved, None, user_id, is_admin, unrestricted, citations=citations,
                  model=result.get("model"), prompt_version=SYSTEM_DRAFT, question=question)  # fmt: skip
     _note(query_id, None)
     return None
@@ -503,19 +494,8 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
     )  # another held query the request names: "see it before replying"
     if named:
         found_marks.append(named)
-    from .technical_query_position import position_mark
+    from .technical_query_position import offer
 
-    stated = (
-        position_mark(
-            latest.get("answer"),
-            latest.get("question") or question,
-            bool(latest.get("model")),
-        )
-        if latest
-        else None
-    )  # the set cost / schedule sentence, or a request that raises cost or schedule
-    if stated and stated not in found_marks:
-        found_marks.append(stated)
     return {
         "question": question,
         "question_source": source,
@@ -544,6 +524,9 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "marks": found_marks,
         "cited": cited_by_contractor(item),
         "items": items_of_question(question),
+        "position": offer(
+            question
+        ),  # COMPANY's usual cost / schedule sentence, offered to the engineer beside the draft (never put in by code)
         "cross_refs": item.get("cross_refs")
         or [],  # other queries the request names, held or not (technical_query_refs)
     }

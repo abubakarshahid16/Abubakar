@@ -111,12 +111,11 @@ def test_one_job_proposes_finds_and_drafts_with_no_click_and_the_local_model_onl
         "question": "1. What flange rating applies?", "question_source": "proposed", "evidence": "ready", "evidence_fresh": True, "evidence_outdated": False,
         "draft": "ready", "draft_fresh": True, "draft_note": None,
         "marks": ["The question was proposed by the system; no engineer has confirmed it yet.", auto.FOUND_NOT_KEPT,
-                  "The revision of contract is not confirmed yet (Documents, Details, Save metadata).",
-                  # the set cost / schedule sentence closes a system draft (technical_query_position, 27 Nov 2026)
-                  "The last paragraph is COMPANY's usual position on cost and schedule, added from a set wording, not from the sources: "
-                  "keep it only if it applies to this query."],
+                  "The revision of contract is not confirmed yet (Documents, Details, Save metadata)."],
         "cited": [],  # what the contractor's form cites, held or not (none here)
         "items": [],  # the request's numbered items (a single question here)
+        # COMPANY's usual cost / schedule sentence, OFFERED beside the draft, never put in (technical_query_position); no money word here
+        "position": {"line": "On the information given, COMPANY finds no basis for a change to cost or schedule from this item.", "hint": None},
         "cross_refs": [],  # other queries the request names (none here)
     }  # fmt: skip
     assert (
