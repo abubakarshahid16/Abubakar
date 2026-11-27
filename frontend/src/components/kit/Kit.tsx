@@ -10,12 +10,17 @@ import "./kit.css";
 import { toneOfWord } from "./chipWords";
 
 /** A page's one header: its title (the same size and weight on every page), an optional one-line lead, and its main actions. */
-export function PageHeader({ title, lead, actions, titleId }: { title: string; lead?: ReactNode; actions?: ReactNode; titleId?: string }) {
+export function PageHeader({ title, lead, actions, titleId, updated }: {
+  title: string; lead?: ReactNode; actions?: ReactNode; titleId?: string;
+  /** When the page's figures were read or how often they are read again: one place and one style on every page (H's audit 67). */
+  updated?: ReactNode;
+}) {
   return (
     <header className="kit-header">
       <div className="kit-header__text">
         <h1 id={titleId} className="kit-title">{title}</h1>
         {lead ? <p className="kit-lead">{lead}</p> : null}
+        {updated ? <p className="kit-small kit-updated" data-testid="page-updated">{updated}</p> : null}
       </div>
       {actions ? <div className="kit-header__actions">{actions}</div> : null}
     </header>
@@ -204,8 +209,10 @@ export function Tag({ children, testId }: { children: ReactNode; testId?: string
 }
 
 /** One line of text that is cut with an ellipsis when too long; the whole text is in its title and stays in the page for readers. */
-export function OneLine({ children, title }: { children: ReactNode; title: string }) {
-  return <span className="kit-one-line" title={title}>{children}</span>;
+export function OneLine({ children, title, lines = 1 }: { children: ReactNode; title: string;
+  /** 2: the text may take two lines before it is cut (owner, 27 Nov 2026 12:32: query titles cut at one line were unreadable) */
+  lines?: 1 | 2 }) {
+  return <span className={lines === 2 ? "kit-two-lines" : "kit-one-line"} title={title}>{children}</span>;
 }
 
 /** A small menu of less-used actions, folded behind one secondary button ("More"). */
