@@ -199,7 +199,8 @@ async function openDashboard() {
  *  (`bg-ink-850`) does not share. */
 async function documentsTile(): Promise<HTMLElement> {
   const candidates = await screen.findAllByText("Documents");
-  const tile = candidates.map((el) => el.closest(".bg-ink-800")).find((el) => el != null);
+  // the new look draws it as the kit's card, marked as the headline tile (H's audit 2, 27 Nov 2026)
+  const tile = candidates.map((el) => el.closest('.bg-ink-800, [data-kind="headline"]')).find((el) => el != null);
   if (!tile) throw new Error("Documents headline tile not found");
   return tile as HTMLElement;
 }
