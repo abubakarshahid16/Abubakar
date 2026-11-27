@@ -576,7 +576,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
 
       </section>
       {/* min-w-0 + wrapping anywhere: a long unbroken line in a mail (a link, a disclaimer) can never widen the page past the window */}
-      <section ref={detailRef} className="min-w-0 overflow-x-hidden rounded border border-ink-700 bg-ink-850 p-5 [overflow-wrap:anywhere]">
+      {/* kit-quiet-notes: the notes in this panel read quiet; the blue is the decision's own area (owner, 27 Nov 2026 12:32) */}
+      <section ref={detailRef} className="kit-quiet-notes min-w-0 overflow-x-hidden rounded border border-ink-700 bg-ink-850 p-5 [overflow-wrap:anywhere]">
         {!selected ? <p className="text-sm text-slateish-500">Choose a query to see its email and history.</p> : <>
           {/* READ IN TEN SECONDS (owner, 26 Nov 2026 22:41): one plain sentence first, then where it stands as four marks */}
           <p data-testid="query-headline" className="text-xl font-semibold leading-snug text-slateish-100">{queryHeadline(selected, questionDraft)}</p>
@@ -585,7 +586,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {/* when NO listed query has a contractor, the list's own notice already says it once: not repeated here (Part 3 picture review) */}
           {problemChips(selected).filter((p) => !(p.words === "No contractor" && items.length > 0 && items.every((i) => !i.contractor_name))).map((p) => <p key={p.words} data-testid="query-problem" className="mt-1 text-sm text-warn-500"><strong className="font-semibold">{p.words}.</strong> {p.why}</p>)}
           <ol data-testid="query-summary" aria-label="Where this query stands" className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
-            {querySteps(selected, questionDraft).map((step) => <li key={step.label} className={step.state === "done" ? "text-slateish-100" : "text-slateish-400"}><span aria-hidden="true" className="mr-1 font-semibold">{step.state === "done" ? "✓" : step.state === "working" ? "…" : "○"}</span>{step.label}{step.state === "working" ? " (working)" : step.state === "todo" ? " (not yet)" : ""}</li>)}
+            {querySteps(selected, questionDraft).map((step) => <li key={step.label} className={step.state === "done" ? "text-slateish-100" : "text-slateish-400"}><span aria-hidden="true" className="mr-1 font-semibold">{step.state === "done" ? "✓" : step.state === "working" ? "…" : "○"}</span>{step.label}{step.state === "working" ? " (working)" : step.state === "todo" ? " (not yet)" : step.state === "stale" ? " (for an earlier wording)" : ""}</li>)}
           </ol>
           {/* WHAT THE CONTRACTOR'S FORM CITES, first (owner via builder A, 27 Nov 2026): each citation and whether we hold it */}
           {selected.ready?.cited?.length ? <div data-testid="contractor-cites" className="mt-3 text-sm">
@@ -660,12 +661,13 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             if (decision.kind === "no_role") return <p data-testid="decision-no-role" className="mt-4 text-sm text-slateish-300">{decision.hint}</p>;
             if (decision.kind !== "decide") return null;
             const split = citedSplit(selected.evidence, selected.drafts?.at(-1)?.citations_json);
-            return <div className="mt-4" data-testid="approve-once">
+            return <div className="kit-action-area mt-4" data-testid="approve-once">
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="primary" disabled={busy} onClick={approveOnce}>Approve the reply</Button>
                 <Button variant="secondary" disabled={busy} onClick={() => setSendingBack(true)}>Send back with a note</Button>
               </div>
               <p data-testid="decision-hint" className="mt-1 text-xs text-slateish-400">{decision.hint}</p>
+              {split.citesNone && currentSources(selected.evidence).length > 0 && <p data-testid="cites-none" className="mt-1 text-xs text-slateish-400">The reply cites none of the sources found, so approving keeps or rejects none of them.</p>}
               {split.keep.length + split.reject.length > 0 && <p className="mt-1 text-xs text-slateish-400">Approving keeps the {split.keep.length} source{split.keep.length === 1 ? "" : "s"} the reply cites. It rejects the other {split.reject.length}. Change any of them first under &ldquo;All sources found&rdquo;.</p>}
               {sendingBack && <div data-testid="send-back" className="mt-2 rounded border border-ink-700 p-2">
                 <label htmlFor="technical-query-send-back" className="block text-xs text-slateish-300">What should change in the reply?</label>

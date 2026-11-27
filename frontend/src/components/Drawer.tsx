@@ -1,5 +1,6 @@
 /** Slide-over panel used by the inspector, excluded viewer and page viewer. */
 import { useEffect, useRef, type ReactNode } from "react";
+import { NEW_LOOK } from "../look";
 
 export function Drawer({
   title,
@@ -106,8 +107,9 @@ export function Drawer({
         <header className="flex items-start justify-between gap-4 border-b border-ink-700 px-5 py-4">
           <div className="min-w-0">
             <h2 className="truncate text-base font-medium text-slateish-200">{title}</h2>
+            {/* a subtitle is a sentence: plain small text that wraps, never mono and never cut (the four Documents drawers; H, 27 Nov 2026) */}
             {subtitle && (
-              <p className="truncate font-mono text-xs text-slateish-400">{subtitle}</p>
+              <p className={NEW_LOOK ? "text-xs text-slateish-400" : "truncate font-mono text-xs text-slateish-400"}>{subtitle}</p>
             )}
           </div>
           <button
