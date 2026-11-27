@@ -60,7 +60,7 @@ describe("the shared kit", () => {
     const open = vi.fn();
     render(<><Tile name="Document reviews" number={16} label="waiting for you" done={12} late={0} lateWords="no due dates set" onOpen={open} /><Tile name="Queries" number={3} label="waiting for you" late={2} onOpen={open} /></>);
     const tile = screen.getByRole("button", { name: /Document reviews/ });
-    expect(tile.textContent).toBe("Document reviews16waiting for you12 doneno due dates set");
+    expect(tile.textContent).toBe("Document reviews 16 waiting for you 12 done no due dates set"); // real spaces between the parts
     fireEvent.click(tile);
     expect(open).toHaveBeenCalled();
     expect(screen.getByText("2 late").className).toBe("kit-late");

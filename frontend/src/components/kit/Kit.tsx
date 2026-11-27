@@ -116,11 +116,13 @@ export function Tile({ name, number, label, done, late, lateWords, onOpen }: {
 }) {
   return (
     <button type="button" className="kit-tile" onClick={onOpen}>
-      <span className="kit-tile__name">{name}</span>
-      {number === null ? <span className="kit-tile__unknown">Not known</span> : <span className="kit-tile__number">{number}</span>}
-      <span className="kit-tile__label">{label}</span>
+      {/* the spaces between the parts are real text (they draw nothing in the tile's column): read aloud or copied, a tile says
+          "Deliverables 1 waiting for you 1 done", never "Deliverables1waiting" (H's fix on main, 26 Nov 2026) */}
+      <span className="kit-tile__name">{name}</span>{" "}
+      {number === null ? <span className="kit-tile__unknown">Not known</span> : <span className="kit-tile__number">{number}</span>}{" "}
+      <span className="kit-tile__label">{label}</span>{" "}
       <span className="kit-tile__figures">
-        {typeof done === "number" ? <span className="kit-ok">{done} done</span> : null}
+        {typeof done === "number" ? <span className="kit-ok">{done} done</span> : null}{" "}
         {typeof late === "number" && late > 0 ? <span className="kit-late">{late} late</span> : lateWords ? <span>{lateWords}</span> : null}
       </span>
     </button>

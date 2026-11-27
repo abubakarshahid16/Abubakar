@@ -7,7 +7,6 @@
  * than as a completed document.
  */
 import { render, screen, within } from "@testing-library/react";
-import { NEW_LOOK } from "../look";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

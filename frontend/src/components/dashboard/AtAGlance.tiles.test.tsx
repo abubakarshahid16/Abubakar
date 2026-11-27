@@ -42,9 +42,9 @@ describe.runIf(NEW_LOOK)("the three tiles on the Dashboard (new look)", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "44 items are waiting for a decision" })).toBeTruthy();
     const tiles = within(screen.getByRole("group", { name: "Waiting for a decision" })).getAllByRole("button");
     expect(tiles.map((t) => t.textContent)).toEqual([
-      "Document reviews16waiting for you12 doneno due dates set",
-      "Queries and CFCs27waiting for you3 done2 late",
-      "Deliverables1waiting for you1 doneno due dates set",
+      "Document reviews 16 waiting for you 12 done no due dates set", // real spaces between the parts (read aloud or copied)
+      "Queries and CFCs 27 waiting for you 3 done 2 late",
+      "Deliverables 1 waiting for you 1 done no due dates set",
     ]);
     expect(screen.queryByRole("table")).toBeNull(); // no table, no dashes (owner 03:34)
     // every count states its boundary (rule 4), one click away
