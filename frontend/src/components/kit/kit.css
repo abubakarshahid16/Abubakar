@@ -39,6 +39,8 @@
 .kit-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--kit-space-4); margin-bottom: var(--kit-space-6); }
 .kit-header__text { min-width: 0; }
 .kit-title, :root[data-look="new"] main h1.kit-title { font-size: 22px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; color: var(--color-slateish-100); margin: 0; }
+/* A page's one big welcoming line (Chat's empty page): the heading typeface, never the serif, which is kept for quoted source text (H's audit #36). */
+.kit-greeting { font-family: var(--font-heading, inherit); font-size: 30px; line-height: 1.25; font-weight: 600; letter-spacing: -0.01em; color: var(--color-slateish-100); text-align: center; }
 .kit-lead { font-size: 15px; line-height: 1.5; color: var(--color-slateish-300); margin: var(--kit-space-1) 0 0; }
 .kit-header__actions { display: flex; flex-wrap: wrap; gap: var(--kit-space-2); }
 .kit-section-title, :root[data-look="new"] main h2.kit-section-title { font-size: 18px; line-height: 1.35; font-weight: 600; color: var(--color-slateish-100); margin: var(--kit-space-6) 0 var(--kit-space-3); }

@@ -1,5 +1,5 @@
 import { InfoFold } from "../components/look/LookParts";
-import { LIST_FOUND, groupByItem, matchWords, replyBeingRewritten, mailboxChip, problemChips, quickMatch, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
+import { LIST_FOUND, groupByItem, leadParagraphs, matchWords, replyBeingRewritten, mailboxChip, problemChips, quickMatch, type QuickView, askWords, boldSplit, decisionFor, fromSubjectHint, historyWords, markedPieces, shortQuote, wordReplyWhyNot, plainMark, citedSplit, currentSources, draftAuthor, honestMarks, plainStatus, queryHeadline, querySteps, sharedSource, notInText, readableLines, readyLine, staleSources, startingText, withRequest } from "./technicalQueryQuestion";
 import { classification } from "../api/client";
 import { confirmBody } from "../components/classification/metadataBody";
 import { useEffect, useRef, useState } from "react";
@@ -139,7 +139,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const detailRef = useRef<HTMLElement>(null);
   // On a narrow window the detail sits below the list: a click on a query brings it into view (otherwise the click seems to do nothing).
   const showDetail = () => {
-    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1023px)").matches) detailRef.current?.scrollIntoView?.({ block: "start" });
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1279px)").matches) detailRef.current?.scrollIntoView?.({ block: "start" });
   };
 
   useEffect(() => {
@@ -414,7 +414,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     </>
   );
   return (
-    <div ref={topRef} className="mx-auto grid w-full min-w-0 gap-5 px-4 py-6 lg:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
+    <div ref={topRef} className="mx-auto grid w-full min-w-0 gap-5 px-4 py-6 xl:grid-cols-[20rem_minmax(0,1fr)]" aria-labelledby="technical-queries-title" role="region">
       <section className="min-w-0 [overflow-wrap:anywhere]">
         {/* THE LIST COLUMN, built only from the shared kit (TechnicalQueriesList.tsx, R1); the page's own panels come in as they were */}
         <TechnicalQueriesList chip={mailboxChip(mailboxes, canManageGmail)} mailboxOpen={mailboxOpen} onToggleMailbox={() => setMailboxOpen((open) => !open)}
@@ -565,7 +565,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                 const lead = lines.filter((l) => l.kind === "lead");
                 const items = lines.filter((l) => l.kind === "item");
                 return <>
-                  {lead.map((l, i) => <p key={`lead-${i}`} className="whitespace-pre-wrap">{l.text}</p>)}
+                  {lead.flatMap((l, i) => leadParagraphs(l.text).map((part, j) => <p key={`lead-${i}-${j}`} className={`whitespace-pre-wrap${i + j > 0 ? " mt-2" : ""}`}>{part}</p>))}
                   {(() => {
                     const shared = sharedSource(lines);
                     const row = (l: (typeof items)[number]) => { const [head, rest] = boldSplit(l.text); return <li key={`item-${l.n}-${l.text}`} className="flex gap-2"><span className="w-6 shrink-0 whitespace-nowrap text-right font-semibold">{l.n}.</span><span><strong className="font-semibold text-slateish-100">{head}</strong><span className="text-slateish-300">{rest}</span>{l.source && !shared && <span className="block text-xs text-slateish-400">found in {l.source}</span>}</span></li>; };

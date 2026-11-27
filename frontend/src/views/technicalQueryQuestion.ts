@@ -97,6 +97,38 @@ export function readableLines(text: string, found: FoundQuestion[] | null | unde
   return out;
 }
 
+/** A long lead paragraph shown as short paragraphs of whole sentences (H's audit #51, 27 Nov 2026: a form's question section with no list
+ *  read as one dense wall). Display only: the words and their order never change. A paragraph up to LEAD_PARA chars stays whole; a sentence
+ *  ends at ". ", "? " or "! " before a capital or an opening bracket, never after a short abbreviation ("e.g.", "No.", "Rev."), an initial or
+ *  a bare one- or two-digit number (a list marker "1."); an inline bullet ("• 1.5 litres ...") is a line of its own. */
+export const LEAD_PARA = 320;
+const NOT_AN_END = /(?:\b(?:e\.g|i\.e|etc|no|nos|fig|figs|rev|ref|refs|sec|cl|approx|min|max|vs|incl|para|vol|pp|ch|dwg|doc|mr|ms|dr)|(?:^|[^A-Za-z0-9-])[A-Za-z]|(?:^|[\s(])\d{1,2})\.$/i;
+const BULLET = /^[•▪◦]\s/;
+export function leadParagraphs(text: string): string[] {
+  if (text.length <= LEAD_PARA) return [text];
+  const pieces: string[] = [];
+  let start = 0;
+  const end = /(?:[.?!]["'”’)]?\s+(?=[A-Z(“"•▪◦])|[:;]?\s+(?=[•▪◦]\s))/g;
+  for (let m = end.exec(text); m; m = end.exec(text)) {
+    const upTo = m.index + m[0].trimEnd().length;
+    if (upTo <= start) continue;
+    if (/\.$/.test(text.slice(0, upTo)) && NOT_AN_END.test(text.slice(Math.max(0, upTo - 8), upTo))) continue;
+    pieces.push(text.slice(start, upTo));
+    start = m.index + m[0].length;
+  }
+  pieces.push(text.slice(start));
+  const out: string[] = [];
+  let lastBullet = false;
+  for (const piece of pieces) {
+    const bullet = BULLET.test(piece);
+    const last = out[out.length - 1];
+    if (last !== undefined && !bullet && !lastBullet && last.length + 1 + piece.length <= LEAD_PARA) out[out.length - 1] = `${last} ${piece}`;
+    else out.push(piece);
+    lastBullet = bullet;
+  }
+  return out;
+}
+
 /** The found requests not in the text (the ones beyond LIST_FOUND, or taken out): the "may have missed a request" mark counts them. */
 export function notInText(text: string, found: FoundQuestion[] | null | undefined): FoundQuestion[] {
   return (found ?? []).filter((f) => f.question.trim() && !text.includes(f.question.trim()));
