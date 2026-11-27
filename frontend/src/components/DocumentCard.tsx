@@ -192,7 +192,15 @@ export function DocumentCard({
                 discipline holds this document and only an administrator can
                 read it. It is labelled as exactly that, never left blank and
                 never given a placeholder. */}
-            {(sharedDiscipline && doc.disciplines.length === 1 && doc.disciplines[0] === sharedDiscipline) || (sharedDiscipline === "" && doc.disciplines.length === 0) ? null : doc.disciplines.length > 0 ? (
+            {(sharedDiscipline && doc.disciplines.length === 1 && doc.disciplines[0] === sharedDiscipline) || (sharedDiscipline === "" && doc.disciplines.length === 0) ? null : NEW_LOOK && doc.disciplines.length > 1 ? (
+              // ONE TAG FOR SEVERAL (owner's 12:42 order, lead 4's choice (b), 27 Nov 2026): "3 disciplines" that OPENS to the names. The card
+              // is the only place a document's disciplines (who may read it) are shown, so the names must be reachable by keyboard and
+              // touch, not only on mouse hover (H's gate on #2002): a native disclosure, its summary drawn as the tag
+              <details data-testid="discipline-count" className="kit-tag-fold">
+                <summary className="kit-tag" title={doc.disciplines.join(", ")}>{`${doc.disciplines.length} disciplines`}</summary>
+                <span data-testid="discipline-names" className="kit-tag-fold__names">{doc.disciplines.join(", ")}</span>
+              </details>
+            ) : doc.disciplines.length > 0 ? (
               doc.disciplines.map((d) => (
                 <span
                   key={d}
@@ -217,7 +225,9 @@ export function DocumentCard({
                 fact moves to the facts line below, where it belongs. The old
                 tooltip said "OCR is not implemented", which stopped being true
                 the day it shipped. */}
-            {doc.needs_ocr_pages > doc.recognised_pages && (
+            {/* SAID ONCE (owner's 12:42 order: seven chips on a card; C's walk): when the status already says "finished, N pages waiting
+                to be read as pictures", the same fact is not a second chip; in any other state this chip is the only place it is said */}
+            {doc.needs_ocr_pages > doc.recognised_pages && !(NEW_LOOK && doc.status === "ready") && (
               <span
                 className={NEW_LOOK ? "kit-chip kit-chip--check" : "rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"}
                 title="Scanned pages that have not been read yet."
@@ -225,7 +235,7 @@ export function DocumentCard({
                 {NEW_LOOK ? `${doc.needs_ocr_pages - doc.recognised_pages} waiting to be read` : `${doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR`}
               </span>
             )}
-            {doc.equation_pages > 0 && (
+            {doc.equation_pages > 0 && !NEW_LOOK && (
               <span
                 className={NEW_LOOK ? "kit-chip kit-chip--info" : "rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"}
                 title="The maths on these pages could not be read as text. Use the page picture."
@@ -235,7 +245,14 @@ export function DocumentCard({
             )}
           </div>
 
-          <p className={NEW_LOOK ? "mt-1 text-xs text-slateish-400" : "mt-1 font-mono text-xs text-slateish-400"}>{NEW_LOOK ? plainProgressLine(doc) : progressLine(doc)}</p>
+          <p className={NEW_LOOK ? "mt-1 text-xs text-slateish-400" : "mt-1 font-mono text-xs text-slateish-400"}>{NEW_LOOK ? plainProgressLine(doc) : progressLine(doc)}
+            {/* a fact, not a state: "mostly equations" sits in this line in the new look, not as one more chip */}
+            {NEW_LOOK && doc.equation_pages > 0 && (
+              <span data-testid="equation-pages" title="The maths on these pages could not be read as text. Open the page picture.">
+                {` · ${doc.equation_pages} page${doc.equation_pages === 1 ? "" : "s"} mostly equations`}
+              </span>
+            )}
+          </p>
 
           {doc.chunk_count > 0 && doc.embedded_count < doc.chunk_count && (
             <div
