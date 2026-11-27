@@ -118,7 +118,8 @@ def from_pages(
                 key and key in printed and key not in seen
             ):  # only words that stand on the page as printed
                 seen.add(key)
-                out.append({**item, "filename": part.get("filename"), "page": part.get("page")})
+                # checked on its FULL words above; only what is kept and shown is cut (a paragraph a request points back at can be long)
+                out.append({**item, "question": _capped(item["question"]), "filename": part.get("filename"), "page": part.get("page")})
         # a request that refers to the page's numbered list ("each item above", "the following positions") brings the items with
         # it, as printed (lead-4's blind test, 27 Nov 2026: the model lists only the closing request, never the items it refers to)
         if any(_REFERS_TO_LIST.search(q) for q in found):
@@ -168,6 +169,20 @@ def _paragraph_above(question: str, page_text: str) -> str | None:
             return " ".join(blocks[i - 1].split())
         return None
     return None
+
+
+#: A found request is kept and shown up to this many words, cut after a whole word with the plain sentence (builder H and F on #2009: the
+#: paragraph a back-pointing request is replaced by has no length of its own; live, the longest was 91 words).
+MAX_ITEM_WORDS = 120
+ITEM_CUT = "\u2026 The rest of the question is in the email files."
+
+
+def _capped(question: str) -> str:
+    """The request as kept and shown: whole, or its first MAX_ITEM_WORDS words and the plain cut sentence. Never cut mid-word."""
+    words = question.split()
+    if len(words) <= MAX_ITEM_WORDS:
+        return question
+    return " ".join(words[:MAX_ITEM_WORDS]).rstrip(" ,;:-") + ITEM_CUT
 
 
 def tidy(found: list[str], page_text: str) -> list[dict[str, Any]]:
