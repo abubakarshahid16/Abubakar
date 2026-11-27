@@ -199,7 +199,7 @@ function DocumentProgress({ doc }: { doc: DocumentRecord }) {
           current={doc.status === "indexing_keyword"}
         />
         <Step
-          label="Fully indexed — wording no longer has to match the document"
+          label="Fully ready — a question need not use the document's own words"
           done={doc.status === "ready"}
           current={doc.status === "partially_searchable"}
           detail={
@@ -573,7 +573,7 @@ export function IngestionView({
   // health: health is unauthenticated and a document id is not public.
   const activeWorker = metrics?.worker ?? null;
 
-  const LEAD = "What the system is doing to your documents, and how fast it is doing it.";
+  const LEAD = "What the app is doing with your documents, and how fast.";
   // the page's name is the menu's own label: one name for one page, kept where screen names live (the Shell)
   const TITLE = NAV.find((item) => item.id === "ingestion")?.label ?? "";
   // the new look: the kit's one page header, with "Updates every N seconds" in its one place under the lead (H's audit 67)
@@ -695,7 +695,7 @@ export function IngestionView({
         <Section title="In progress">
           <EmptyState
             title="Nothing is being processed"
-            hint="Upload a document on the Documents screen and this is where you will watch it arrive — page by page, then part by part, with the moment it becomes searchable called out separately from the moment it finishes."
+            hint="Upload a document on the Documents screen. You can then watch it arrive here, page by page. This page says when it can be searched, and when it is finished."
           />
         </Section>
       )}
@@ -713,7 +713,7 @@ export function IngestionView({
       <Section
         title="How fast documents are read"
         fold
-        hint="Median of timed runs on this machine. A step never timed long enough to measure reports nothing rather than zero."
+        hint="The middle time of the runs timed on this computer. A step never timed shows nothing, not zero."
       >
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           {Object.entries(metrics.throughput).map(([stage, t]) => (
