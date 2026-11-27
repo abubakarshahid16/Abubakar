@@ -32,7 +32,7 @@ export function GeneralHistory({ documentId }: { documentId: string }) {
       <ul className="space-y-1 text-xs text-slateish-300">
         {history.runs.map((r, i) => (
           <li key={r.run_id}>
-            <span className="font-semibold">{r.version !== "general" ? "Earlier method" : i === 0 ? "Latest review" : "Review"}</span>
+            <span className="font-semibold">{r.version !== "general" ? "Older kind of review" : i === 0 ? "Latest review" : "Review"}</span>
             {r.finished_at ? ` of ${dateWords(r.finished_at)}` : ""}
             {" "}({r.version !== "general" && r.part ? `${r.part}, ` : ""}{STATUS_WORDS[r.status] ?? r.status.replaceAll("_", " ")}{r.points != null ? `, ${r.points} points` : ""})
           </li>

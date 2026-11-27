@@ -28,8 +28,8 @@ export const STEP_NAMES: Record<string, string> = {
   aim_edit: "Write the comments",
   ledger: "Read the spend ledger",
   aim_unread_pages: "Read pages that had no text",
-  aim_reference: "Check each item against its rule",
-  aim_answered: "Check the whole document once more",
+  aim_reference: "Check against the other parts of the same contract",
+  aim_answered: "Check whether the document already answers each comment",
   aim_second_read: "A second AI reads it again",
   aim_cross_document: "Compare with the other documents",
 };

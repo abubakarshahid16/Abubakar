@@ -1051,7 +1051,7 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.getByTestId("general-unlisted")).toHaveTextContent("2 more rule book(s) apply to this paper");
     const history = await screen.findByTestId("general-history");
     expect(history).toHaveTextContent("Latest review"); // R6: the newest review by name, dates and states in words
-    expect(history).toHaveTextContent("Earlier method");
+    expect(history).toHaveTextContent("Older kind of review");
   });
 
   it("a page link opens the page viewer at that page", async () => {
