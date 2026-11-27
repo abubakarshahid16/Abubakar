@@ -1,6 +1,8 @@
 /** The query page made readable (owner's Part 3, item 2, 27 Nov 2026), kit parts only: the reply as a real numbered list, the revision
  *  of each source document in one plain sentence with "How to confirm" folded, and how the query was made in one closed fold. LOOK ONLY:
  *  the same words, marks and actions as before. */
+import type { ReactElement } from "react";
+
 import { Fold } from "../components/kit/Kit";
 import { boldPieces, plainTitle, replyBlocks } from "./technicalQueryReadable";
 
@@ -11,8 +13,8 @@ function Inline({ text }: { text: string }) {
 /** The reply: each numbered answer a list item (its title in bold, its lines under it), the lead and closing paragraphs as paragraphs. */
 export function ReplyText({ answer }: { answer: string }) {
   const blocks = replyBlocks(answer);
-  const out: JSX.Element[] = [];
-  let items: JSX.Element[] = [];
+  const out: ReactElement[] = [];
+  let items: ReactElement[] = [];
   const flush = () => {
     if (items.length) out.push(<ol key={`ol-${out.length}`} className="mt-2 list-decimal space-y-3 pl-6">{items}</ol>);
     items = [];
