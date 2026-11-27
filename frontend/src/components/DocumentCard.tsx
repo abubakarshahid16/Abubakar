@@ -226,7 +226,7 @@ export function DocumentCard({
                 className={NEW_LOOK ? "kit-chip kit-chip--info" : "rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"}
                 title="Mathematics did not survive extraction on these pages. Use the page image."
               >
-                {doc.equation_pages} equation-heavy
+                {NEW_LOOK ? `${doc.equation_pages} page${doc.equation_pages === 1 ? "" : "s"} mostly equations` : `${doc.equation_pages} equation-heavy`}
               </span>
             )}
           </div>

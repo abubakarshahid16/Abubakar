@@ -348,7 +348,7 @@ describe("B2 documents list", () => {
     mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
     renderDocuments();
     expect(await screen.findByText("12 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText("11 equation-heavy")).toBeInTheDocument();
+    expect(screen.getByText(NEW_LOOK ? "11 pages mostly equations" : "11 equation-heavy")).toBeInTheDocument(); // everyday words in the new look
   });
 
   it("states the OCR fraction as a fact once pages have been read", async () => {

@@ -99,8 +99,9 @@ export function SelectField({ label, hint, id, children, ...rest }: Omit<SelectH
   );
 }
 
-/** The one notice box: `info` (a fact to know), `warn` (check this), `problem` (something went wrong). */
-export function Notice({ tone = "info", title, children }: { tone?: "info" | "warn" | "problem"; title?: string; children: ReactNode }) {
+/** The one notice box: `info` (a fact to know), `warn` (check this), `problem` (something went wrong), `quiet` (plain information
+ *  beside others, the notice's shape without colour). */
+export function Notice({ tone = "info", title, children }: { tone?: "info" | "warn" | "problem" | "quiet"; title?: string; children: ReactNode }) {
   return (
     <div className={`kit-notice kit-notice--${tone}`} role={tone === "problem" ? "alert" : "note"}>
       {title ? <p className="kit-notice__title">{title}</p> : null}
