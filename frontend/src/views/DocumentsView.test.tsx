@@ -5,6 +5,7 @@ import App from "../App";
 import type { Health } from "../api/client";
 import type { Connection } from "../components/Shell";
 import { DocumentsView } from "./DocumentsView";
+import { NEW_LOOK } from "../look";
 import type {
   ChunkRecord,
   ClassificationCoverage,
@@ -287,9 +288,15 @@ describe("B2 documents list", () => {
     renderDocuments();
 
     const line = await screen.findByText(/1,204 pages/);
-    expect(line).toHaveTextContent("2,831 passages");
-    expect(line).toHaveTextContent("keyword search ready");
-    expect(line).toHaveTextContent("340/2,831 embedded");
+    if (NEW_LOOK) {
+      // everyday words (H's audit 17): the same facts, not "passages" or "embedded"; 340 of 2,831 is 12%
+      expect(line).toHaveTextContent("searchable by words; search by meaning 12% ready");
+      expect(line.textContent).not.toMatch(/passages|embedded/);
+    } else {
+      expect(line).toHaveTextContent("2,831 passages");
+      expect(line).toHaveTextContent("keyword search ready");
+      expect(line).toHaveTextContent("340/2,831 embedded");
+    }
 
     expect(screen.getByText("partially searchable")).toBeInTheDocument();
     expect(screen.queryByText(/^ready$/)).not.toBeInTheDocument();
@@ -325,7 +332,8 @@ describe("B2 documents list", () => {
     renderDocuments();
 
     expect(await screen.findByText(/Only 40% of this document is searchable/i)).toBeInTheDocument();
-    expect(screen.getByText(/quality gate may be over-rejecting/i)).toBeInTheDocument();
+    // the new look says what was left out in everyday words, not the gate's terms (H's audit 17/20)
+    expect(screen.getByText(NEW_LOOK ? /600 of 1,000 parts of pages could not be read well enough to search/i : /quality gate may be over-rejecting/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /see what was excluded/i })).toBeInTheDocument();
   });
 
@@ -339,8 +347,8 @@ describe("B2 documents list", () => {
   it("warns only about scanned pages recognition has NOT yet read", async () => {
     mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
     renderDocuments();
-    expect(await screen.findByText("12 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText("11 equation-heavy")).toBeInTheDocument();
+    expect(await screen.findByText(NEW_LOOK ? "12 waiting to be read" : "12 awaiting OCR")).toBeInTheDocument();
+    expect(screen.getByText(NEW_LOOK ? "11 pages mostly equations" : "11 equation-heavy")).toBeInTheDocument(); // everyday words in the new look
   });
 
   it("states the OCR fraction as a fact once pages have been read", async () => {
@@ -353,11 +361,11 @@ describe("B2 documents list", () => {
     ]);
     renderDocuments();
     expect(
-      await screen.findByText(/12 of 546 pages\s+read by OCR/),
+      await screen.findByText((NEW_LOOK ? /12 of 546 pages were scanned and read as pictures/ : /12 of 546 pages\s+read by OCR/)),
     ).toBeInTheDocument();
     // Nothing is outstanding, so the warning must be GONE - asserting the
     // absence, because a stale amber badge is a false alarm.
-    expect(screen.queryByText(/awaiting OCR/)).toBeNull();
+    expect(screen.queryByText(NEW_LOOK ? /waiting to be read$/ : /awaiting OCR/)).toBeNull();
   });
 
   it("shows both when recognition is only part-way through", async () => {
@@ -365,8 +373,8 @@ describe("B2 documents list", () => {
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 5 }),
     ]);
     renderDocuments();
-    expect(await screen.findByText("7 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText(/5 of 546 pages\s+read by OCR/)).toBeInTheDocument();
+    expect(await screen.findByText(NEW_LOOK ? "7 waiting to be read" : "7 awaiting OCR")).toBeInTheDocument();
+    expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read by OCR/))).toBeInTheDocument();
   });
 
   it("requires a second click to delete", async () => {

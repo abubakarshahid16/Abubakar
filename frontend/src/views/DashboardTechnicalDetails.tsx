@@ -3,6 +3,7 @@ import "../components/kit/kit.css";
 import { bytes, nf, Stat, Section, Throughput, Bar, loadTone, NotMeasured } from "./DashboardPrimitives";
 import { humaniseReason } from "../components/WorkerPanel";
 import { FreeModelMemory } from "../components/FreeModelMemory";
+import { NEW_LOOK } from "../look";
 
 type Props = {
   metrics: Metrics;
@@ -25,7 +26,13 @@ const STATUS_WORDS: Record<string, string> = {
 
 export function DashboardTechnicalDetails({ metrics, corpus, throughput, retrieval, jobs, worker, models, system, noSearchable, isAdmin = false }: Props) {
   return (
-      <details className="mt-8 group">
+      <details className={NEW_LOOK ? "kit-fold mt-8" : "mt-8 group"}>
+        {NEW_LOOK ? (
+          // the kit's fold, in everyday words (owner's picture: "corpus counts, retrieval latency, jobs, worker…" on the main screen)
+          <summary className="kit-fold__title">
+            Technical detail <span className="ms-2 text-sm font-normal text-slateish-400">for whoever looks after this computer: documents, speed, the AI models and the machine</span>
+          </summary>
+        ) : (
         <summary className="cursor-pointer select-none rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-sm text-slateish-300 hover:text-slateish-100 [&::-webkit-details-marker]:hidden">
           <span className="me-2 inline-block motion-safe:transition-transform group-open:rotate-90">&#9656;</span>
           <span className="font-medium">Technical detail</span>
@@ -33,6 +40,7 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
             corpus counts, processing speed, retrieval latency, jobs, worker, models, machine, exclusion rules
           </span>
         </summary>
+        )}
         <div className="mt-4 space-y-2">
       <Section
         title="Corpus"
@@ -219,6 +227,10 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
       </Section>
 
       <Section title="Models" hint="Configured and running are different states.">
+        {/* the AI steps' warning in full, model names and all: the main screen says it in plain words and points here */}
+        {metrics.warnings.filter((w) => w.code === "ai_steps_model").map((w) => (
+          <p key={w.message} data-testid="ai-steps-model-detail" className="mb-2 text-sm text-slateish-300">{w.message}</p>
+        ))}
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <Stat
             label="Embedding"

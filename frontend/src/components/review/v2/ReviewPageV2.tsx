@@ -62,7 +62,8 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
           <h1 id="v2-title" title={run.submittal_filename ?? undefined} className="truncate text-2xl font-semibold text-slateish-100">{run.submittal_filename ?? "Review"}</h1>
           <KindLine documentId={documentId} pages={submittal?.page_count} isAdmin={isAdmin} aiEquipment={latest?.identity?.equipment_type ?? null} />
         </div>
-        <div className="min-w-[18rem]">
+        {/* the page's main action at the header's right edge, as the kit header places its actions (C's rule for H's audit #68) */}
+        <div className={generalLatest && !again ? "flex min-w-[18rem] justify-end" : "min-w-[18rem]"}>
           {/* A finished review's page is about THAT review: the engine choice and the plan of a NEW review wait behind "Review again" (a
               plan shown here read like the plan of the run on screen, and its "Checking..." could hang under the button). */}
           {general.state === "loading" ? null : generalLatest && !again ? (
