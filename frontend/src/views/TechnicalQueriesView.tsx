@@ -19,6 +19,15 @@ import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRul
  *  the engineer's own typed reply too (lead-4, 27 Nov 2026): it becomes the new version awaiting approval; approving is unchanged. */
 const EDITABLE = ["received", "triage", "drafting", "changes_requested", "awaiting_review"];
 
+/** A source's state and its document's revision, in words (H's review of the owner's file, Q2: a bare "unknown" ended the line). */
+const SOURCE_STATE_WORDS: Record<string, string> = {
+  verified: "kept", proposed: "suggested, not kept yet", needs_review: "needs review", rejected: "rejected",
+  conflicting: "conflicts with another source", ambiguous: "unclear",
+};
+const REVISION_WORDS: Record<string, string> = {
+  current: "latest revision", superseded: "replaced by a later revision", unknown: "revision not confirmed",
+};
+
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
   try {
     const value: unknown = JSON.parse(raw || "[]");
@@ -37,8 +46,8 @@ const RULE_WORDS: Record<RoutingRuleType, string> = {
 };
 
 const SCAN_LABELS: Record<string, string> = {
-  static_check_clean: "static check found no active content (not an antivirus scan)",
-  static_check_flagged: "static check found active content: its text is not used automatically",
+  static_check_clean: "no macros or scripts found (not a virus scan)",
+  static_check_flagged: "macros or scripts found: its text is not used",
   static_check_unreadable: "could not be checked",
   not_scanned: "not checked",
   pending: "not checked yet",
@@ -69,7 +78,7 @@ function Quote({ text, words }: { text: string; words: string[] }) {
 }
 
 /** What "Confirm source document" does, in one line beside it (owner's live walk, 27 Nov 2026, via lead-4). */
-export const CONFIRM_SOURCE_HINT = "Marks this paper's details as checked by an engineer, so its quotes can be used in a draft. Check it is the current revision first.";
+export const CONFIRM_SOURCE_HINT = "Confirm marks this document as checked, so its quotes can be used in a reply. Check it is the latest revision first.";
 
 /** A source link's own words: the document's name (and kind) and the place, never only "page N" beside a raw address (owner, 27 Nov 2026).
  *  A source with no recorded name keeps "Open source". */
@@ -306,7 +315,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     setError(null);
     void action().then((result) => {
       setBusy(false);
-      if (!result.ok) { setError(result.error?.message || "The action could not be completed."); return; }
+      if (!result.ok) { setError(result.error?.message || "That did not work. Please try again."); return; }
       if (result.data) { setSelected(result.data); setEditedAnswer(result.data.drafts?.at(-1)?.answer || ""); setItems((current) => current.map((item) => item.id === result.data?.id ? result.data : item)); }
     });
   };
@@ -403,9 +412,9 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     confirmShown.add(documentId);
     return true;
   };
-  const renderEvidence = (evidence: EvidenceRow) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className={`underline ${evidence.locator ? "" : "whitespace-nowrap"}`} href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} title={`Open ${evidence.source_name || "the source document"}, page ${evidence.page_start ?? "unknown"}`} target="_blank" rel="noreferrer">{evidence.source_name || evidence.source_kind ? <span data-testid="evidence-source">{sourceLinkLabel(evidence.source_name, evidence.source_kind)}</span> : sourceLinkLabel()}, {evidence.locator ? `${evidence.locator}, ` : ""}{`page\u00a0${evidence.page_start ?? "unknown"}`}</a>{matchWords(evidence) ? <> · <span data-testid="evidence-match" title={matchWords(evidence)!.counts}>{matchWords(evidence)!.words}</span></> : null} · {evidence.evidence_state === "needs_review" ? "needs review" : evidence.evidence_state === "proposed" ? "found by the system, not yet kept" : evidence.evidence_state} · {evidence.supersession_state}{evidence.supersession_state === "unknown" && ["verified", "proposed", "needs_review", "conflicting", "ambiguous"].includes(evidence.evidence_state) ? (confirmOnce(evidence.document_id) ? <span data-testid="evidence-needs-confirm" className="block text-warn-500">{evidence.evidence_state === "verified" ? (isAdmin ? "Counts for a draft once its source document is confirmed." : "Counts for a draft once its source document is confirmed: Documents, Details, Save metadata.") : (isAdmin ? "To count for a draft: keep it as evidence, and confirm its source document." : "To count for a draft: keep it as evidence, and confirm its source document (Documents, Details, Save metadata).")}{isAdmin && <><Button variant="secondary" size="sm" data-testid="confirm-source" disabled={busy} onClick={() => confirmSource(evidence.document_id)}>Confirm source document</Button><span data-testid="confirm-source-hint" className="ml-2 text-slateish-400">{CONFIRM_SOURCE_HINT}</span></>}</span> : <span data-testid="evidence-needs-confirm-again" className="block text-slateish-400">Its source document is not confirmed yet (see above).</span>) : null}</footer>
-              {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-500"><p>{evidence.evidence_state === "proposed" ? "Found by the system; the words are checked to stand on that page, but nobody has judged that they answer the question. A reviewer keeps it as evidence or rejects it before a draft uses it or the response is approved." : "This quote comes from a contractor's attachment. A reviewer must decide before the response is approved or sent."}</p>
-                {selected!.can_review ? <div className="mt-1 flex gap-2"><Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected!.id, evidence.id, "verified", evidence.supersession_state))}>Keep as evidence</Button><Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected!.id, evidence.id, "rejected", evidence.supersession_state))}>Reject</Button></div> : <p className="mt-1">Only a qualified reviewer can decide.</p>}</div>}
+  const renderEvidence = (evidence: EvidenceRow) => <blockquote key={evidence.id} className="mt-2 border-l-2 border-signal-500 pl-3 text-sm text-slateish-300">{evidence.exact_quote}<footer className="mt-1 text-xs text-slateish-500"><a className={`underline ${evidence.locator ? "" : "whitespace-nowrap"}`} href={`/api/documents/${encodeURIComponent(evidence.document_id)}/original${evidence.page_start ? `#page=${evidence.page_start}` : ""}`} title={`Open ${evidence.source_name || "the source document"}, page ${evidence.page_start ?? "unknown"}`} target="_blank" rel="noreferrer">{evidence.source_name || evidence.source_kind ? <span data-testid="evidence-source">{sourceLinkLabel(evidence.source_name, evidence.source_kind)}</span> : sourceLinkLabel()}, {evidence.locator ? `${evidence.locator}, ` : ""}{`page\u00a0${evidence.page_start ?? "unknown"}`}</a>{matchWords(evidence) ? <> · <span data-testid="evidence-match" title={matchWords(evidence)!.counts}>{matchWords(evidence)!.words}</span></> : null} · {SOURCE_STATE_WORDS[evidence.evidence_state] ?? evidence.evidence_state.replaceAll("_", " ")} · {REVISION_WORDS[evidence.supersession_state] ?? evidence.supersession_state.replaceAll("_", " ")}{evidence.supersession_state === "unknown" && ["verified", "proposed", "needs_review", "conflicting", "ambiguous"].includes(evidence.evidence_state) ? (confirmOnce(evidence.document_id) ? <span data-testid="evidence-needs-confirm" className="block text-warn-500">{evidence.evidence_state === "verified" ? (isAdmin ? "It is used in a reply once its document is confirmed." : "It is used in a reply once its document is confirmed under Documents, Details.") : (isAdmin ? "To use it in a reply: keep it, and confirm its document." : "To use it in a reply: keep it, and confirm its document under Documents, Details.")}{isAdmin && <><Button variant="secondary" size="sm" data-testid="confirm-source" disabled={busy} onClick={() => confirmSource(evidence.document_id)}>Confirm source document</Button><span data-testid="confirm-source-hint" className="ml-2 text-slateish-400">{CONFIRM_SOURCE_HINT}</span></>}</span> : <span data-testid="evidence-needs-confirm-again" className="block text-slateish-400">Its document is not confirmed yet (see above).</span>) : null}</footer>
+              {(evidence.evidence_state === "needs_review" || evidence.evidence_state === "proposed") && <div className="mt-2 text-xs text-warn-500"><p>{evidence.evidence_state === "proposed" ? "Found by the search. The words are on that page, but nobody has checked they answer the question. Keep or reject it before the reply uses it." : "This quote is from the contractor's own file. A reviewer decides before the reply is approved."}</p>
+                {selected!.can_review ? <div className="mt-1 flex gap-2"><Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected!.id, evidence.id, "verified", evidence.supersession_state))}>Keep</Button><Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.classifyEvidence(selected!.id, evidence.id, "rejected", evidence.supersession_state))}>Reject</Button></div> : <p className="mt-1">Only a reviewer can decide.</p>}</div>}
             </blockquote>;
 
   // THE SOURCES THE REPLY CITES, as cards (owner's Part 3, item 2, 27 Nov 2026): the quote, then the document and page, then ONE button
@@ -420,7 +429,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">What the contract or standard says</h3>
           {honestMarks(selected, questionDraft).evidence.map((mark) => <p key={mark} data-testid="evidence-mark" className="mt-1 text-xs text-warn-500">{mark}</p>)}
           <RevisionLines documents={unconfirmedNames} isAdmin={Boolean(isAdmin)} />
-          {!replyCites.length ? <p className="mt-1 text-sm text-slateish-400">{currentSources(selected.evidence).length ? "The sources found are listed under \u201cAll sources found\u201d below; no reply cites any yet." : "No source found yet."}</p>
+          {!replyCites.length ? <p className="mt-1 text-sm text-slateish-400">{currentSources(selected.evidence).length ? "No reply uses a source yet. All sources found are listed below." : "No source found yet."}</p>
             : <ul data-testid="reply-sources" className="mt-2 space-y-3">{replyCites.map((citation) => { const e = (citation as { evidence_id?: string }).evidence_id ? replyEvidence.get((citation as { evidence_id?: string }).evidence_id!) : undefined; const confirm = Boolean(e && e.supersession_state === "unknown" && isAdmin && confirmOnce(e.document_id)); return <li key={citation.label} data-testid="reply-source"><Card>
               <Quote text={citation.exact_quote} words={askWords(questionDraft)} />
               <p className="mt-2 text-xs text-slateish-400">[{citation.label}] {e?.source_name || e?.source_kind ? `${sourceLinkLabel(e?.source_name, e?.source_kind)}, ` : ""}{e?.locator ? `${e.locator}, ` : ""}page {citation.page}</p>
@@ -436,14 +445,14 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <summary className="cursor-pointer text-sm font-semibold text-slateish-200">All sources found for this question ({currentEvidence.length}): keep or reject each</summary>
             {honestMarks(selected, questionDraft).evidence.map((mark) => <p key={mark} data-testid="evidence-mark" className="mt-1 text-xs text-warn-500">{mark}</p>)}
             {selected.evidence_coverage && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-coverage">{selected.evidence_coverage.line}</p>}
-            {selected.evidence_coverage?.top_rerank_score != null && <p className="mt-1 text-xs text-slateish-400" data-testid="evidence-top-score">Best quote's relevance score (the search's own score, a number and not a verdict): {selected.evidence_coverage.top_rerank_score}.</p>}
+            {/* the best quote's raw relevance score is not shown (H's review of the owner's file, Q1): a negative number reads as nothing */}
             {/* BY REQUEST (builder A's search per numbered item, 27 Nov 2026): each request's sources under it, the rest "For the whole request" */}
             {currentEvidence.length ? groupByItem(currentEvidence, selected.ready?.items).map((group) => group.title === null
               ? group.rows.map((evidence) => renderEvidence(evidence))
               : <section key={group.title} data-testid="evidence-group" className="mt-3">
                   <h4 className="text-sm font-semibold text-slateish-200">{group.title} <span className="font-normal text-slateish-400">({group.rows.length} source{group.rows.length === 1 ? "" : "s"})</span></h4>
-                  {group.rows.length ? group.rows.map((evidence) => renderEvidence(evidence)) : <p className="mt-1 text-xs text-warn-500">No source found for this request yet.</p>}
-                </section>) : <p className="mt-2 text-sm text-warn-500">No verified evidence attached.</p>}
+                  {group.rows.length ? group.rows.map((evidence) => renderEvidence(evidence)) : <p className="mt-1 text-xs text-warn-500">No source found for this question yet.</p>}
+                </section>) : <p className="mt-2 text-sm text-warn-500">No source kept yet.</p>}
             {earlierEvidence.length > 0 && <details data-testid="evidence-earlier" className="mt-2"><summary className="cursor-pointer text-xs text-slateish-400">{earlierEvidence.length} source{earlierEvidence.length === 1 ? "" : "s"} found for an earlier wording of the question</summary>{earlierEvidence.map((evidence) => renderEvidence(evidence))}</details>}
           </details>
     </>
@@ -460,7 +469,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           panels={{
             mailbox: <>
         {canManageGmail && mailboxes.length === 0 && <div className="mt-4 rounded border border-ink-700 p-3 text-xs text-slateish-200">
-          <p>No Gmail mailbox is connected. Connect one to import technical queries from a selected label.</p>
+          <p>Connect a Gmail mailbox to import queries from one of its labels.</p>
           <Button variant="secondary" size="sm" disabled={busy} onClick={() => void technicalQueriesApi.startGmail().then((result) => { if (result.ok) window.location.assign(result.data.authorization_url); else setError(result.error.message); })}>Connect Gmail</Button>
         </div>}
         {pendingMailbox && <div className="mt-4 rounded border border-warn-500 p-3 text-xs text-slateish-200">
@@ -468,7 +477,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           <Button variant="secondary" size="sm" onClick={() => void technicalQueriesApi.gmailLabels(pendingMailbox.id).then((result) => { if (result.ok) { setLabels(result.data.items); setLabelId(result.data.items[0]?.id || ""); } else setError(result.error.message); })}>Choose label</Button>
           {labels.length > 0 && <div className="mt-2"><label htmlFor="gmail-query-label">Gmail label</label><select id="gmail-query-label" value={labelId} onChange={(event) => setLabelId(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2">{labels.map((label) => <option key={label.id} value={label.id}>{label.name}</option>)}</select><Button variant="primary" size="sm" disabled={busy || !labelId} onClick={() => setConfirming({ kind: "activate" })}>Activate selected label</Button>
             {confirming?.kind === "activate" && <div role="alertdialog" aria-label="Confirm the label" className="mt-2 rounded border border-warn-500 p-2" data-testid="confirm-activate">
-              <p>Start importing the existing mail under this label, and keep checking it for new mail? The label is saved first; the import then runs in the background and you can leave this page.</p>
+              <p>Import the emails under this label, and keep checking for new ones? You can leave this page while it runs.</p>
               <Button variant="primary" size="sm" disabled={busy} onClick={() => { setConfirming(null); setBusy(true); setError(null); void technicalQueriesApi.activateGmailLabel(pendingMailbox.id, labelId).then((result) => { setBusy(false); if (!result.ok) { setError(result.error.message); return; } setLabels([]); void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }}>Yes, save and start the import</Button>
               <Button variant="secondary" size="sm" onClick={() => setConfirming(null)}>Cancel</Button>
             </div>}</div>}
@@ -488,7 +497,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
 
           <Button variant="secondary" size="sm" disabled={busy || importing} onClick={() => setConfirming({ kind: "again", mailboxId: mailbox.id })}>Import the label again</Button>
           {confirming?.kind === "again" && confirming.mailboxId === mailbox.id && <div role="alertdialog" aria-label="Confirm importing the label again" className="mt-2 rounded border border-warn-500 p-2" data-testid="confirm-import-again">
-            <p>This reads all {mailbox.import_job?.total ? `${mailbox.import_job.total} ` : ""}messages of the label again and adds only what is not stored yet: messages, our own replies (to their query) and attachments not yet read. Nothing already stored is changed, and no query is made twice.</p>
+            <p>This reads all {mailbox.import_job?.total ? `${mailbox.import_job.total} ` : ""}emails of the label again. Only new emails, our own replies and unread files are added. Nothing already here changes, and no query is made twice.</p>
             <Button variant="primary" size="sm" disabled={busy} onClick={() => { setConfirming(null); setError(null); void technicalQueriesApi.importAgain(mailbox.id).then((result) => { if (!result.ok) { setError(result.error.message); return; } void technicalQueriesApi.mailboxes().then((listed) => { if (listed.ok) setMailboxes(listed.data.items); }); }); }}>Yes, read the label again</Button>
             <Button variant="secondary" size="sm" onClick={() => setConfirming(null)}>Cancel</Button>
           </div>}
@@ -508,10 +517,10 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             {prepareAll.plan.unprepared > 0 && <Button variant="primary" size="sm" onClick={() => void technicalQueriesApi.prepareAllStart().then((result) => { if (result.ok) setPrepareAll({ plan: result.data, asking: false }); else { setPrepareAll(null); setError(result.error.message); } })}>Yes, prepare them</Button>}
             <Button variant="secondary" size="sm" onClick={() => setPrepareAll(null)}>{prepareAll.plan.unprepared > 0 ? "Cancel" : "Close"}</Button>
           </div>}
-          {prepareAll && !prepareAll.asking && <p role="status" className="mt-1" data-testid="prepare-all-progress">{prepareAll.plan.waiting_or_running > 0 ? `Preparing evidence in the background: ${prepareAll.plan.waiting_or_running} still waiting or running.` : "Every query that can be prepared has been prepared."}</p>}
+          {prepareAll && !prepareAll.asking && <p role="status" className="mt-1" data-testid="prepare-all-progress">{prepareAll.plan.waiting_or_running > 0 ? `Finding sources in the background: ${prepareAll.plan.waiting_or_running} still to do.` : "Every query has been searched."}</p>}
         </div>}
           {rules !== null && <details className="rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Rules for who it goes to ({rules.length})</summary>
-            <p className="mt-2 text-slateish-400">Set once: the contractor code inside the document number names the contractor; the discipline code after the number names the department; the sender's domain or exact address is used when the number carries no code. A rule fills only blank fields, now and for every query already held. A public mail domain cannot be used for this; an exact address can.</p>
+            <p className="mt-2 text-slateish-400">Set each rule once. A contractor code in the query number sets the contractor. A discipline code sets the department. If the number has no code, the sender's email address or domain is used. A rule fills only empty fields, for new and existing queries. A public email domain cannot be used; an exact address can.</p>
             <ul className="mt-2 space-y-1">{rules.map((rule) => <li key={rule.id} className="flex items-center justify-between gap-2"><span>{RULE_WORDS[rule.match_type] ?? rule.match_type} {rule.match_value} → {rule.contractor_name || "—"} / {rule.department || "—"}</span><Button variant="secondary" size="sm" onClick={() => void technicalQueriesApi.deleteRoutingRule(rule.id).then((result) => { if (result.ok) setRules(result.data.items); else setError(result.error.message); })}>Remove</Button></li>)}</ul>
             <div className="mt-2 space-y-1">
               <select aria-label="Rule type" value={ruleType} onChange={(event) => setRuleType(event.target.value as RoutingRuleType)} className="w-full rounded border border-ink-600 bg-ink-900 p-1.5">{(Object.keys(RULE_WORDS) as RoutingRuleType[]).map((type) => <option key={type} value={type}>{RULE_WORDS[type]}</option>)}</select>
@@ -523,7 +532,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             </> : null,
             handForm: <>
           {handOpen && <div className="mt-2 space-y-1 rounded border border-ink-700 p-3 text-xs text-slateish-300" aria-label="New query by hand">
-            <p className="text-slateish-400">For a query that did not come by email. Papers you upload are checked for active content like any emailed attachment.</p>
+            <p className="text-slateish-400">For a query that did not come by email. Files you add are checked for macros and scripts. This is not a virus scan.</p>
             <label className="block">Subject<input value={handSubject} onChange={(event) => setHandSubject(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
             <label className="block">Contractor<input value={handContractor} onChange={(event) => setHandContractor(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
             <label className="block">The question, as asked<textarea value={handBody} onChange={(event) => setHandBody(event.target.value)} rows={4} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
@@ -549,7 +558,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <input id="query-from-filter" type="date" value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
             <label className="block text-xs text-slateish-300" htmlFor="query-to-filter">Received to</label>
             <input id="query-to-filter" type="date" value={toFilter} onChange={(event) => setToFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-            <label className="block text-xs text-slateish-300" htmlFor="query-evidence-filter">Evidence</label>
+            <label className="block text-xs text-slateish-300" htmlFor="query-evidence-filter">Sources</label>
             <select id="query-evidence-filter" value={evidenceFilter} onChange={(event) => setEvidenceFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Any</option><option value="verified">Verified</option><option value="needs_review">Needs review</option><option value="conflicting">Conflicting</option><option value="ambiguous">Ambiguous</option><option value="missing">Missing</option><option value="rejected">Rejected</option></select>
             <label className="block text-xs text-slateish-300" htmlFor="query-type-filter">Type</label>
             <select id="query-type-filter" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100"><option value="">Any</option><option value="TQ">TQ: technical query</option><option value="CFC">CFC: conflict finding clarification</option></select>
@@ -557,7 +566,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <input id="query-discipline-filter" value={disciplineFilter} onChange={(event) => setDisciplineFilter(event.target.value)} className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
             <label className="block text-xs text-slateish-300" htmlFor="query-number-filter">Running number</label>
             <input id="query-number-filter" value={numberFilter} onChange={(event) => setNumberFilter(event.target.value)} inputMode="numeric" className="w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
-            <label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={needsPersonFilter} onChange={(event) => setNeedsPersonFilter(event.target.checked)} />Needs a person (no full number in the subject)</label>
+            <label className="flex items-center gap-2 text-xs text-slateish-300"><input type="checkbox" checked={needsPersonFilter} onChange={(event) => setNeedsPersonFilter(event.target.checked)} />Needs a person: the subject has no full number</label>
             <Button variant="secondary" size="sm" onClick={applyFilters}>Refresh and apply filters</Button>
           </div>
           )}
@@ -568,7 +577,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
       </section>
       {/* min-w-0 + wrapping anywhere: a long unbroken line in a mail (a link, a disclaimer) can never widen the page past the window */}
       <section ref={detailRef} className="min-w-0 overflow-x-hidden rounded border border-ink-700 bg-ink-850 p-5 [overflow-wrap:anywhere]">
-        {!selected ? <p className="text-sm text-slateish-500">Select a query to inspect its original message and review history.</p> : <>
+        {!selected ? <p className="text-sm text-slateish-500">Choose a query to see its email and history.</p> : <>
           {/* READ IN TEN SECONDS (owner, 26 Nov 2026 22:41): one plain sentence first, then where it stands as four marks */}
           <p data-testid="query-headline" className="text-xl font-semibold leading-snug text-slateish-100">{queryHeadline(selected, questionDraft)}</p>
           <h2 className="mt-1 text-sm font-medium text-slateish-400">{selected.subject}</h2>
@@ -581,9 +590,9 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {/* WHAT THE CONTRACTOR'S FORM CITES, first (owner via builder A, 27 Nov 2026): each citation and whether we hold it */}
           {selected.ready?.cited?.length ? <div data-testid="contractor-cites" className="mt-3 text-sm">
             <p className="font-semibold text-slateish-200">What the contractor&rsquo;s form cites</p>
-            <ul className="mt-1 space-y-0.5">{selected.ready.cited.map((c, i) => <li key={`${i}-${c.line}`} className={c.held ? "text-slateish-300" : "text-warn-500"}><span aria-hidden="true" className="mr-1 font-semibold">{c.held ? "\u2713" : "!"}</span>{c.line}</li>)}</ul>
+            <ul className="mt-1 space-y-0.5">{selected.ready.cited.map((c, i) => <li key={`${i}-${c.line}`} className={c.held ? "text-slateish-300" : "text-warn-500"}><span aria-hidden="true" className="mr-1 font-semibold">{c.held ? "\u2713" : ""}</span>{c.line}</li>)}</ul>
           </div> : null}
-          {selected.source_access_revoked && <p role="alert" className="mt-3 text-sm text-warn-500">Access to a cited source changed. The draft is hidden until an authorised reviewer checks it again.</p>}
+          {selected.source_access_revoked && <p role="alert" className="mt-3 text-sm text-warn-500">Access to a source changed. A reviewer must check the reply before it shows again.</p>}
           {/* ANSWER FIRST (owner's G9 "easy to use", E5, 26 Nov 2026): the question, the proposed response and the decisions
               come first; the email, its attachments and the evidence are folded below. Reorder only: the same parts, words and actions. */}
           {/* WHAT THE CONTRACTOR IS ASKING (owner, 26 Nov 2026 21:29 and 21:36): one readable ask, already filled, with where each
@@ -592,7 +601,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {selected.confirmed_question
             ? <p className="mt-1 text-xs text-slateish-400">Checked by an engineer{selected.confirmed_question_at ? ` on ${formatWhen(selected.confirmed_question_at)}` : ""}.</p>
             : (selected.ready && questionDraft.trim()) ? null // the server's own mark says it ("proposed by the system; no engineer has confirmed it yet")
-            : <p className="mt-1 text-xs text-warn-500">{questionDraft.trim() ? "Proposed by the system from the mail and its attachments, not yet checked by an engineer." : "No question was found: write it below."}</p>}
+            : <p className="mt-1 text-xs text-warn-500">{questionDraft.trim() ? "Suggested by the AI from the email and its files. Nobody has checked it yet." : "No question found. Type it below."}</p>}
           {proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question)) && <p className="mt-1 text-xs text-warn-500" data-testid="proposal-note">{proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question))}</p>}
           {!editingQuestion && questionDraft.trim() ? (
             <div data-testid="question-readable" className="mt-2 rounded border border-ink-700 p-3 text-sm text-slateish-100">
@@ -624,20 +633,20 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           </details>}
           {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-2">
             {editingQuestion || !questionDraft.trim() ? <>
-              <label htmlFor="technical-query-question" className="block text-xs text-slateish-300">Edit what the contractor is asking (one request per numbered line)</label>
+              <label htmlFor="technical-query-question" className="block text-xs text-slateish-300">Edit the question (one question per numbered line)</label>
               <textarea id="technical-query-question" value={questionDraft} onChange={(event) => setQuestionDraft(event.target.value)} rows={6} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
             </> : <Button variant="secondary" size="sm" onClick={() => setEditingQuestion(true)}>Edit</Button>}
             {selected.ready && questionDraft.trim() && questionDraft.trim() !== selected.ready.question.trim() && <Button variant="secondary" size="sm" disabled={busy} onClick={saveQuestion}>Save and find the sources again</Button>}
             <Button variant="secondary" size="sm" disabled={busy || !selected.can_review || !questionDraft.trim() || questionDraft.trim() === (selected.confirmed_question || "")} title={selected.can_review ? undefined : "Only a qualified reviewer can confirm the question"} onClick={confirmQuestion}>Confirm</Button>
-            <p className="mt-1 text-xs text-slateish-400">Confirming only records that you checked it. Nothing is sent.</p>
-            <InfoFold title="About checking the question" className="mt-1 text-xs">Confirm means you have checked this is what the contractor is asking. It does not send anything to the contractor, and approving the reply also records the wording it answers, so Confirm is optional. Edit changes the wording; the sources and a new draft follow by themselves.</InfoFold>
-            {!selected.can_review && <p className="mt-1 text-xs text-slateish-500">Only a qualified reviewer can confirm the question.</p>}
+            <p className="mt-1 text-xs text-slateish-400">Confirm means you checked it. Nothing is sent.</p>
+            <InfoFold title="About checking the question" className="mt-1 text-xs">Confirm means you checked this is the contractor's question. Nothing is sent. Confirm is optional: approving the reply also records the question. If you edit it, the sources are found again and the reply is written again.</InfoFold>
+            {!selected.can_review && <p className="mt-1 text-xs text-slateish-500">Only a reviewer can confirm the question.</p>}
           </div>}
           <h3 className="mt-6 text-sm font-semibold text-slateish-200">Proposed reply{selected.status !== "approved" && selected.drafts?.length ? <span className="ml-2"><StatusChip word="AI, to be checked" testId="ai-to-check" /></span> : null}</h3>
           {readyLine(selected.ready) && <p role="status" data-testid="ready-line" className="mt-1 text-xs text-slateish-300">{readyLine(selected.ready)}</p>}
           {/* THE OLD REPLY WHILE IT IS REWRITTEN (owner's live walk, 27 Nov 2026 01:15): greyed and said, never shown as the current one */}
           {selected.drafts?.length ? (replyBeingRewritten(selected.ready)
-            ? <div data-testid="reply-being-rewritten" className="mt-2 rounded border border-dashed border-ink-600 p-2"><p className="text-xs font-semibold text-slateish-200">Old reply, being rewritten: the new one replaces it when it is ready.</p><p className="mt-1 whitespace-pre-wrap text-sm text-slateish-400">{selected.drafts.at(-1)?.answer}</p></div>
+            ? <div data-testid="reply-being-rewritten" className="mt-2 rounded border border-dashed border-ink-600 p-2"><p className="text-xs font-semibold text-slateish-200">Old reply. A new one is being written and will replace it.</p><p className="mt-1 whitespace-pre-wrap text-sm text-slateish-400">{selected.drafts.at(-1)?.answer}</p></div>
             : <ReplyText answer={selected.drafts.at(-1)?.answer ?? ""} />) : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
           {/* COMPANY's usual cost / schedule sentence, OFFERED (lead-4's final design): the engineer adds it to their own reply, never the code */}
           {selected.drafts?.length ? <TechnicalQueryPosition position={selected.ready?.position} canEdit={EDITABLE.includes(selected.status)}
@@ -665,7 +674,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                   <Button variant="secondary" size="sm" disabled={busy || !backNote.trim()} onClick={() => { const note = backNote.trim(); setSendingBack(false); setBackNote(""); act(() => technicalQueriesApi.decide(selected.id, "request_changes", selected.drafts?.at(-1)?.id, note)); }}>Send back</Button>
                   <Button variant="secondary" size="sm" onClick={() => { setSendingBack(false); setBackNote(""); }}>Cancel</Button>
                 </div>
-                <p className="mt-1 text-xs text-slateish-400">The reply goes back to be written again, with your note kept beside it. Nothing is sent to the contractor.</p>
+                <p className="mt-1 text-xs text-slateish-400">The reply is written again with your note. Nothing is sent to the contractor.</p>
               </div>}
             </div>;
           })()}
@@ -682,7 +691,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
                   : <a className="rounded border border-ink-600 px-3 py-1.5 text-xs text-slateish-200" href={`/api/technical-queries/${selected.id}/response.docx`}>Download the reply as a Word file</a>}
                 {["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? <Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.confirmResolution(selected.id))}>Mark as answered</Button> : null}
               </div>
-              <p id="word-reply-hint" className="mt-1 text-xs text-slateish-400">{whyNot ? `${whyNot} ` : ""}A Word file of the approved reply, for you to send to the contractor yourself: the app does not send email.{["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? " After you have sent it, press Mark as answered." : ""}</p>
+              <p id="word-reply-hint" className="mt-1 text-xs text-slateish-400">{whyNot ? `${whyNot} ` : ""}A Word file of the approved reply. Send it to the contractor yourself: the app sends no email.{["approved", "sent", "awaiting_confirmation"].includes(selected.status) && selected.can_review ? " After you have sent it, press Mark as answered." : ""}</p>
             </div>;
           })() : null}
           {/* REDO, folded and quiet (owner, 27 Nov 2026 00:02): each line says what it does and that it replaces the reply above */}
@@ -708,13 +717,13 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               <p className="mt-1 text-slateish-400">Only the ticked documents and this query's question are sent. Choose none and nothing is sent.</p></fieldset>}
             <div className="mt-2">
               <Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, engine, engine === "claude" ? claudeDocs : []))}>Write the reply again</Button>
-              <p className="mt-1 text-xs text-slateish-400">The AI chosen above writes a new reply from the sources found and replaces the reply above.</p>
+              <p className="mt-1 text-xs text-slateish-400">The AI chosen above writes a new reply. It replaces the one above.</p>
             </div>
             {/* not on the happy path (owner, 26 Nov 2026): the sources are found by themselves; this is for a query with none yet, or
                 when the ask was edited since they were found */}
             {!searching && !refreshing && (!(selected.evidence?.length) || questionEdited || staleSources(selected) || selected.ready?.evidence_fresh === false || selected.ready?.evidence === "failed") && <div className="mt-2">
               <Button variant="secondary" size="sm" disabled={busy} onClick={() => act(() => technicalQueriesApi.prepareEvidence(selected.id))}>{selected.evidence?.length ? "Find the sources again" : "Find the sources"}</Button>
-              <p className="mt-1 text-xs text-slateish-400">Searches the contract and the standards again for this question. A new reply follows by itself and replaces the reply above.</p>
+              <p className="mt-1 text-xs text-slateish-400">Search the contract and standards again. A new reply then replaces the one above.</p>
             </div>}
             {(() => {
               const split = citedSplit(selected.evidence, selected.drafts?.at(-1)?.citations_json);
@@ -725,8 +734,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               </div> : null;
             })()}
           </details>
-          {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Preparing the evidence: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
-          {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The evidence could not be prepared: {selected.evidence_job.error}</p>}
+          {selected.evidence_job && (selected.evidence_job.state === "queued" || selected.evidence_job.state === "running") && <p role="status" className="mt-3 text-xs text-slateish-300" data-testid="evidence-progress">Finding the sources: {selected.evidence_job.label ?? "queued"}{selected.evidence_job.progress_total > 0 ? ` (${selected.evidence_job.progress_done} of ${selected.evidence_job.progress_total})` : ""}. You can leave this page; it carries on.</p>}
+          {selected.evidence_job?.state === "failed" && <p role="alert" className="mt-3 text-xs text-warn-500">The sources could not be found: {selected.evidence_job.error}</p>}
           {evidenceBlock}
           {/* WHO HANDLES IT (owner, 27 Nov 2026 00:02): one form and one Save; an empty field says what the subject holds */}
           <details data-testid="who-it-goes-to" className="mt-6 rounded border border-ink-700 p-2"><summary className="cursor-pointer text-sm font-semibold text-slateish-200">Who handles it: contractor, department, person, due date</summary>
@@ -737,7 +746,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             <label className="text-xs text-slateish-300">Priority<select value={triagePriority} onChange={(event) => setTriagePriority(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label>
             <label className="text-xs text-slateish-300">Due date<input type="date" value={triageDue} onChange={(event) => setTriageDue(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm" /></label>
             {assignees.length > 0 && <label className="text-xs text-slateish-300">Responsible person<select value={chosenAssignee} onChange={(event) => setChosenAssignee(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm"><option value="">Nobody yet</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.display_name}</option>)}</select></label>}
-            {selected.routing_source?.startsWith("rule:") && <p className="text-xs text-slateish-400 sm:col-span-2">Contractor and department were filled from a rule. Save to confirm or change them.</p>}
+            {selected.routing_source?.startsWith("rule:") && <p className="text-xs text-slateish-400 sm:col-span-2">A rule set the contractor and department. Save to confirm them, or change them.</p>}
             <div className="sm:col-span-2">
               <Button variant="secondary" size="sm" disabled={busy} onClick={saveWho}>Save who handles it</Button>
               <p className="mt-1 text-xs text-slateish-400">Saves everything above at once. Nothing is sent to anyone.</p>
@@ -745,18 +754,18 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           </div>
           </details>
           <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-email-question">
-            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Show original: the question as written in the email</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Show the question as written in the email</summary>
             <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{(selected.extracted_question_main ?? selected.extracted_question) || selected.email_question_note || "Not stated in the email text."}</p>
             <Folded text={selected.extracted_question_folded} />
             {selected.attachment_reading?.map((part) => <p key={part.filename} className="mt-6 text-xs text-slateish-400" data-testid="attachment-reading">{part.line}</p>)}
-            {selected.attachment_text_hidden && <p className="mt-6 text-xs text-warn-500">The attachment text is hidden: you may not read that attachment.</p>}
+            {selected.attachment_text_hidden && <p className="mt-6 text-xs text-warn-500">The attached file's text is hidden: you cannot open that file.</p>}
             {selected.attachment_context?.length ? <>
-              <h3 className="mt-6 text-sm font-semibold text-slateish-200">Attachment text</h3>
+              <h3 className="mt-6 text-sm font-semibold text-slateish-200">Text of the attached files</h3>
               {selected.attachment_context.map((part) => <div key={`${part.filename}-${part.page}`} className="mt-2 rounded border border-ink-700 p-2 text-sm text-slateish-300"><p className="text-xs text-slateish-500">{part.filename}, page {part.page}</p><p className="mt-1 whitespace-pre-wrap">{part.text}</p></div>)}
             </> : null}
           </details>
           <details className="mt-6 rounded border border-ink-700 p-2" data-testid="tq-folded-mail">
-            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Show original: the email and its attachments</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Show the original email and its files</summary>
             {(() => {
               const read = attachmentsRead(selected.messages);
               return read && <div className="mt-2 text-xs text-slateish-300" data-testid="attachments-read"><p>{read.line}.</p>
@@ -770,7 +779,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               <p className="mt-2 whitespace-pre-wrap">{message.body_main ?? message.body}</p>
               <Folded text={message.body_folded} />
               {message.attachments.some((a) => !isInlinePicture(a)) && <ul className="mt-2 list-disc pl-5">{message.attachments.filter((a) => !isInlinePicture(a)).map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/attachments/${encodeURIComponent(attachment.id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · <span data-testid="attachment-state">{notReadWhy(attachment) ? `not read: ${notReadWhy(attachment)}` : `read · ${SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}`}</span>
-                {attachment.document_id && !attachment.filed_at && <span data-testid="attachment-unfiled"> · kept out of the library: not found by search, Chat or the review list{selected.can_review ? <> <select aria-label="Role to file this attachment under" value={fileRole} onChange={(event) => setFileRole(event.target.value)} className="ml-1 rounded border border-ink-600 bg-ink-900 p-1 text-xs"><option value="SUPPORTING_DOCUMENT">Supporting document</option><option value="CONTRACTOR_SUBMITTAL">Contractor submittal</option><option value="SPECIFICATION">Specification</option><option value="CONTRACT_DOCUMENT">Contract document</option><option value="COMPANY_STANDARD">Company standard</option></select> <Button variant="secondary" size="sm" disabled={busy} onClick={() => setConfirming({ kind: "file", attachmentId: attachment.id })}>File into the library</Button>{confirming?.kind === "file" && confirming.attachmentId === attachment.id && <span role="alertdialog" aria-label="Confirm filing" className="ml-2 rounded border border-warn-500 p-1" data-testid="confirm-file">File this attachment into the library? It then appears in search, Chat and the review list under the chosen role. <Button variant="primary" size="sm" disabled={busy} onClick={() => { setConfirming(null); act(() => technicalQueriesApi.fileIntoLibrary(selected.id, attachment.id, fileRole)); }}>Yes, file it</Button> <Button variant="secondary" size="sm" onClick={() => setConfirming(null)}>Cancel</Button></span>}</> : null}</span>}
+                {attachment.document_id && !attachment.filed_at && <span data-testid="attachment-unfiled"> · kept out of the library: not found by search, Chat or the review list{selected.can_review ? <> <select aria-label="Role to add this file under" value={fileRole} onChange={(event) => setFileRole(event.target.value)} className="ml-1 rounded border border-ink-600 bg-ink-900 p-1 text-xs"><option value="SUPPORTING_DOCUMENT">Supporting document</option><option value="CONTRACTOR_SUBMITTAL">Contractor submittal</option><option value="SPECIFICATION">Specification</option><option value="CONTRACT_DOCUMENT">Contract document</option><option value="COMPANY_STANDARD">Company standard</option></select> <Button variant="secondary" size="sm" disabled={busy} onClick={() => setConfirming({ kind: "file", attachmentId: attachment.id })}>File into the library</Button>{confirming?.kind === "file" && confirming.attachmentId === attachment.id && <span role="alertdialog" aria-label="Confirm filing" className="ml-2 rounded border border-warn-500 p-1" data-testid="confirm-file">Add this file to the library? It then shows in search, Chat and the review list, for the role you choose. <Button variant="primary" size="sm" disabled={busy} onClick={() => { setConfirming(null); act(() => technicalQueriesApi.fileIntoLibrary(selected.id, attachment.id, fileRole)); }}>Yes, file it</Button> <Button variant="secondary" size="sm" onClick={() => setConfirming(null)}>Cancel</Button></span>}</> : null}</span>}
               </li>)}</ul>}
             </article>)}
           </details>

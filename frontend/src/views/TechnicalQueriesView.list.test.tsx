@@ -112,8 +112,8 @@ describe("the query list page", () => {
     render(<TechnicalQueriesView />);
     const problems = await screen.findAllByTestId("query-problem");
     expect(problems.map((p) => p.textContent)).toEqual([
-      "No query number. The subject has no full TQ or CFC number, so a person must check which query this is.",
-      "No contractor. No contractor yet: add its code once under \u201cRules for who it goes to\u201d (in More) and every query with that code fills itself.",
+      "No query number. Check which query this is. The subject has no full TQ or CFC number.",
+      "No contractor. Under More, \u201cRules for who it goes to\u201d, add this contractor's code once. Every query with this code then gets it.",
     ]);
   });
 
@@ -123,7 +123,7 @@ describe("the query list page", () => {
     render(<TechnicalQueriesView />);
     const problems = await screen.findAllByTestId("query-problem");
     expect(problems.map((p) => p.textContent)).toEqual([
-      "No query number. The subject has no full TQ or CFC number, so a person must check which query this is.",
+      "No query number. Check which query this is. The subject has no full TQ or CFC number.",
     ]);
     expect(screen.getByTestId("no-contractor-note")).toBeTruthy(); // said once, by the list
   });

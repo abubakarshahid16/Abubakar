@@ -259,11 +259,11 @@ export function peopleLine(to: string[], cc: string[]): { lines: string[]; folde
  *  question section was used instead. */
 export function proposalNoteWords(note: string | null | undefined, hasProposal: boolean): string | null {
   const then = hasProposal
-    ? "The proposed question below is the form's own question section, as printed. Check it before you confirm it."
-    : "Read the attachment text below and write the question.";
-  if (note === "model_unavailable") return `The AI on this computer was not available, so it proposed no questions from the attachment. ${then}`;
-  if (note === "none_found") return `The AI on this computer found no separate question in the attachment. ${then}`;
-  if (note === "not_on_page") return `The AI on this computer listed questions that are not word for word on the page, so none was kept. ${then}`;
+    ? "The question below is copied from the form. Please check it."
+    : "Read the attached file below and type the question.";
+  if (note === "model_unavailable") return `The AI did not answer, so it suggested no question from the attached file. ${then}`;
+  if (note === "none_found") return `The AI found no separate question in the attached file. ${then}`;
+  if (note === "not_on_page") return `The AI's questions were not word for word on the page, so none was kept. ${then}`;
   return null;
 }
 

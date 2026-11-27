@@ -87,13 +87,20 @@ function isWordy(node: Node, parent: Node | null, text: string): boolean {
 export function shownInternalWords(source: string, file: string): Hit[] {
   const hits: Hit[] = [];
   const owned = OWNED_TEXT.filter((o) => o.file.test(file));
-  const lineOf = (pos: number) => source.slice(0, pos).split("\n").length;
-  const scan = (raw: string, pos: number) => {
-    if (owned.some((o) => o.text.test(raw))) return;
+  for (const { raw, line } of shownTexts(source, file)) {
+    if (owned.some((o) => o.text.test(raw))) continue;
     const text = EVERYDAY.reduce((t, rx) => t.replace(rx, " "), raw);
-    for (const m of text.matchAll(WORD)) hits.push({ file, line: lineOf(pos), word: m[1].toLowerCase().replace(/\s+/g, " ") });
-    for (const m of text.matchAll(CODE)) hits.push({ file, line: lineOf(pos), word: m[0] });
-  };
+    for (const m of text.matchAll(WORD)) hits.push({ file, line, word: m[1].toLowerCase().replace(/\s+/g, " ") });
+    for (const m of text.matchAll(CODE)) hits.push({ file, line, word: m[0] });
+  }
+  return hits;
+}
+
+/** Every piece of text a person would SEE in `source` (JSX text, a text attribute, a wordy string, template text), with its line. */
+export function shownTexts(source: string, file: string): { raw: string; line: number }[] {
+  const out: { raw: string; line: number }[] = [];
+  const lineOf = (pos: number) => source.slice(0, pos).split("\n").length;
+  const scan = (raw: string, pos: number) => out.push({ raw, line: lineOf(pos) });
   const ast = parseAst(source, { lang: file.endsWith("x") ? "tsx" : "ts" }, file) as unknown as Node;
   const walk = (n: unknown, parent: Node | null): void => {
     if (!n || typeof n !== "object") return;
@@ -114,7 +121,36 @@ export function shownInternalWords(source: string, file: string): Hit[] {
     for (const k of Object.keys(node)) if (k !== "parent" && node[k] && typeof node[k] === "object") walk(node[k], node);
   };
   walk(ast, null);
-  return hits;
+  return out;
+}
+
+/** PAGES REWRITTEN TO docs/WORDS.md (owner, 27 Nov 2026 10:57: "the TEXT ... written as well as possible, so anyone understands it
+ *  easily"). Here the WORDS.md "Never on a screen" words are refused too, and a screen sentence over 25 words fails. A page joins this
+ *  list in the PR that rewrites it. */
+export const WORDS_DONE: RegExp[] = [
+  /^views\/TechnicalQueriesView\.tsx$/, /^views\/technicalQueryQuestion\.ts$/, /^views\/TechnicalQueryCrossRefs\.tsx$/,
+  /^views\/TechnicalQueryPosition\.tsx$/,
+];
+/** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
+export const NEVER = [
+  "attachment", "attachments", "metadata", "extraction", "recognition", "mitigation", "carries the code", "fills itself",
+  "form's own question section", "passage", "passages", "evidence", "provenance", "supersession", "found by the system",
+];
+const NEVER_RX = new RegExp(`(?<![A-Za-z0-9_])(${NEVER.map((w) => w.replace(/ /g, "\\s+")).join("|")})(?![A-Za-z0-9_])`, "gi");
+/** A screen sentence's longest allowed length, in words (owner's rule: one idea, 15 words or fewer; over 25 fails the build). */
+export const MAX_WORDS = 25;
+
+/** On a rewritten page: the WORDS.md words a person would see, and every shown sentence over MAX_WORDS words. */
+export function wordsDoneFindings(source: string, file: string): string[] {
+  const found: string[] = [];
+  for (const { raw, line } of shownTexts(source, file)) {
+    for (const m of raw.matchAll(NEVER_RX)) found.push(`${file}:${line} "${m[1]}"`);
+    for (const sentence of raw.split(/(?<=[.!?])\s+/)) {
+      const words = sentence.trim().split(/\s+/).filter(Boolean).length;
+      if (words > MAX_WORDS) found.push(`${file}:${line} ${words} words: "${sentence.trim().slice(0, 80)}..."`);
+    }
+  }
+  return found;
 }
 
 const SRC = resolve(__dirname);
@@ -134,6 +170,22 @@ describe("E3 everyday words", () => {
       .flatMap((rel) => shownInternalWords(readFileSync(join(SRC, rel), "utf8"), rel));
     const shown = hits.map((h) => `${h.file}:${h.line} ${h.word}`);
     expect(shown.length, `internal words shown on a screen:\n${shown.join("\n")}`).toBe(0);
+  });
+
+  it("on a page rewritten to docs/WORDS.md, shows none of its never-on-a-screen words and no sentence over 25 words", () => {
+    const found = sources(SRC)
+      .map((p) => relative(SRC, p).split("\\").join("/"))
+      .filter((rel) => WORDS_DONE.some((rx) => rx.test(rel)))
+      .flatMap((rel) => wordsDoneFindings(readFileSync(join(SRC, rel), "utf8"), rel));
+    expect(found.length, `words to rewrite (docs/WORDS.md):\n${found.join("\n")}`).toBe(0);
+  });
+
+  it("the WORDS.md check can fail: a planted banned word and a planted long sentence are found", () => {
+    const long = Array.from({ length: 26 }, (_, i) => `word${i}`).join(" ");
+    const planted = `export const A = () => <p>The attachment metadata is read. ${long}.</p>;`;
+    expect(wordsDoneFindings(planted, "planted.tsx")).toEqual([
+      'planted.tsx:1 "attachment"', 'planted.tsx:1 "metadata"', `planted.tsx:1 26 words: "${long.slice(0, 80)}..."`,
+    ]);
   });
 
   it("can fail: it finds a planted internal word in shown text and ignores the same word in code", () => {

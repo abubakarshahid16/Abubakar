@@ -221,7 +221,7 @@ def test_a_draft_that_leaves_a_numbered_item_unanswered_says_so():
     q = "Please confirm each item:\n\n1. first\n2. second\n3. third"
     assert auto.unanswered_mark(
         "**1.** COMPANY confirms ... [S1]\n**2.** COMPANY ... [S2]", q
-    ) == ("The draft does not answer request item 3; check it by hand.")
+    ) == ("The reply does not answer question 3. Check it by hand.")
     assert (
         auto.unanswered_mark(
             "Items 1 and 2: ... Item 3: Not found in the documents searched.", q
@@ -341,4 +341,4 @@ def test_an_item_answered_in_prose_without_its_number_is_not_marked_unanswered()
     assert auto.unanswered_mark(
         "1. COMPANY confirms the flange class [S1].\n2. The gasket type is stated [S2].",
         q,
-    ) == ("The draft does not answer request item 3; check it by hand.")
+    ) == ("The reply does not answer question 3. Check it by hand.")

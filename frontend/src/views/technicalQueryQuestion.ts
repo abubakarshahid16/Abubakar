@@ -177,14 +177,14 @@ export function honestMarks(q: MarksSource, text: string): { question: string[];
   const evidence: string[] = [];
   const running = q.evidence_job?.state === "queued" || q.evidence_job?.state === "running";
   const all = currentSources(q.evidence);
-  if (!running && all.length === 0) evidence.push("No source was found for this question yet: the answer has nothing to stand on.");
+  if (!running && all.length === 0) evidence.push("No source found for this question yet. The reply has nothing to rest on.");
   const scored = all.filter((e) => (e.match_terms ?? 0) > 0);
   if (staleSources(q)) {
-    evidence.push("These sources were found for the whole text of the mail, not for the question: find them again for the question.");
+    evidence.push("Find the sources again: these were found for the whole email, not for the question.");
   } else if (scored.length) {
     const best = scored.reduce((a, b) => ((b.match_count ?? 0) / (b.match_terms ?? 1) > (a.match_count ?? 0) / (a.match_terms ?? 1) ? b : a));
     if ((best.match_count ?? 0) / (best.match_terms ?? 1) < 0.5) {
-      evidence.push("Weak match: the sources found share few words with the question. Read them before relying on the reply.");
+      evidence.push("Weak match: the sources share few words with the question. Read them before you rely on the reply.");
     }
   }
   for (const line of q.evidence_coverage?.cited_first ?? []) {
@@ -205,11 +205,11 @@ export interface ReadyState {
 /** One plain line on where the sources and the draft stand (builder A's `ready`), or null when nothing is under way. */
 export function readyLine(r: ReadyState | null | undefined): string | null {
   if (!r) return null;
-  if (r.evidence === "refreshing") return "Finding the sources for this question; a draft follows.";
-  if (r.draft === "refreshing") return "Writing a draft from the sources found.";
-  if (r.evidence === "failed") return "The sources could not be found this time.";
-  if (r.draft === "not_written") return r.draft_note ? `No draft was written: ${r.draft_note}.` : "No draft was written.";
-  if (r.draft === "ready" && !r.draft_fresh) return "The draft answers an earlier wording of the question.";
+  if (r.evidence === "refreshing") return "Finding the sources for this question. The reply follows.";
+  if (r.draft === "refreshing") return "Writing the reply from the sources found.";
+  if (r.evidence === "failed") return "The sources could not be found. Try Find the sources again.";
+  if (r.draft === "not_written") return r.draft_note ? `No reply was written: ${r.draft_note}.` : "No reply was written.";
+  if (r.draft === "ready" && !r.draft_fresh) return "The reply answers an earlier wording of the question.";
   return null;
 }
 
@@ -370,8 +370,8 @@ export function markedPieces(text: string, words: string[]): Array<{ text: strin
 export type Decision = { kind: "decide" | "no_role" | "none"; hint: string };
 export function decisionFor(q: { status: string; can_review?: boolean; drafts?: unknown[] | null }): Decision {
   if (q.status !== "awaiting_review" || !q.drafts?.length) return { kind: "none", hint: "" };
-  if (!q.can_review) return { kind: "no_role", hint: "Approving needs the technical-query reviewer role. An administrator can give it to you under Administration." };
-  return { kind: "decide", hint: "Approve records that you checked this reply. Nothing is sent: you then download it as a Word file and send it yourself." };
+  if (!q.can_review) return { kind: "no_role", hint: "Approving needs the query reviewer role. Ask an administrator to give it to you." };
+  return { kind: "decide", hint: "Approve means the reply is ready to send. The app does not send it. Download it as a Word file and send it yourself." };
 }
 
 /** Why the Word reply cannot be downloaded yet, or null when it can (the server serves it once a reply is approved). */
@@ -384,7 +384,7 @@ export function wordReplyWhyNot(q: { status: string; drafts?: unknown[] | null }
 /** "From the subject: contractor code ABC, discipline PRO" beside empty fields, so they are never blank with no hint; null when nothing was read. */
 export function fromSubjectHint(q: { contractor_code?: string | null; discipline_code?: string | null }): string | null {
   const parts = [q.contractor_code ? `contractor code ${q.contractor_code}` : "", q.discipline_code ? `discipline ${q.discipline_code}` : ""].filter(Boolean);
-  return parts.length ? `From the subject: ${parts.join(", ")}. Add a rule under “Rules for who it goes to” and every query with this code fills itself.` : null;
+  return parts.length ? `From the subject: ${parts.join(", ")}. Under More, “Rules for who it goes to”, add a rule once. Every query with this code then gets it.` : null;
 }
 
 /** The decisions so far in plain words; empty: "Nobody has approved this yet." */
@@ -416,11 +416,11 @@ export function statusChip(status: string): { words: string; tone: ChipTone } {
 /** The short amber chips of a row; the full sentence goes on hover (and inside the query). */
 export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null; contractor_code?: string | null }): Array<{ words: string; why: string }> {
   const out: Array<{ words: string; why: string }> = [];
-  if (q.needs_person || !q.ref_type) out.push({ words: "No query number", why: "The subject has no full TQ or CFC number, so a person must check which query this is." });
+  if (q.needs_person || !q.ref_type) out.push({ words: "No query number", why: "Check which query this is. The subject has no full TQ or CFC number." });
   // the code printed in the reference number, when there is one, is named (never a guessed contractor; lead-4, 26 Nov 2026)
   if (!q.contractor_name) out.push({ words: "No contractor", why: q.contractor_code
-    ? `No contractor yet: its number carries the code ${q.contractor_code}. Name that code once under “Rules for who it goes to” (in More) and every query with it fills itself.`
-    : "No contractor yet: add its code once under “Rules for who it goes to” (in More) and every query with that code fills itself." });
+    ? `Under More, “Rules for who it goes to”, say which contractor the code ${q.contractor_code} is. Every query with this code then gets it.`
+    : "Under More, “Rules for who it goes to”, add this contractor's code once. Every query with this code then gets it." });
   return out;
 }
 

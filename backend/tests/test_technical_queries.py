@@ -2228,8 +2228,8 @@ def test_complete_workflow_from_email_to_resolution(monkeypatch, tmp_path):
     assert prepared["ready"]["question_source"] == "proposed" and prepared["ready"]["draft"] == "ready"
     assert prepared["ready"]["draft_fresh"] and prepared["ready"]["evidence_fresh"]
     marks = json.loads(prepared["drafts"][-1]["unresolved_json"])
-    assert "The question was proposed by the system; no engineer has confirmed it yet." in marks
-    assert "Written by the local model from passages the system found; no engineer has kept them yet." in marks
+    assert "The AI suggested this question. Nobody has confirmed it yet." in marks
+    assert "The AI wrote this reply from the sources it found. Nobody has kept them yet." in marks
     # a passage the search found is only PROPOSED: no person has judged that it answers the question
     assert [
         (e["document_id"], e["evidence_state"], e["supersession_state"])

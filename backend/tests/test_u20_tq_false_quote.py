@@ -117,7 +117,7 @@ def test_an_older_draft_with_a_false_quote_is_marked_and_never_approved(query):
         )
     got = tq.get(item["id"], "u1", False, False)
     assert auto.FALSE_QUOTE_MARK in got["ready"]["marks"]
-    with pytest.raises(ValueError, match="not in its cited source"):
+    with pytest.raises(ValueError, match="not in its source"):
         tq.decide(
             item["id"],
             "approve",

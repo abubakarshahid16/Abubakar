@@ -121,4 +121,4 @@ def mark(refs: list[dict[str, Any]]) -> str | None:
     if not held:
         return None
     unique = list(dict.fromkeys(held))
-    return f"The request names {', '.join(unique)}, held in this system: see {'them' if len(unique) > 1 else 'it'} before replying."
+    return f"The question names {', '.join(unique)}. Read {'them' if len(unique) > 1 else 'it'} in this app before you reply."

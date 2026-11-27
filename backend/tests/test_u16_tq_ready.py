@@ -110,8 +110,8 @@ def test_one_job_proposes_finds_and_drafts_with_no_click_and_the_local_model_onl
     assert ready["ready"] == {
         "question": "1. What flange rating applies?", "question_source": "proposed", "evidence": "ready", "evidence_fresh": True, "evidence_outdated": False,
         "draft": "ready", "draft_fresh": True, "draft_note": None,
-        "marks": ["The question was proposed by the system; no engineer has confirmed it yet.", auto.FOUND_NOT_KEPT,
-                  "The revision of contract is not confirmed yet (Documents, Details, Save metadata)."],
+        "marks": ["The AI suggested this question. Nobody has confirmed it yet.", auto.FOUND_NOT_KEPT,
+                  "The revision of contract is not confirmed yet. Confirm it under Documents, Details."],
         "cited": [],  # what the contractor's form cites, held or not (none here)
         "items": [],  # the request's numbered items (a single question here)
         # COMPANY's usual cost / schedule sentence, OFFERED beside the draft, never put in (technical_query_position); no money word here
@@ -157,7 +157,7 @@ def test_an_edited_wording_refreshes_evidence_and_draft_without_confirming(query
         and again["ready"]["draft_fresh"]
     )
     assert (
-        "The question is an engineer's wording, not confirmed yet."
+        "An engineer changed this question. Nobody has confirmed it yet."
         in again["ready"]["marks"]
     )
     # the old wording's passage folds away: the new draft cites the passage found for the new wording

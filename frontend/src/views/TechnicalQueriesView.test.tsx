@@ -73,9 +73,9 @@ describe("Technical Queries screen", () => {
     expect(screen.queryByText(/each as printed/)).toBeNull();
     // editing is one click away; the text is the same ask, numbered
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    const text = screen.getByLabelText(/Edit what the contractor is asking/) as HTMLTextAreaElement;
+    const text = screen.getByLabelText(/Edit the question/) as HTMLTextAreaElement;
     expect(text.value).toBe("See attached.\n1. What is the minimum coating thickness?");
-    expect(screen.getByText("Confirming only records that you checked it. Nothing is sent.")).toBeTruthy(); // one short line (owner, 22:41)
+    expect(screen.getByText("Confirm means you checked it. Nothing is sent.")).toBeTruthy(); // one short line (owner, 22:41)
   });
 
   it("lists only the first few found requests; the rest are marked as possibly missed and one can be added as the next number", async () => {
@@ -117,8 +117,9 @@ describe("Technical Queries screen", () => {
       evidence_coverage: { searched: 20, of: 20, hits_in: 5, failed: 0, line: "Searched 20 of 20 contracts, hits in 5.", matching_passages: 0, key_terms: 5, top_rerank_score: 0.412 },
       evidence: [{ id: "e1", document_id: "c1", page_start: 4, locator: "6.1 Painting", match_count: 1, match_terms: 5, match_ok: 0, rank_score: 0.412, exact_quote: "x", evidence_state: "proposed", supersession_state: "current" }] } });
     const { container } = render(<TechnicalQueriesView />);
-    expect((await screen.findByTestId("evidence-top-score")).textContent).toContain("relevance score");
-    expect(screen.getByTestId("evidence-top-score").textContent).toContain("0.412");
+    expect(await screen.findByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
+    expect(screen.queryByTestId("evidence-top-score")).toBeNull(); // the raw relevance score is not shown (Q1)
+    expect(screen.getByText(/suggested, not kept yet/)).toBeTruthy(); // the source's states in words (Q2)
     expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
     expect(screen.getByTestId("evidence-match").textContent).toBe("Weak match: this quote shares few words with the question"); // plain words (owner, 27 Nov 2026)
     expect(screen.getByTestId("evidence-match").getAttribute("title")).toBe("1 of 5 of the question's key words"); // the counts, one hover away
@@ -153,8 +154,8 @@ describe("Technical Queries screen", () => {
     const notes = (await screen.findAllByTestId("evidence-needs-confirm")).map((node) => node.textContent);
     // the kept passage and the one not yet kept, both with an unconfirmed source; not the confirmed one, not the rejected one
     expect(notes).toEqual([
-      "Counts for a draft once its source document is confirmed: Documents, Details, Save metadata.",
-      "To count for a draft: keep it as evidence, and confirm its source document (Documents, Details, Save metadata).",
+      "It is used in a reply once its document is confirmed under Documents, Details.",
+      "To use it in a reply: keep it, and confirm its document under Documents, Details.",
     ]);
   });
 
@@ -164,7 +165,7 @@ describe("Technical Queries screen", () => {
     render(<TechnicalQueriesView />);
     await screen.findByText("Coating question", { selector: "h2" });
     expect(screen.queryByText("Send approved response")).toBeNull();
-    expect(screen.getByText(/the app does not send email/)).toBeTruthy(); // the owner has not approved sending (27 Nov wording)
+    expect(screen.getByText(/the app sends no email/)).toBeTruthy(); // the owner has not approved sending (27 Nov wording)
     fireEvent.click(screen.getByLabelText(/^Claude \(paid, better/)); // "Who writes the reply" (owner, 27 Nov 2026)
     fireEvent.click(screen.getByLabelText("contract-1"));
     fireEvent.click(screen.getByText("Write the reply again"));
@@ -211,7 +212,7 @@ describe("Technical Queries screen", () => {
     expect((await screen.findByTestId("attachment-unfiled")).textContent).toContain("kept out of the library");
     // the paper opens by the query's own route (the general document route says 404 for an unfiled attachment)
     expect(screen.getByRole("link", { name: "query.pdf" }).getAttribute("href")).toBe("/api/technical-queries/q1/attachments/a1/original");
-    fireEvent.change(screen.getByLabelText("Role to file this attachment under"), { target: { value: "SPECIFICATION" } });
+    fireEvent.change(screen.getByLabelText("Role to add this file under"), { target: { value: "SPECIFICATION" } });
     fireEvent.click(screen.getByText("File into the library"));
     expect(api.fileIntoLibrary).not.toHaveBeenCalled(); // asked in the page first
     fireEvent.click(await screen.findByText("Yes, file it"));
@@ -377,7 +378,7 @@ describe("Technical Queries screen", () => {
     fireEvent.click(await screen.findByTestId("mailbox-chip")); // the mailbox details sit behind its chip (owner, 27 Nov 2026)
     fireEvent.click(await screen.findByText("Import the label again"));
     expect(api.importAgain).not.toHaveBeenCalled();
-    expect(screen.getByTestId("confirm-import-again").textContent).toContain("reads all 77 messages of the label again and adds only what is not stored yet");
+    expect(screen.getByTestId("confirm-import-again").textContent).toContain("reads all 77 emails of the label again");
     fireEvent.click(screen.getByText("Yes, read the label again"));
     await waitFor(() => expect(api.importAgain).toHaveBeenCalledWith("mb"));
   });
@@ -407,7 +408,7 @@ describe("Technical Queries screen", () => {
     );
     expect(api.prepareAllStart).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Yes, prepare them"));
-    expect((await screen.findByTestId("prepare-all-progress")).textContent).toContain("33 still waiting or running");
+    expect((await screen.findByTestId("prepare-all-progress")).textContent).toContain("33 still to do");
   });
 
   it("has a Check now button that queues one poll", async () => {
@@ -517,9 +518,9 @@ describe("Technical Queries screen", () => {
   });
 
   it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
-    expect(proposalNoteWords("none_found", true)).toBe("The AI on this computer found no separate question in the attachment. The proposed question below is the form's own question section, as printed. Check it before you confirm it.");
-    expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attachment text below and write the question\./);
-    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI on this computer was not available/);
+    expect(proposalNoteWords("none_found", true)).toBe("The AI found no separate question in the attached file. The question below is copied from the form. Please check it.");
+    expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attached file below and type the question\./);
+    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI did not answer, so it suggested no question from the attached file\./);
     expect(proposalNoteWords(null, true)).toBeNull();
   });
 
@@ -553,7 +554,7 @@ describe("Technical Queries screen", () => {
   it("someone who may not confirm sees the way to do it, not a button", async () => {
     api.get.mockResolvedValue({ ok: true, data: { ...query, evidence: [{ id: "e1", document_id: "c1", page_start: 4, exact_quote: "x", evidence_state: "verified", supersession_state: "unknown" }] } });
     render(<TechnicalQueriesView queryId="q1" />);
-    expect((await screen.findByTestId("evidence-needs-confirm")).textContent).toContain("Documents, Details, Save metadata");
+    expect((await screen.findByTestId("evidence-needs-confirm")).textContent).toContain("under Documents, Details");
     expect(screen.queryByTestId("confirm-source")).toBeNull();
     expect(screen.queryByTestId("confirm-source-hint")).toBeNull(); // no button, so no hint for it
   });
@@ -571,12 +572,12 @@ describe("Technical Queries screen", () => {
     expect(within(made).getAllByTestId("how-made-line").map((l) => l.textContent)).toContain("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
     expect(screen.getAllByTestId("question-mark").map((m) => m.textContent)).toContain("Invented server mark");
     fireEvent.click(await screen.findByRole("button", { name: "Edit" })); // shown once the ask has filled in
-    fireEvent.change(screen.getByLabelText(/Edit what the contractor is asking/), { target: { value: "See attached.\n1. An invented edited request?" } });
+    fireEvent.change(screen.getByLabelText(/Edit the question/), { target: { value: "See attached.\n1. An invented edited request?" } });
     // after saving, the server reports the refresh under way on every read (the page polls while it is)
     api.get.mockResolvedValue({ ok: true, data: { ...drafted, ready: { ...ready, evidence: "refreshing" } } });
     fireEvent.click(screen.getByRole("button", { name: "Save and find the sources again" }));
     await waitFor(() => expect(api.saveQuestion).toHaveBeenCalledWith("q1", "See attached.\n1. An invented edited request?"));
-    expect((await screen.findByTestId("ready-line")).textContent).toBe("Finding the sources for this question; a draft follows.");
+    expect((await screen.findByTestId("ready-line")).textContent).toBe("Finding the sources for this question. The reply follows.");
   });
 
   it("sources found for an earlier wording are folded apart, never mixed with the current ones (builder A's for_current_question)", async () => {
@@ -643,8 +644,8 @@ describe("the queue's contractor chip (lead-4, 26 Nov 2026)", () => {
     const named = problemChips({ ref_type: "CFC", contractor_name: "Invented Contractor", contractor_code: "INVCO" });
     expect(named.find((c) => c.words === "No contractor")).toBeUndefined();
     const coded = problemChips({ ref_type: "CFC", contractor_name: null, contractor_code: "INVCO" }).find((c) => c.words === "No contractor");
-    expect(coded?.why).toContain("its number carries the code INVCO");
+    expect(coded?.why).toContain("say which contractor the code INVCO is");
     const bare = problemChips({ ref_type: "CFC", contractor_name: null, contractor_code: null }).find((c) => c.words === "No contractor");
-    expect(bare?.why).toBe("No contractor yet: add its code once under “Rules for who it goes to” (in More) and every query with that code fills itself.");
+    expect(bare?.why).toBe("Under More, “Rules for who it goes to”, add this contractor's code once. Every query with this code then gets it.");
   });
 });
