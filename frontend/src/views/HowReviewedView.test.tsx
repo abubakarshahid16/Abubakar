@@ -179,7 +179,8 @@ describe("HowReviewedView on a full run", () => {
 
     // 4. AI steps: model, counts by key, and the rule-1 default line
     const reader = screen.getByTestId("ai-step-reader");
-    expect(reader).toHaveTextContent("qwen2.5vl:7b");
+    expect(reader).toHaveTextContent("which AI: the AI on this computer"); // no model file name on the screen (owner, 27 Nov 2026)
+    expect(reader.querySelector("[title='qwen2.5vl:7b']")).toBeTruthy(); // the file name stays as a hover note
     expect(reader).toHaveTextContent("2 pages (timed_out)");
     expect(reader).toHaveTextContent("40 values (agreed)");
     expect(reader).toHaveTextContent(/On by default; rule 1/);
@@ -278,7 +279,7 @@ describe("HowReviewedView with an unsure equipment type (order 142)", () => {
 });
 
 describe("HowReviewedView on a minimal run", () => {
-  it('shows "not recorded on this review" instead of 0 or blank for every missing field', async () => {
+  it('shows "not recorded" instead of 0 or blank for every missing field', async () => {
     mount(minimalRun(), { standards: [], missing_references: [] });
     await screen.findByTestId("how-pages");
     for (const id of ["pages-total", "pages-code", "pages-ai", "pages-ai-not-read", "pages-timed-out", "pages-not-read",
@@ -288,13 +289,13 @@ describe("HowReviewedView on a minimal run", () => {
                       "versions-previous", "versions-added",
                       "result-code", "result-reason", "result-details", "result-final"]) {
       const el = screen.getByTestId(id);
-      expect(el, id).toHaveTextContent("not recorded on this review");
+      expect(el, id).toHaveTextContent("not recorded");
       expect(within(el).queryByText(/^0$/), id).toBeNull();
     }
-    expect(screen.getByTestId("clauses-unchecked-share")).toHaveTextContent("not recorded on this review");
-    expect(screen.getByTestId("clauses-applicability")).toHaveTextContent("not recorded on this review");
+    expect(screen.getByTestId("clauses-unchecked-share")).toHaveTextContent("not recorded");
+    expect(screen.getByTestId("clauses-applicability")).toHaveTextContent("not recorded");
     for (const key of ["reader", "matcher", "clause_checks", "engineering_check", "wording"]) {
-      expect(screen.getByTestId(`ai-step-${key}`)).toHaveTextContent("not recorded on this review");
+      expect(screen.getByTestId(`ai-step-${key}`)).toHaveTextContent("not recorded");
     }
     expect(screen.getByTestId("pages-meaning")).toHaveTextContent(/No page of this document was accounted for/);
   });
@@ -305,7 +306,7 @@ describe("HowReviewedView on a minimal run", () => {
     render(<HowReviewedView runId="run-min" onBack={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent(/standards record for this run could not be loaded/);
     expect(screen.queryByText(/No standard was selected/)).toBeNull();
-    expect(screen.getByTestId("standards-cited")).toHaveTextContent("not recorded on this review");
+    expect(screen.getByTestId("standards-cited")).toHaveTextContent("not recorded");
   });
 
   it("says when the run is not in the list", async () => {

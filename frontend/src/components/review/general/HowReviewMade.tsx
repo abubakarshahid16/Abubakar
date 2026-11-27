@@ -7,6 +7,7 @@
  * 0), a reason that was not recorded says so, and a rule book the viewer may not open is counted, never named (the server already
  * leaves it out of `books`; the check rows already carry its words instead of its name).
  */
+import { plainAi } from "../how/howData";
 import { type ReactNode, useMemo, useState } from "react";
 
 import type { GeneralCall, GeneralLine, GeneralReview } from "../../../api/generalReview";
@@ -16,8 +17,8 @@ const NO_REASON = "the reason was not recorded for this review";
 
 /** The plain name of each step the run's calls are grouped under; a step this table does not know is shown by its own name. */
 export const STEP_NAMES: Record<string, string> = {
-  aim_read_pages: "Read the paper",
-  aim_identify: "Name the paper",
+  aim_read_pages: "Read the document",
+  aim_identify: "Name the document",
   aim_select: "Choose rule books",
   aim_checklist: "Write the list of checks",
   aim_checklist_retry: "Write the list of checks (retry)",
@@ -26,7 +27,19 @@ export const STEP_NAMES: Record<string, string> = {
   aim_judge: "Check each item",
   aim_edit: "Write the comments",
   ledger: "Read the spend ledger",
+  aim_unread_pages: "Read pages that had no text",
+  aim_reference: "Check each item against its rule",
+  aim_answered: "Check the whole document once more",
+  aim_second_read: "A second AI reads it again",
+  aim_cross_document: "Compare with the other documents",
 };
+
+/** A step's name in words: its own name, else its code without the "aim_" prefix and underscores (never a raw code on a screen, R7). */
+export function stepName(step: string): string {
+  if (STEP_NAMES[step]) return STEP_NAMES[step];
+  const words = step.replace(/^aim_/, "").replace(/_/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : step;
+}
 
 export interface StepTotals { step: string; name: string; calls: number; models: string[]; seconds: number; usd: number | null }
 
@@ -34,7 +47,7 @@ export interface StepTotals { step: string; name: string; calls: number; models:
 export function totalsByStep(calls: GeneralCall[]): StepTotals[] {
   const by = new Map<string, StepTotals>();
   for (const c of calls) {
-    const row = by.get(c.step) ?? { step: c.step, name: STEP_NAMES[c.step] ?? c.step, calls: 0, models: [], seconds: 0, usd: null };
+    const row = by.get(c.step) ?? { step: c.step, name: stepName(c.step), calls: 0, models: [], seconds: 0, usd: null };
     row.calls += 1;
     if (c.model && !row.models.includes(c.model)) row.models.push(c.model);
     row.seconds += typeof c.seconds === "number" && Number.isFinite(c.seconds) ? c.seconds : 0;
@@ -235,7 +248,7 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
               <tbody>
                 {steps.map((s) => (
                   <tr key={s.step} data-testid="how-step" className="border-t border-ink-600 text-slateish-200">
-                    <td className="p-2">{s.name}</td><td className="p-2">{s.calls}</td><td className="p-2">{s.models.join(", ")}</td>
+                    <td className="p-2">{s.name}</td><td className="p-2">{s.calls}</td><td className="p-2" title={s.models.join(", ")}>{[...new Set(s.models.map((m) => plainAi(m) ?? m))].join(", ")}</td>
                     <td className="p-2">{Math.round(s.seconds)}</td>
                     <td className="p-2"><div className="h-2 w-24 rounded bg-ink-600"><div className="h-2 rounded bg-signal-400" style={{ width: `${totalSeconds > 0 ? Math.round((s.seconds / totalSeconds) * 100) : 0}%` }} /></div></td>
                     <td className="p-2">{s.usd != null ? s.usd.toFixed(3) : ""}</td>

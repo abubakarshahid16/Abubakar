@@ -167,6 +167,6 @@ describe("OCR counts", () => {
       not_read_reasons: {}, ocr: {} } } as unknown as ReviewRunSummary;
     expect(pageFacts(noLedger).withoutOcr.value).toBeNull();
     expect(pageFacts(noLedger).ocrDone.value).toBeNull();
-    expect(NOT_RECORDED).toBe("not recorded on this review");
+    expect(NOT_RECORDED).toBe("not recorded");
   });
 });

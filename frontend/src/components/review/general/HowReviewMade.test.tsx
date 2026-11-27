@@ -104,7 +104,7 @@ describe("H: How this review was made", () => {
   it("6 groups time and cost by step, in plain names, summing the calls of one step", () => {
     render(<HowReviewMade review={review()} />);
     const steps = screen.getAllByTestId("how-step");
-    expect(steps.map((r) => r.querySelector("td")?.textContent)).toEqual(["Name the paper", "Check each item", "Read the paper"]);
+    expect(steps.map((r) => r.querySelector("td")?.textContent)).toEqual(["Name the document", "Check each item", "Read the document"]);
     expect(steps[1]).toHaveTextContent("2"); // two judge calls
     expect(steps[1]).toHaveTextContent("150"); // 100 + 50 seconds
     expect(steps[1]).toHaveTextContent("0.500"); // 0.2 + 0.3

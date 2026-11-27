@@ -15,7 +15,14 @@ import type { PageCoverage, ReaderSummary, ReviewRunSummary } from "../../../typ
 import { pageList } from "../reviewFormat";
 
 /** The one wording for a field the run does not carry. */
-export const NOT_RECORDED = "not recorded on this review";
+export const NOT_RECORDED = "not recorded"; // said in full once above the list (H's review of the owner's file, R8)
+
+/** Which AI, in words (owner, 27 Nov 2026: no model file names on a screen; H's review R7): Claude, or the AI on this computer. The file
+ *  name itself stays in the run's technical record and as a hover note. */
+export function plainAi(model: string | null | undefined): string | null {
+  if (!model) return null;
+  return /claude|opus|sonnet|haiku|anthropic/i.test(model) ? "Claude" : "the AI on this computer";
+}
 
 /** The wording for a field the runs list does not send to this page at all
  *  (absent, as opposed to sent as null): the run may hold it elsewhere. */

@@ -57,6 +57,16 @@ function Row({ line, mark, onViewPage }: { line: GeneralLine; mark: string; onVi
 
 /** The verdict line at the top (E5): how many comments still need the engineer's decision, or that they are all decided, or the
  *  sign-off. With no sign-off state (an older review): the comment count, still marked as the AI's opinion. */
+/** A stop reason the server sends as a code, in words (H's review of the owner's file, R3: "aim_identify: local_too_long (...)" was
+ *  shown raw). A code not known here points to where the details are. */
+export function stopSentence(reason: string): string {
+  if (/too_long|window/i.test(reason)) return "The AI on this computer could not read this long document in one go. Run the review with Claude, or split the file.";
+  // a reason already in words ("the spend limit was reached") is said as it is; only a code ("run_cap: ...") points to the details
+  if (/\b[a-z]+_[a-z_]+\b/.test(reason)) return "The reason is under \u201cHow this review was made\u201d.";
+  const words = reason.trim().replace(/\.$/, "");
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}.`;
+}
+
 export function verdict(review: GeneralReview, signoff: GeneralReview["signoff"] | null): string {
   const n = review.counts.comments;
   if (signoff?.state === "signed") return `Signed off: ${n} comment${n === 1 ? "" : "s"} decided.`;
@@ -122,7 +132,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
       <MeasuredBadge measured={review.measured} />{/* the kind's real score stays on screen (standing order: "below target" shown) */}
       {review.status === "stopped" && (
         <p role="alert" data-testid="general-stopped" className="text-sm text-danger-500">
-          This review stopped early{review.stop_reason && !review.stop_words ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
+          This review stopped early.{review.stop_reason && !review.stop_words ? ` ${stopSentence(review.stop_reason)}` : ""} The points below are the ones it reached.
         </p>
       )}
       {!c.ok && (
