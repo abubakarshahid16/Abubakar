@@ -36,7 +36,8 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(id="M2905", phase=2905, runner="vitest",
              description="a finished document waiting for OCR says it is reading scanned pages again",
              path=FRONTEND_SRC / "components" / "documentStatus.ts",
-             anchor='          label: `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,\n',
+             # the label chooses the new look's everyday words or the classic 'OCR' (#1968): the mutation still makes it a false 'reading'
+             anchor='          label: NEW_LOOK\n            ? `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting to be read as ${waiting === 1 ? "a picture" : "pictures"}`\n            : `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,\n',
              replacement='          label: "reading scanned pages",\n',
              target="src/components/documentStatus.test.ts", keyword="partially-processed", tags=_TAG),
 )
