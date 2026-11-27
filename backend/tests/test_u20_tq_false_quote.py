@@ -153,7 +153,7 @@ def test_one_retry_when_the_only_fault_is_a_false_quote_and_the_check_still_stop
     kept = tq.get(item["id"], "u1", False, False)
     assert answers == [] and [d["answer"] for d in kept["drafts"]] == [
         "1. Class 300 applies [S1]."
-    ]  # the retry's draft, checked
+    ]  # the retry's draft, checked (the cost / schedule sentence is never put in by code)
     calls = []
     monkeypatch.setattr(
         "app.answer.answer", lambda q, **k: calls.append(1) or bad

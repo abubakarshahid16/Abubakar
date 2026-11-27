@@ -494,6 +494,8 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
     )  # another held query the request names: "see it before replying"
     if named:
         found_marks.append(named)
+    from .technical_query_position import offer
+
     return {
         "question": question,
         "question_source": source,
@@ -522,6 +524,9 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "marks": found_marks,
         "cited": cited_by_contractor(item),
         "items": items_of_question(question),
+        "position": offer(
+            question
+        ),  # COMPANY's usual cost / schedule sentence, offered to the engineer beside the draft (never put in by code)
         "cross_refs": item.get("cross_refs")
         or [],  # other queries the request names, held or not (technical_query_refs)
     }

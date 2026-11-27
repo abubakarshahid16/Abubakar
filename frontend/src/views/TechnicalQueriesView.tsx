@@ -6,10 +6,16 @@ import { useEffect, useRef, useState } from "react";
 
 import { formatWhen } from "../format/when";
 import { REFS_MARK, TechnicalQueryCrossRefs } from "./TechnicalQueryCrossRefs";
+import { TechnicalQueryPosition, withPositionLine } from "./TechnicalQueryPosition";
+
 import { TechnicalQueriesList } from "./TechnicalQueriesList";
 import { Button, LinkButton, StatusChip } from "../components/kit/Kit";
 import { attachmentsRead, importDoneWords, isInlinePicture, notReadWhy, peopleLine, prepareAllWords, proposalNoteWords, type PrepareAll } from "../api/technicalQueries";
 import { technicalQueriesApi, type GmailLabel, type RoutingRule, type RoutingRuleType, type Result, type TechnicalQuery, type TechnicalQueryAssignee, type TechnicalQueryMailbox } from "../api/client";
+
+/** The states in which the engineer's own reply can be written (the server's add_draft rule). A reply that awaits approval can be replaced by
+ *  the engineer's own typed reply too (lead-4, 27 Nov 2026): it becomes the new version awaiting approval; approving is unchanged. */
+const EDITABLE = ["received", "triage", "drafting", "changes_requested", "awaiting_review"];
 
 function draftCitations(raw: string | undefined): Array<{ label: string; document_id: string; page: number; exact_quote: string }> {
   try {
@@ -84,6 +90,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editedAnswer, setEditedAnswer] = useState("");
+  const redoRef = useRef<HTMLDetailsElement>(null);
   const [questionDraft, setQuestionDraft] = useState("");
   const [contractorFilter, setContractorFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -622,6 +629,9 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {selected.drafts?.length ? (replyBeingRewritten(selected.ready)
             ? <div data-testid="reply-being-rewritten" className="mt-2 rounded border border-dashed border-ink-600 p-2"><p className="text-xs font-semibold text-slateish-200">Old reply, being rewritten: the new one replaces it when it is ready.</p><p className="mt-1 whitespace-pre-wrap text-sm text-slateish-400">{selected.drafts.at(-1)?.answer}</p></div>
             : <p className="mt-2 whitespace-pre-wrap text-sm text-slateish-300">{selected.drafts.at(-1)?.answer}</p>) : <p className="mt-2 text-sm text-slateish-500">No draft yet.</p>}
+          {/* COMPANY's usual cost / schedule sentence, OFFERED (lead-4's final design): the engineer adds it to their own reply, never the code */}
+          {selected.drafts?.length ? <TechnicalQueryPosition position={selected.ready?.position} canEdit={EDITABLE.includes(selected.status)}
+            onAdd={() => { setEditedAnswer((current) => withPositionLine(current || selected.drafts?.at(-1)?.answer || "", selected.ready?.position?.line ?? "")); if (redoRef.current) redoRef.current.open = true; window.setTimeout(() => document.getElementById("technical-query-answer")?.focus(), 0); }} /> : null}
           {!selected.drafts?.length && !searching && <div className="mt-3"><Button variant="secondary" disabled={busy} onClick={() => act(() => technicalQueriesApi.generateDraft(selected.id, "local", []))}>Write the reply</Button><p className="mt-1 text-xs text-slateish-400">The AI on this computer writes a reply from the sources found. Nothing is sent.</p></div>}
           {/* THE DECISION FIRST (owner, 27 Nov 2026 00:02: "it is difficult to understand these buttons"): the one coloured button is the
               decision (Approve, or Send back with a note); writing the reply again is quiet, in the Redo fold, and says it replaces the reply.
@@ -664,10 +674,10 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             </div>;
           })() : null}
           {/* REDO, folded and quiet (owner, 27 Nov 2026 00:02): each line says what it does and that it replaces the reply above */}
-          <details data-testid="more-actions" className="mt-4 rounded border border-ink-700 p-2">
+          <details ref={redoRef} data-testid="more-actions" className="mt-4 rounded border border-ink-700 p-2">
             <summary className="cursor-pointer text-sm font-semibold text-slateish-200">Redo: change the reply or write it again</summary>
             <p className="mt-1 text-xs text-slateish-400">Each of these replaces the reply above. Nothing is sent.</p>
-          {(["received", "triage", "drafting", "changes_requested"].includes(selected.status)) && <div className="mt-3">
+          {EDITABLE.includes(selected.status) && <div className="mt-3">
             <label htmlFor="technical-query-answer" className="block text-sm text-slateish-300">Write the reply yourself</label>
             <textarea id="technical-query-answer" value={editedAnswer} onChange={(event) => setEditedAnswer(event.target.value)} rows={8} className="mt-2 w-full rounded border border-ink-600 bg-ink-900 p-2 text-sm text-slateish-100" />
             <Button variant="secondary" size="sm" disabled={busy || !editedAnswer.trim()} onClick={() => act(() => technicalQueriesApi.createDraft(selected.id, editedAnswer.trim()))}>Save my reply for approval</Button>

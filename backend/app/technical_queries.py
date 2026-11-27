@@ -1634,8 +1634,13 @@ def add_draft(
     current = get(query_id, user_id, is_admin, unrestricted)
     if current is None:
         return None
-    if current["status"] not in {"received", "triage", "drafting", "changes_requested"}:
+    # an engineer's OWN typed reply (no model) may also replace a reply that awaits approval (lead-4, 27 Nov 2026): it becomes the new
+    # version awaiting approval, the old one stays in the history and the event names it; approving is unchanged
+    typed_under_review = current["status"] == "awaiting_review" and model is None
+    if current["status"] not in {"received", "triage", "drafting", "changes_requested"} and not typed_under_review:
         raise ValueError("a draft cannot be added in the current query state")
+    if citations is None and model is None:
+        citations = carried_citations(current, answer)
     if question is None:  # the wording the draft answers: the one the system works from now
         from .technical_query_auto import working
 
@@ -1672,9 +1677,21 @@ def add_draft(
             query_id,
             "draft_created",
             actor_user_id,
-            f"draft={did};version={version}",
+            f"draft={did};version={version}" + (";replaces_reply_awaiting_approval" if typed_under_review else ""),
         )
     return get(query_id, user_id, is_admin, unrestricted)
+
+
+def carried_citations(current: dict[str, Any], answer: str) -> list[dict[str, Any]]:
+    """An engineer's typed reply keeps the latest draft's citations whose label ("[S2]") it still carries, so approving it keeps those
+    sources instead of rejecting them all (an engineer who adds one sentence to the drafted reply keeps its sources); a label the
+    engineer took out is not carried."""
+    latest = (current.get("drafts") or [{}])[-1]
+    try:
+        cites = json.loads(latest.get("citations_json") or "[]")
+    except ValueError:
+        return []
+    return [c for c in cites if isinstance(c, dict) and c.get("label") and f"[{c['label']}]" in (answer or "")]
 
 
 def link_attachment(
