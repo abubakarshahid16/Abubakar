@@ -223,6 +223,16 @@ def group_words(point: dict) -> str:
     return f"{n} alike" if n > 1 else ""
 
 
+#: W-D8: a row whose point records no action says so, never an empty cell (CLAUDE.md rule 4: null renders as words, never as 0 or blank)
+NO_ACTION = "none recorded"
+
+
+def no_action_words(point: dict) -> str:
+    """The honest mark of a point with no action: "none recorded", with what the point is (its pill) when it has one."""
+    pill = _clean(point.get("pill"))
+    return f"{NO_ACTION} ({pill})" if pill else NO_ACTION
+
+
 def full_texts(point: dict) -> dict[str, str]:
     """The whole text of each long cell of a point: the ONE source of what a shortened cell must keep in the column Full text."""
     d = point.get("decision") or {}
@@ -234,7 +244,7 @@ def full_texts(point: dict) -> dict[str, str]:
     if action and point.get("action_source") == "ai_suggestion" and not (d.get("state") == decisions_mod.EDIT and d.get("text")):
         action = f"{content.AI_SUGGESTION[0].upper()}{content.AI_SUGGESTION[1:]}: {action}"  # internal copy only (the contractor file never reads this)
     return {
-        "action": action,
+        "action": action or no_action_words(point),
         "paper_shows": paper_shows(point),
         "requires": rule_requires(point),
         "reason": reason_of(point),
@@ -687,6 +697,22 @@ def confirmed_words(p: dict) -> str:
     return f"{not_applicable.CONFIRMED}: {d.get('by') or NOT_RECORDED}, {d.get('at') or NOT_RECORDED}"
 
 
+#: Order 14 (lead, last review of PR #1889): every line that is not a comment shows its own ask, if it has any, so nothing is hidden.
+ASIDE_ACTION_COLUMN = "What the contractor must do (its own words, if any)"
+AI_WORDS = "AI's words:"
+
+
+def aside_actions(points: list[dict]) -> str:
+    """The own words of the points of one line of the sheet "Not a comment", each once: the point's action, and an AI line's own words
+    to the contractor labelled "AI's words:" (lead, last review of PR #1889: a met line's words are shown, never hidden); "none
+    recorded" when none has any."""
+    own = [_clean(p.get("action")) for p in points] + [
+        f"{AI_WORDS} {_clean(line.get('comment'))}" for p in points if isinstance(line := p.get("_line"), dict) and _clean(line.get("comment"))
+    ]
+    said = list(dict.fromkeys(w for w in own if w and w != f"{AI_WORDS} "))
+    return "\n".join(said) or NO_ACTION
+
+
 def aside_line(aside: list[tuple[dict, str]]) -> str:
     """ONE sentence counting the points that are not comments, by what they are (order 14 lane B)."""
     by: Counter = Counter()
@@ -715,8 +741,9 @@ def comment_note(c: dict, ms: list[dict]) -> str:
     many = f"{c['n_points']} points on this field" if c["n_points"] > 1 else ""
     note = comments.DISAGREE if c["disagree"] else many
     note += (" ; tags: " + ", ".join(c["tags"])) if c["tags"] else ""
-    # R91: each other point, its class and ask
-    note += "".join(f"\n{member_words(p)}" for p in ms if p is not c["strongest"])
+    # R91: each other point, its class and ask; W-D8: a point said in the SAME words as another is listed once, with how many say it
+    said = Counter(member_words(p) for p in ms if p is not c["strongest"])
+    note += "".join(f"\n{w}" + (f" ({n} points say this)" if n > 1 else "") for w, n in said.items())
     return _clean(note.strip(" ;"))
 
 
@@ -915,10 +942,11 @@ def build_team(
         (6, 40, 8, 22, 22, 60), note="Points an engineer removed. They stay in the record and are counted in the line above the sheet CRS.",
     )  # fmt: skip
     _sheet_table(
-        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses", "Class of each point"),
+        wb, NOT_A_COMMENT_SHEET, ("Field or item", "What it is", "Points", "No on the sheet Evidence", "Pages", "Rule books and clauses", "Class of each point", ASIDE_ACTION_COLUMN),
         [[_cell(c) for c in (x["name"], kind, x["n_points"], ", ".join(str(numbers[i]) for i in x["member_ids"]), comment_page_words(x),
-                             comment_full_texts(x, editions=editions)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]))] for x, kind in aside],
-        (40, 28, 8, 20, 12, 60, 50),
+                             comment_full_texts(x, editions=editions)["clauses"], "; ".join(f"{numbers[i]}: {by_id[i].get('pill') or ''}" for i in x["member_ids"]),
+                             aside_actions([by_id[i] for i in x["member_ids"]]))] for x, kind in aside],
+        (40, 28, 8, 20, 12, 60, 50, 70),
         note=f"{aside_line(aside)} {apart_words + ' ' if apart_words else ''}Each point is also a row of the sheet {EVIDENCE_SHEET}, where its column Comment says what it is.",
     )  # fmt: skip
     if contract_results is not None:  # order 14 lane E: the contract checks, an AI-draft checklist (internal only; not points of the page)
