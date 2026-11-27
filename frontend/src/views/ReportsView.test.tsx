@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ReportsView, displayQuestion } from "./ReportsView";
 import type { ReportRecord, ReportVerification } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 const DOC_ID = "doc_7c1f9e2a4b3d";
 
@@ -179,3 +180,19 @@ describe("V2: a report whose file is missing", () => {
     expect(screen.getAllByRole("button", { name: "Download" })).toHaveLength(2);
   });
 });
+
+describe.runIf(NEW_LOOK)("a recreated copy is said once, not on every row (H's audit 42, new look)", () => {
+  const ROW_LINE = "Original PDF missing. This copy uses the saved evidence.";
+  it("says it once above the list when every report is a recreated copy, and no row repeats it", () => {
+    renderView([makeReport({ id: "r1", recreation_available: true }), makeReport({ id: "r2", recreation_available: true })]);
+    expect(screen.getAllByText(/The original PDFs of these reports are not on this computer/)).toHaveLength(1);
+    expect(screen.queryByText(ROW_LINE)).toBeNull();
+  });
+  it("says it on each such row, in plain grey, when only some are", () => {
+    renderView([makeReport({ id: "r1", recreation_available: true }), makeReport({ id: "r2", recreation_available: false })]);
+    expect(screen.queryByText(/The original PDFs of these reports are not on this computer/)).toBeNull();
+    expect(screen.getAllByText(ROW_LINE)).toHaveLength(1);
+    expect(screen.getByText(ROW_LINE).className).not.toContain("text-warn-500");
+  });
+});
+
