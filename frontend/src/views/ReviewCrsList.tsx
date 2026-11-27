@@ -20,7 +20,7 @@ export const RUNS_PAGE = 50;
 
 /** Owner order, 16 Nov 2026: what this list says while the older per-review files (no count line) are switched off. */
 export const RUN_CRS_OFF_LINE =
-  "Each document's comment sheet (CRS) is one file on its review page (\"CRS for your team\"). It says how many points it holds. The older file of each review is off.";
+  "Each document's comment sheet (CRS) is one file on its review page (\"CRS for your team\"). It says how many points it holds. The older file of each review can no longer be downloaded.";
 
 export function ReviewCrsList() {
   // Owner order, 16 Nov 2026: asked when the list is asked for (no request on a visit), like the list itself.

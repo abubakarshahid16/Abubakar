@@ -105,6 +105,22 @@ describe("ReportsView: verification", () => {
     expect(screen.queryByText(/No cited document has changed/)).toBeNull();
   });
 
+  it("a PDF that is only missing from this computer is said so, never called changed, and raises no alert (H's read of #1979)", async () => {
+    const user = userEvent.setup();
+    renderView([makeReport({ file_available: false, recreation_available: true })], { onVerify: vi.fn(async () => ({ ...intact, file_intact: false })) });
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+    expect(await screen.findByTestId("verify-file-missing")).toHaveTextContent("The original PDF is not on this computer, so it cannot be checked.");
+    expect(screen.queryByText(/PDF changed since it was made/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a PDF that is here but changed is said, as a problem", async () => {
+    const user = userEvent.setup();
+    renderView([makeReport()], { onVerify: vi.fn(async () => ({ ...intact, file_intact: false })) });
+    await user.click(screen.getByRole("button", { name: "Verify" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("PDF changed since it was made: do not rely on it.");
+  });
+
   it("an intact report with no drift is a status, not an alert", async () => {
     const user = userEvent.setup();
     renderView([makeReport()]);

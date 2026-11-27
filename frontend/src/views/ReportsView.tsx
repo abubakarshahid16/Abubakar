@@ -86,7 +86,7 @@ export function ReportsView({
         {reports !== null && reports.length === 0 && (
           <EmptyState
             title="No reports yet"
-            hint="Make a report from an answer in Chat. It keeps the question, the answer, the quoted sources and a check of each document."
+            hint="Make a report from an answer in Chat. It keeps the question, the answer, the quoted sources and a fingerprint of each document, to spot later changes."
             action={
               onGenerate && (
                 <Button variant="primary"
@@ -224,14 +224,16 @@ function ReportRow({
         </div>
       )}
 
-      {verify.state === "done" && <VerificationPanel v={verify.result} />}
+      {verify.state === "done" && <VerificationPanel v={verify.result} fileMissing={report.file_available === false} />}
     </li>
   );
 }
 
-function VerificationPanel({ v }: { v: ReportVerification }) {
+/** `fileMissing`: the PDF is not on this computer, so the file check cannot run (H's read of #1979: "file changed" was said for a file
+ *  that is only missing). That is said plainly and is not counted as a problem. */
+function VerificationPanel({ v, fileMissing }: { v: ReportVerification; fileMissing: boolean }) {
   const drift = v.evidence_drift.length;
-  const anyProblem = !v.snapshot_intact || !v.file_intact || drift > 0;
+  const anyProblem = !v.snapshot_intact || (!fileMissing && !v.file_intact) || drift > 0;
   return (
     <div
       role={anyProblem ? "alert" : "status"}
@@ -243,14 +245,20 @@ function VerificationPanel({ v }: { v: ReportVerification }) {
       <ul className="space-y-1">
         <Check
           ok={v.snapshot_intact}
-          okText="Sources unchanged: the saved sources are as they were"
-          badText="Sources changed: the saved sources are not as they were"
+          okText="Saved report unchanged: its question, answer and sources are as they were made."
+          badText="Saved report changed since it was made: do not rely on it."
         />
-        <Check
-          ok={v.file_intact}
-          okText="File unchanged: the PDF is as it was made"
-          badText="File changed: the PDF is not as it was made"
-        />
+        {fileMissing ? (
+          <li data-testid="verify-file-missing" className="flex items-start gap-2 text-slateish-400">
+            <span>The original PDF is not on this computer, so it cannot be checked.</span>
+          </li>
+        ) : (
+          <Check
+            ok={v.file_intact}
+            okText="PDF unchanged: the file is as it was made."
+            badText="PDF changed since it was made: do not rely on it."
+          />
+        )}
         {drift > 0 ? (
           <li className="flex items-start gap-2 text-warn-500">
             <span aria-hidden="true" className="font-mono">
@@ -266,7 +274,7 @@ function VerificationPanel({ v }: { v: ReportVerification }) {
             <span aria-hidden="true" className="font-mono">
               ✓
             </span>
-            <span>No cited document has changed since this report was generated</span>
+            <span>No cited document has changed since this report was made</span>
           </li>
         )}
       </ul>
