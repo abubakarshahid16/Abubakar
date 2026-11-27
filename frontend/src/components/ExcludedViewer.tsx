@@ -144,7 +144,7 @@ export function ExcludedViewer({
                         )}
                       </span>
                       <span className="ms-3 shrink-0 text-right">
-                        <span className="block font-mono text-sm text-warn-500">
+                        <span className={NEW_LOOK ? "block text-sm tabular-nums text-warn-500" : "block font-mono text-sm text-warn-500"}>
                           {nf.format(s.count)} {SCOPE_PLURAL[s.scope] ?? `${s.scope}s`}
                         </span>
                       </span>
@@ -173,7 +173,7 @@ export function ExcludedViewer({
                 What was dropped
               </h3>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-slateish-400">
+                <span className={NEW_LOOK ? "text-xs tabular-nums text-slateish-400" : "font-mono text-xs text-slateish-400"}>
                   {offset + 1}–{offset + state.data.excluded.length} of {state.data.total}
                 </span>
                 <button
@@ -227,7 +227,10 @@ export function ExcludedViewer({
                     <summary className="cursor-pointer">Technical detail</summary>
                     <p className="font-mono">{e.rule}{e.reason ? ` · ${e.reason}` : ""} · {nf.format(e.text_length)} characters</p>
                   </details>
-                  <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs text-slateish-300">
+                  {/* the document's own words in the app's reading face, as in "What was read" (H, 27 Nov 2026) */}
+                  <pre className={NEW_LOOK
+                    ? "evidence-quote mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 text-slateish-300"
+                    : "mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs text-slateish-300"}>
 {e.text_sample}
                   </pre>
                 </li>
