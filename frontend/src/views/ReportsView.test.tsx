@@ -101,7 +101,7 @@ describe("ReportsView: verification", () => {
     renderView([makeReport()], { onVerify: vi.fn(async () => drifted) });
     await user.click(screen.getByRole("button", { name: "Verify" }));
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/1 cited document has changed since this report was generated/);
+    expect(alert).toHaveTextContent(/1 cited document has changed since this report was made/);
     expect(screen.queryByText(/No cited document has changed/)).toBeNull();
   });
 
@@ -182,7 +182,7 @@ describe("V2: a report whose file is missing", () => {
 });
 
 describe.runIf(NEW_LOOK)("a recreated copy is said once, not on every row (H's audit 42, new look)", () => {
-  const ROW_LINE = "Original PDF missing. This copy uses the saved evidence.";
+  const ROW_LINE = "Original PDF missing. This copy uses the saved sources.";
   it("says it once above the list when every report is a recreated copy, and no row repeats it", () => {
     renderView([makeReport({ id: "r1", recreation_available: true }), makeReport({ id: "r2", recreation_available: true })]);
     expect(screen.getAllByText(/The original PDFs of these reports are not on this computer/)).toHaveLength(1);

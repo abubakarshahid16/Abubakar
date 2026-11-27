@@ -59,8 +59,8 @@ export function ReportsView({
       <header>
         {NEW_LOOK ? <h2 className="text-xl font-semibold text-slateish-200">Answer reports</h2> : <h1 className="text-xl font-semibold text-slateish-200">Reports</h1>}
         <p className="mt-1 text-sm text-slateish-400">
-          Every report is a single-answer evidence report: one question, its answer,
-          the cited evidence, and the documents it came from, frozen when it was generated.
+          Each report holds one question and its answer, with the quoted sources and their documents.
+          It stays as it was when it was made.
         </p>
       </header>
 
@@ -86,7 +86,7 @@ export function ReportsView({
         {reports !== null && reports.length === 0 && (
           <EmptyState
             title="No reports yet"
-            hint="Generate a report from an answer in Chat. It records the question, answer, cited evidence and document hashes."
+            hint="Make a report from an answer in Chat. It keeps the question, the answer, the quoted sources and a check of each document."
             action={
               onGenerate && (
                 <Button variant="primary"
@@ -108,7 +108,7 @@ export function ReportsView({
             <>
               {allRecreated && (
                 <Notice>
-                  The original PDFs of these reports are not on this computer. Each download is a copy recreated from the saved evidence.
+                  The original PDFs of these reports are not on this computer. Each download is a copy made again from the saved sources.
                 </Notice>
               )}
               <ul className={allRecreated ? "virtual-list mt-3 space-y-3" : "virtual-list space-y-3"}>
@@ -190,7 +190,7 @@ function ReportRow({
             800, the card hides what overflows); the text keeps 20rem and the group drops under it when both do not fit (27 Nov 2026) */}
         <div className="flex min-w-0 max-w-full flex-wrap gap-1.5">
           {report.recreation_available && !saidAbove && (
-            <span className={NEW_LOOK ? "text-xs text-slateish-400" : "text-xs text-warn-500"}>Original PDF missing. This copy uses the saved evidence.</span>
+            <span className={NEW_LOOK ? "text-xs text-slateish-400" : "text-xs text-warn-500"}>Original PDF missing. This copy uses the saved sources.</span>
           )}
           {report.file_available === false && !report.recreation_available ? (
             <span className="rounded-[var(--radius-sm)] border border-warn-500/40 px-2.5 py-1 text-xs text-warn-500">
@@ -243,13 +243,13 @@ function VerificationPanel({ v }: { v: ReportVerification }) {
       <ul className="space-y-1">
         <Check
           ok={v.snapshot_intact}
-          okText="Snapshot intact — the stored evidence matches its recorded hash"
-          badText="Snapshot altered — the stored evidence does not match its recorded hash"
+          okText="Sources unchanged: the saved sources are as they were"
+          badText="Sources changed: the saved sources are not as they were"
         />
         <Check
           ok={v.file_intact}
-          okText="File intact — the PDF matches its recorded hash"
-          badText="File altered — the PDF does not match its recorded hash"
+          okText="File unchanged: the PDF is as it was made"
+          badText="File changed: the PDF is not as it was made"
         />
         {drift > 0 ? (
           <li className="flex items-start gap-2 text-warn-500">
@@ -258,7 +258,7 @@ function VerificationPanel({ v }: { v: ReportVerification }) {
             </span>
             <span>
               {nf.format(drift)} cited document{drift === 1 ? " has" : "s have"} changed since
-              this report was generated. The report still shows what the evidence said then.
+              this report was made. The report still shows what the sources said then.
             </span>
           </li>
         ) : (

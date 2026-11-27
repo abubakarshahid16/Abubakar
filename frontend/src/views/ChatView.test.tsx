@@ -1004,7 +1004,7 @@ describe("conversations", () => {
     await userEvent.type(input, "a question worth not losing");
     await userEvent.click(screen.getByRole("button", { name: "Ask" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Cannot reach the backend/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Cannot reach the app's server/i);
     await waitFor(() => expect(input.value).toBe("a question worth not losing"));
   });
 });

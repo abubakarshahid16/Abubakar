@@ -67,7 +67,7 @@ async function adminRequest<T>(
       disconnected: true,
       error: {
         code: "internal",
-        message: `Cannot reach the backend. ${e instanceof Error ? e.message : "Network request failed."}`,
+        message: `Cannot reach the app's server. ${e instanceof Error ? e.message : "Network request failed."}`,
       },
     };
   }
@@ -77,7 +77,7 @@ async function adminRequest<T>(
       return {
         ok: false,
         disconnected: true,
-        error: { code: "internal", message: "Cannot reach the backend. Nothing answered on the API port." },
+        error: { code: "internal", message: "Cannot reach the app's server. Nothing answered on the API port." },
       };
     }
     // The same 401 handling as api/client.ts: drop the dead token and tell the
