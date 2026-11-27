@@ -5,7 +5,8 @@ same lines differently; a signed review then showed its signed comments split in
 sign-off that still stands and a contractor copy (kept byte for byte) that has the signed groups. Here, for a review with a
 sign-off, the comments whose lines ALL fall inside ONE group decided up to the sign-off are joined back into that group, by the
 review's own lossless merge (`aim_review_view._same_point`: every line's own words, pages and quotes). Lines in no signed group,
-and every review with no sign-off, keep today's grouping. Comments and confirmations are joined only within their own part.
+keep today's grouping. A review not signed yet keeps every group an engineer has DECIDED the same way (F, 27 Nov 2026): a regrouping
+never takes a recorded decision off its comment. Comments and confirmations are joined only within their own part.
 Reads only; no model.
 """
 
@@ -18,7 +19,9 @@ log = logging.getLogger(__name__)
 
 
 def _signed_groups(conn, run_id: str) -> dict[str, list[list[int]]]:
-    """{part: [the lines of each group decided up to the latest sign-off]}; {} with no sign-off."""
+    """{part: [the lines of each group decided up to the latest sign-off]}; with no sign-off, every group an engineer has DECIDED
+    (F, 27 Nov 2026: a regrouping, such as one comment per field for the always-on items, must never take a recorded decision off its
+    comment on a review not signed yet). The latest decided group comes first, so where two decided groups overlap the newer wins."""
     from . import aim_review_signoff
     from .aim_review_store import DECISIONS
 
@@ -26,11 +29,12 @@ def _signed_groups(conn, run_id: str) -> dict[str, list[list[int]]]:
         if not aim_review_signoff._has(conn):
             return {}
         signed = aim_review_signoff.latest(conn, run_id)
-        if signed is None:
-            return {}
+        until = signed["signed_at"] if signed is not None else None
         rows = conn.execute(
-            f"SELECT DISTINCT part, comment_key FROM {DECISIONS} WHERE run_id = ? AND decided_at <= ?",
-            (run_id, signed["signed_at"]),
+            f"SELECT part, comment_key, MAX(decided_at) AS at FROM {DECISIONS} WHERE run_id = ?"
+            + (" AND decided_at <= ?" if until is not None else "")
+            + " GROUP BY part, comment_key ORDER BY at DESC, comment_key",
+            (run_id, until) if until is not None else (run_id,),
         ).fetchall()
     except (
         sqlite3.Error

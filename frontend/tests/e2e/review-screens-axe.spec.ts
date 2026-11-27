@@ -106,7 +106,7 @@ for (const theme of ["light", "dark"] as const) {
       await expect(screen.ready(page)).toBeVisible({ timeout: 15_000 });
       // The app's own theme switch, as the main gate does.
       if ((await page.locator("html").getAttribute("data-theme")) !== theme) {
-        await page.getByRole("button", { name: theme, exact: true }).click();
+        await page.getByRole("button", { name: theme === "dark" ? "Dark" : "Light", exact: true }).click();
       }
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await page.waitForTimeout(1_000);

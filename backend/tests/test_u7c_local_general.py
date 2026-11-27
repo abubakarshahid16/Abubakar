@@ -205,8 +205,18 @@ def test_a_local_only_general_review_runs_on_the_local_model_and_opens_no_claude
         aim_review_gate.LOCAL_ROUGH_DRAFT_SENTENCE in page["measured"]["sentence"]
         and page["measured"]["found"] is None
     )
-    sheet = client.get(
+    # a local rough draft's team file needs the engineer's explicit OK (#2007): without it the answer is 409 with the sentence
+    refused = client.get(
         f"/api/reviews/papers/{paper_id}/general/sheet", headers=world["headers"]
+    )
+    assert (
+        refused.status_code == 409
+        and refused.json()["detail"]["code"] == "confirm_required"
+    )
+    sheet = client.get(
+        f"/api/reviews/papers/{paper_id}/general/sheet",
+        params={"rough_draft_ok": "true"},
+        headers=world["headers"],
     )
     wb = load_workbook(io.BytesIO(sheet.content), read_only=True)
     cells = [
@@ -406,12 +416,15 @@ def test_each_step_may_name_its_own_local_model_and_one_model_is_in_memory_at_a_
         "general_review_local_step_models",
         "judge = invented-small:9b, nonsense=x, editor=",
     )
-    assert local_model.step_models() == {
-        "aim_judge": "invented-small:9b",
-        "aim_reference": "invented-small:9b",
-        "aim_answered": "invented-small:9b",
-        "aim_checklist_missed": "invented-small:9b",  # nine roles 5-6: the ask-again after the judge runs on the judge's model
-    }
+    assert (
+        local_model.step_models()
+        == {
+            "aim_judge": "invented-small:9b",
+            "aim_reference": "invented-small:9b",
+            "aim_answered": "invented-small:9b",
+            "aim_checklist_missed": "invented-small:9b",  # nine roles 5-6: the ask-again after the judge runs on the judge's model
+        }
+    )
     asked = []
     monkeypatch.setattr(
         model_transport,

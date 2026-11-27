@@ -143,6 +143,38 @@ def test_an_older_system_draft_awaiting_review_is_written_again_at_the_next_star
         assert auto.stale_system_drafts(conn) == []
 
 
+def test_an_older_system_draft_still_drafting_is_written_again_too(query):
+    """H's rescan of Install 1 (27 Nov 2026): the draft-version bump re-drafted only the queries awaiting review; 13 queries in
+    "drafting" (sources already found by today's search) kept their system-draft-1/2 replies. A query in any preparable status
+    whose latest draft is an older SYSTEM draft is drafted again; an engineer's own draft and a decided query never are."""
+    item, scope, _asked = query
+    J.enqueue(item["id"], scope.readable_with_attachments, "u1", False, False)
+    _run(item["id"])
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE technical_queries SET status='drafting' WHERE id=?", (item["id"],)
+        )
+        assert (
+            auto.stale_system_drafts(conn) == []
+        )  # today's draft version and search: nothing to redo
+        conn.execute(
+            "UPDATE query_drafts SET prompt_version='system-draft-2' WHERE query_id=?",
+            (item["id"],),
+        )
+        assert auto.stale_system_drafts(conn) == [item["id"]]
+        conn.execute(
+            "UPDATE query_drafts SET model=NULL WHERE query_id=?", (item["id"],)
+        )  # an engineer's own typed draft
+        assert auto.stale_system_drafts(conn) == []
+        conn.execute(
+            "UPDATE query_drafts SET model='invented-model' WHERE query_id=?",
+            (item["id"],),
+        )
+        conn.execute("INSERT INTO query_decisions(id,query_id,draft_id,actor_user_id,decision,comment,created_at) "
+                     "VALUES ('y',?,NULL,'u1','request_changes',NULL,'x')", (item["id"],))  # fmt: skip
+        assert auto.stale_system_drafts(conn) == []  # never one an engineer decided on
+
+
 def test_keeping_one_source_never_narrows_the_draft_to_it_alone(query):
     """F's walk (26 Nov 2026): with 1 of 5 good sources kept, the draft rested on that 1 only. Now: the kept ones first, then the system's
     close-enough finds for this wording that nobody rejected, up to MAX_DRAFT_PASSAGES; a weak or a rejected find is never one."""

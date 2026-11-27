@@ -27,6 +27,7 @@ import type { DocumentRecord, WorkerStatus } from "../types/api";
 
 import type { Connection } from "./Shell";
 import { formatAge } from "./documentStatus";
+import { NEW_LOOK } from "../look";
 
 /** Beyond this, a document being actively worked on is worth a caution. */
 const SLOW_DOCUMENT_SECONDS = 600;
@@ -35,7 +36,8 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-slateish-400">{label}</dt>
-      <dd className={`mt-0.5 font-mono text-sm ${tone ?? "text-slateish-200"}`}>{value}</dd>
+      {/* figures in the normal face with tabular digits in the new look (C's walk with folds open: the only mono on Documents) */}
+      <dd className={`mt-0.5 ${NEW_LOOK ? "tabular-nums" : "font-mono"} text-sm ${tone ?? "text-slateish-200"}`}>{value}</dd>
     </div>
   );
 }
