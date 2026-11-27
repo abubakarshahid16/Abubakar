@@ -19,6 +19,8 @@
 import type { DocumentRole } from "../../types/api";
 
 import { ROLE_OPTIONS } from "./MetadataEditor";
+import { NEW_LOOK } from "../../look";
+import { Button, LinkButton, SelectField } from "../kit/Kit";
 
 export interface DocumentFilterState {
   document_role: DocumentRole[];
@@ -62,6 +64,13 @@ export function DocumentFilters({
         {ROLE_OPTIONS.map((option) => {
           const on = value.document_role.includes(option.value);
           return (
+            NEW_LOOK ? (
+              // the same kit small button as the Type filter beside it (C's walk, 27 Nov 2026: three filter looks on one page)
+              <Button key={option.value} size="sm" variant="secondary" aria-pressed={on}
+                onClick={() => onChange({ ...value, document_role: toggle(value.document_role, option.value) })}>
+                {option.label}
+              </Button>
+            ) : (
             <button
               key={option.value}
               type="button"
@@ -73,6 +82,7 @@ export function DocumentFilters({
             >
               {option.label}
             </button>
+            )
           );
         })}
       </div>
@@ -90,7 +100,9 @@ export function DocumentFilters({
           label="Project" options={projects} selected={value.project}
           onPick={(v) => onChange({ ...value, project: v })}
         />
-        {hasAnyFilter(value) && (
+        {hasAnyFilter(value) && (NEW_LOOK ? (
+          <span className="self-end"><LinkButton onClick={() => onChange(EMPTY_FILTERS)}>Clear filters</LinkButton></span>
+        ) : (
           <button
             type="button"
             onClick={() => onChange(EMPTY_FILTERS)}
@@ -98,7 +110,7 @@ export function DocumentFilters({
           >
             Clear filters
           </button>
-        )}
+        ))}
       </div>
     </section>
   );
@@ -112,6 +124,14 @@ function SelectAxis({
   selected: string[];
   onPick: (next: string[]) => void;
 }) {
+  // the kit's bordered select, the same as Sort beside it (C's walk: these had no visible border in the light theme)
+  if (NEW_LOOK) return (
+    <SelectField id={`documents-filter-${label.toLowerCase().replace(/\s+/g, "-")}`} label={label}
+      value={selected[0] ?? ""} onChange={(e) => onPick(e.target.value === "" ? [] : [e.target.value])}>
+      <option value="">Any</option>
+      {options.map((option) => <option key={option} value={option}>{option}</option>)}
+    </SelectField>
+  );
   return (
     <label className="flex flex-col gap-1 text-xs">
       <span className="opacity-80">{label}</span>

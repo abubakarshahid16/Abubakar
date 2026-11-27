@@ -39,6 +39,17 @@ beforeEach(() => {
 });
 
 describe("ReviewCrsList", () => {
+  it.runIf(NEW_LOOK)("says a shared state and what each file is once, and each row's button is one word (C's walk, 27 Nov 2026)", async () => {
+    const run = (id: string, file: string) => ({ review_run_id: id, submittal_document_id: "d-" + id, submittal_filename: file, status: "completed", created_at: "2026-10-02T10:00:00Z" });
+    reviewRunsPage.mockResolvedValue({ ok: true, data: { total: 2, limit: RUNS_PAGE, offset: 0, runs: [run("r1", "invented-a.pdf"), run("r2", "invented-b.pdf")] } });
+    render(<ReviewCrsList />);
+    // the new look lists them at once (the classic look waits for "Show"); the one word keeps its full name for screen readers
+    const button = await screen.findByRole("button", { name: "Download CRS (internal review copy) of invented-a.pdf" });
+    expect(button.textContent).toBe("Download");
+    expect(screen.getByTestId("crs-said-once").textContent).toBe("Every review below is completed; each file is the internal review copy.");
+    expect(screen.queryByText(/^completed/)).toBeNull();
+  });
+
   it("lists each run and downloads its CRS", async () => {
     reviewRunsPage.mockResolvedValue({ ok: true, data: { total: 1, limit: RUNS_PAGE, offset: 0, runs: [
       { review_run_id: "run-1", submittal_document_id: "d1", submittal_filename: "psv-sheet.pdf",
@@ -122,4 +133,13 @@ describe("CrsTransmittalsForm", () => {
     expect(onChanged).toHaveBeenCalled();
     expect(await screen.findByRole("status")).toBeTruthy();
   });
+  it.runIf(NEW_LOOK)("a clear majority is said once and only a row that differs keeps its state", async () => {
+    const run = (id: string, status: string) => ({ review_run_id: id, submittal_document_id: "d-" + id, submittal_filename: id + ".pdf", status, created_at: "2026-10-02T10:00:00Z" });
+    reviewRunsPage.mockResolvedValue({ ok: true, data: { total: 3, limit: RUNS_PAGE, offset: 0, runs: [run("r1", "completed"), run("r2", "completed"), run("r3", "failed")] } });
+    render(<ReviewCrsList />);
+    expect((await screen.findByTestId("crs-said-once")).textContent).toBe("Every review below is completed unless its row says otherwise; each file is the internal review copy.");
+    expect(screen.getAllByText(/^failed/)).toHaveLength(1);
+    expect(screen.queryByText(/^completed/)).toBeNull();
+  });
 });
+

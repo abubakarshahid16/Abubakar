@@ -59,7 +59,8 @@ describe("the query list page", () => {
     render(<TechnicalQueriesView />);
     const line = await screen.findByTestId("count-line");
     // the status parts add up to the total; the one needing a person is said "of them", never added (owner's live walk, 27 Nov 2026)
-    expect(line.textContent).toBe("3 queries: 1 waiting for approval, 2 in progress. 1 of them needs a query number"); // owner's words, 27 Nov 2026
+    // owner's words, 27 Nov 2026; the new look says there which state carries no label (2 of 3 is a clear majority)
+    expect(line.textContent).toBe(`3 queries: 1 waiting for approval, 2 in progress${NEW_LOOK ? " (no label)" : ""}. 1 of them needs a query number`);
     fireEvent.click(within(line).getByRole("button", { name: "1 waiting for approval" }));
     const list = screen.getByLabelText("Technical query list");
     expect(within(list).getAllByRole("button").length).toBe(1);
@@ -233,14 +234,16 @@ describe("easy to read (owner, 27 Nov 2026 12:32: 'hard to read, too much text')
     api.routingRules.mockResolvedValue({ ok: true, data: { items: [] } });
   });
 
-  it("mixed states: a row shows its state only when it differs from most rows, and one line says what an unmarked row is", async () => {
+  it("mixed states: a row shows its state only when it differs from most rows, and the count sentence says which state has no label", async () => {
     api.list.mockResolvedValue({ ok: true, data: { items: rows } }); // 1 waiting for approval, 2 in progress
     render(<TechnicalQueriesView />);
     await screen.findByTestId("count-line");
     const chips = screen.getAllByTestId("status-chip").map((c) => c.textContent);
     if (NEW_LOOK) {
       expect(chips).toEqual(["Waiting for approval"]);
-      expect(screen.getByTestId("common-state-note").textContent).toBe("A query with no label below is in progress.");
+      // said in the count sentence, not as a note over the list (F's gate on #1987)
+      expect(screen.getByTestId("count-line").textContent).toContain("2 in progress (no label)");
+      expect(screen.getAllByTestId("no-label-part")).toHaveLength(1);
     } else {
       expect(chips).toHaveLength(3); // the classic look keeps a chip on every row
     }
@@ -252,7 +255,7 @@ describe("easy to read (owner, 27 Nov 2026 12:32: 'hard to read, too much text')
     expect((await screen.findByTestId("count-line")).textContent).toContain("3 waiting for approval");
     if (NEW_LOOK) {
       expect(screen.queryAllByTestId("status-chip")).toHaveLength(0);
-      expect(screen.queryByTestId("common-state-note")).toBeNull();
+      expect(screen.queryByTestId("no-label-part")).toBeNull();
     } else {
       expect(screen.getAllByTestId("status-chip")).toHaveLength(3);
     }
@@ -270,6 +273,12 @@ describe("easy to read (owner, 27 Nov 2026 12:32: 'hard to read, too much text')
     expect(mostCommon(["a", "b", "b"])).toBe("b");
     expect(mostCommon(["a", "b"])).toBe("a");
     expect(mostCommon([])).toBeNull();
+  });
+  it("a near half/half split keeps every chip: only a clear majority loses its label", async () => {
+    api.list.mockResolvedValue({ ok: true, data: { items: [{ ...rows[0], status: "approved" }, { ...rows[1], status: "sent" }] } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("count-line")).textContent).toBe("2 queries: 1 approved, 1 sent");
+    expect(within(screen.getByLabelText("Technical query list")).getAllByTestId("status-chip")).toHaveLength(2);
   });
 });
 

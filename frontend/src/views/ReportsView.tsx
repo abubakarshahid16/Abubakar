@@ -19,7 +19,7 @@ import { useState } from "react";
 import { EmptyState, Spinner } from "../components/states";
 import type { ReportRecord, ReportVerification } from "../types/api";
 import { NEW_LOOK } from "../look";
-import { Button, Notice } from "../components/kit/Kit";
+import { Button, Notice, Tag } from "../components/kit/Kit";
 
 const nf = new Intl.NumberFormat("en-GB");
 
@@ -261,7 +261,7 @@ function VerificationPanel({ v, fileMissing }: { v: ReportVerification; fileMiss
         )}
         {drift > 0 ? (
           <li className="flex items-start gap-2 text-warn-500">
-            <span aria-hidden="true" className="font-mono">
+            <span aria-hidden="true" className={NEW_LOOK ? undefined : "font-mono"}>
               ▲
             </span>
             <span>
@@ -271,7 +271,7 @@ function VerificationPanel({ v, fileMissing }: { v: ReportVerification; fileMiss
           </li>
         ) : (
           <li className="flex items-start gap-2 text-signal-400">
-            <span aria-hidden="true" className="font-mono">
+            <span aria-hidden="true" className={NEW_LOOK ? undefined : "font-mono"}>
               ✓
             </span>
             <span>No cited document has changed since this report was made</span>
@@ -286,7 +286,7 @@ function VerificationPanel({ v, fileMissing }: { v: ReportVerification; fileMiss
 function Check({ ok, okText, badText }: { ok: boolean; okText: string; badText: string }) {
   return (
     <li className={["flex items-start gap-2", ok ? "text-signal-400" : "text-danger-500"].join(" ")}>
-      <span aria-hidden="true" className="font-mono">
+      <span aria-hidden="true" className={NEW_LOOK ? undefined : "font-mono"}>
         {ok ? "✓" : "✕"}
       </span>
       <span>{ok ? okText : badText}</span>
@@ -309,7 +309,7 @@ function CitedDetail({ report }: { report: ReportRecord }) {
                 {report.documents.map((d) => (
                   <li key={d.document_id} className="text-xs text-slateish-300">
                     <span>{d.filename}</span>{" "}
-                    <span className="font-mono text-slateish-400">{d.sha256_prefix}</span>
+                    {NEW_LOOK ? <Tag>{d.sha256_prefix}</Tag> : <span className="font-mono text-slateish-400">{d.sha256_prefix}</span>}
                     {d.revision && <span className="text-slateish-400"> · rev {d.revision}</span>}
                     {d.approval_status && (
                       <span className="text-slateish-400"> · {d.approval_status}</span>
