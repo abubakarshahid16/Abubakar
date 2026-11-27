@@ -453,7 +453,7 @@ describe("a document answer", () => {
     await ask("does it meet");
 
     expect(await screen.findByText("1 of 1 point found on the page")).toBeInTheDocument();
-    expect(screen.getByText(/Written by the model · claude-x — not the document's words/)).toBeInTheDocument();
+    expect(screen.getByText(/Written by the AI, not the document's own words/)).toBeInTheDocument();
     expect(screen.getByText("Partly.").tagName).toBe("STRONG");
 
     await userEvent.click(screen.getByRole("button", { name: "Source 1" }));
@@ -463,7 +463,7 @@ describe("a document answer", () => {
     expect(within(preview).getByText("Hydrostatic test pressure basis").tagName).toBe("MARK");
 
     await userEvent.click(within(preview).getByRole("button", { name: "Open page" }));
-    expect(await screen.findByRole("complementary", { name: "Evidence" })).toBeInTheDocument();
+    expect(await screen.findByRole("complementary", { name: "Sources" })).toBeInTheDocument();
     await waitFor(() => expect(calls.some((c) => c.url.includes("/documents/doc_ds/pages/5"))).toBe(true));
   });
 
@@ -492,7 +492,7 @@ describe("a document answer", () => {
 
   it("shows the engineer notice the server attached", async () => {
     const withNotice = assistant({
-      notices: ["This needs an engineer's judgement - the passages are evidence, not a verdict"],
+      notices: ["This needs an engineer's judgement: the sources inform it, they do not decide it"],
     });
     mockApi({ stream: () => eventStream(sse([["done", done("is it compliant", withNotice)]])) });
     await openChat();

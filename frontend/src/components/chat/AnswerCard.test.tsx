@@ -94,7 +94,7 @@ describe("a failed upgrade is scoped to the control that started it", () => {
     ).toBeInTheDocument();
     // The page-level refusal is a claim about the QUESTION. This card is
     // simultaneously showing a quoted answer to that question.
-    expect(screen.queryByText(/I cannot determine this from the available evidence/i)).toBeNull();
+    expect(screen.queryByText(/The sources found do not answer this/i)).toBeNull();
     expect(screen.queryByText(/Nothing was made up to fill the gap/i)).toBeNull();
   });
 
@@ -186,9 +186,9 @@ describe("the model being down never looks like the model refusing", () => {
     renderCard(unavailable, () => {});
 
     const alert = screen.getByRole("alert");
-    expect(alert).toHaveTextContent(/local answer model is not running/i);
-    expect(alert).toHaveTextContent("ollama serve");
-    expect(alert).toHaveTextContent(/This is the machine, not your question/i);
+    expect(alert).toHaveTextContent(/AI on this computer is not running/i);
+    expect(alert).toHaveTextContent("Ask whoever runs the app to start the AI"); // no server command on a screen (owner, 27 Nov 2026)
+    expect(alert).toHaveTextContent(/The problem is the computer, not your question/i);
   });
 
   it("does not raise an alert, or offer a command, for a refusal", () => {
@@ -234,8 +234,8 @@ describe("a failed answer names the engine that failed", () => {
     );
 
     const alert = screen.getByRole("alert");
-    expect(alert).toHaveTextContent(/local answer model is not running/i);
-    expect(alert).toHaveTextContent("ollama serve");
+    expect(alert).toHaveTextContent(/AI on this computer is not running/i);
+    expect(alert).toHaveTextContent("Ask whoever runs the app to start the AI"); // no server command on a screen (owner, 27 Nov 2026)
     expect(alert).not.toHaveTextContent(/Claude did not answer/i);
   });
 });
@@ -295,7 +295,7 @@ describe("an absent reason renders as nothing, never as a placeholder", () => {
     expect(text).not.toMatch(/null|undefined/i);
     expect(text).not.toMatch(/(^|\s)[-—–]\s|\.\s*\./);
     // and it still says what happened, in a whole sentence
-    expect(text).toMatch(/the model produced nothing that could be checked\./i);
+    expect(text).toMatch(/the AI wrote nothing that could be checked\./i);
   });
 
   it("prints no null and no dash for an unreachable model", () => {
@@ -303,7 +303,7 @@ describe("an absent reason renders as nothing, never as a placeholder", () => {
 
     const text = screen.getByRole("alert").textContent ?? "";
     expect(text).not.toMatch(/null|undefined/i);
-    expect(text).toMatch(/Ollama could not be reached\./);
+    expect(text).toMatch(/The AI on this computer did not answer\./);
   });
 
   it("does not run two sentences together without a full stop", () => {
@@ -368,7 +368,7 @@ describe("plan C3: a comparison renders each named side on its own", () => {
 
   it("never labels the whole card as written by the model - it is not one model's prose", () => {
     renderComparison();
-    expect(screen.queryByText(/Written by the model/i)).toBeNull();
+    expect(screen.queryByText(/Written by the AI/i)).toBeNull();
     expect(screen.getByText(/Compared across 2 named sides/i)).toBeInTheDocument();
   });
 
@@ -555,6 +555,6 @@ describe("a failed answer does not point at a quoted answer that is not there", 
 
   it("with passages shown, the quoted-answer sentence stays", () => {
     render(<AnswerCard view={failed("claude", [P2])} onSelectSource={() => {}} activeSource={null} upgradeFailure={null} />);
-    expect(screen.getByRole("alert")).toHaveTextContent(/quoted answer above is unaffected/i);
+    expect(screen.getByRole("alert")).toHaveTextContent(/quoted answer above still stands/i);
   });
 });

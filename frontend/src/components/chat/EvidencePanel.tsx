@@ -183,14 +183,14 @@ export function EvidencePanel({
 
   return (
     <aside
-      aria-label="Evidence"
+      aria-label="Sources"
       className="card-3d surface-card relative flex h-full min-h-0 w-full flex-col border-ink-700 bg-ink-850/90 backdrop-blur-xl lg:w-[var(--evidence-width)] lg:shrink-0 lg:border-l"
       style={{ "--evidence-width": `${width}px` } as React.CSSProperties}
     >
-      <div className="absolute -start-1 top-0 hidden h-full w-2 cursor-col-resize lg:block" role="separator" aria-label="Resize evidence panel" aria-orientation="vertical" tabIndex={0} onPointerDown={() => { resizing.current = true; }} onKeyDown={(event) => { if (event.key === "ArrowLeft") setWidth((value) => Math.min(640, value + 16)); if (event.key === "ArrowRight") setWidth((value) => Math.max(320, value - 16)); }} />
+      <div className="absolute -start-1 top-0 hidden h-full w-2 cursor-col-resize lg:block" role="separator" aria-label="Resize the sources panel" aria-orientation="vertical" tabIndex={0} onPointerDown={() => { resizing.current = true; }} onKeyDown={(event) => { if (event.key === "ArrowLeft") setWidth((value) => Math.min(640, value + 16)); if (event.key === "ArrowRight") setWidth((value) => Math.max(320, value - 16)); }} />
       <div className="flex items-start justify-between gap-2 border-b border-ink-700 px-4 py-3 lg:w-[var(--evidence-width)]">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-slateish-200">Evidence</h2>
+          <h2 className="text-sm font-semibold text-slateish-200">Sources</h2>
           <p className="mt-0.5 text-xs text-slateish-400">
             The source behind the answer, as it appears in the document
           </p>
@@ -198,7 +198,7 @@ export function EvidencePanel({
         <Button variant="secondary" size="sm"
          
           onClick={onClose}
-          aria-label="Close evidence panel"
+          aria-label="Close the sources panel"
         >
           Close
         </Button>
@@ -229,7 +229,7 @@ export function EvidencePanel({
         <Citation passage={passage} />
 
         <h3 className="mt-4 text-xs uppercase tracking-wide text-slateish-400">
-          Quoted passage
+          Quoted source
         </h3>
         <blockquote
           className={[
@@ -259,10 +259,10 @@ export function EvidencePanel({
         </h3>
         <p className="mt-1 text-xs text-slateish-500">
           {boxed && image.answerLocated !== false
-            ? "The answering sentence is outlined on the real page. Extraction flattens tables and drops equation operators; this is the page as printed."
+            ? "The answering sentence is outlined on the page as printed. Read as text, tables and equations can lose their shape."
             : boxed && image.answerLocated === false
-              ? "The page was rendered, but the server could not locate the answering sentence to outline. Extraction flattens tables and drops equation operators."
-            : "Extraction flattens tables and drops equation operators. This is the real page."}
+              ? "The page is shown, but the answering sentence could not be found on it to outline. Read as text, tables and equations can lose their shape."
+            : "Read as text, tables and equations can lose their shape. This is the page as printed."}
         </p>
         {boxed && image.answerLocated === false && (
           <p className="mt-1 text-xs text-warn-500 italic">
@@ -280,8 +280,7 @@ export function EvidencePanel({
           {image.loading && <Spinner label={`Rendering page ${passage.page_start}`} />}
           {image.failed && (
             <p className="text-xs text-warn-500">
-              The page image could not be rendered. The passage text above is what
-              was cited.
+              The page picture could not be shown. The source text above is what was quoted.
             </p>
           )}
           {image.src && (

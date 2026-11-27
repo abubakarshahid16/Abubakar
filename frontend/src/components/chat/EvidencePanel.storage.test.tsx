@@ -19,6 +19,6 @@ describe("EvidencePanel with blocked storage", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
     render(<EvidencePanel passages={[passage]} selected={0} onSelect={() => {}} onClose={() => {}} />);
-    expect(screen.getByLabelText("Evidence")).toBeInTheDocument();
+    expect(screen.getByLabelText("Sources")).toBeInTheDocument();
   });
 });

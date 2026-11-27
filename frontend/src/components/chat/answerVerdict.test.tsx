@@ -53,7 +53,7 @@ describe("the B8 verdict is visible on the answer", () => {
       verdict: "conflicting_evidence", reason: "two documents give different values",
       evidence: [{ document_id: "doc_std", page_start: 4, page_end: 4, section: "5.2 Bolting" }],
     } }));
-    expect(screen.getByText(/The passages disagree on this/)).toBeInTheDocument();
+    expect(screen.getByText(/The sources disagree on this/)).toBeInTheDocument();
     expect(screen.getByText("two documents give different values")).toBeInTheDocument();
     expect(screen.getByText("page 4, 5.2 Bolting")).toBeInTheDocument();
     expect(screen.getByText(P.text)).toBeInTheDocument();
@@ -68,12 +68,12 @@ describe("the B8 verdict is visible on the answer", () => {
     show(view({ answer_type: "insufficient_evidence", answer: null, passage: null,
       reason: "nothing credible was retrieved",
       answerability: { verdict: "insufficient_evidence", reason: "r", evidence: [] } }));
-    expect(screen.getByText("I cannot determine this from the available evidence")).toBeInTheDocument();
+    expect(screen.getByText("The sources found do not answer this")).toBeInTheDocument();
   });
 
   it("an extract the gate called insufficient still says so", () => {
     show(view({ answerability: { verdict: "insufficient_evidence", reason: "no quote answers it", evidence: [] } }));
-    expect(screen.getByText("I cannot determine this from the available evidence")).toBeInTheDocument();
+    expect(screen.getByText("The sources found do not answer this")).toBeInTheDocument();
   });
 });
 

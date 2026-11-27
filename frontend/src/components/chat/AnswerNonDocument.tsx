@@ -15,7 +15,7 @@ export function GuidanceAnswer({ view }: { view: AnswerView }) {
 }
 
 export function MetadataAnswer({ view }: { view: AnswerView }) {
-  return <div className="surface-card rounded-[var(--radius-md)] border border-signal-500/40 bg-signal-500/10 p-4"><p className="text-xs uppercase tracking-wide text-signal-400">Application statistic</p><p className="mt-1 text-sm text-slateish-200">{view.answer}</p><p className="mt-2 text-xs text-slateish-500">This count comes from accessible system metadata, not document text.</p></div>;
+  return <div className="surface-card rounded-[var(--radius-md)] border border-signal-500/40 bg-signal-500/10 p-4"><p className="text-xs uppercase tracking-wide text-signal-400">Application statistic</p><p className="mt-1 text-sm text-slateish-200">{view.answer}</p><p className="mt-2 text-xs text-slateish-500">This count comes from the app's own records, not from document text.</p></div>;
 }
 
 /** The LIBRARY's half of a two-part answer: counted, not searched. Styled as
@@ -43,9 +43,7 @@ export function CountsBoundedNote({ count }: { count: number }) {
   return (
     <p role="note" className="text-xs text-slateish-400">
       {count === 1 ? "A count" : `${count} counts`} of documents in this answer{" "}
-      {count === 1 ? "was" : "were"} marked as a count of the passages
-      retrieved. The answer sees only those passages, never the whole library;
-      to count what is loaded, ask how many are loaded.
+      {count === 1 ? "was" : "were"} marked as a count of the sources found. The answer sees only those sources, never the whole library. To count what is in the library, ask how many are loaded.
     </p>
   );
 }

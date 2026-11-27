@@ -613,7 +613,7 @@ export function ChatView({
       {recordsResults.length > 0 && (
         <div aria-label="Structured search results" className="mt-2 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-signal-400">
-            Workflow records — not page-cited evidence
+            Records of the app's work, not quotes from a page
           </p>
           {recordsResults.map((item) => (
             <div

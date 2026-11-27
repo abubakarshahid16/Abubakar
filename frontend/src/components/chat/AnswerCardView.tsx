@@ -16,7 +16,7 @@ function RetrievalDetails({ passage }: { passage: AnswerPassage }) {
   return passage.score == null ? null : (
     <details className="mt-1 ms-7 rounded-[var(--radius-xs)] border border-ink-700 px-2 py-1 text-xs text-slateish-500">
       <summary className="cursor-pointer">Retrieval details</summary>
-      <p className="mt-1">This passage’s rerank score was {passage.score.toFixed(3)}. It is a ranking diagnostic, not a quality verdict.</p>
+      <p className="mt-1">This source's search score was {passage.score.toFixed(3)}. It is a ranking diagnostic, not a quality verdict.</p>
     </details>
   );
 }
@@ -174,9 +174,9 @@ function AnswerCardBody({
         <p className="mt-1 text-sm text-slateish-300">
           {asSentence(view.reason ?? "The Claude call failed")}{" "}
           {sourcesOf(view).length > 0
-            ? "The quoted answer above is unaffected — only the explanation needs the model."
+            ? "The quoted answer above still stands. Only the explanation needs the AI."
             : "No answer was written for this question."}{" "}
-          Try again, or switch Model to Local.
+          Try again, or choose the AI on this computer.
         </p>
       </div>
     );
@@ -191,17 +191,14 @@ function AnswerCardBody({
     return (
       <div role="alert" className="surface-card rounded-[var(--radius-md)] border border-warn-500/50 bg-warn-500/10 p-4">
         <p className="text-sm font-semibold text-warn-500">
-          The local answer model is not running
+          The AI on this computer is not running
         </p>
         <p className="mt-1 text-sm text-slateish-300">
-          {asSentence(view.reason ?? "Ollama could not be reached")}{" "}
+          {asSentence(view.reason ?? "The AI on this computer did not answer")}{" "}
           {sourcesOf(view).length > 0
-            ? "The quoted answer above is unaffected — only the explanation needs the model."
+            ? "The quoted answer above still stands. Only the explanation needs the AI."
             : "No answer was written for this question."}
         </p>
-        <pre className="mt-2 overflow-x-auto rounded bg-ink-900 p-2 font-mono text-xs text-slateish-300">
-ollama serve
-        </pre>
       </div>
     );
   }
@@ -234,7 +231,7 @@ ollama serve
           ) : extracted ? (
             <Label tone="quote">Quoted verbatim from the document</Label>
           ) : (
-            <Label tone="ocr">Provenance unknown — source not attached</Label>
+            <Label tone="ocr">Source unknown: it came without its page</Label>
           )}
           {view.seconds != null && (
             <span className="font-mono text-xs text-slateish-500">
@@ -242,7 +239,7 @@ ollama serve
               {" · "}
               {p
                 ? provenanceDetail(p)
-                : "this answer arrived without its source passage — it cannot be checked"}
+                : "this answer came without its source, so it cannot be checked"}
             </span>
           )}
         </div>
@@ -285,7 +282,7 @@ ollama serve
         {view.supporting.length > 0 && (
           <details className="mt-3">
             <summary className="cursor-pointer text-xs text-slateish-400 hover:text-slateish-300">
-              {view.supporting.length} other passage
+              {view.supporting.length} other source
               {view.supporting.length === 1 ? "" : "s"} matched
             </summary>
             <ul className="mt-1.5 space-y-1">
@@ -316,9 +313,7 @@ ollama serve
               {savingReport ? "Saving…" : "Save as report"}
             </Button>
             <p className="mt-1.5 text-xs text-slateish-500">
-              Freezes this answer, its passages and the documents they came
-              from into a PDF. The evidence is captured as it is now — later
-              edits to those documents are reported, never silently used.
+              Saves this answer, its sources and their documents as a PDF, as they are now. Later changes to those documents are reported, never used without saying so.
             </p>
             {reportNotice && (
               <p className="mt-1.5 text-xs text-warn-500" role="status">
@@ -330,9 +325,7 @@ ollama serve
 
         {(onSaveReport || reportable) && view.supporting.length > 0 && (
           <p className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
-            This report will freeze the quoted passage above as the answer.
-            Other matched passages stay in the evidence section, but they are
-            not merged into the quoted answer.
+            This report keeps the quoted source above as the answer. Other matching sources are listed, but not added to the answer.
           </p>
         )}
 
@@ -354,7 +347,7 @@ ollama serve
                 <p className="mt-1.5 text-xs text-slateish-500">
                   {explaining
                     ? (explainingNote ?? "Generation is not streamed. It typically finishes around 50 seconds on this machine.")
-                    : (explainNote ?? "Runs the local model over these passages. Takes about 50 seconds on this hardware — the quotation above is already the answer.")}
+                    : (explainNote ?? "The AI on this computer reads these sources, in about 50 seconds. The quote above is already the answer.")}
                 </p>
               </>
             )}
@@ -386,7 +379,7 @@ ollama serve
     <div className="surface-card accent-edge rounded-[var(--radius-md)] border border-info-500/30 bg-info-500/[0.05] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Label tone="generated">
-          Written by the model{view.model ? ` · ${view.model}` : ""} — not the document's words
+          Written by the AI{view.model ? ` · ${view.model}` : ""} — not the document's words
         </Label>
         {view.seconds != null && (
           <span className="font-mono text-xs text-slateish-500">
@@ -419,8 +412,7 @@ ollama serve
           length limit. */}
       {view.truncated && (
         <p className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
-          This answer reached its length limit and stops early — the model had
-          more to say. The passages below are complete; open them for the rest.
+          This answer reached its length limit and stops early. The sources below are complete: open them for the rest.
         </p>
       )}
 
@@ -442,8 +434,8 @@ ollama serve
         <div className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
           <p>
             {view.evidence_removed.length === 1
-              ? "One source did not fit the model's context window."
-              : `${view.evidence_removed.length} sources did not fit the model's context window.`}{" "}
+              ? "One source was too long for the AI to read in full."
+              : `${view.evidence_removed.length} sources were too long for the AI to read in full.`}{" "}
             This answer was written without {view.evidence_removed.length === 1 ? "it" : "them"}.
           </p>
           <ul className="mt-1 space-y-0.5">
@@ -481,7 +473,7 @@ ollama serve
 
       {view.rejected_citations.length > 0 && (
         <p className="mt-3 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-2 py-1.5 text-xs text-slateish-300">
-          The model cited {view.rejected_citations.map((n) => `[S${n}]`).join(", ")}, which
+          The AI quoted {view.rejected_citations.map((n) => `[S${n}]`).join(", ")}, which
           {view.rejected_citations.length === 1 ? " was" : " were"} not among the sources
           supplied. Removed from the answer above rather than shown to you.
         </p>
@@ -491,7 +483,7 @@ ollama serve
         onSaveReport={onSaveReport}
         savingReport={savingReport}
         reportNotice={reportNotice}
-        note="Freezes this generated explanation and its cited passages into a PDF. Use this when the explanation combines multiple cited sources that the quoted extract did not merge."
+        note="Saves this explanation and its sources as a PDF. Use it when the explanation joins several sources that the quote does not."
       />
     </div>
   );

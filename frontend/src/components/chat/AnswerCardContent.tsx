@@ -363,9 +363,7 @@ export function UpgradeFailureNotice({ failure }: { failure: UpgradeFailure }) {
           The plain-language version could not be produced — Claude did not answer
         </p>
         <p className="mt-1 text-xs text-slateish-300">
-          {asSentence(failure.reason ?? "The Claude call failed")} The quoted
-          answer above is unaffected — only the plain-language version needs
-          the model. Try again, or switch Model to Local.
+          {asSentence(failure.reason ?? "The Claude call failed")} The quoted answer above still stands. Only the plain-language version needs the AI. Try again, or choose the AI on this computer.
         </p>
       </div>
     );
@@ -377,17 +375,11 @@ export function UpgradeFailureNotice({ failure }: { failure: UpgradeFailure }) {
         className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/50 bg-warn-500/10 px-2.5 py-2"
       >
         <p className="text-xs font-semibold text-warn-500">
-          The plain-language version could not be produced — the local answer
-          model is not running
+          The plain-language version could not be written: the AI on this computer is not running
         </p>
         <p className="mt-1 text-xs text-slateish-300">
-          {asSentence(failure.reason ?? "Ollama could not be reached")} This is
-          the machine, not your question. The quoted answer above is unaffected
-          — only the plain-language version needs the model.
+          {asSentence(failure.reason ?? "The AI on this computer did not answer")} The problem is the computer, not your question. The quoted answer above still stands. Ask whoever runs the app to start the AI.
         </p>
-        <pre className="mt-1.5 overflow-x-auto rounded bg-ink-900 p-2 font-mono text-xs text-slateish-300">
-ollama serve
-        </pre>
       </div>
     );
   }
@@ -402,7 +394,7 @@ ollama serve
       </p>
       <p className="mt-1 text-xs text-slateish-400">
         {asSentence(
-          failure.reason ?? "the model produced nothing that could be checked",
+          failure.reason ?? "the AI wrote nothing that could be checked",
         )}{" "}
         Nothing is shown rather than prose you could not check against a source.
         The quoted answer above is unaffected and still stands.
@@ -410,7 +402,7 @@ ollama serve
       {failure.considered.length > 0 && (
         <div className="mt-2">
           <p className="text-xs uppercase tracking-wide text-slateish-500">
-            What the model was given, so you can judge for yourself
+            What the AI was given, so you can decide for yourself
           </p>
           <ul className="mt-1.5 space-y-1">
             {failure.considered.map((p, i) => (

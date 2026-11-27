@@ -17,8 +17,8 @@ import { ComparisonScopeNotice as ComparisonScopeNoticeView } from "./Comparison
 import { Markdown } from "./Markdown";
 import { SourceChips, SourcePreview, previewSources } from "./SourcePreview";
 
-export const MODEL_WORDS_LABEL = (model: string | null | undefined) =>
-  `Written by the model${model ? ` · ${model}` : ""} — not the document's words`;
+// no model file name on the screen (owner, 27 Nov 2026): the parameter stays for callers; the name stays in the answer's technical record
+export const MODEL_WORDS_LABEL = (_model?: string | null) => "Written by the AI, not the document's own words";
 
 export function GeneratedAnswer({
   view,
@@ -59,8 +59,7 @@ export function GeneratedAnswer({
 
       {view.truncated && (
         <p className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
-          This answer reached its length limit and stops early — the model had
-          more to say. The passages below are complete; open them for the rest.
+          This answer reached its length limit and stops early. The sources below are complete: open them for the rest.
         </p>
       )}
 
@@ -70,8 +69,8 @@ export function GeneratedAnswer({
         <div className="mt-2 rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/[0.08] px-2.5 py-1.5 text-xs text-warn-500">
           <p>
             {view.evidence_removed.length === 1
-              ? "One source did not fit the model's context window."
-              : `${view.evidence_removed.length} sources did not fit the model's context window.`}{" "}
+              ? "One source was too long for the AI to read in full."
+              : `${view.evidence_removed.length} sources were too long for the AI to read in full.`}{" "}
             This answer was written without {view.evidence_removed.length === 1 ? "it" : "them"}.
           </p>
           <ul className="mt-1 space-y-0.5">
@@ -91,7 +90,7 @@ export function GeneratedAnswer({
 
       {view.rejected_citations.length > 0 && (
         <p className="mt-2 rounded-[var(--radius-sm)] border border-danger-500/40 bg-danger-500/10 px-2 py-1.5 text-xs text-slateish-300">
-          The model cited {view.rejected_citations.map((n) => `[S${n}]`).join(", ")}, which
+          The AI quoted {view.rejected_citations.map((n) => `[S${n}]`).join(", ")}, which
           {view.rejected_citations.length === 1 ? " was" : " were"} not among the sources
           supplied. Removed from the answer above rather than shown to you.
         </p>

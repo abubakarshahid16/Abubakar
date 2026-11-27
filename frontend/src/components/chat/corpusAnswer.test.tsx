@@ -127,7 +127,7 @@ describe("a count the model stated, re-bounded", () => {
     }));
 
     expect(screen.getByRole("note")).toHaveTextContent(
-      /count of documents in this answer was marked as a count of the passages retrieved/i);
+      /count of documents in this answer was marked as a count of the sources found/i);
   });
 
   it("says nothing when no count was re-bounded", () => {
