@@ -60,6 +60,10 @@ function Row({ line, mark, onViewPage }: { line: GeneralLine; mark: string; onVi
 export function verdict(review: GeneralReview, signoff: GeneralReview["signoff"] | null): string {
   const n = review.counts.comments;
   if (signoff?.state === "signed") return `Signed off: ${n} comment${n === 1 ? "" : "s"} decided.`;
+  // R1 (H's one-real-file pass, 27 Nov 2026): a review that stopped early, or that has no points, is never "ready to sign off"
+  // (the server refuses its sign-off too: `aim_review_signoff.sign`)
+  if (review.status === "stopped") return "This review stopped before it finished: there is nothing to sign off.";
+  if (review.counts.points === 0) return "No points were reviewed: there is nothing to sign off.";
   if (signoff?.state === "changed") return "Changed since sign-off: sign it off again before the contractor copy.";
   if (signoff) {
     const todo = signoff.undecided_count;
@@ -69,10 +73,43 @@ export function verdict(review: GeneralReview, signoff: GeneralReview["signoff"]
   return `${n} comment${n === 1 ? "" : "s"} to check (${review.counts.points} points reviewed).`;
 }
 
-export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onReload }: {
+/** True when this review can never be signed off as it is: it stopped early, or it has no points (R1). A review already signed keeps
+ *  its sign-off bar (its state and the contractor copy). */
+export function cannotSignOff(review: GeneralReview, signoff: GeneralReview["signoff"] | null): boolean {
+  if (signoff?.state === "signed") return false;
+  return review.status === "stopped" || review.counts.points === 0;
+}
+
+/** R2 (H's one-real-file pass, 27 Nov 2026): when the review on screen stopped, point to the paper's last COMPLETE review (newest
+ *  first in the history), so an engineer is not left on an empty run while the real review sits as a History line. */
+function LastCompleteReview({ review, onOpenRun }: { review: GeneralReview; onOpenRun?: (runId: string) => void }) {
+  const [last, setLast] = useState<{ run_id: string; finished_at: string | null; points: number | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    if (review.status !== "stopped") { setLast(null); return; }
+    void generalReview.history(review.paper_document_id).then((r) => {
+      if (!live || !r.ok) return;
+      const done = r.data.runs.find((x) => x.run_id !== review.run_id && x.version === "general" && (x.status === "done" || x.status === "completed") && (x.points ?? 0) > 0);
+      setLast(done ?? null);
+    });
+    return () => { live = false; };
+  }, [review.paper_document_id, review.run_id, review.status]);
+  if (review.status !== "stopped" || !last) return null;
+  const day = last.finished_at ? new Date(last.finished_at).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : null;
+  return (
+    <p data-testid="general-last-complete" className="text-sm text-slateish-100">
+      The last complete review of this paper{day ? ` is from ${day}` : ""}{last.points != null ? ` (${last.points} points)` : ""}:{" "}
+      {onOpenRun ? <LinkButton tone="action" onClick={() => onOpenRun(last.run_id)}>open it</LinkButton> : "it is listed under History"}.
+    </p>
+  );
+}
+
+export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onReload, onOpenRun }: {
   review: GeneralReview; howTab: ReactNode; onViewPage: (page: number) => void; onDownloaded?: () => void;
   /** Read the whole review again (after "accept the rest": the cards then show the accepted comments). */
   onReload?: () => void | Promise<void>;
+  /** Open another review of the same paper (the last complete one, when this one stopped). */
+  onOpenRun?: (runId: string) => void;
 }) {
   const mark = review.mark || MARK_FALLBACK;
   const [tab, setTab] = useState<"comments" | "how">("comments");
@@ -125,6 +162,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
           This review stopped early{review.stop_reason && !review.stop_words ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
         </p>
       )}
+      <LastCompleteReview review={review} onOpenRun={onOpenRun} />
       {!c.ok && (
         <div role="alert" data-testid="general-incomplete" className="rounded-[var(--radius-md)] border border-danger-500 p-3 text-sm text-danger-500">
           <p>{c.sentence ?? `The file is not complete: the page has ${c.page} points, the database ${c.database}, the file ${c.file_rows}.`}</p>
@@ -144,7 +182,7 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         </p>
       )}
 
-      {signoff && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
+      {signoff && !cannotSignOff(review, signoff) && <SignBar review={review} signoff={signoff} onStatus={setSignoff} onChanged={() => { if (onReload) void onReload(); else void refreshSignoff(); }} />}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" size="sm" onClick={() => void download()} data-testid="general-download">
