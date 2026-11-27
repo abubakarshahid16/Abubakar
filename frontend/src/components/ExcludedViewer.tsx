@@ -11,6 +11,7 @@ import { api } from "../api/client";
 import type { ApiError, DocumentRecord, ExclusionsResponse } from "../types/api";
 import { Drawer } from "./Drawer";
 import { DisconnectedState, EmptyState, ErrorState, Spinner } from "./states";
+import { NEW_LOOK } from "../look";
 
 const PAGE_SIZE = 25;
 const nf = new Intl.NumberFormat("en-GB");
@@ -33,7 +34,9 @@ const RULE_EXPLANATION: Record<string, string> = {
   // each. Five real pages in this corpus are the former; calling those
   // unreadable would put a false accusation in the ledger.
   ocr_not_run:
-    "A scanned page with no extractable text. Recognition has not run on it yet — it is waiting, not a judgement on the page.",
+    NEW_LOOK
+      ? "A scanned page with no text in it. It has not been read yet: it is waiting, not a judgement on the page."
+      : "A scanned page with no extractable text. Recognition has not run on it yet — it is waiting, not a judgement on the page.",
   ocr_found_no_text:
     "Recognition ran and found nothing, at both resolutions. The page appears to be genuinely BLANK — it is not a page we failed to read.",
   ocr_failed:

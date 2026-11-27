@@ -347,8 +347,8 @@ describe("B2 documents list", () => {
   it("warns only about scanned pages recognition has NOT yet read", async () => {
     mockApi([makeDoc({ needs_ocr_pages: 12, recognised_pages: 0, equation_pages: 11 })]);
     renderDocuments();
-    expect(await screen.findByText("12 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText("11 equation-heavy")).toBeInTheDocument();
+    expect(await screen.findByText(NEW_LOOK ? "12 waiting to be read" : "12 awaiting OCR")).toBeInTheDocument();
+    expect(screen.getByText(NEW_LOOK ? "11 pages mostly equations" : "11 equation-heavy")).toBeInTheDocument(); // everyday words in the new look
   });
 
   it("states the OCR fraction as a fact once pages have been read", async () => {
@@ -365,7 +365,7 @@ describe("B2 documents list", () => {
     ).toBeInTheDocument();
     // Nothing is outstanding, so the warning must be GONE - asserting the
     // absence, because a stale amber badge is a false alarm.
-    expect(screen.queryByText(/awaiting OCR/)).toBeNull();
+    expect(screen.queryByText(NEW_LOOK ? /waiting to be read$/ : /awaiting OCR/)).toBeNull();
   });
 
   it("shows both when recognition is only part-way through", async () => {
@@ -373,7 +373,7 @@ describe("B2 documents list", () => {
       makeDoc({ page_count: 546, needs_ocr_pages: 12, recognised_pages: 5 }),
     ]);
     renderDocuments();
-    expect(await screen.findByText("7 awaiting OCR")).toBeInTheDocument();
+    expect(await screen.findByText(NEW_LOOK ? "7 waiting to be read" : "7 awaiting OCR")).toBeInTheDocument();
     expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read by OCR/))).toBeInTheDocument();
   });
 

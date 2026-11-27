@@ -218,7 +218,7 @@ export function DocumentCard({
                 className={NEW_LOOK ? "kit-chip kit-chip--check" : "rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"}
                 title="Scanned pages with no extractable text that recognition has not yet read."
               >
-                {doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR
+                {NEW_LOOK ? `${doc.needs_ocr_pages - doc.recognised_pages} waiting to be read` : `${doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR`}
               </span>
             )}
             {doc.equation_pages > 0 && (
@@ -226,7 +226,7 @@ export function DocumentCard({
                 className={NEW_LOOK ? "kit-chip kit-chip--info" : "rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"}
                 title="Mathematics did not survive extraction on these pages. Use the page image."
               >
-                {doc.equation_pages} equation-heavy
+                {NEW_LOOK ? `${doc.equation_pages} page${doc.equation_pages === 1 ? "" : "s"} mostly equations` : `${doc.equation_pages} equation-heavy`}
               </span>
             )}
           </div>

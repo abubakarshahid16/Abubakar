@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DocumentRecord } from "../types/api";
+import { NEW_LOOK } from "../look";
 import {
   LOW_RETRIEVABLE_THRESHOLD,
   excludedCount,
@@ -129,7 +130,7 @@ describe("a partially-processed document never reads as ready", () => {
       status: "ready", page_count: 89, needs_ocr_pages: 12, recognised_pages: 10,
     }));
     expect(s.label).not.toBe("ready");
-    expect(s.label).toBe("finished, 2 pages waiting for OCR");
+    expect(s.label).toBe(NEW_LOOK ? "finished, 2 pages waiting to be read as pictures" : "finished, 2 pages waiting for OCR");
     expect(s.label).not.toMatch(/reading/);
     // Still answerable: the pages that ARE indexed can be searched.
     expect(s.answerable).toBe(true);
@@ -139,7 +140,7 @@ describe("a partially-processed document never reads as ready", () => {
     const s = presentStatus(doc({
       status: "ready", page_count: 3, needs_ocr_pages: 1, recognised_pages: 0,
     }));
-    expect(s.label).toBe("finished, 1 page waiting for OCR");
+    expect(s.label).toBe(NEW_LOOK ? "finished, 1 page waiting to be read as a picture" : "finished, 1 page waiting for OCR");
     expect(s.tone).toBe("neutral");
   });
 

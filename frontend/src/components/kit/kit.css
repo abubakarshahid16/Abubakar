@@ -107,6 +107,7 @@
 .kit-notice__title { font-weight: 600; margin: 0 0 var(--kit-space-1); }
 .kit-notice--info { background: var(--kit-info-bg); color: var(--kit-info-fg); border-color: var(--kit-info-bd); }
 .kit-notice--warn { background: var(--kit-check-bg); color: var(--kit-check-fg); border-color: var(--kit-check-bd); }
+.kit-notice--quiet { background: var(--color-ink-800); color: var(--color-slateish-200); border-color: var(--kit-edge); } /* plain information: the notice's shape, no colour */
 .kit-notice--problem { background: var(--kit-late-bg); color: var(--kit-late-tone-fg); border-color: var(--kit-late-bd); }
 
 /* ---- tile: a whole card that is one button to its list (the Dashboard's three tiles, owner 03:34) ---- */
