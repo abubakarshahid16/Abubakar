@@ -234,3 +234,9 @@
 .kit-group-title.kit-check { color: var(--kit-check-fg); }
 .kit-group-title__count { font-size: 13px; font-weight: 400; color: var(--color-slateish-400); }
 
+/* NEW LOOK, C's walk (27 Nov 2026) and F's gate on #1987:
+   - a list row keeps a row's height even when it has one line (rows read 40 to 92 px; a 40 px row looked like a button);
+   - every bordered field draws its edge in the field colour: raw fields used border-ink-600 (#e2e6ec in light, a card edge that
+     vanishes on white), so selects and inputs lost their outline in the light theme only (H's walk). Fields with no border stay so. */
+:root[data-look="new"] .kit-row-btn, :root[data-look="new"] main button.kit-row-btn { min-height: 4rem; justify-content: center; }
+:root[data-look="new"] main :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea) { border-color: var(--kit-field-edge); }
