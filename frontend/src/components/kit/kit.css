@@ -189,6 +189,7 @@
   .kit-stack-table td { display: block; padding: 0; white-space: normal; min-width: 0; }
   .kit-stack-table td:first-child { flex: 1 1 100%; }
   .kit-stack-table td[data-label]::before { content: attr(data-label) ": "; color: var(--color-slateish-400); }
+  .kit-stack-table td:empty { display: none; } /* an empty cell says nothing, not a bare "Equipment:" (null renders as nothing; H) */
   .kit-stack-table td:last-child { margin-left: auto; }
 }
 

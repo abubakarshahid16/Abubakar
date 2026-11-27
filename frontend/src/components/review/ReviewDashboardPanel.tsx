@@ -335,7 +335,7 @@ export function ReviewDashboardPanel(
                       </span>
                     </td>
                     <td className={CELL} data-label="Equipment" title={run.equipment_tags.join(", ") || undefined}>
-                      {equipmentLabel(run.equipment_tags)}
+                      {equipmentLabel(run.equipment_tags) || null}
                     </td>
                     <td className={NEW_LOOK ? `${CELL} min-w-[10.5rem]` : CELL} data-label="Findings or comments">
                       {/* The count as it is, 0 included: the run record does not say whether it is an AI review, so no guess. A general review says its own comments. */}
