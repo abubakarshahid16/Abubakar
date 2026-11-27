@@ -14,6 +14,7 @@
   --kit-ok-fg: #0b6b3a; --kit-late-fg: #a61b1b;
   /* the secondary button's outline, visible on a white card (3.0 : 1 for a control's edge) */
   --kit-edge: #8a97a6;
+  --kit-field-edge: #7b8796; /* a field's outline: 3.65 : 1 on white, 3.37 on the field (WCAG non-text 3 : 1; the owner's sign-in field read 1.2) */
   /* THE FIVE TONES, one style each (pale fill, dark words, a border), the kit's own: the theme's pill colours are solid in places.
      Measured (text on its fill): done 7.2, check 7.8, late 7.7, info 7.8 : 1. */
   --kit-done-bg: #ddf5ea; --kit-done-fg: #0b5a3e; --kit-done-bd: #7cc6a5;
@@ -28,6 +29,7 @@
   --kit-primary-bg: #5fd3c9; --kit-primary-hover: #2bafa6; --kit-primary-fg: #0f1b2d;
   --kit-ok-fg: #7ee2b8; --kit-late-fg: #ffb4ab;
   --kit-edge: #5b6b80;
+  --kit-field-edge: #66788f; /* 3.61 : 1 on the card, 4.01 on the field */
   --kit-done-bg: #10302a; --kit-done-fg: #a7f3d0; --kit-done-bd: #2f7a62;
   --kit-check-bg: #3b2f14; --kit-check-fg: #fcd58a; --kit-check-bd: #8a6a22;
   --kit-late-bg: #3d1c1f; --kit-late-tone-fg: #ffc2c2; --kit-late-bd: #9b3b42;
@@ -39,6 +41,8 @@
 .kit-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--kit-space-4); margin-bottom: var(--kit-space-6); }
 .kit-header__text { min-width: 0; }
 .kit-title, :root[data-look="new"] main h1.kit-title { font-size: 22px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; color: var(--color-slateish-100); margin: 0; }
+/* A page's one big welcoming line (Chat's empty page): the heading typeface, never the serif, which is kept for quoted source text (H's audit #36). */
+.kit-greeting { font-family: var(--font-heading, inherit); font-size: 30px; line-height: 1.25; font-weight: 600; letter-spacing: -0.01em; color: var(--color-slateish-100); text-align: center; }
 .kit-lead { font-size: 15px; line-height: 1.5; color: var(--color-slateish-300); margin: var(--kit-space-1) 0 0; }
 .kit-header__actions { display: flex; flex-wrap: wrap; gap: var(--kit-space-2); }
 .kit-section-title, :root[data-look="new"] main h2.kit-section-title { font-size: 18px; line-height: 1.35; font-weight: 600; color: var(--color-slateish-100); margin: var(--kit-space-6) 0 var(--kit-space-3); }
@@ -94,7 +98,7 @@
 .kit-label { display: block; font-size: 13px; font-weight: 600; color: var(--color-slateish-300); margin-bottom: var(--kit-space-1); }
 .kit-input, .kit-select, :root[data-look="new"] main input.kit-input, :root[data-look="new"] main select.kit-select {
   display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 40px; font-size: 15px; padding: var(--kit-space-2) var(--kit-space-3);
-  border-radius: var(--kit-radius); border: 1px solid var(--color-ink-500); background: var(--color-ink-900); color: var(--color-slateish-100);
+  border-radius: var(--kit-radius); border: 1px solid var(--kit-field-edge); background: var(--color-ink-900); color: var(--color-slateish-100);
 }
 .kit-hint { display: block; font-size: 13px; color: var(--color-slateish-300); margin-top: var(--kit-space-1); }
 
@@ -122,6 +126,7 @@
 .kit-tile__figures { display: flex; flex-wrap: wrap; gap: var(--kit-space-3); font-size: 13px; margin-top: var(--kit-space-2); color: var(--color-slateish-300); }
 .kit-ok { color: var(--kit-ok-fg); font-weight: 600; }
 .kit-late { color: var(--kit-late-fg); font-weight: 600; }
+.kit-check { color: var(--kit-check-fg); font-weight: 600; } /* a figure to check (amber), e.g. a warning count */
 .kit-show-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kit-space-3); margin-top: var(--kit-space-3); }
 .kit-small { font-size: 13px; color: var(--color-slateish-300); }
 
@@ -177,3 +182,24 @@
 /* two kit buttons side by side in running text keep the scale's gap (a row with its own gap adds none) (H's gate: "Edit" and "Confirm") */
 .kit-btn + .kit-btn { margin-inline-start: var(--kit-space-2); }
 .kit-row > .kit-btn + .kit-btn, [class*="gap-"] > .kit-btn + .kit-btn { margin-inline-start: 0; }
+
+/* A TABLE THAT STACKS WHEN ITS BOX IS NARROW (H's audit 1, 27 Nov 2026: at 800px the Dashboard's Recent reviews showed only the
+   document and its date, the rest off to the side). Same elements, no copy: under 42rem of space each row becomes a block, its first
+   cell on a line of its own and the others after it, each with its column's name (data-label) in front. */
+.kit-stack-wrap { container-type: inline-size; }
+@container (max-width: 42rem) {
+  .kit-stack-table, .kit-stack-table tbody { display: block; }
+  .kit-stack-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .kit-stack-table tr { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kit-space-1) var(--kit-space-3); padding: var(--kit-space-3); }
+  .kit-stack-table td { display: block; padding: 0; white-space: normal; min-width: 0; }
+  .kit-stack-table td:first-child { flex: 1 1 100%; }
+  .kit-stack-table td[data-label]::before { content: attr(data-label) ": "; color: var(--color-slateish-400); }
+  .kit-stack-table td:empty { display: none; } /* an empty cell says nothing, not a bare "Equipment:" (null renders as nothing; H) */
+  .kit-stack-table td:last-child { margin-left: auto; }
+}
+
+/* A group's title in a list (Documents' types, H's audit 18): sentence case, its count in plain small grey, never capitals or mono */
+.kit-group-title { display: flex; align-items: baseline; gap: var(--kit-space-2); margin: 0 0 var(--kit-space-2); font-size: 15px; font-weight: 600; color: var(--color-slateish-100); }
+.kit-group-title.kit-check { color: var(--kit-check-fg); }
+.kit-group-title__count { font-size: 13px; font-weight: 400; color: var(--color-slateish-400); }
+

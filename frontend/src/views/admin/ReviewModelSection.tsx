@@ -92,7 +92,7 @@ export function ReviewModelSection({ api = reviewModelApi }: { api?: typeof revi
       className="w-full min-w-0 max-w-full rounded-[var(--radius-xs)] border border-ink-500 bg-ink-900 px-2 py-1 text-sm">
       <option value="">{empty}</option>
       {choosable.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
-      {value && !choosable.some((m) => m.name === value) && <option value={value}>{value} (no longer offered)</option>}
+      {value && !choosable.some((m) => m.name === value) && <option value={value}>{value} (saved earlier; cannot be chosen now)</option>}
     </select>
   );
 

@@ -222,7 +222,10 @@ describe("the first screen", () => {
   it("asks what it can help with, and the nav says Chat", async () => {
     mockApi();
     await openChat();
-    expect(await screen.findByText("What can I help with?")).toBeInTheDocument();
+    const greeting = await screen.findByText("What can I help with?");
+    // the kit's greeting line in the heading typeface, never the serif kept for quoted source text (H's audit #36)
+    expect(greeting.className).toContain("kit-greeting");
+    expect(greeting.className).not.toContain("font-serif");
     const nav = screen.getByRole("navigation", { name: "Main" });
     // the new look names the menu entry by its label alone and gives the hint as its tooltip; the classic look shows both
     const chatEntry = within(nav).getByRole("button", { name: NEW_LOOK ? /^Chat$/ : /^Chat\s*Ask anything, with sources/ });

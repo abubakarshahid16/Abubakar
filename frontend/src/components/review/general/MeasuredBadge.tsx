@@ -18,13 +18,14 @@ export interface GeneralMeasured {
 
 /** The score in plain words, from the fields themselves (never rounded up: 6.96 is said as 6.9, as the server does). */
 export function plainMeasured(m: GeneralMeasured): string {
-  if (m.verdict === "not measured" || m.found === null) return "This kind of paper has not been measured on test copies yet.";
+  if (m.verdict === "not measured" || m.found === null) return "This kind of paper has not been checked on practice copies yet.";
   const found = Math.floor(Math.round(m.found * 10 * 1e6) / 1e6) / 10;
-  const wrong = m.false_alarm ? ` ${m.false_alarm.wrong} of ${m.false_alarm.of} of its comments were wrong (the limit is ${m.false_alarm.target_percent}%).` : "";
+  const wrong = m.false_alarm ? `; ${m.false_alarm.wrong} of its ${m.false_alarm.of} comments ${m.false_alarm.wrong === 1 ? "was" : "were"} wrong (limit ${m.false_alarm.target_percent}%)` : "";
   // a sample says its size (CLAUDE.md rule 4; F's gate): the count of copies the server's own sentence names, else "test copies"
   const copies = m.sentence.match(/(\d+) planted test cop(?:y|ies)/);
-  const on = copies ? `On ${copies[1]} test cop${copies[1] === "1" ? "y" : "ies"} with planted mistakes` : "On test copies with planted mistakes";
-  return `${on}, this kind of paper found ${found} of 10 (the target is ${m.target}).${wrong}`;
+  // plain words (H's audit 57): "practice copy with known mistakes", not "test copy with planted mistakes"
+  const on = copies ? `Checked on ${copies[1]} practice cop${copies[1] === "1" ? "y" : "ies"} with known mistakes` : "Checked on practice copies with known mistakes";
+  return `${on}: this kind of paper found ${found} of 10 (target ${m.target})${wrong}.`;
 }
 
 export function MeasuredBadge({ measured }: { measured: GeneralMeasured | null | undefined }) {
