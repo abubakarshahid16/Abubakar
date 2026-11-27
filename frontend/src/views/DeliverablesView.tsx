@@ -136,7 +136,15 @@ export function DeliverablesView() {
 
   const shownError = [error, ...Object.values(panelErrors)].filter((message): message is string => Boolean(message)).join(" ");
 
-  const expectedRow = (item: import("../types/api").ExpectedDeliverable) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm text-slateish-200">{expectedTitle(item.title)}{item.origin === "inferred" && item.source_name ? ` · from ${item.source_name}, ${item.source_page ? `page ${item.source_page}` : "page not recorded"}` : ""}</p><p className="text-xs text-slateish-500">Item {item.wbs_code} · {item.deliverable_type} · {item.origin === "inferred" ? "suggested by the AI, check it before accepting" : "added by hand"}</p></div><StatusBadge tone={item.state === "missing" ? "warn" : "good"}>{item.state === "missing" ? "not in the list yet" : item.state.replaceAll("_", " ")}</StatusBadge></div>;
+  // SAID ONCE (H's gate of #1971, audit 44): when every row has the same state or the same origin, it is said once above the list and
+  // not on each row; a state or an origin that differs between rows stays on its row
+  const sameState = expected.length > 1 && expected.every((e) => e.state === expected[0].state);
+  const sameOrigin = expected.length > 1 && expected.every((e) => e.origin === expected[0].origin);
+  const saidOnce = [
+    sameState ? `All ${expected.length} are ${expected[0].state === "missing" ? "not in the deliverables list yet" : expected[0].state.replaceAll("_", " ")}.` : null,
+    sameOrigin ? (expected[0].origin === "inferred" ? "All were suggested by the AI: check each before accepting it." : "All were added by hand.") : null,
+  ].filter(Boolean).join(" ");
+  const expectedRow = (item: import("../types/api").ExpectedDeliverable) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm text-slateish-200">{expectedTitle(item.title)}{item.origin === "inferred" && item.source_name ? ` · from ${item.source_name}, ${item.source_page ? `page ${item.source_page}` : "page not recorded"}` : ""}</p><p className="text-xs text-slateish-500">Item {item.wbs_code} · {item.deliverable_type}{sameOrigin ? "" : ` · ${item.origin === "inferred" ? "suggested by the AI, check it before accepting" : "added by hand"}`}</p></div>{sameState ? null : <StatusBadge tone={item.state === "missing" ? "warn" : "good"}>{item.state === "missing" ? "not in the list yet" : item.state.replaceAll("_", " ")}</StatusBadge>}</div>;
   const addForm = (
       <section>
         <SectionTitle>Add deliverable</SectionTitle>
@@ -182,6 +190,7 @@ export function DeliverablesView() {
           <div><SectionTitle>Expected deliverables</SectionTitle><p className="-mt-2 text-xs text-slateish-500">Documents the contract and the standards say must be delivered, checked against the deliverables list.</p></div>
           {expectedLoaded && <StatusBadge tone={expected.some((item) => item.state === "missing") ? "warn" : "good"}>{expected.filter((item) => item.state === "missing").length} missing</StatusBadge>}
         </div>
+        {expectedLoaded && saidOnce && <p data-testid="expected-said-once" className="text-sm text-slateish-300">{saidOnce}</p>}
         {!expectedLoaded ? (pending.expected ? <Spinner label="Loading expected deliverables" /> : <p className="px-4 py-3 text-sm text-slateish-400">The expected deliverables could not be loaded.</p>) : expected.length === 0 ? <EmptyState title="No expected deliverables yet." hint="They come from a contract or a standard in the library, or are added by hand." /> : <div className="divide-y divide-ink-700/70">{expected.slice(0, EXPECTED_SHOWN).map(expectedRow)}</div>}
         {expectedLoaded && expected.length > EXPECTED_SHOWN && <div className="border-t border-ink-700 py-3"><Fold testId="expected-more" title={`Show the other ${expected.length - EXPECTED_SHOWN} expected deliverables`}><div className="divide-y divide-ink-700/70">{expected.slice(EXPECTED_SHOWN).map(expectedRow)}</div></Fold></div>}
       </section>

@@ -10,7 +10,14 @@
 import { plainAi } from "../how/howData";
 import { type ReactNode, useMemo, useState } from "react";
 
-import type { GeneralCall, GeneralLine, GeneralReview } from "../../../api/generalReview";
+import type { GeneralCall, GeneralCompleteness, GeneralLine, GeneralReview } from "../../../api/generalReview";
+
+/** The completeness result in words. Three counts of 0 compared nothing: never "all three agree" (REVIEW.md: 0 == 0 is not a pass;
+ *  H's one-real-file pass, 27 Nov 2026, R5). */
+export function completenessResult(c: GeneralCompleteness): string {
+  if (c.nothing_to_compare || (c.page === 0 && c.database === 0 && c.file_rows === 0)) return "nothing to compare: the review has no points";
+  return c.ok ? "all three agree" : "they differ: the file is refused";
+}
 
 /** The words of a book whose reason was not stored; the server says the same ones (and "not shown: it names a book you may not read"). */
 const NO_REASON = "the reason was not recorded for this review";
@@ -266,7 +273,7 @@ export function HowReviewMade({ review }: { review: GeneralReview }) {
           <Fact label="Points on the page" value={c.page} />
           <Fact label="Lines in the database" value={c.database} />
           <Fact label="Rows in the file" value={c.file_rows} />
-          <Fact label="Result" value={c.ok ? "all three agree" : "they differ: the file is refused"} />
+          <Fact label="Result" value={completenessResult(c)} />
         </div>
         {confirmationsLine(review) && <p data-testid="how-confirmations" className="text-slateish-200">{confirmationsLine(review)}</p>}
       </Section>

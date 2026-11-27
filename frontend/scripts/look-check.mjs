@@ -45,9 +45,16 @@ function splitWords() {
     const n = e.firstChild; if (!n || n.nodeType !== 3) continue;
     for (const m of n.textContent.matchAll(/\S+/g)) {
       if (m[0].length > 15) continue;
-      const rg = document.createRange();
-      try { rg.setStart(n, m.index); rg.setEnd(n, m.index + m[0].length); } catch { continue; }
-      if (new Set([...rg.getClientRects()].map((x) => Math.round(x.top))).size > 1) { out.push(m[0]); break; }
+      // a hyphenated word may break AT its hyphen ("in-" / "house"), as typesetting does; each part on its own must stay whole
+      const parts = []; let at = m.index;
+      for (const part of m[0].split("-")) { if (part) parts.push([at, at + part.length]); at += part.length + 1; }
+      let broken = false;
+      for (const [a, b] of parts) {
+        const rg = document.createRange();
+        try { rg.setStart(n, a); rg.setEnd(n, b); } catch { continue; }
+        if (new Set([...rg.getClientRects()].map((x) => Math.round(x.top))).size > 1) { broken = true; break; }
+      }
+      if (broken) { out.push(m[0]); break; }
     }
   }
   return out;

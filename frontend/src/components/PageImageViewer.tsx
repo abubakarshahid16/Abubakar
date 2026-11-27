@@ -143,7 +143,7 @@ export function PageImageViewer({
 
           {current && (
             <p className="mb-2 flex flex-wrap gap-2 text-xs">
-              <span className="text-slateish-400">{current.char_count} characters extracted</span>
+              <span className="text-slateish-400">{current.char_count} characters of text read</span>
               {current.needs_ocr && (
                 <span className="rounded bg-warn-500/15 px-2 py-0.5 text-warn-500">
                   scanned — no extractable text
