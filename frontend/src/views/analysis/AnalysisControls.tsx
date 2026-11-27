@@ -25,7 +25,7 @@ interface ControlsContext {
 export function AnalysisControls({ ctx }: { ctx: ControlsContext }) {
   const { questionId, question, comparisonType, selectedTypes, appliedScope, typeVocabulary,
     mode, toggles, running, canRun, elapsed, waitingOn, baselineRefusal, store, engines } = ctx;
-  return <section aria-label="Analysis controls" className="card-3d surface-floating rounded-[var(--radius-lg)] border border-ink-600 bg-ink-800 p-4">
+  return <section aria-label="Analysis controls" className="pt-2">{/* straight on the page, no section-sized card (C's rule for H's audit #66) */}
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="space-y-4">
         <div><label htmlFor={questionId} className="block text-xs font-semibold uppercase tracking-wide text-slateish-400">Question</label>

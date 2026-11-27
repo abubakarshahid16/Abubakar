@@ -7,7 +7,7 @@ export function AnalysisHeader() {
   return (
     <div className="border-b border-ink-700 pb-4">
       <PageHeader title="Analysis Hub" />
-      <MoreText className="-mt-4 max-w-3xl" summary="Ask one engineering question about your documents; every answer shows the page it comes from.">
+      <MoreText className="-mt-4" summary="Ask one engineering question about your documents; every answer shows the page it comes from.">
           <p className="text-sm text-slateish-300">
             Ask one engineering question, choose the work to run, and inspect only cited document evidence.
             Public evidence is isolated from private document context.
@@ -18,7 +18,7 @@ export function AnalysisHeader() {
           </div>
       </MoreText>
       {/* An honesty label (rule 4: samples are labelled samples): always visible, never folded. */}
-      <div className="mt-3 max-w-3xl">
+      <div className="mt-3">
         <Notice tone="warn" title="Market rule">Market prices shown here are sample data unless an approved market price service is switched on.</Notice>
       </div>
     </div>
