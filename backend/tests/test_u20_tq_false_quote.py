@@ -16,6 +16,7 @@ from app import technical_queries as tq
 from app import technical_query_auto as auto
 from app import technical_query_jobs as J
 from app.api import technical_queries as api
+from app.technical_query_position import POSITION_LINE
 from tests.test_tq_g_feature_off import (
     storage,  # noqa: F401 - the autouse database fixture
 )
@@ -152,8 +153,8 @@ def test_one_retry_when_the_only_fault_is_a_false_quote_and_the_check_still_stop
     _run(item["id"])
     kept = tq.get(item["id"], "u1", False, False)
     assert answers == [] and [d["answer"] for d in kept["drafts"]] == [
-        "1. Class 300 applies [S1]."
-    ]  # the retry's draft, checked
+        f"1. Class 300 applies [S1].\n\n{POSITION_LINE}"
+    ]  # the retry's draft, checked (closed by the set cost / schedule sentence, technical_query_position)
     calls = []
     monkeypatch.setattr(
         "app.answer.answer", lambda q, **k: calls.append(1) or bad
