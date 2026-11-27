@@ -36,7 +36,6 @@ import { displayName, groupByFamily, searchStandards } from "./standardsLibrary"
 import type {
   ApiError, DocumentRecord, StandardRequirement, StandardSummary,
 } from "../types/api";
-import { Button } from "../components/kit/Kit";
 
 type Load =
   | { state: "loading" }
@@ -154,12 +153,13 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
                   ))}
                 </ul>
                 {shown.length < group.rows.length && (
-                  <Button variant="secondary" size="sm"
-                   
+                  <button
+                    type="button"
+                    className="self-start text-xs text-signal-400 hover:underline"
                     onClick={() => setExpanded(new Set([...expanded, group.family]))}
                   >
                     Show all {group.rows.length.toLocaleString()} {group.family} standards
-                  </Button>
+                  </button>
                 )}
               </section>
             );
@@ -189,9 +189,10 @@ function StandardRow({
   standard, onOpen,
 }: { standard: StandardSummary; onOpen: () => void }) {
   return (
-    <Button variant="secondary"
-     
+    <button
+      type="button"
       onClick={onOpen}
+      className="w-full rounded border border-white/10 bg-white/[0.02] p-3 text-left"
     >
       <div className="flex flex-wrap items-center gap-2">
         {/* The number is how an engineer names a standard. Falls back to the
@@ -249,7 +250,7 @@ function StandardRow({
           </span>
         )}
       </p>
-    </Button>
+    </button>
   );
 }
 
@@ -272,9 +273,9 @@ function StandardDetail({
         <h3 className="text-sm font-medium">
           {standard.document_number || standard.filename}
         </h3>
-        <Button variant="secondary" size="sm" onClick={onClose}>
+        <button type="button" onClick={onClose} className="text-xs underline">
           Close
-        </Button>
+        </button>
       </header>
 
       <div role="tablist" aria-label="Standard detail" className="mt-2 flex flex-wrap gap-1">
@@ -374,13 +375,14 @@ function RequirementsTab({
       {loadError !== null && <TabLoadError what="requirements" message={loadError} />}
       {isAdmin && (
         <div className="flex items-center gap-3">
-          <Button variant="secondary" size="sm"
-           
+          <button
+            type="button"
             onClick={() => void extract()}
             disabled={busy}
+            className="rounded bg-white/15 px-3 py-1 text-xs disabled:opacity-50"
           >
             {busy ? "Reading the standard…" : "Extract requirements"}
-          </Button>
+          </button>
           {error && <span role="alert" className="text-xs text-warn-500">{error}</span>}
         </div>
       )}

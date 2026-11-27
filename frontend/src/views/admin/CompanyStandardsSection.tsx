@@ -18,7 +18,6 @@ import { formatWhen } from "../../format/when";
 import { useCallback, useEffect, useState } from "react";
 
 import type { AdminClient, HeldCompanyStandard, LoadFailure } from "../../types/admin";
-import { Button } from "../../components/kit/Kit";
 
 
 export function CompanyStandardsSection({ client }: { client: AdminClient }) {
@@ -113,20 +112,23 @@ export function CompanyStandardsSection({ client }: { client: AdminClient }) {
                 <li key={row.id} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm" data-testid={`admin-held-${row.id}`}>
                   <span className="font-medium text-slateish-100">{row.filename ?? row.id}</span>
                   {row.uploaded_at && <span className="text-xs text-slateish-400">uploaded {formatWhen(row.uploaded_at)}</span>}
-                  <Button variant="secondary" size="sm" disabled={busy !== null || !client.confirmCompanyStandard}
-                    onClick={() => { setMessage(null); setAsking(row.id); }}>
+                  <button type="button" disabled={busy !== null || !client.confirmCompanyStandard}
+                    onClick={() => { setMessage(null); setAsking(row.id); }}
+                    className="ml-auto rounded-[var(--radius-sm)] border border-ink-600 px-3 py-1 text-xs text-slateish-100 disabled:opacity-50">
                     {busy === row.id ? "Confirming…" : "Confirm for reviews"}
-                  </Button>
+                  </button>
                   {asking === row.id && (
                     <div role="alertdialog" aria-label="Confirm this standard for reviews" data-testid={`admin-held-ask-${row.id}`}
                       className="w-full rounded-[var(--radius-sm)] border border-warn-500/40 bg-warn-500/10 px-3 py-2 text-xs text-slateish-100">
                       {`Use "${row.filename ?? row.id}" in reviews from the next run? This is recorded under your name.`}
-                      <Button variant="primary" size="sm" disabled={busy !== null} onClick={() => void confirm(row)}>
+                      <button type="button" disabled={busy !== null} onClick={() => void confirm(row)}
+                        className="ml-2 rounded-[var(--radius-sm)] bg-signal-500 px-2 py-0.5 text-white disabled:opacity-50">
                         Yes, use it in reviews
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => setAsking(null)}>
+                      </button>
+                      <button type="button" onClick={() => setAsking(null)}
+                        className="ml-2 rounded-[var(--radius-sm)] border border-ink-600 px-2 py-0.5 text-slateish-100">
                         Cancel
-                      </Button>
+                      </button>
                     </div>
                   )}
                 </li>

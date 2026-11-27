@@ -41,7 +41,6 @@ import type {
   Progress,
   StructuredSearchResult,
 } from "../types/api";
-import { Button } from "../components/kit/Kit";
 
 // On the local engine a quotation is the fast, exact default and a written
 // answer is ~50 s away behind "Explain". A review or critique is a synthesis
@@ -584,19 +583,21 @@ export function ChatView({
           <option value="risk">Risks</option>
           <option value="stakeholder">Stakeholders</option>
         </select>
-        <Button variant="secondary" size="sm"
-         
+        <button
+          type="button"
           onClick={() => void searchRecords()}
           disabled={!question.trim()}
+          className="rounded-[var(--radius-xs)] border border-signal-500/50 px-2 py-1 text-xs text-signal-300 disabled:opacity-50"
         >
           Search records
-        </Button>
-        <Button variant="secondary" size="sm"
-         
+        </button>
+        <button
+          type="button"
           onClick={() => setRecordsOpen(false)}
+          className="ms-auto text-xs text-slateish-500 underline"
         >
           Close
-        </Button>
+        </button>
       </div>
       <p className="mt-1 text-xs text-slateish-500">
         Searches for the words in the box. You can also type <span className="font-mono">/records</span> and a phrase.
@@ -795,21 +796,23 @@ export function ChatView({
                   </span>
                   {(picked.length > 0 ? picked.length : talkingAbout.length) > 1 &&
                     ` + ${(picked.length > 0 ? picked.length : talkingAbout.length) - 1} more`}
-                  <Button variant="secondary"
-                   
+                  <button
+                    type="button"
                     onClick={() => setPickerOpen(true)}
+                    className="ms-1 min-h-0 text-signal-400 underline decoration-signal-500/40 underline-offset-2"
                   >
                     Change
-                  </Button>
+                  </button>
                 </span>
               )}
             </div>
-            <Button variant="secondary" size="sm"
-             
+            <button
+              type="button"
               onClick={startNew}
+              className="rounded-[var(--radius-sm)] border border-ink-600 px-2.5 py-1.5 text-xs text-slateish-300 hover:border-signal-500/50 hover:bg-ink-700"
             >
               New chat
-            </Button>
+            </button>
           </header>
         )}
 

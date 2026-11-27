@@ -7,7 +7,6 @@
  * "Continue" links are the reader's own most recent conversations.
  */
 import type { ConversationSummary } from "../../types/api";
-import { Button } from "../kit/Kit";
 
 export const STARTERS: readonly { ask: string; kind: string }[] = [
   { ask: "Does my latest submittal meet the standards it references?", kind: "Submittal check" },
@@ -40,30 +39,32 @@ export function ChatStarters({
     <div>
       <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
         {STARTERS.map((s) => (
-          <Button variant="secondary"
+          <button
             key={s.ask}
-           
+            type="button"
             disabled={disabled}
             onClick={() => onAsk(s.ask)}
+            className="rounded-[var(--radius-md)] border border-ink-700 bg-ink-850 px-4 py-3 text-left motion-safe:transition-colors hover:border-signal-500/40 hover:bg-ink-800 disabled:opacity-50"
           >
             <span className="block text-sm text-slateish-100">{s.ask}</span>
             <span className="mt-0.5 block text-xs text-slateish-500">{s.kind}</span>
-          </Button>
+          </button>
         ))}
       </div>
       {recent.length > 0 && (
         <nav aria-label="Recent conversations" className="mt-5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-slateish-500">
           <span>Continue:</span>
           {recent.slice(0, 3).map((c) => (
-            <Button variant="secondary"
+            <button
               key={c.id}
-             
+              type="button"
               aria-label={`Continue ${c.title}`}
               onClick={() => onOpen(c.id)}
               title={c.title}
+              className="min-h-0 min-w-0 max-w-full truncate text-signal-400 underline decoration-signal-500/40 underline-offset-2 hover:text-signal-300 sm:max-w-[24rem]"
             >
               {c.title}
-            </Button>
+            </button>
           ))}
         </nav>
       )}
