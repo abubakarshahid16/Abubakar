@@ -249,6 +249,17 @@ export function DocumentCard({
             </div>
           )}
 
+          {NEW_LOOK ? (
+            // the same facts in everyday words (H's gate on 3e053de0, audit 17): no "parts of pages", "excluded" or "OCR"
+            <p className="mt-2 text-xs text-slateish-400">
+              {nf.format(doc.chunk_count)} of {nf.format(doc.chunk_count_total)} parts can be searched
+              {excluded > 0 && <>; {nf.format(excluded)} left out on purpose</>}
+              {doc.recognised_pages > 0 && doc.page_count != null && (
+                <>; {nf.format(doc.recognised_pages)} of {nf.format(doc.page_count)} pages were scanned and read as pictures</>
+              )}
+              {doc.indexed_at && <> · finished {formatWhen(doc.indexed_at)}</>}
+            </p>
+          ) : (
           <p className="mt-2 text-xs text-slateish-400">
             {nf.format(doc.chunk_count)} searchable of {nf.format(doc.chunk_count_total)} parts of pages
             {excluded > 0 && <> · {nf.format(excluded)} excluded</>}
@@ -265,6 +276,7 @@ export function DocumentCard({
             )}
             {doc.indexed_at && <> · finished {formatWhen(doc.indexed_at)}</>}
           </p>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-1.5">

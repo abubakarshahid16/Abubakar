@@ -361,7 +361,7 @@ describe("B2 documents list", () => {
     ]);
     renderDocuments();
     expect(
-      await screen.findByText(/12 of 546 pages\s+read by OCR/),
+      await screen.findByText((NEW_LOOK ? /12 of 546 pages were scanned and read as pictures/ : /12 of 546 pages\s+read by OCR/)),
     ).toBeInTheDocument();
     // Nothing is outstanding, so the warning must be GONE - asserting the
     // absence, because a stale amber badge is a false alarm.
@@ -374,7 +374,7 @@ describe("B2 documents list", () => {
     ]);
     renderDocuments();
     expect(await screen.findByText("7 awaiting OCR")).toBeInTheDocument();
-    expect(screen.getByText(/5 of 546 pages\s+read by OCR/)).toBeInTheDocument();
+    expect(screen.getByText((NEW_LOOK ? /5 of 546 pages were scanned and read as pictures/ : /5 of 546 pages\s+read by OCR/))).toBeInTheDocument();
   });
 
   it("requires a second click to delete", async () => {
