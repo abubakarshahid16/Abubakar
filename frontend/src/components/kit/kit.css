@@ -14,6 +14,7 @@
   --kit-ok-fg: #0b6b3a; --kit-late-fg: #a61b1b;
   /* the secondary button's outline, visible on a white card (3.0 : 1 for a control's edge) */
   --kit-edge: #8a97a6;
+  --kit-field-edge: #7b8796; /* a field's outline: 3.65 : 1 on white, 3.37 on the field (WCAG non-text 3 : 1; the owner's sign-in field read 1.2) */
   /* THE FIVE TONES, one style each (pale fill, dark words, a border), the kit's own: the theme's pill colours are solid in places.
      Measured (text on its fill): done 7.2, check 7.8, late 7.7, info 7.8 : 1. */
   --kit-done-bg: #ddf5ea; --kit-done-fg: #0b5a3e; --kit-done-bd: #7cc6a5;
@@ -28,6 +29,7 @@
   --kit-primary-bg: #5fd3c9; --kit-primary-hover: #2bafa6; --kit-primary-fg: #0f1b2d;
   --kit-ok-fg: #7ee2b8; --kit-late-fg: #ffb4ab;
   --kit-edge: #5b6b80;
+  --kit-field-edge: #66788f; /* 3.61 : 1 on the card, 4.01 on the field */
   --kit-done-bg: #10302a; --kit-done-fg: #a7f3d0; --kit-done-bd: #2f7a62;
   --kit-check-bg: #3b2f14; --kit-check-fg: #fcd58a; --kit-check-bd: #8a6a22;
   --kit-late-bg: #3d1c1f; --kit-late-tone-fg: #ffc2c2; --kit-late-bd: #9b3b42;
@@ -96,7 +98,7 @@
 .kit-label { display: block; font-size: 13px; font-weight: 600; color: var(--color-slateish-300); margin-bottom: var(--kit-space-1); }
 .kit-input, .kit-select, :root[data-look="new"] main input.kit-input, :root[data-look="new"] main select.kit-select {
   display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 40px; font-size: 15px; padding: var(--kit-space-2) var(--kit-space-3);
-  border-radius: var(--kit-radius); border: 1px solid var(--color-ink-500); background: var(--color-ink-900); color: var(--color-slateish-100);
+  border-radius: var(--kit-radius); border: 1px solid var(--kit-field-edge); background: var(--color-ink-900); color: var(--color-slateish-100);
 }
 .kit-hint { display: block; font-size: 13px; color: var(--color-slateish-300); margin-top: var(--kit-space-1); }
 
