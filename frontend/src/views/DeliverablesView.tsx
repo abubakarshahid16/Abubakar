@@ -168,7 +168,7 @@ export function DeliverablesView() {
     <section id="deliverables" className="w-full px-4 py-6">
       <header>
         <p className="text-xs font-semibold uppercase tracking-wider text-signal-400">Project documents to deliver</p>
-        <h1 className="mt-1 text-2xl font-semibold text-slateish-100">Deliverables &amp; timeline</h1>
+        <h1 className="mt-1 text-2xl font-semibold text-slateish-100">Deliverables</h1>
         <p className="mt-1 max-w-2xl text-sm text-slateish-400">Every document the contractor must deliver: its number in the project list, its revision, where it stands and when it is due.</p>
         {NEW_LOOK && <p data-testid="deliverables-summary" className="mt-2 text-sm text-slateish-200">{deliverablesSummary(items, alerts)}</p>}
       </header>

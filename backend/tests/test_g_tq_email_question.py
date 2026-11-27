@@ -222,3 +222,24 @@ def test_a_reference_number_line_is_never_the_form_s_question():
     form = "Technical Query No: 123456789012\nRev. 01\nInvented title\nApproved"
     assert Q.form_question([{"text": form}]) == ""
     assert Q.form_question([{"text": "Question: 1234-5678-9012\nApproved"}]) == ""
+
+
+def test_a_question_with_semicolons_and_a_cover_line_that_asks_stay_question_text():
+    # review of update 14, R2 (invented words)
+    from app import technical_query_mail as M
+
+    asks = (
+        "Please confirm: (a) invented size; (b) invented rating; (c) invented material?"
+    )
+    assert asks in M.email_question(f"Dear All,\n\n{asks}")
+    pointer = "We submit the attached TQ-00077; please confirm the invented rating."
+    assert pointer in M.email_question(f"Dear All,\n\n{pointer}")
+    assert (
+        M.email_question(
+            "Dear All,\n\nWe submit the attached TQ-00077 for your records."
+        )
+        == ""
+    )
+    assert M._address_list(
+        "Invented One; Invented Two; Invented Three"
+    )  # a list of people is still a list of people

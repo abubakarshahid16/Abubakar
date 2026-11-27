@@ -16,6 +16,17 @@ import { usePoll } from "../hooks/usePoll";
 import { NEW_LOOK } from "../look";
 import { InfoFold } from "../components/look/LookParts";
 
+/** WHICH AI ANSWERS, by name (owner's design audit, 26 Nov 2026 23:05, J: "he cannot tell which AI model is connected"). Read from the
+ *  signed-in /api/metrics (the public health check carries no name on purpose). Only what is measured: the local model's name and
+ *  whether it is running. */
+export function answersLine(models: { answer_model: string; answer_model_reachable: boolean }): string {
+  const name = (models.answer_model || "").trim();
+  if (!name) return "Answers: no AI is set up on this computer.";
+  return models.answer_model_reachable
+    ? `Answers: the AI on this computer (${name}).`
+    : `Answers: the AI on this computer (${name}), not running right now.`;
+}
+
 export function DashboardView({
   connection,
   onRetryConnection,
@@ -162,6 +173,7 @@ export function DashboardView({
               total. An admin is now deliberately allowed corpus-wide figures,
               which is only defensible while the screen says so out loud. */}
           {!NEW_LOOK && boundaryLine}
+          {NEW_LOOK && <p data-testid="dashboard-ai-line" className="mt-1 text-sm text-slateish-200">{answersLine(metrics.models)}</p>}
         </div>
         <p className="font-mono text-xs text-slateish-500">
           refreshed {fetchedAt ? formatWhenDate(fetchedAt) : "—"} · every{" "}
@@ -184,9 +196,26 @@ export function DashboardView({
         />
       )}
 
-      <ReadinessPanel metrics={metrics} />
+      {NEW_LOOK ? (
+        <InfoFold title="What works on this computer" className="mt-6"><ReadinessPanel metrics={metrics} /></InfoFold>
+      ) : (
+        <ReadinessPanel metrics={metrics} />
+      )}
 
-      {delivery && (
+      {delivery && NEW_LOOK && (
+        <InfoFold title="Deliverables register, in numbers" className="mt-6">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4" data-testid="delivery-fold">
+            <Stat label="Listed" value={delivery.deliverables_total} />
+            <Stat label="Register findings" value={delivery.review_findings_total} hint={delivery.findings_boundary || "from the register, not the AI review"} />
+            <Stat label="Late" value={delivery.overdue_alerts} tone={delivery.overdue_alerts ? "late" : "good"} />
+            <Stat label="Approved" value={delivery.deliverables_by_status?.approved ?? 0} tone="good" />
+          </div>
+          {onOpenDeliverables && (
+            <button type="button" className="mt-2 text-xs font-medium text-signal-400 hover:underline" onClick={onOpenDeliverables}>Open deliverables</button>
+          )}
+        </InfoFold>
+      )}
+      {delivery && !NEW_LOOK && (
         <section className="card-3d surface-card rounded-[var(--radius-lg)] border border-ink-700 bg-ink-850 p-4" aria-label="EPC delivery overview">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>

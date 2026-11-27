@@ -22,9 +22,12 @@ ITEM_CAP = 2000
 ITEM_CUT = " [cut here: the rest of this item is in the request]"
 #: The version of the evidence SEARCH, stamped on each preparation (technical_queries.evidence_search_version), like a draft's
 #: prompt version: 1 = one search for the whole request; 2 = each numbered item searched on its own (o14 update 21); 3 = each item
-#: searched with its request's lead line. Evidence from an older search is marked out of date, the page offers "Find the sources
-#: again", and the next server start searches it again by itself (lead-4, 27 Nov 2026).
-SEARCH_VERSION = 3
+#: searched with its request's lead line; 4 = the whole request's own best passages always listed too (never crowded out by the
+#: items'). Evidence from an older search is marked out of date, the page offers "Find the sources again", and the next server start
+#: searches it again by itself (lead-4, 27 Nov 2026).
+SEARCH_VERSION = 4
+#: The whole request's own best passages, always listed (before the items'), whatever the number of items.
+WHOLE_BEST = 3
 #: Per item, its best passages listed before the rest.
 PER_ITEM = 3
 #: At most this many items are searched one by one (a longer list: the rest are covered by the whole-question search, and counted).
@@ -84,7 +87,11 @@ def search(
         return whole
     hits = whole.get("hits") or []
     cited = [h for h in hits if h.get("cited")]
-    seen = {_key(h) for h in cited}
+    # the WHOLE request's own best passages are always listed, right after the form's citations, so the items' lists never crowd
+    # them out (F's live redo, 27 Nov 2026: 21 item passages filled the listing and cut the whole request's best, the very passages
+    # its earlier draft rested on)
+    whole_best = [h for h in hits if not h.get("cited")][:WHOLE_BEST]
+    seen = {_key(h) for h in cited + whole_best}
     per_item: list[dict[str, Any]] = []
     for n, item in enumerate(items[:MAX_ITEMS], 1):
         if progress:
@@ -117,7 +124,7 @@ def search(
         note += f" {len(items) - MAX_ITEMS} more items were covered by the search of the whole request only."
     coverage["line"] = (coverage.get("line") or "") + note
     coverage["items"] = len(items)
-    return {**whole, "hits": cited + per_item + rest, "coverage": coverage}
+    return {**whole, "hits": cited + whole_best + per_item + rest, "coverage": coverage}
 
 
 def _key(hit: dict[str, Any]) -> tuple:

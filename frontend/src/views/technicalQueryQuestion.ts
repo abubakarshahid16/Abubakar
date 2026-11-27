@@ -366,10 +366,13 @@ export function statusChip(status: string): { words: string; tone: ChipTone } {
 }
 
 /** The short amber chips of a row; the full sentence goes on hover (and inside the query). */
-export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null }): Array<{ words: string; why: string }> {
+export function problemChips(q: { needs_person?: number | null; ref_type?: string | null; contractor_name?: string | null; contractor_code?: string | null }): Array<{ words: string; why: string }> {
   const out: Array<{ words: string; why: string }> = [];
   if (q.needs_person || !q.ref_type) out.push({ words: "No query number", why: "The subject has no full TQ or CFC number, so a person must check which query this is." });
-  if (!q.contractor_name) out.push({ words: "No contractor", why: "No contractor yet: add its code once under “Rules for who it goes to” (in More) and every query with that code fills itself." });
+  // the code printed in the reference number, when there is one, is named (never a guessed contractor; lead-4, 26 Nov 2026)
+  if (!q.contractor_name) out.push({ words: "No contractor", why: q.contractor_code
+    ? `No contractor yet: its number carries the code ${q.contractor_code}. Name that code once under “Rules for who it goes to” (in More) and every query with it fills itself.`
+    : "No contractor yet: add its code once under “Rules for who it goes to” (in More) and every query with that code fills itself." });
   return out;
 }
 

@@ -181,7 +181,31 @@ def _headings(lines: list[str]) -> list[tuple[int, str]]:
             )
         if heading:
             out.append((i, heading))
-    return out
+    # several decimal-looking numbers alone ("1.5", "2.0") on one page are values of a table with text rows between: each is a heading
+    # only beside a heading of the same chapter that is not one (a one-line heading, a number of two or more levels; review of update
+    # 14, N5). A single one keeps its title ("5.6" then "Testing" is a heading laid out on two lines).
+    decimal = re.compile(r"\d+\.\d+$")
+    alone = {
+        i
+        for i, h in out
+        if _NUMBER_ALONE.match(lines[i]) and decimal.match(lines[i].strip())
+    }
+    if len(alone) < 2:
+        return out
+    anchors = {h.split(".")[0] for i, h in out if i not in alone and h[:1].isdigit()}
+    # consecutive numbers of one chapter (4.1, then 4.2) are clauses laid out on two lines, not table values
+    numbers = {tuple(int(x) for x in lines[i].strip().split(".")) for i in alone}
+    clauses = {
+        (a, b) for a, b in numbers if (a, b - 1) in numbers or (a, b + 1) in numbers
+    }
+
+    def kept(i: int, h: str) -> bool:
+        number = (
+            tuple(int(x) for x in lines[i].strip().split(".")) if i in alone else None
+        )
+        return number is None or h.split(".")[0] in anchors or number in clauses
+
+    return [(i, h) for i, h in out if kept(i, h)]
 
 
 #: How far into a passage a heading may stand and still be its locator, when no heading stands above it on the page.
@@ -251,16 +275,20 @@ _NEGATION = re.compile(
 )
 
 
+_CLAUSE_END = re.compile(r"[.!?;:,](?= )")
+
+
 def whole_sentences(on: str, run: str, reach: int = 600) -> str | None:
     """A verbatim run widened ON THE PAGE to its sentences' start and end (review of update 13, N4: a fragment starting after "shall not"
-    inverts the meaning); None when the start cannot be found within `reach` characters and a negation stands just before the run."""
+    inverts the meaning). With no sentence end within `reach` characters before the run, it starts at the nearest clause mark (a comma,
+    a semicolon, a colon); with none of those either, the run stands alone only if no negation stands in the words before it, else no
+    quote at all (review of update 14, N4: a negation more than four words back)."""
     at = on.find(run)
-    ends = [m.end() for m in _SENTENCE_END.finditer(on, max(0, at - reach), at)]
-    if (
-        not ends
-        and at > 0
-        and _NEGATION.search(" ".join(on[max(0, at - 60) : at].split()[-4:]))
-    ):
+    window = max(0, at - reach)
+    ends = [m.end() for m in _SENTENCE_END.finditer(on, window, at)]
+    if not ends:
+        ends = [m.end() for m in _CLAUSE_END.finditer(on, window, at)]
+    if not ends and at > 0 and _NEGATION.search(on[window:at]):
         return None
     start = ends[-1] if ends else (0 if at <= reach else at)
     after = _SENTENCE_END.search(on, at + len(run) - 1, at + len(run) + reach)
@@ -297,3 +325,11 @@ def _reference(text: str) -> str | None:
         return dotted.group(1)
     tail = _REF_TAIL.search(text)
     return " ".join(tail.group(1).split()) if tail else None
+
+
+def titled(number: str, page_text: str) -> str | None:
+    """The heading of clause `number` on the page with its title ("7.5 Invented Coating"), or None when the page holds none."""
+    for _, heading in _headings((page_text or "").splitlines()):
+        if heading.startswith(f"{number} ") and len(heading) > len(number) + 1:
+            return heading
+    return None

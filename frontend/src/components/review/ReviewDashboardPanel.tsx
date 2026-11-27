@@ -299,7 +299,8 @@ export function ReviewDashboardPanel(
       {/* ----------------------------------------- Recent Reviews table */}
       {data && (
       <div className="mt-4">
-        <h3 className="text-xs uppercase tracking-wide text-slateish-400">
+        {/* one heading style on the page (owner's design audit, 26 Nov 2026 23:05, F): sentence case like the others in the new look */}
+        <h3 className={NEW_LOOK ? "text-base font-semibold text-slateish-200" : "text-xs uppercase tracking-wide text-slateish-400"}>
           Recent reviews
         </h3>
         {data.recent.length === 0 ? (
