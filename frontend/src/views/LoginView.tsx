@@ -19,6 +19,7 @@ import { useId, useState, type FormEvent } from "react";
 import { SIGN_IN_ENDED_LINE, clearSignInEnded, useSignInEndedOnStart } from "../components/review/workspace/startFailures";
 import type { SessionExpired } from "../hooks/useSessionExpiry";
 import type { LoginRequest, Me } from "../types/api";
+import { Tag } from "../components/kit/Kit";
 
 export type LoginOutcome =
   | { ok: true }
@@ -303,6 +304,20 @@ function ConnectionLine({ connected }: { connected: boolean }) {
  * and it says so quietly - never a placeholder name, because a made-up
  * "Administrator" on a report or a screen is a false attribution.
  */
+/** A role in everyday words (owner's 03:30 list, H: "TECHNICAL_QUERY_REVIEWER" and "IT ADMIN" in capitals were system words in the
+ *  menu). A known role has its own words; any other loses its underscores and capitals. The kit's neutral tag, never a status colour. */
+const ROLE_WORDS: Record<string, string> = {
+  admin: "Administrator",
+  it: "IT",
+  technical_query_reviewer: "Query reviewer",
+};
+export function roleWords(role: string): string {
+  const known = ROLE_WORDS[role.trim().toLowerCase()];
+  if (known) return known;
+  const plain = role.trim().replace(/[_-]+/g, " ").toLowerCase();
+  return plain.charAt(0).toUpperCase() + plain.slice(1);
+}
+
 export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => void }) {
   if (me === null) {
     // Not role="status". A live region announces CHANGES, and this text never
@@ -328,14 +343,7 @@ export function RoleBadge({ me, onLogout }: { me: Me | null; onLogout: () => voi
         {me.roles.length === 0 ? (
           <span className="text-slateish-500">no roles</span>
         ) : (
-          me.roles.map((r) => (
-            <span
-              key={r}
-              className="rounded-[var(--radius-xs)] bg-ink-700 px-1.5 py-0.5 text-xs uppercase tracking-wide text-slateish-300"
-            >
-              {r}
-            </span>
-          ))
+          me.roles.map((r) => <Tag key={r}>{roleWords(r)}</Tag>)
         )}
       </div>
       <button
