@@ -130,8 +130,8 @@ export function Tile({ name, number, label, done, late, lateWords, onOpen }: {
 }
 
 /** A row of tiles: side by side on a wide window, one column on a narrow one. */
-export function Tiles({ children, label }: { children: ReactNode; label: string }) {
-  return <div className="kit-tiles" role="group" aria-label={label}>{children}</div>;
+export function Tiles({ children, label, testId }: { children: ReactNode; label: string; testId?: string }) {
+  return <div className="kit-tiles" role="group" aria-label={label} data-testid={testId}>{children}</div>;
 }
 
 /** Small grey text (an "updated 1 min ago" line): 13px, never mono. */
