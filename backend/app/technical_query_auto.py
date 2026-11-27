@@ -588,6 +588,10 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         if item.get("draft_note")
         else "none",
         "draft_fresh": bool(latest) and (latest.get("question") or "") == question,
+        # the latest reply is an AI draft from before today's draft checks, and today's rewrite of it was STOPPED (its note says why): the
+        # page shows it as an old reply, never as the current proposal (builder A's scope of fault 2, 27 Nov 2026: 13 such on live)
+        "draft_old": not busy and bool(latest) and bool(item.get("draft_note")) and bool(latest.get("model"))
+        and (latest.get("prompt_version") or "").startswith("system-draft-") and latest.get("prompt_version") != SYSTEM_DRAFT,
         "draft_note": None if busy else item.get("draft_note"),
         "marks": found_marks,
         "cited": cited_by_contractor(item),

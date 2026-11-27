@@ -207,6 +207,8 @@ export interface ReadyState {
   draft: "ready" | "refreshing" | "none" | "not_written";
   draft_fresh: boolean;
   draft_note?: string | null;
+  /** The reply shown is an AI draft from before today's checks; today's rewrite of it was stopped (draft_note says why). */
+  draft_old?: boolean | null;
   marks?: string[];
 }
 
@@ -217,6 +219,7 @@ export function readyLine(r: ReadyState | null | undefined): string | null {
   if (r.draft === "refreshing") return "Writing the reply from the sources found.";
   if (r.evidence === "failed") return "The sources could not be found. Try Find the sources again.";
   if (r.draft === "not_written") return r.draft_note ? `No reply was written: ${r.draft_note}.` : "No reply was written.";
+  if (r.draft === "ready" && r.draft_old) return `A new reply was not written: ${r.draft_note ?? "see the note below"}. The reply below is an older one.`;
   if (r.draft === "ready" && !r.draft_fresh) return "The reply answers an earlier wording of the question.";
   return null;
 }
