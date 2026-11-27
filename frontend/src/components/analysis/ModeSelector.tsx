@@ -77,7 +77,8 @@ export function ModeSelector({
         <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slateish-400">
           Analysis mode
         </legend>
-        <div className="mt-2 grid gap-2 md:grid-cols-3 lg:grid-cols-1">
+        {/* one option per line at every width: three side by side were squeezed beside the menu at 800 (H, 27 Nov 2026) */}
+        <div className="mt-2 grid gap-2">
           {MODES.map((m) => {
             const inputId = `${id}-mode-${m.value}`;
             const descId = `${inputId}-desc`;
