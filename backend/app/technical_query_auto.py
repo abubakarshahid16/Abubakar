@@ -384,6 +384,9 @@ def write_draft(
     if gap:
         unresolved.append(gap)
     unresolved += reply_marks(result, advice)  # the advice is for the engineer only, never part of the reply
+    from .technical_query_source_fit import marks as fit_marks
+
+    unresolved += fit_marks(result["answer"], seen_sources(result))  # a source that may not say its sentence: pointed at, never stopped
     from .technical_query_refs import mark as refs_mark
 
     named = refs_mark(
