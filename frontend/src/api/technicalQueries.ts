@@ -261,7 +261,7 @@ export function proposalNoteWords(note: string | null | undefined, hasProposal: 
   const then = hasProposal
     ? "The question below is copied from the form. Please check it."
     : "Read the attached file below and type the question.";
-  if (note === "model_unavailable") return `The AI could not read the attached file. ${then}`;
+  if (note === "model_unavailable") return `The AI is not available, so it suggested no question from the attached file. ${then}`;
   if (note === "none_found") return `The AI found no separate question in the attached file. ${then}`;
   if (note === "not_on_page") return `The AI's questions were not word for word on the page, so none was kept. ${then}`;
   return null;

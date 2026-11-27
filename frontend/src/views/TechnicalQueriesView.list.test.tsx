@@ -114,7 +114,7 @@ describe("the query list page", () => {
     const problems = await screen.findAllByTestId("query-problem");
     expect(problems.map((p) => p.textContent)).toEqual([
       "No query number. Check which query this is. The subject has no full TQ or CFC number.",
-      "No contractor. Add its code once under More, \u201cRules for who it goes to\u201d, and every query with this code is set for you.",
+      "No contractor. Under More, \u201cRules for who it goes to\u201d, add this contractor's code once. Every query with this code then gets it.",
     ]);
   });
 

@@ -518,7 +518,7 @@ describe("Technical Queries screen", () => {
   it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
     expect(proposalNoteWords("none_found", true)).toBe("The AI found no separate question in the attached file. The question below is copied from the form. Please check it.");
     expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attached file below and type the question\./);
-    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI could not read the attached file\./);
+    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI is not available, so it suggested no question from the attached file\./);
     expect(proposalNoteWords(null, true)).toBeNull();
   });
 
@@ -638,8 +638,8 @@ describe("the queue's contractor chip (lead-4, 26 Nov 2026)", () => {
     const named = problemChips({ ref_type: "CFC", contractor_name: "Invented Contractor", contractor_code: "INVCO" });
     expect(named.find((c) => c.words === "No contractor")).toBeUndefined();
     const coded = problemChips({ ref_type: "CFC", contractor_name: null, contractor_code: "INVCO" }).find((c) => c.words === "No contractor");
-    expect(coded?.why).toContain("Add the code INVCO once");
+    expect(coded?.why).toContain("say which contractor the code INVCO is");
     const bare = problemChips({ ref_type: "CFC", contractor_name: null, contractor_code: null }).find((c) => c.words === "No contractor");
-    expect(bare?.why).toBe("Add its code once under More, “Rules for who it goes to”, and every query with this code is set for you.");
+    expect(bare?.why).toBe("Under More, “Rules for who it goes to”, add this contractor's code once. Every query with this code then gets it.");
   });
 });

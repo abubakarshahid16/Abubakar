@@ -384,7 +384,7 @@ export function wordReplyWhyNot(q: { status: string; drafts?: unknown[] | null }
 /** "From the subject: contractor code ABC, discipline PRO" beside empty fields, so they are never blank with no hint; null when nothing was read. */
 export function fromSubjectHint(q: { contractor_code?: string | null; discipline_code?: string | null }): string | null {
   const parts = [q.contractor_code ? `contractor code ${q.contractor_code}` : "", q.discipline_code ? `discipline ${q.discipline_code}` : ""].filter(Boolean);
-  return parts.length ? `From the subject: ${parts.join(", ")}. Add a rule once under More, “Rules for who it goes to”, and every query with this code is set for you.` : null;
+  return parts.length ? `From the subject: ${parts.join(", ")}. Under More, “Rules for who it goes to”, add a rule once. Every query with this code then gets it.` : null;
 }
 
 /** The decisions so far in plain words; empty: "Nobody has approved this yet." */
@@ -419,8 +419,8 @@ export function problemChips(q: { needs_person?: number | null; ref_type?: strin
   if (q.needs_person || !q.ref_type) out.push({ words: "No query number", why: "Check which query this is. The subject has no full TQ or CFC number." });
   // the code printed in the reference number, when there is one, is named (never a guessed contractor; lead-4, 26 Nov 2026)
   if (!q.contractor_name) out.push({ words: "No contractor", why: q.contractor_code
-    ? `Add the code ${q.contractor_code} once under More, “Rules for who it goes to”, and every query with this code is set for you.`
-    : "Add its code once under More, “Rules for who it goes to”, and every query with this code is set for you." });
+    ? `Under More, “Rules for who it goes to”, say which contractor the code ${q.contractor_code} is. Every query with this code then gets it.`
+    : "Under More, “Rules for who it goes to”, add this contractor's code once. Every query with this code then gets it." });
   return out;
 }
 

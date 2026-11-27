@@ -35,8 +35,8 @@ const RULE_WORDS: Record<RoutingRuleType, string> = {
 };
 
 const SCAN_LABELS: Record<string, string> = {
-  static_check_clean: "no harmful content found (not a virus scan)",
-  static_check_flagged: "harmful content found: its text is not used",
+  static_check_clean: "no macros or scripts found (not a virus scan)",
+  static_check_flagged: "macros or scripts found: its text is not used",
   static_check_unreadable: "could not be checked",
   not_scanned: "not checked",
   pending: "not checked yet",
@@ -67,7 +67,7 @@ function Quote({ text, words }: { text: string; words: string[] }) {
 }
 
 /** What "Confirm source document" does, in one line beside it (owner's live walk, 27 Nov 2026, via lead-4). */
-export const CONFIRM_SOURCE_HINT = "Check it is the latest revision first. Then its quotes can be used in a reply.";
+export const CONFIRM_SOURCE_HINT = "Confirm marks this document as checked, so its quotes can be used in a reply. Check it is the latest revision first.";
 
 /** A source link's own words: the document's name (and kind) and the place, never only "page N" beside a raw address (owner, 27 Nov 2026).
  *  A source with no recorded name keeps "Open source". */
@@ -304,7 +304,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
     setError(null);
     void action().then((result) => {
       setBusy(false);
-      if (!result.ok) { setError(result.error?.message || "That did not work. Nothing was changed. Please try again."); return; }
+      if (!result.ok) { setError(result.error?.message || "That did not work. Please try again."); return; }
       if (result.data) { setSelected(result.data); setEditedAnswer(result.data.drafts?.at(-1)?.answer || ""); setItems((current) => current.map((item) => item.id === result.data?.id ? result.data : item)); }
     });
   };
@@ -484,7 +484,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             {prepareAll.plan.unprepared > 0 && <Button variant="primary" size="sm" onClick={() => void technicalQueriesApi.prepareAllStart().then((result) => { if (result.ok) setPrepareAll({ plan: result.data, asking: false }); else { setPrepareAll(null); setError(result.error.message); } })}>Yes, prepare them</Button>}
             <Button variant="secondary" size="sm" onClick={() => setPrepareAll(null)}>{prepareAll.plan.unprepared > 0 ? "Cancel" : "Close"}</Button>
           </div>}
-          {prepareAll && !prepareAll.asking && <p role="status" className="mt-1" data-testid="prepare-all-progress">{prepareAll.plan.waiting_or_running > 0 ? `Finding sources in the background: ${prepareAll.plan.waiting_or_running} still to do.` : "Every query has its sources."}</p>}
+          {prepareAll && !prepareAll.asking && <p role="status" className="mt-1" data-testid="prepare-all-progress">{prepareAll.plan.waiting_or_running > 0 ? `Finding sources in the background: ${prepareAll.plan.waiting_or_running} still to do.` : "Every query has been searched."}</p>}
         </div>}
           {rules !== null && <details className="rounded border border-ink-700 p-2 text-xs text-slateish-300"><summary className="cursor-pointer">Rules for who it goes to ({rules.length})</summary>
             <p className="mt-2 text-slateish-400">Set each rule once. A contractor code in the query number sets the contractor. A discipline code sets the department. If the number has no code, the sender's email address or domain is used. A rule fills only empty fields, for new and existing queries. A public email domain cannot be used; an exact address can.</p>
@@ -499,7 +499,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             </> : null,
             handForm: <>
           {handOpen && <div className="mt-2 space-y-1 rounded border border-ink-700 p-3 text-xs text-slateish-300" aria-label="New query by hand">
-            <p className="text-slateish-400">For a query that did not come by email. Files you add are checked for harmful content.</p>
+            <p className="text-slateish-400">For a query that did not come by email. Files you add are checked for macros and scripts. This is not a virus scan.</p>
             <label className="block">Subject<input value={handSubject} onChange={(event) => setHandSubject(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
             <label className="block">Contractor<input value={handContractor} onChange={(event) => setHandContractor(event.target.value)} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
             <label className="block">The question, as asked<textarea value={handBody} onChange={(event) => setHandBody(event.target.value)} rows={4} className="mt-1 w-full rounded border border-ink-600 bg-ink-900 p-1.5" /></label>
@@ -567,7 +567,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           {selected.confirmed_question
             ? <p className="mt-1 text-xs text-slateish-400">Checked by an engineer{selected.confirmed_question_at ? ` on ${formatWhen(selected.confirmed_question_at)}` : ""}.</p>
             : (selected.ready && questionDraft.trim()) ? null // the server's own mark says it ("proposed by the system; no engineer has confirmed it yet")
-            : <p className="mt-1 text-xs text-warn-500">{questionDraft.trim() ? "Suggested by the AI from the email. Nobody has checked it yet." : "No question found. Type it below."}</p>}
+            : <p className="mt-1 text-xs text-warn-500">{questionDraft.trim() ? "Suggested by the AI from the email and its files. Nobody has checked it yet." : "No question found. Type it below."}</p>}
           {proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question)) && <p className="mt-1 text-xs text-warn-500" data-testid="proposal-note">{proposalNoteWords(selected.proposal_note, Boolean(selected.proposed_question))}</p>}
           {!editingQuestion && questionDraft.trim() ? (
             <div data-testid="question-readable" className="mt-2 rounded border border-ink-700 p-3 text-sm text-slateish-100">
@@ -604,7 +604,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
             {selected.ready && questionDraft.trim() && questionDraft.trim() !== selected.ready.question.trim() && <Button variant="secondary" size="sm" disabled={busy} onClick={saveQuestion}>Save and find the sources again</Button>}
             <Button variant="primary" size="sm" disabled={busy || !selected.can_review || !questionDraft.trim() || questionDraft.trim() === (selected.confirmed_question || "")} title={selected.can_review ? undefined : "Only a qualified reviewer can confirm the question"} onClick={confirmQuestion}>Confirm</Button>
             <p className="mt-1 text-xs text-slateish-400">Confirm means you checked it. Nothing is sent.</p>
-            <InfoFold title="About checking the question" className="mt-1 text-xs">Confirm means you checked this is the contractor's question. Nothing is sent. Confirm is optional: approving the reply also records the question. If you edit it, the sources and the reply are found again.</InfoFold>
+            <InfoFold title="About checking the question" className="mt-1 text-xs">Confirm means you checked this is the contractor's question. Nothing is sent. Confirm is optional: approving the reply also records the question. If you edit it, the sources are found again and the reply is written again.</InfoFold>
             {!selected.can_review && <p className="mt-1 text-xs text-slateish-500">Only a reviewer can confirm the question.</p>}
           </div>}
           {/* WHAT THE CONTRACT OR STANDARD SAYS (owner, 26 Nov 2026 22:41): the sources the reply stands on, each with its source, clause
@@ -758,7 +758,7 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
               <p className="mt-2 whitespace-pre-wrap">{message.body_main ?? message.body}</p>
               <Folded text={message.body_folded} />
               {message.attachments.some((a) => !isInlinePicture(a)) && <ul className="mt-2 list-disc pl-5">{message.attachments.filter((a) => !isInlinePicture(a)).map((attachment) => <li key={attachment.filename}>{attachment.document_id ? <a className="underline" href={`/api/technical-queries/${encodeURIComponent(selected.id)}/attachments/${encodeURIComponent(attachment.id)}/original`} target="_blank" rel="noreferrer">{attachment.filename}</a> : attachment.filename} ({attachment.size_bytes} bytes) · <span data-testid="attachment-state">{notReadWhy(attachment) ? `not read: ${notReadWhy(attachment)}` : `read · ${SCAN_LABELS[attachment.scan_status] ?? attachment.scan_status.replaceAll("_", " ")}`}</span>
-                {attachment.document_id && !attachment.filed_at && <span data-testid="attachment-unfiled"> · kept out of the library: not found by search, Chat or the review list{selected.can_review ? <> <select aria-label="Role to add this file under" value={fileRole} onChange={(event) => setFileRole(event.target.value)} className="ml-1 rounded border border-ink-600 bg-ink-900 p-1 text-xs"><option value="SUPPORTING_DOCUMENT">Supporting document</option><option value="CONTRACTOR_SUBMITTAL">Contractor submittal</option><option value="SPECIFICATION">Specification</option><option value="CONTRACT_DOCUMENT">Contract document</option><option value="COMPANY_STANDARD">Company standard</option></select> <Button variant="secondary" size="sm" disabled={busy} onClick={() => setConfirming({ kind: "file", attachmentId: attachment.id })}>File into the library</Button>{confirming?.kind === "file" && confirming.attachmentId === attachment.id && <span role="alertdialog" aria-label="Confirm filing" className="ml-2 rounded border border-warn-500 p-1" data-testid="confirm-file">Add this file to the library? It then shows in search, Chat and the review list. <Button variant="primary" size="sm" disabled={busy} onClick={() => { setConfirming(null); act(() => technicalQueriesApi.fileIntoLibrary(selected.id, attachment.id, fileRole)); }}>Yes, file it</Button> <Button variant="secondary" size="sm" onClick={() => setConfirming(null)}>Cancel</Button></span>}</> : null}</span>}
+                {attachment.document_id && !attachment.filed_at && <span data-testid="attachment-unfiled"> · kept out of the library: not found by search, Chat or the review list{selected.can_review ? <> <select aria-label="Role to add this file under" value={fileRole} onChange={(event) => setFileRole(event.target.value)} className="ml-1 rounded border border-ink-600 bg-ink-900 p-1 text-xs"><option value="SUPPORTING_DOCUMENT">Supporting document</option><option value="CONTRACTOR_SUBMITTAL">Contractor submittal</option><option value="SPECIFICATION">Specification</option><option value="CONTRACT_DOCUMENT">Contract document</option><option value="COMPANY_STANDARD">Company standard</option></select> <Button variant="secondary" size="sm" disabled={busy} onClick={() => setConfirming({ kind: "file", attachmentId: attachment.id })}>File into the library</Button>{confirming?.kind === "file" && confirming.attachmentId === attachment.id && <span role="alertdialog" aria-label="Confirm filing" className="ml-2 rounded border border-warn-500 p-1" data-testid="confirm-file">Add this file to the library? It then shows in search, Chat and the review list, for the role you choose. <Button variant="primary" size="sm" disabled={busy} onClick={() => { setConfirming(null); act(() => technicalQueriesApi.fileIntoLibrary(selected.id, attachment.id, fileRole)); }}>Yes, file it</Button> <Button variant="secondary" size="sm" onClick={() => setConfirming(null)}>Cancel</Button></span>}</> : null}</span>}
               </li>)}</ul>}
             </article>)}
           </details>
