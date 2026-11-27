@@ -37,32 +37,55 @@ def test_nothing_is_added_when_the_request_raises_cost_or_schedule_and_the_page_
         assert P.position_mark("Class 300 applies [S1].", ask, True) == P.RAISED_MARK
 
 
-def test_the_wider_money_and_time_requests_found_by_the_gate_are_raised_too():
-    # builder H's gate of #1963: these three got the no-impact sentence; each later pattern has its own line
-    for ask in (
-        "Please confirm who bears the cost of the extra valves.",
-        "The late drawings delay our work by 3 weeks; please confirm.",
-        "We request schedule relief for the tie-in.",
-        "Who will pay for the re-test?",
-        "At whose expense is the second coat applied?",
-        "The supply is delayed; please advise.",
-        "The fabrication will slip unless the datasheet is approved.",
-        "The work is now behind schedule.",
-        "Please confirm the extra time needed for the hydrotest.",
-        "Please confirm the schedule extension for item 4.",
-        "The delivery is 2 weeks late.",
-    ):
+RAISES = (
+    # builder H's second gate of #1963: these got the sentence before the rule was flipped
+    "Contractor claims a 2-week extension for the pipe rack.",
+    "This change will increase the contract price.",
+    "We cannot meet the milestone date without this information.",
+    "Additional manhours are required for this scope.",
+    "The rework is at COMPANY's expense.",
+    "This will push the mechanical completion date.",
+    # builder H's first gate, and earlier cases
+    "Please confirm who bears the cost of the extra valves.",
+    "The late drawings delay our work by 3 weeks; please confirm.",
+    "We request schedule relief for the tie-in.",
+    "Who will pay for the re-test?",
+    "The supply is delayed; please advise.",
+    "The fabrication will slip unless the datasheet is approved.",
+    "The work is now behind schedule.",
+    "Please confirm the extra time needed for the hydrotest.",
+    "The delivery is 2 weeks late.",
+)
+TECHNICAL = (
+    "What is the time delay setting of the trip relay?",
+    "Is pipe schedule 80 acceptable for this line?",
+    "Per Schedule B, which standard applies?",
+    "Is the scheduled maintenance interval stated?",
+    "Which revision of the datasheet is the latest?",
+    "What is the design pressure of the vessel?",
+    "Is a slip-on flange acceptable?",
+    "What flow rate is required?",
+    "Is a push button required at the panel?",
+    "Which seismic acceleration applies?",
+    "Is the drain behind the column acceptable?",
+)
+
+
+def test_the_flipped_rule_any_money_or_time_word_means_no_sentence():
+    for ask in RAISES:
         assert P.raises_cost(ask), ask
         assert (
             P.with_position("Class 300 applies [S1].", ask) == "Class 300 applies [S1]."
         ), ask
-    for plain in (
-        "What is the time delay of the trip relay?",
-        "Is the scheduled maintenance interval stated?",
-        "Which flange class applies to the plate?",
-        "Which revision of the datasheet is the latest?",
-    ):
-        assert not P.raises_cost(plain), plain
+        assert P.position_mark("Class 300 applies [S1].", ask, True) == P.RAISED_MARK
+
+
+def test_technical_words_that_only_look_like_money_or_time_still_get_the_sentence():
+    for ask in TECHNICAL:
+        assert not P.raises_cost(ask), ask
+        assert P.with_position("Class 300 applies [S1].", ask).endswith(
+            P.POSITION_LINE
+        ), ask
 
 
 def test_the_set_sentence_is_independent_wording():
