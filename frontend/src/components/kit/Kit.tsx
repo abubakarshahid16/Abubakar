@@ -159,6 +159,18 @@ export function ChipButton({ word, detail, expanded, controls, onClick, testId }
   );
 }
 
+/** The one "show more" of a long list (H's audit #10, 27 Nov 2026: 40+ rows drawn at once): how many of how many are shown, and the
+ *  next `step` one press away. Nothing when every item is shown. Every item stays reachable; none is dropped. */
+export function ShowMore({ shown, total, step, onMore, testId }: { shown: number; total: number; step: number; onMore: () => void; testId?: string }) {
+  if (shown >= total) return null;
+  return (
+    <div className="kit-show-more" data-testid={testId}>
+      <span className="kit-small">Showing {shown.toLocaleString("en-US")} of {total.toLocaleString("en-US")}.</span>
+      <Button variant="secondary" size="sm" onClick={onMore}>Show {Math.min(step, total - shown)} more</Button>
+    </div>
+  );
+}
+
 /** A button that reads as a link in running text (a count that filters, "show all"). `pressed` marks the one that is on.
  *  A LINK STAYS A LINK (owner, 27 Nov 2026: a fix, not a redesign): every control that was a text link keeps this part, never a Button.
  *  `tone`: action = the teal link, underlined on hover ("← Reviews", "page 4", "See all"); danger = the red underlined link (Cancel a run);

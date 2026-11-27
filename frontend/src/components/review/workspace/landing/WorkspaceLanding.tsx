@@ -47,7 +47,10 @@ import { StartReviewBar } from "./StartReviewBar";
 import { allRunsOf, landingRowsOf, matchesName } from "./landingRows";
 import { loadReadyCounts as defaultLoadReadyCounts } from "./readyCounts";
 import { NEW_LOOK } from "../../../../look";
-import { Button } from "../../../kit/Kit";
+import { Button, ShowMore } from "../../../kit/Kit";
+
+/** Rows drawn at first, and added per press of "Show more" (H's audit #10). */
+export const LANDING_PAGE = 20;
 
 export const LANDING_HELP_TEXT =
   "To check a new file, pick it and press Start review. To finish one, press Open, decide each comment, then sign.";
@@ -116,6 +119,9 @@ export function WorkspaceLanding({
   const [helpHidden, setHelpHidden] = useState(readHelpHidden);
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [limit, setLimit] = useState(LANDING_PAGE);
+  // a new search or the other list starts again from the first page
+  useEffect(() => setLimit(LANDING_PAGE), [query, showAll]);
   const [counts, setCounts] = useState<Record<string, ReadyCounts | null>>({});
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [batching, setBatching] = useState(false);
@@ -133,6 +139,8 @@ export function WorkspaceLanding({
   const allItems = useMemo(() => allRunsOf(documents, runs), [documents, runs]);
   const shownRows = rows.filter((row) => matchesName(row.filename, query));
   const shownItems = allItems.filter((item) => matchesName(item.filename, query));
+  const pageRows = shownRows.slice(0, limit);
+  const pageItems = shownItems.slice(0, limit);
   const notReviewed = rows.filter((row) => row.state.kind === "not_reviewed");
   /** Rule 4: the not-reviewed count comes from the contractor documents
    *  list, which may be cut short; say so where that count is shown. */
@@ -144,8 +152,8 @@ export function WorkspaceLanding({
 
   // Only the finished, unsigned runs on screen need counts; each id is asked once.
   const wanted = (showAll
-    ? shownItems.map((i) => i.run).filter((r) => r.status === "completed" && !r.crs_issued_at)
-    : shownRows.filter((r) => r.state.kind === "ready" && r.latest).map((r) => r.latest!)
+    ? pageItems.map((i) => i.run).filter((r) => r.status === "completed" && !r.crs_issued_at)
+    : pageRows.filter((r) => r.state.kind === "ready" && r.latest).map((r) => r.latest!)
   ).map((r) => r.review_run_id);
   const wantedKey = wanted.join(",");
   useEffect(() => {
@@ -318,12 +326,12 @@ export function WorkspaceLanding({
               <p className="text-xs text-slateish-400" data-testid="landing-counts-note">{LANDING_COUNTS_NOTE}</p>
             )}
             {showAll ? (
-              <AllReviewsList items={shownItems} counts={counts} onOpenRun={onOpenRun} />
+              <><AllReviewsList items={pageItems} counts={counts} onOpenRun={onOpenRun} /><ShowMore testId="landing-more" shown={pageItems.length} total={shownItems.length} step={LANDING_PAGE} onMore={() => setLimit((n) => n + LANDING_PAGE)} /></>
             ) : shownRows.length === 0 ? (
               <p className="text-sm text-slateish-300" data-testid="landing-no-match">No file name matches what you typed.</p>
             ) : (
               <ul className="space-y-2">
-                {shownRows.map((row) => (
+                {pageRows.map((row) => (
                   <LandingDocumentRow
                     key={row.documentId}
                     row={row}
@@ -339,6 +347,7 @@ export function WorkspaceLanding({
                 ))}
               </ul>
             )}
+            {!showAll && <ShowMore testId="landing-more" shown={pageRows.length} total={shownRows.length} step={LANDING_PAGE} onMore={() => setLimit((n) => n + LANDING_PAGE)} />}
           </>
         )}
       </section>
