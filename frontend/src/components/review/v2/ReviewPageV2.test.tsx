@@ -995,7 +995,7 @@ describe("12 the general review's results page (order 14)", () => {
     expect(screen.getByTestId("v2-kind-line")).not.toHaveTextContent("heat exchanger");
   });
 
-  it("a finished general review hides the plan of a NEW review behind 'Review this paper again' and asks for no plan until it is opened", async () => {
+  it("a finished general review hides the plan of a NEW review behind 'New review' and asks for no plan until it is opened", async () => {
     api.general.mockResolvedValue(ok(general()));
     api.plan.mockClear();
     mount();

@@ -48,6 +48,7 @@ like a world-class app?" This page is the one word list for every screen. Where 
 | Use a source, or not | **Keep** / **Reject** | |
 | Search the documents again | **Find the sources again** | |
 | Have the AI write the reply again | **Write the reply again** | |
+| Start a review of a document, whether or not it was reviewed before | **New review** (the list row, the opened review's header and the New review card) | Review this paper again, Review again, Start review (as a row's button) |
 | Write it yourself | **Write the reply yourself** | |
 | Open a file or a page | **Open** | |
 | Save a file to your computer | **Download** | |
