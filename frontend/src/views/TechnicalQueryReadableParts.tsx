@@ -4,10 +4,30 @@
 import type { ReactElement } from "react";
 
 import { Fold } from "../components/kit/Kit";
-import { boldPieces, plainTitle, replyBlocks } from "./technicalQueryReadable";
+import { boldPieces, bulletText, plainTitle, replyBlocks } from "./technicalQueryReadable";
 
 function Inline({ text }: { text: string }) {
   return <>{boldPieces(text).map((p, i) => (p.bold ? <strong key={i} className="font-semibold text-slateish-100">{p.text}</strong> : <span key={i}>{p.text}</span>))}</>;
+}
+
+/** An answer's lines under its title: bullet lines as a list, the others as paragraphs. */
+function Body({ lines }: { lines: string[] }) {
+  const out: ReactElement[] = [];
+  let run: string[] = [];
+  const flush = () => {
+    if (run.length) out.push(<ul key={`u-${out.length}`} className="mt-1 list-disc space-y-1 pl-5">{run.map((t, k) => <li key={k}><Inline text={t} /></li>)}</ul>);
+    run = [];
+  };
+  lines.forEach((line, j) => {
+    const bullet = bulletText(line);
+    if (bullet !== null) run.push(bullet);
+    else {
+      flush();
+      out.push(<p key={`l-${j}`} className="mt-1"><Inline text={line} /></p>);
+    }
+  });
+  flush();
+  return <>{out}</>;
 }
 
 /** The reply: each numbered answer a list item (its title in bold, its lines under it), the lead and closing paragraphs as paragraphs. */
@@ -15,18 +35,25 @@ export function ReplyText({ answer }: { answer: string }) {
   const blocks = replyBlocks(answer);
   const out: ReactElement[] = [];
   let items: ReactElement[] = [];
+  let bullets: ReactElement[] = [];
   const flush = () => {
     if (items.length) out.push(<ol key={`ol-${out.length}`} className="mt-2 list-decimal space-y-3 pl-6">{items}</ol>);
+    if (bullets.length) out.push(<ul key={`ul-${out.length}`} className="mt-2 list-disc space-y-1 pl-6">{bullets}</ul>);
     items = [];
+    bullets = [];
   };
   blocks.forEach((b, i) => {
     if (b.kind === "item") {
+      if (bullets.length) flush(); // keep the reply's own order
       items.push(
         <li key={`i-${i}`} value={b.n}>
           <p className="font-semibold text-slateish-100">{plainTitle(b.title)}</p>
-          {b.body.map((line, j) => <p key={j} className="mt-1"><Inline text={line} /></p>)}
+          <Body lines={b.body} />
         </li>,
       );
+    } else if (b.kind === "bullet") {
+      if (items.length) flush();
+      bullets.push(<li key={`b-${i}`}><Inline text={b.text} /></li>);
     } else {
       flush();
       out.push(<p key={`p-${i}`} className="mt-2"><Inline text={b.text} /></p>);

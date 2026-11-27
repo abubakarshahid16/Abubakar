@@ -566,7 +566,8 @@ export function TechnicalQueriesView({ queryId, isAdmin = false }: { queryId?: s
           <p data-testid="query-headline" className="text-xl font-semibold leading-snug text-slateish-100">{queryHeadline(selected, questionDraft)}</p>
           <h2 className="mt-1 text-sm font-medium text-slateish-400">{selected.subject}</h2>
           <p data-testid="query-status" className="mt-1 text-sm text-slateish-300">{plainStatus(selected.status, selected.priority)}</p>
-          {problemChips(selected).map((p) => <p key={p.words} data-testid="query-problem" className="mt-1 text-sm text-warn-500"><strong className="font-semibold">{p.words}.</strong> {p.why}</p>)}
+          {/* when NO listed query has a contractor, the list's own notice already says it once: not repeated here (Part 3 picture review) */}
+          {problemChips(selected).filter((p) => !(p.words === "No contractor" && items.length > 0 && items.every((i) => !i.contractor_name))).map((p) => <p key={p.words} data-testid="query-problem" className="mt-1 text-sm text-warn-500"><strong className="font-semibold">{p.words}.</strong> {p.why}</p>)}
           <ol data-testid="query-summary" aria-label="Where this query stands" className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm">
             {querySteps(selected, questionDraft).map((step) => <li key={step.label} className={step.state === "done" ? "text-slateish-100" : "text-slateish-400"}><span aria-hidden="true" className="mr-1 font-semibold">{step.state === "done" ? "✓" : step.state === "working" ? "…" : "○"}</span>{step.label}{step.state === "working" ? " (working)" : step.state === "todo" ? " (not yet)" : ""}</li>)}
           </ol>

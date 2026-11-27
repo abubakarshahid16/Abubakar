@@ -58,3 +58,26 @@ describe("the marks in their place", () => {
     }
   });
 });
+
+describe("an older reply (Part 3 picture review)", () => {
+  const OLD = "Yes. The Contractor must comply at no additional cost [S1].\n\n*   **Cost Implication:** COMPANY issues a Change Order only if *less* stringent rules apply [S1].\n- A second point.\n\nWhat I'd do:\n\nConfirm the FEED requirement with the *vendor*.";
+  it("shows * and - lines as a bulleted list, drops stray * marks, and keeps every word, the [S1] markers and the last paragraph", () => {
+    expect(replyBlocks(OLD).map((b) => b.kind)).toEqual(["para", "bullet", "bullet", "para", "para"]);
+    render(<ReplyText answer={OLD} />);
+    const box = screen.getByTestId("reply-text");
+    expect(box.textContent).not.toMatch(/\*/);
+    const bullets = within(box).getAllByRole("listitem");
+    expect(bullets).toHaveLength(2);
+    expect(bullets[0].textContent).toBe("Cost Implication: COMPANY issues a Change Order only if less stringent rules apply [S1].");
+    expect(within(bullets[0]).getByText("Cost Implication:").tagName).toBe("STRONG");
+    expect(box.lastElementChild?.textContent).toBe("Confirm the FEED requirement with the vendor.");
+  });
+
+  it("a bullet under a numbered answer is a list inside that answer", () => {
+    render(<ReplyText answer={"1. **Design pressure**\n* first point [S1]\n* second point\nA closing line of the answer."} />);
+    const answer = within(screen.getByTestId("reply-text")).getAllByRole("listitem")[0];
+    expect(within(answer).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["first point [S1]", "second point"]);
+    expect(answer.textContent).toContain("A closing line of the answer.");
+  });
+});
+

@@ -109,13 +109,24 @@ describe("the query list page", () => {
 
   it("says a row's problems in full inside the query too", async () => {
     api.get.mockResolvedValue({ ok: true, data: rows[2] });
-    api.list.mockResolvedValue({ ok: true, data: { items: [rows[2]] } });
+    api.list.mockResolvedValue({ ok: true, data: { items: [rows[2], rows[1]] } }); // another query HAS a contractor
     render(<TechnicalQueriesView />);
     const problems = await screen.findAllByTestId("query-problem");
     expect(problems.map((p) => p.textContent)).toEqual([
       "No query number. The subject has no full TQ or CFC number, so a person must check which query this is.",
       "No contractor. No contractor yet: add its code once under \u201cRules for who it goes to\u201d (in More) and every query with that code fills itself.",
     ]);
+  });
+
+  it("does not repeat 'No contractor' inside the query when the list's notice already says none has one (Part 3 picture review)", async () => {
+    api.get.mockResolvedValue({ ok: true, data: rows[2] });
+    api.list.mockResolvedValue({ ok: true, data: { items: [rows[2]] } });
+    render(<TechnicalQueriesView />);
+    const problems = await screen.findAllByTestId("query-problem");
+    expect(problems.map((p) => p.textContent)).toEqual([
+      "No query number. The subject has no full TQ or CFC number, so a person must check which query this is.",
+    ]);
+    expect(screen.getByTestId("no-contractor-note")).toBeTruthy(); // said once, by the list
   });
 
   it("puts the count line's filter in the address and reads it back (F's walk, 27 Nov 2026)", async () => {
