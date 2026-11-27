@@ -494,8 +494,10 @@ export function AdminView(props: AdminViewProps) {
         )}
 
         {!usersFailure && users !== null && users.length > 0 && (
-          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-ink-600">
-            <table className="w-full text-left text-sm">
+          // the kit's stacking table in the new look: below 42rem each user is a block of labelled facts, not columns running off the
+          // right edge (C's walk at 480 px, 27 Nov 2026: "Last sign-in" ran off and wrapped)
+          <div className={NEW_LOOK ? "kit-stack-wrap overflow-x-auto rounded-[var(--radius-md)] border border-ink-600" : "overflow-x-auto rounded-[var(--radius-md)] border border-ink-600"}>
+            <table className={NEW_LOOK ? "kit-stack-table w-full text-left text-sm" : "w-full text-left text-sm"}>
               <thead className="bg-ink-850 text-xs uppercase text-slateish-400">
                 <tr>
                   <th className="px-3 py-2">Email</th>
@@ -519,7 +521,7 @@ export function AdminView(props: AdminViewProps) {
                         <span className="ms-2 text-xs text-slateish-400">deactivated</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-slateish-300">
+                    <td className="px-3 py-2 text-slateish-300" data-label="Disciplines">
                       {u.disciplines.length > 0 ? (
                         u.disciplines.join(", ")
                       ) : (
@@ -532,8 +534,8 @@ export function AdminView(props: AdminViewProps) {
                       {/* A false flag is not a fact worth a word. */}
                       {u.is_admin ? "Admin" : null}
                     </td>
-                    <td className="px-3 py-2 text-slateish-400">{formatWhen(u.created_at)}</td>
-                    <td className="px-3 py-2 text-slateish-400">
+                    <td className="px-3 py-2 text-slateish-400" data-label="Created">{formatWhen(u.created_at)}</td>
+                    <td className="px-3 py-2 text-slateish-400" data-label="Last sign-in">
                       {/* null renders as NOTHING. Not a dash, not "never",
                           not a zero - a placeholder invents a fact the
                           server did not send. */}

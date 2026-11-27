@@ -64,7 +64,9 @@ export type DocumentReviewStatus =
   | "running"
   | "cancelled"
   | "completed"
-  | "failed";
+  | "failed"
+  /** A general review that ended early (P8, 27 Nov 2026): never "Review complete". */
+  | "stopped";
 
 /** A document can answer questions in these states - never block on embedding. */
 export const ANSWERABLE: DocStatus[] = ["partially_searchable", "ready"];
@@ -167,6 +169,8 @@ export interface DocumentRecord {
   superseded_by?: string | null;
   /** Derived from the latest review run. Absent only from an older backend. */
   review_status?: DocumentReviewStatus;
+  /** When the newest COMPLETE review finished (one that did not stop early); null when there is none. Derived. */
+  last_complete_review_at?: string | null;
 }
 
 // ---------- standards library (phase 3A) ----------

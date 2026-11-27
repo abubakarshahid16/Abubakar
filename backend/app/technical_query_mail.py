@@ -219,7 +219,7 @@ _ITEM = re.compile(
 )  # the same marker the item splitter uses (technical_query_items.ITEM_MARK)
 #: A request that is a LIST of items may be longer than one question: up to this, then cut with a visible mark.
 LIST_CAP = 6000
-LIST_CUT = " [cut here: the rest of the list is in the mail]"
+LIST_CUT = "… The rest of the list is in the email files."
 
 
 def _norm(line: str) -> str:
@@ -296,11 +296,9 @@ def email_question(text: str | None, common: frozenset[str] = frozenset()) -> st
     if (
         any(asking) and any(listed)
     ):  # a list of requests: never dropped for its length; cut with a visible mark (rule: no silent cut)
-        return (
-            question
-            if len(question) <= LIST_CAP
-            else question[:LIST_CAP].rstrip() + LIST_CUT
-        )
+        from .technical_query_items import cut_whole_words
+
+        return cut_whole_words(question, LIST_CAP, LIST_CUT)
     if (
         len(question) > QUESTION_CAP
     ):  # a long block is not a question: only its asking lines, and none when even those are long
