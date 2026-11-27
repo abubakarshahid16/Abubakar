@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Health } from "../api/client";
 import { IngestionView } from "./IngestionView";
+import { NEW_LOOK } from "../look";
 
 const health: Health = {
   ok: true, embed_model_present: true, answer_model_configured: true,
@@ -59,5 +60,18 @@ describe("Ingestion document list", () => {
     mount();
     await screen.findByText("Read and searchable"); // everyday words (owner, 26 Nov 2026)
     expect(screen.queryByTestId("ingestion-boundary")).toBeNull();
+  });
+  it("says how often it reads again in the page header's one place (new look; H's audit 67)", async () => {
+    stub(3, "3");
+    mount();
+    await screen.findByText("Read and searchable");
+    if (NEW_LOOK) {
+      const line = screen.getByTestId("page-updated");
+      expect(line).toHaveTextContent("Updates every 15 seconds");
+      expect(line.closest("header")).not.toBeNull();
+      expect(screen.getByRole("heading", { level: 1, name: "Ingestion" })).toBeInTheDocument();
+    } else {
+      expect(screen.getByText("Updates every 15 seconds")).toBeInTheDocument();
+    }
   });
 });

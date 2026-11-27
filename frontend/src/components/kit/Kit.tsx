@@ -10,12 +10,17 @@ import "./kit.css";
 import { toneOfWord } from "./chipWords";
 
 /** A page's one header: its title (the same size and weight on every page), an optional one-line lead, and its main actions. */
-export function PageHeader({ title, lead, actions, titleId }: { title: string; lead?: ReactNode; actions?: ReactNode; titleId?: string }) {
+export function PageHeader({ title, lead, actions, titleId, updated }: {
+  title: string; lead?: ReactNode; actions?: ReactNode; titleId?: string;
+  /** When the page's figures were read or how often they are read again: one place and one style on every page (H's audit 67). */
+  updated?: ReactNode;
+}) {
   return (
     <header className="kit-header">
       <div className="kit-header__text">
         <h1 id={titleId} className="kit-title">{title}</h1>
         {lead ? <p className="kit-lead">{lead}</p> : null}
+        {updated ? <p className="kit-small kit-updated" data-testid="page-updated">{updated}</p> : null}
       </div>
       {actions ? <div className="kit-header__actions">{actions}</div> : null}
     </header>

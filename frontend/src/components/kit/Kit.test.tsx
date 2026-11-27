@@ -75,4 +75,15 @@ describe("the shared kit", () => {
     expect(screen.getByRole("button", { name: "All reviews of this file (2)" }).className).toBe("kit-link kit-link--action kit-link--xs kit-link--semibold");
     expect(screen.getByRole("button", { name: "show all" }).className).toBe("kit-link"); // no tone: the quiet underlined word
   });
+  it("a page's 'when updated' line has one place: inside the header, under the lead (H's audit 67)", () => {
+    render(<PageHeader title="Ingestion" lead="What is read." updated="Updates every 60 seconds" />);
+    const line = screen.getByTestId("page-updated");
+    expect(line).toHaveTextContent("Updates every 60 seconds");
+    expect(line.className).toBe("kit-small kit-updated");
+    expect(line.closest("header")?.className).toBe("kit-header");
+  });
+  it("a header with no 'updated' line draws none", () => {
+    render(<PageHeader title="Standards" />);
+    expect(screen.queryByTestId("page-updated")).toBeNull();
+  });
 });

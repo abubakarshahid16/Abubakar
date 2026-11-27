@@ -153,6 +153,7 @@
 .kit-check { color: var(--kit-check-fg); font-weight: 600; } /* a figure to check (amber), e.g. a warning count */
 .kit-show-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kit-space-3); margin-top: var(--kit-space-3); }
 .kit-small { font-size: 13px; color: var(--color-slateish-300); }
+.kit-updated { margin: var(--kit-space-2) 0 0; }
 
 /* ---- a chip that is a button; a link-style button; a list row that is one button; a neutral tag; one cut line ---- */
 .kit-chip-btn, :root[data-look="new"] main button.kit-chip-btn { display: inline-flex; align-items: center; gap: var(--kit-space-2); min-height: 0; padding: 0; border: 0; border-radius: 999px; background: transparent; color: var(--color-slateish-300); font-size: 13px; cursor: pointer; }
