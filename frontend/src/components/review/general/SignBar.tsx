@@ -24,6 +24,13 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
   const [refusal, setRefusal] = useState<SignoffRefusal | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const todo = signoff.undecided_count;
+  // EVERY COUNT SAYS WHAT IT COUNTS (rule 4; C's re-measure, 27 Nov 2026: "18 comments need your decision" beside "Comments (11)" — the 18
+  // held 7 points to confirm, which are not comments). The server's own list says which part each one is; counted here, nothing decided.
+  const todoComments = signoff.undecided.filter((u) => u.part === "comment").length;
+  const todoConfirm = signoff.undecided.filter((u) => u.part === "confirmation").length;
+  const todoWords = todoComments + todoConfirm === todo
+    ? [todoComments ? `${todoComments} comment${todoComments === 1 ? "" : "s"}` : "", todoConfirm ? `${todoConfirm} point${todoConfirm === 1 ? "" : "s"} to confirm` : ""].filter(Boolean).join(" and ")
+    : `${todo} item${todo === 1 ? "" : "s"}`;
 
   async function acceptRest() {
     setBusy(true); setProblem(null); setRefusal(null);
@@ -57,9 +64,9 @@ export function SignBar({ review, signoff, onStatus, onChanged }: {
     <div className="space-y-2">
       {todo > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <p data-testid="sign-undecided" className="text-sm text-slateish-200">{todo} comment{todo === 1 ? "" : "s"} still need{todo === 1 ? "s" : ""} your decision.</p>
+          <p data-testid="sign-undecided" className="text-sm text-slateish-200">{todoWords} still need{todo === 1 ? "s" : ""} your decision.</p>
           {/* a rough draft from the local model is decided one by one: the server refuses a bulk accept, and none is offered */}
-          {signoff.may_sign && signoff.bulk_accept !== false && <Button variant="secondary" size="sm" disabled={busy} onClick={() => void acceptRest()}>Accept the rest ({todo})</Button>}
+          {signoff.may_sign && signoff.bulk_accept !== false && <Button variant="secondary" size="sm" disabled={busy} onClick={() => void acceptRest()}>Accept the rest ({todoWords})</Button>}
           {signoff.rough_draft_words && <p data-testid="sign-rough-draft" className="text-sm text-pill-review-fg">{signoff.rough_draft_words}</p>}
         </div>
       )}
