@@ -14,10 +14,10 @@ const row = (over: Partial<GlanceRow>): GlanceRow => ({
 });
 
 describe("the Dashboard after the design audit", () => {
-  it("names the AI that answers, and says when it is not running", () => {
-    expect(answersLine({ answer_model: "invented:9b", answer_model_reachable: true })).toBe("Answers: the AI on this computer (invented:9b).");
+  it("says which AI answers and when it is not running; its model file name only under Technical detail (owner, 27 Nov 2026)", () => {
+    expect(answersLine({ answer_model: "invented:9b", answer_model_reachable: true })).toBe("Answers: the AI on this computer. Its name is under Technical detail.");
     expect(answersLine({ answer_model: "invented:9b", answer_model_reachable: false })).toBe(
-      "Answers: the AI on this computer (invented:9b), not running right now.");
+      "Answers: the AI on this computer, not running right now.");
     expect(answersLine({ answer_model: "", answer_model_reachable: false })).toBe("Answers: no AI is set up on this computer.");
   });
 
