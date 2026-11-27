@@ -46,7 +46,7 @@ const MESSAGES: Record<string, string> = {
   unknown_discipline: "That discipline does not exist.",
   cannot_deactivate_self: "You cannot deactivate your own account. Ask another administrator.",
   unknown_document: "That document is no longer in the app.",
-  not_found: "The app does not know about that.",
+  not_found: "That item was not found. Reload the page and try again.",
 };
 
 async function adminRequest<T>(
