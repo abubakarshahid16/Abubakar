@@ -89,7 +89,10 @@ export function ReviewPageV2({ run, submittal, isAdmin, onBack, onOpenRun, sheet
       )}
       {latest && (
         <GeneralResults review={latest} onViewPage={(page) => setViewing({ page })} onReload={reloadGeneral} onOpenRun={onOpenRun}
-          howTab={<><GeneralHistory documentId={latest.paper_document_id} />{howTab}</>} />
+          // a general review's "How this review was made" is its OWN: paper type, rule books, points and how decided, comments, cost,
+          // engine (HowReviewMade). The earlier method's panels (run record, Rules used, behind the scenes) describe a method this
+          // review did not use; they are never drawn for it (the owner's order, 27 Nov 2026; aim_review_gate). They stay for an older run.
+          howTab={<GeneralHistory documentId={latest.paper_document_id} />} />
       )}
       {drawOld && (general.state === "ok" || method === "general") && (
         <h2 data-testid="earlier-version" className="text-lg font-semibold text-slateish-200">Earlier version</h2>
