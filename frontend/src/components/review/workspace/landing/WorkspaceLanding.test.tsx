@@ -323,7 +323,7 @@ describe("WorkspaceLanding: every count states its boundary (rule 4)", () => {
     const notes = screen.getAllByTestId("landing-counts-note");
     expect(notes).toHaveLength(1);
     expect(notes[0]).toHaveTextContent(LANDING_COUNTS_NOTE);
-    expect(LANDING_COUNTS_NOTE).toContain("still holds, including those waiting for your decision");
+    expect(LANDING_COUNTS_NOTE).toContain("still holds: its comments, and the points waiting for your decision");
     expect(LANDING_COUNTS_NOTE).toContain("Comments an engineer removed are not counted");
     expect(within(rowOf("Pump")).queryByTestId("landing-counts-note")).toBeNull();
   });

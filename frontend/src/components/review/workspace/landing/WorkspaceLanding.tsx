@@ -76,7 +76,7 @@ function writeHelpHidden(): void {
  *  Simple view folds the rows' count line, so the note folds with it; the
  *  "All reviews" list shows its counts in either view, so it keeps the note. */
 export const LANDING_COUNTS_NOTE =
-  '"Found by the review" counts the comments each review still holds, including those waiting for your decision. '
+  '"Found by the review" counts what each review still holds: its comments, and the points waiting for your decision. '
   + "Comments an engineer removed are not counted. The comment sheet groups some comments into one line.";
 
 /** The general review reviews one paper at a time; there is no review-everything button. */
