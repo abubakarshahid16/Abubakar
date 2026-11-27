@@ -94,7 +94,7 @@ function SectionFailure({ failure, onRetry }: { failure: LoadFailure; onRetry: (
         role="status"
         className="rounded-[var(--radius-md)] border border-dashed border-ink-600 bg-ink-850/60 p-6 text-sm"
       >
-        <p className="text-slateish-300">This admin route is not built yet.</p>
+        <p className="text-slateish-300">This page is not built yet.</p>
         <p className="mt-1 text-slateish-400">
           The backend answered 404. That is not the same as having no data - nothing
           about users, disciplines or grants can be shown until the route exists.
@@ -489,7 +489,7 @@ export function AdminView(props: AdminViewProps) {
         {usersFailure && <SectionFailure failure={usersFailure} onRetry={onRetry} />}
         {!usersFailure && users === null && <Spinner label="Loading users" />}
         {!usersFailure && users !== null && users.length === 0 && (
-          <EmptyState title="No users" hint="Nobody can sign in to this deployment yet." />
+          <EmptyState title="No users" hint="Nobody can sign in to this app yet." />
         )}
 
         {!usersFailure && users !== null && users.length > 0 && (
@@ -651,7 +651,7 @@ export function AdminView(props: AdminViewProps) {
                 <p className="flex flex-wrap items-center gap-2 text-sm text-slateish-200">
                   {doc.filename}
                   {doc.warning === "no_discipline_can_see_this" && (
-                    <StatusChip word="Visible to nobody" why="No discipline can see this document. It is invisible in every search, which looks exactly like a failed upload. Grant a discipline below." testId="admin-visible-to-nobody" />
+                    <StatusChip word="Visible to nobody" why="Give a discipline access below. Until then nobody can find this document in search." testId="admin-visible-to-nobody" />
                   )}
                 </p>
 

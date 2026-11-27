@@ -29,7 +29,7 @@ describe("CompanyStandardsSection (#620)", () => {
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: held, confirmCompanyStandard: vi.fn() })} />);
     expect(await screen.findByTestId("admin-held-count")).toHaveTextContent("1 Company standard is waiting for confirmation.");
     expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent(
-      "Company standards uploaded before 18 Oct 2026 count as confirmed and are not listed here.");
+      "Older ones count as confirmed and are not listed here.");
     const row = screen.getByTestId("admin-held-std-1");
     expect(row).toHaveTextContent("sample-company-standard.pdf");
     expect(row).toHaveTextContent("uploaded 19 Oct 2026, ");
@@ -39,7 +39,7 @@ describe("CompanyStandardsSection (#620)", () => {
     const held = vi.fn().mockResolvedValue(page([]));
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: held })} />);
     expect(await screen.findByTestId("admin-held-count")).toHaveTextContent("No Company standard is waiting for confirmation.");
-    expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent("uploaded before 18 Oct 2026 count as confirmed");
+    expect(screen.getByTestId("admin-held-boundary")).toHaveTextContent("on or after 18 Oct 2026 is used in reviews only after an administrator confirms it");
   });
 
   it("confirm asks first on the page (never the browser's box), calls the route, then reads the list again", async () => {
@@ -76,11 +76,11 @@ describe("CompanyStandardsSection (#620)", () => {
   it("an unreachable backend and an unbuilt route are not 'nothing waiting'", async () => {
     const offline = vi.fn().mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "x" } });
     const { unmount } = render(<CompanyStandardsSection client={client({ heldCompanyStandards: offline })} />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("The backend is not running");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The app's server is not running");
     expect(screen.queryByTestId("admin-held-count")).toBeNull();
     unmount();
     const missing = vi.fn().mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "x" } });
     render(<CompanyStandardsSection client={client({ heldCompanyStandards: missing })} />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("does not serve the Company standard confirmation list");
+    expect(await screen.findByRole("alert")).toHaveTextContent("has no Company standard confirmation list");
   });
 });

@@ -101,7 +101,7 @@ describe("a document nobody can see (H's audit 54, 27 Nov 2026)", () => {
     const chips = screen.getAllByTestId("admin-visible-to-nobody");
     expect(chips).toHaveLength(1); // only doc13.pdf carries the warning
     expect(chips[0]).toHaveTextContent("Visible to nobody");
-    expect(chips[0].getAttribute("title")).toMatch(/invisible in every search/);
+    expect(chips[0].getAttribute("title")).toMatch(/nobody can find this document in search/);
     expect(screen.queryByText(/looks exactly like a failed upload\.$/)).toBeNull(); // no sentence drawn under the card
   });
 });
@@ -278,7 +278,7 @@ describe("#609: documents no discipline can see are listed first", () => {
       .closest("section") as HTMLElement;
     const items = within(section).getAllByRole("listitem");
     expect(items[0]).toHaveTextContent("doc13.pdf");
-    expect(items[0]).toHaveTextContent("No discipline can see this");
+    expect(items[0]).toHaveTextContent("Give a discipline access below");
     expect(within(items[0]).getAllByRole("button", { name: /^Grant / }).length).toBeGreaterThan(0);
     expect(items[1]).toHaveTextContent("NORSOKM501Rev5.pdf");
   });

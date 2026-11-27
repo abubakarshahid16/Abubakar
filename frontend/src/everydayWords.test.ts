@@ -142,6 +142,8 @@ export const WORDS_DONE: RegExp[] = [
   /^components\/review\/general\/(GeneralResults|GeneralHistory|MeasuredBadge|HowReviewMade)\.tsx$/,
   // CRS and Reports (words job)
   /^views\/(ReportsScreen|ReportsView|ReviewCrsList)\.tsx$/,
+  // Administration (words job; it may still name the AI models a person chooses between, so it keeps its place in NOT_JUDGED)
+  /^views\/(AdminScreen|AdminView)\.tsx$/, /^views\/admin\/[A-Za-z]+\.tsx$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [
