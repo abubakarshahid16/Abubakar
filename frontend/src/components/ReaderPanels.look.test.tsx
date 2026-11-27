@@ -47,13 +47,14 @@ describe("the document's words in the reader panels", () => {
     }
   });
 
-  it("'Left out': the dropped words in the reading face, the rule a kit Tag, no mono", async () => {
+  it("'Left out': the dropped words in the reading face, the rule a kit Tag under Technical detail, no mono", async () => {
     const { container } = render(<ExcludedViewer doc={doc} onClose={() => undefined} />);
     const sample = (await screen.findByText("Contents 1 Scope 2 Duties")).closest("pre")!;
     if (NEW_LOOK) {
       expect(sample.className).toContain("evidence-quote");
       expect(container.querySelectorAll(".font-mono")).toHaveLength(0);
-      expect(screen.getAllByText("page_classified_toc").every((e) => e.className === "kit-tag")).toBe(true);
+      // the rule's stored name is a kit Tag, and only inside the folded Technical detail (builder H, Documents page views, 27 Nov 2026)
+      expect(screen.getAllByText("page_classified_toc").every((e) => e.className === "kit-tag" && e.closest("details"))).toBe(true);
     } else {
       expect(sample.className).toContain("font-mono");
     }
