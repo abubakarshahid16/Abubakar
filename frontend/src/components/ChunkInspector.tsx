@@ -13,6 +13,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ApiError, ChunkRecord, DocumentRecord } from "../types/api";
 import { Drawer } from "./Drawer";
+import { Tag } from "./kit/Kit";
+import { NEW_LOOK } from "../look";
 import { DisconnectedState, EmptyState, ErrorState, Spinner } from "./states";
 
 type Filter = "true" | "false" | "all";
@@ -96,7 +98,7 @@ export function ChunkInspector({
             </button>
           ))}
         </div>
-        <span className="font-mono text-xs text-slateish-400">
+        <span className={NEW_LOOK ? "text-xs tabular-nums text-slateish-400" : "font-mono text-xs text-slateish-400"}>
           {shownFrom}–{shownTo} of {total}
         </span>
         <div className="ms-auto flex gap-1">
@@ -159,7 +161,7 @@ export function ChunkInspector({
                     ? `page ${c.page_start}`
                     : `pages ${c.page_start}–${c.page_end}`}
                 </span>
-                <span className="ms-auto font-mono text-xs text-slateish-400">
+                <span className={NEW_LOOK ? "ms-auto text-xs tabular-nums text-slateish-400" : "ms-auto font-mono text-xs text-slateish-400"}>
                   #{c.ordinal}
                 </span>
               </div>
@@ -180,7 +182,11 @@ export function ChunkInspector({
                 </details>
               )}
 
-              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs leading-relaxed text-slateish-300">
+              {/* the document's own words: the app's reading face (.evidence-quote), as in Chat's evidence drawer; a TABLE keeps its
+                  monospace grid (.document-table), because its columns line up by position (index.css "reading") */}
+              <pre className={NEW_LOOK
+                ? `mt-2 max-h-72 overflow-auto rounded bg-ink-900 p-3 text-slateish-300 ${c.kind === "table" ? "document-table" : "evidence-quote whitespace-pre-wrap break-words"}`
+                : "mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs leading-relaxed text-slateish-300"}>
 {c.text}
               </pre>
 
@@ -188,7 +194,7 @@ export function ChunkInspector({
                 <summary className="cursor-pointer text-xs text-slateish-500 hover:text-slateish-400">
                   Reference
                 </summary>
-                <p className="mt-0.5 font-mono text-xs text-slateish-400">{c.id}</p>
+                {NEW_LOOK ? <p className="mt-0.5"><Tag>{c.id}</Tag></p> : <p className="mt-0.5 font-mono text-xs text-slateish-400">{c.id}</p>}
               </details>
             </li>
           ))}
