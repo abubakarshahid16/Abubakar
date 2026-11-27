@@ -216,7 +216,7 @@ const ok = <T,>(data: T) => ({ ok: true as const, data });
 const down = (): Result<never> => ({
   ok: false,
   disconnected: true,
-  error: { code: "internal", message: "Cannot reach the backend. failed to fetch" },
+  error: { code: "internal", message: "Cannot reach the app's server. failed to fetch" },
 });
 
 // ---------------------------------------------------------------- harness

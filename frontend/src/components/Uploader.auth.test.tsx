@@ -4,7 +4,7 @@
  * `Uploader` is the one transport `api.request()` does not own - it needs
  * XMLHttpRequest for progress - and it previously sent no Authorization header
  * at all. Under AUTH_MODE=demo_required that is a 401 on every upload from a
- * screen that reported "Cannot reach the backend".
+ * screen that reported "Cannot reach the app's server".
  *
  * MUTATION PROOF: delete the `authorize(...)` line in Uploader.tsx and
  * `sends the bearer token` fails. The header assertion is the test; the

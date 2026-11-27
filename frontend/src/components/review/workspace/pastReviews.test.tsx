@@ -123,8 +123,8 @@ describe("adapters", () => {
   });
 
   it("loadPastReviews passes the API's message through on failure", async () => {
-    reviewRuns.mockResolvedValue({ ok: false, disconnected: true, error: { code: "x", message: "Cannot reach the backend." } });
-    expect(await loadPastReviews("doc-1")).toEqual({ ok: false, message: "Cannot reach the backend." });
+    reviewRuns.mockResolvedValue({ ok: false, disconnected: true, error: { code: "x", message: "Cannot reach the app's server." } });
+    expect(await loadPastReviews("doc-1")).toEqual({ ok: false, message: "Cannot reach the app's server." });
   });
 
   it("loadCommentCount adds comments and needs-you; a failure is null, never 0", async () => {

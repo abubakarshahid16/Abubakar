@@ -21,7 +21,7 @@ function fail(code: string, message = "no"): AdminResult<never> {
   return { ok: false, disconnected: false, error: { code, message } };
 }
 function offline(): AdminResult<never> {
-  return { ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend." } };
+  return { ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server." } };
 }
 
 function client(over: Partial<AdminClient> = {}): AdminClient {

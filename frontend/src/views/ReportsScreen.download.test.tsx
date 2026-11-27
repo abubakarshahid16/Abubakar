@@ -310,7 +310,7 @@ describe("report download: failure produces a message and no file", () => {
     await clickDownload();
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Cannot reach the backend");
+    expect(alert).toHaveTextContent("Cannot reach the app's server");
     expect(clicked).toEqual([]);
     expect(createdUrls).toEqual([]);
   });
@@ -330,7 +330,7 @@ describe("report download: failure produces a message and no file", () => {
     await clickDownload();
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Cannot reach the backend");
+    expect(alert).toHaveTextContent("Cannot reach the app's server");
     expect(alert).toHaveTextContent("Nothing has been saved.");
     expect(clicked).toEqual([]);
     expect(createdUrls).toEqual([]);
@@ -341,7 +341,7 @@ describe("report download: failure produces a message and no file", () => {
     await clickDownload();
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Cannot reach the backend");
+    expect(alert).toHaveTextContent("Cannot reach the app's server");
     expect(clicked).toEqual([]);
   });
 });

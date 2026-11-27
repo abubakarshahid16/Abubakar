@@ -170,7 +170,7 @@ describe("useWorkspaceRun", () => {
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
     await waitFor(() => expect(result.current.readiness).not.toBeNull());
     expect(result.current.refreshError).toBeNull();
-    reviewRun.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the backend." } });
+    reviewRun.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the app's server." } });
     await act(async () => { await result.current.refresh(); });
     expect(result.current.load).toEqual({ kind: "ready" });
     expect(result.current.run?.review_run_id).toBe("run-1");
@@ -200,7 +200,7 @@ describe("useWorkspaceRun", () => {
     });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
     await waitFor(() => expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]));
-    reviewRunSummary.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the backend." } });
+    reviewRunSummary.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the app's server." } });
     await act(async () => { await result.current.refresh(); });
     expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]);
     expect(result.current.summary?.crs_grouping).toBe(true);
@@ -221,7 +221,7 @@ describe("useWorkspaceRun", () => {
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
     await waitFor(() => expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]));
     expect(result.current.groupingStale).toBe(false);
-    reviewRunSummary.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the backend." } });
+    reviewRunSummary.mockResolvedValueOnce({ ok: false, error: { message: "Cannot reach the app's server." } });
     await act(async () => { await result.current.refresh(); });
     expect(result.current.rows.map((r) => r.key)).toEqual(["crs:field:x"]);
     expect(result.current.groupingStale).toBe(true);
@@ -238,7 +238,7 @@ describe("useWorkspaceRun", () => {
   });
 
   it("a failed first load is still an error (nothing good to keep)", async () => {
-    reviewRun.mockResolvedValue({ ok: false, error: { message: "Cannot reach the backend." } });
+    reviewRun.mockResolvedValue({ ok: false, error: { message: "Cannot reach the app's server." } });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
     await waitFor(() => expect(result.current.load.kind).toBe("error"));
     expect(result.current.refreshError).toBeNull();
@@ -251,12 +251,12 @@ describe("useWorkspaceRun", () => {
  *  first test fails (the message starts with the raw text). */
 describe("useWorkspaceRun: errors in plain words (v2.1 N2)", () => {
   it("a failed first load starts with a plain sentence and keeps the server's words as a detail", async () => {
-    reviewRun.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the backend. ECONNREFUSED" } });
+    reviewRun.mockResolvedValue({ ok: false, disconnected: true, error: { code: "internal", message: "Cannot reach the app's server. ECONNREFUSED" } });
     const { result } = renderHook(() => useWorkspaceRun("run-1"));
     await waitFor(() => expect(result.current.load.kind).toBe("error"));
     const message = result.current.load.kind === "error" ? result.current.load.message : "";
     expect(message.startsWith("Could not open this review. The server could not be reached.")).toBe(true);
-    expect(message).toContain("Details: Cannot reach the backend. ECONNREFUSED");
+    expect(message).toContain("Details: Cannot reach the app's server. ECONNREFUSED");
   });
 
   it("a signed-out answer says to sign in again", async () => {
