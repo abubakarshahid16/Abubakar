@@ -61,6 +61,10 @@ export interface ReadableLine {
   source?: string;
 }
 
+/** A question kept before 27 Nov 2026 carries the old "[cut here: ...]" mark: shown as the plain sentence the server now writes. */
+const OLD_CUT = /(?:\s+[^\s.?!,;:)\]]+)?\s*\[cut here: [^\]]*\]/g; // the word before an old mark may be cut mid-word: it goes too
+const CUT_WORDS = "\u2026 The rest of the question is in the email files.";
+
 /** The question text as the page shows it: the lead-in, then each numbered request with where it was found. */
 export function readableLines(text: string, found: FoundQuestion[] | null | undefined): ReadableLine[] {
   const where = new Map<string, string>();
@@ -73,7 +77,7 @@ export function readableLines(text: string, found: FoundQuestion[] | null | unde
   // last word "Completion?" was shown as a lead-in ABOVE the list); a blank line ends an item, as on the server (items_of)
   let inItem = false;
   for (const raw of text.split("\n")) {
-    const line = raw.trim();
+    const line = raw.replace(OLD_CUT, CUT_WORDS).trim();
     if (!line) {
       inItem = false;
       continue;
@@ -274,8 +278,8 @@ export function queryHeadline(q: { contractor_name?: string | null; title_short?
 /** The status in everyday words (owner: "DRAFTING - NORMAL means nothing to me"); a priority is said only when it is not normal. */
 export function plainStatus(status: string, priority?: string | null): string {
   const word: Record<string, string> = {
-    received: "In progress", triage: "In progress", drafting: "In progress", awaiting_review: "In progress: waiting for your approval",
-    changes_requested: "In progress: the reply is being changed", approved: "Approved, not sent yet", send_pending: "Being sent",
+    received: "In progress", triage: "In progress", drafting: "In progress", awaiting_review: "Waiting for your approval",
+    changes_requested: "The reply is being changed", approved: "Approved, not sent yet", send_pending: "Being sent",
     sent: "Sent", awaiting_confirmation: "Sent, waiting for the contractor to confirm", resolved: "Closed",
     duplicate: "Closed as a duplicate", cancelled: "Cancelled", failed: "Stopped by an error",
   };

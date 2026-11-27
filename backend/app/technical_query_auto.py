@@ -21,13 +21,14 @@ import re
 from typing import Any
 
 from .db import connect
+from . import technical_query_reply_checks as RC
 
 log = logging.getLogger(__name__)
 
 #: `query_drafts.prompt_version` of a draft the system wrote by itself after preparing the evidence. 2 = the query-reply prompt (no
 #: "Yes." / "No." opening; each numbered request answered, or "Not found in the documents searched") and the relevance floor; a query whose
 #: latest draft is an older system draft, with no decision on it, is drafted again at the next start (builder C's walk, 26 Nov 2026).
-SYSTEM_DRAFT = "system-draft-2"
+SYSTEM_DRAFT = "system-draft-3"
 #: A passage the SYSTEM found is a draft's source only at or above this reranker score: the answer lane's own calibration (answer.py:
 #: answerable questions -1.19 .. 7.36, plausible but wrong -10.32 .. -4.73). Measured on a copy of live (32 drafts): 29 of 82 cited
 #: passages were below it; with it, 23 of 32 queries keep a source (median 7). A passage an engineer KEPT always counts.
@@ -167,7 +168,8 @@ FALSE_QUOTE = (
     "press Write the reply again (under Redo), or write the reply yourself"
 )
 FALSE_QUOTE_MARK = "A quote in this reply is not in its source."
-#: How many more times the automatic draft is written when the only fault is a false quote (the model varies from run to run).
+#: How many more times the automatic draft is written when its fault is one a reply is never shown with: a false quote, the first
+#: person, a source it was not given (the model varies from run to run).
 FALSE_QUOTE_RETRIES = 1
 
 
@@ -237,6 +239,46 @@ def stored_unsupported(
         if draft.get("model")
         else 0
     )
+
+
+def checked_reply(
+    result: dict[str, Any], passages: list[dict[str, Any]], question: str
+) -> tuple[dict[str, Any], list[dict[str, Any]] | None, str | None, str | None]:
+    """A draft reply made fit to show, or the reason it may not be shown; ONE home for the system draft and the generate-draft route.
+    Returns (the result with the reply's own text and sources, its citation rows or None when it cites outside `passages`, the
+    first-person advice taken out of it for the engineer, the fault it may never be shown with or None). The reply is COMPANY's:
+    first-person advice goes beside it, the old cost/schedule stand-in goes (the page offers COMPANY's usual sentence), and its
+    sources are the ones still named in it (technical_query_reply_checks)."""
+    if RC.cut_off(result):  # judged on the model's own text, before anything is taken out of it
+        return result, [], None, RC.CUT_OFF_NOTE
+    reply, advice = RC.split_advice(result.get("answer") or "")
+    reply, cost = RC.split_unsourced_cost(RC.drop_cost_standin(reply))
+    # a second cost / schedule message with no source goes beside the reply for the engineer (reply_marks), never in it
+    result = {**result, "answer": reply, "cited": RC.cited_in(reply, result.get("cited") or []), "cost_words": cost}
+    if not reply:  # the whole draft was advice
+        return result, [], advice, RC.FIRST_PERSON_NOTE
+    citations = citations_of(result, passages)
+    if citations is None:
+        return result, None, advice, None
+    if unsupported_quotes(reply, seen_sources(result), question):
+        return result, citations, advice, FALSE_QUOTE
+    if RC.first_person(reply):
+        return result, citations, advice, RC.FIRST_PERSON_NOTE
+    if RC.unknown_sources(result):
+        return result, citations, advice, RC.UNKNOWN_SOURCE_NOTE
+    if RC.bare_answer(reply):
+        return result, citations, advice, RC.BARE_NOTE
+    return result, citations, advice, None
+
+
+def reply_marks(result: dict[str, Any], advice: str | None) -> list[str]:
+    """The marks beside a reply that passed `checked_reply`: the advice taken out of it, and a COMPANY position with no source."""
+    out = [RC.ADVICE_MARK + advice] if advice else []
+    if result.get("cost_words"):
+        out.append(RC.COST_MARK + result["cost_words"])
+    if RC.unsourced_positions(result.get("answer") or ""):
+        out.append(RC.UNSOURCED_MARK)
+    return out
 
 
 def marks(item: dict[str, Any], cited_ids=None) -> list[str]:
@@ -324,17 +366,15 @@ def write_draft(
             )
             _note(query_id, reason)
             return reason
-        citations = citations_of(result, passages)
+        result, citations, advice, fault = checked_reply(result, passages, question)
         if citations is None:
             _note(query_id, OUTSIDE)
             return OUTSIDE
-        if not unsupported_quotes(result["answer"], seen_sources(result), question):
-            break  # no false quote
-        if (
-            attempt == FALSE_QUOTE_RETRIES
-        ):  # a false quote is never shown as a proposed reply
-            _note(query_id, FALSE_QUOTE)
-            return FALSE_QUOTE
+        if fault is None:
+            break
+        if attempt == FALSE_QUOTE_RETRIES:
+            _note(query_id, fault)
+            return fault
     unresolved = ([result["reason"]] if result.get("reason") else []) + marks(
         item, {c["evidence_id"] for c in citations}
     )
@@ -343,6 +383,7 @@ def write_draft(
     )  # an item the draft leaves unanswered is said, never silently dropped
     if gap:
         unresolved.append(gap)
+    unresolved += reply_marks(result, advice)  # the advice is for the engineer only, never part of the reply
     from .technical_query_refs import mark as refs_mark
 
     named = refs_mark(
@@ -476,6 +517,8 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         latest, item
     ):  # an older draft (written before this check) with a false quote says so
         found_marks.append(FALSE_QUOTE_MARK)
+    if RC.stored_first_person(latest):  # an older AI draft that speaks as "I" says so, and is not approved
+        found_marks.append(RC.FIRST_PERSON_MARK)
     gap = (
         unanswered_mark(latest.get("answer") or "", latest.get("question") or question)
         if latest and latest.get("model")
@@ -525,7 +568,7 @@ def ready(item: dict[str, Any]) -> dict[str, Any]:
         "cited": cited_by_contractor(item),
         "items": items_of_question(question),
         "position": offer(
-            question
+            question, (latest or {}).get("answer")
         ),  # COMPANY's usual cost / schedule sentence, offered to the engineer beside the draft (never put in by code)
         "cross_refs": item.get("cross_refs")
         or [],  # other queries the request names, held or not (technical_query_refs)

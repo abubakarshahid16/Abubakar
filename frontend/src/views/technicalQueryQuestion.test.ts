@@ -113,7 +113,7 @@ describe("read in ten seconds (owner, 26 Nov 2026 22:41)", () => {
   });
   it("the status in everyday words; a priority only when it is not normal", () => {
     expect(plainStatus("drafting", "normal")).toBe("In progress");
-    expect(plainStatus("awaiting_review", "high")).toBe("In progress: waiting for your approval · high priority");
+    expect(plainStatus("awaiting_review", "high")).toBe("Waiting for your approval · high priority");
   });
   it("four steps, each with its own state", () => {
     const steps = querySteps({ status: "awaiting_review", drafts: [{}], evidence: [{ for_current_question: true }], ready: { evidence: "ready", draft: "ready" } }, "x");
@@ -142,5 +142,15 @@ describe("the server's marks in everyday words", () => {
     const lines = readableLines(text, []);
     expect(lines.filter((l) => l.kind === "lead").map((l) => l.text)).toEqual(["Please confirm the following invented points:", "Regards"]);
     expect(lines.find((l) => l.n === 3)?.text).toBe("as-built invented drawings before Mechanical Completion?");
+  });
+});
+
+describe("a question cut for its length (builder H's table, 5)", () => {
+  it("shows the old cut mark as the plain sentence the server now writes", () => {
+    // the word before an old mark was cut mid-word ("pu"): it goes with the mark; a word that ended a sentence stays
+    const lines = readableLines("The contractor asks about the invented pu [cut here: the rest of the section is in the attachment text]", []);
+    expect(lines.map((l) => l.text)).toEqual(["The contractor asks about the invented\u2026 The rest of the question is in the email files."]);
+    expect(readableLines("It is the invented pump. [cut here: the rest of the section is in the attachment text]", [])[0].text)
+      .toBe("It is the invented pump.\u2026 The rest of the question is in the email files.");
   });
 });

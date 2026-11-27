@@ -16,7 +16,7 @@ describe("the other queries a request names", () => {
     render(<TechnicalQueryCrossRefs refs={refs} onOpen={onOpen} />);
     const lines = screen.getAllByTestId("cross-ref");
     expect(lines).toHaveLength(3);
-    expect(lines[0]).toHaveTextContent("TQ-0007 is in this app: Invented subject (in progress: waiting for your approval). Read it before you reply: open it.");
+    expect(lines[0]).toHaveTextContent("TQ-0007 is in this app: Invented subject (waiting for your approval). Read it before you reply: open it.");
     fireEvent.click(screen.getByRole("button", { name: "open it" }));
     expect(onOpen).toHaveBeenCalledWith("q7");
     expect(lines[1]).toHaveTextContent("CFC-0008 is in this app, but you cannot open it");
