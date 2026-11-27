@@ -124,6 +124,7 @@
 .kit-tile__figures { display: flex; flex-wrap: wrap; gap: var(--kit-space-3); font-size: 13px; margin-top: var(--kit-space-2); color: var(--color-slateish-300); }
 .kit-ok { color: var(--kit-ok-fg); font-weight: 600; }
 .kit-late { color: var(--kit-late-fg); font-weight: 600; }
+.kit-check { color: var(--kit-check-fg); font-weight: 600; } /* a figure to check (amber), e.g. a warning count */
 .kit-small { font-size: 13px; color: var(--color-slateish-300); }
 
 /* ---- a chip that is a button; a link-style button; a list row that is one button; a neutral tag; one cut line ---- */
@@ -178,3 +179,19 @@
 /* two kit buttons side by side in running text keep the scale's gap (a row with its own gap adds none) (H's gate: "Edit" and "Confirm") */
 .kit-btn + .kit-btn { margin-inline-start: var(--kit-space-2); }
 .kit-row > .kit-btn + .kit-btn, [class*="gap-"] > .kit-btn + .kit-btn { margin-inline-start: 0; }
+
+/* A TABLE THAT STACKS WHEN ITS BOX IS NARROW (H's audit 1, 27 Nov 2026: at 800px the Dashboard's Recent reviews showed only the
+   document and its date, the rest off to the side). Same elements, no copy: under 42rem of space each row becomes a block, its first
+   cell on a line of its own and the others after it, each with its column's name (data-label) in front. */
+.kit-stack-wrap { container-type: inline-size; }
+@container (max-width: 42rem) {
+  .kit-stack-table, .kit-stack-table tbody { display: block; }
+  .kit-stack-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .kit-stack-table tr { display: flex; flex-wrap: wrap; align-items: center; gap: var(--kit-space-1) var(--kit-space-3); padding: var(--kit-space-3); }
+  .kit-stack-table td { display: block; padding: 0; white-space: normal; min-width: 0; }
+  .kit-stack-table td:first-child { flex: 1 1 100%; }
+  .kit-stack-table td[data-label]::before { content: attr(data-label) ": "; color: var(--color-slateish-400); }
+  .kit-stack-table td:empty { display: none; } /* an empty cell says nothing, not a bare "Equipment:" (null renders as nothing; H) */
+  .kit-stack-table td:last-child { margin-left: auto; }
+}
+
