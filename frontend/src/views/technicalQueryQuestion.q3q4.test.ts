@@ -27,7 +27,7 @@ describe("keep the cited, reject the others (Q3)", () => {
 });
 
 describe("the Reply written step (Q4)", () => {
-  const base = { status: "awaiting_review", drafts: [{}], evidence: twelve };
+  const base = { status: "awaiting_review", drafts: [{ citations_json: JSON.stringify([{ label: "S1", evidence_id: "e1" }]) }], evidence: twelve };
   it("is done only when the reply answers the current question", () => {
     expect(querySteps({ ...base, ready: { evidence: "ready", draft: "ready", draft_fresh: true } }, "Q?")[2].state).toBe("done");
     expect(querySteps({ ...base, ready: { evidence: "ready", draft: "ready", draft_fresh: false } }, "Q?")[2].state).toBe("stale");
