@@ -19,7 +19,17 @@ ITEM_MARK = (
 _ITEM_START = re.compile(rf"^\s*{ITEM_MARK}\s+(?=\S)")
 #: An item's own text, wrapped lines included, is cut past this with a visible mark (never silently).
 ITEM_CAP = 2000
-ITEM_CUT = " [cut here: the rest of this item is in the request]"
+ITEM_CUT = "… The rest of this request is in the email files."
+
+
+def cut_whole_words(text: str, cap: int, mark: str) -> str:
+    """`text` up to `cap` characters, cut after a whole word (never mid-word: the owner's Queries page, 27 Nov 2026), then `mark`."""
+    if len(text) <= cap:
+        return text
+    head = text[:cap]
+    if not text[cap].isspace():  # the cut falls inside a word: back to the space before it
+        head = head[: head.rfind(" ")] if " " in head.strip() else head
+    return head.rstrip(" ,;:-") + mark
 #: The version of the evidence SEARCH, stamped on each preparation (technical_queries.evidence_search_version), like a draft's
 #: prompt version: 1 = one search for the whole request; 2 = each numbered item searched on its own (o14 update 21); 3 = each item
 #: searched with its request's lead line; 4 = the whole request's own best passages always listed too (never crowded out by the
@@ -46,11 +56,7 @@ def items_of(question: str) -> list[str]:
             open_item = False
         elif open_item and not items[-1].endswith(ITEM_CUT):
             joined = f"{items[-1]} {line.strip()}"
-            items[-1] = (
-                joined
-                if len(joined) <= ITEM_CAP
-                else joined[:ITEM_CAP].rstrip() + ITEM_CUT
-            )
+            items[-1] = cut_whole_words(joined, ITEM_CAP, ITEM_CUT)
     return items if len(items) >= 2 else []
 
 
