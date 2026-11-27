@@ -12,6 +12,7 @@ import type { ApiError, DocumentRecord, PageRecord } from "../types/api";
 import { Drawer } from "./Drawer";
 import { DisconnectedState, ErrorState, Spinner } from "./states";
 import { useAuthedImage } from "./useAuthedImage";
+import { NEW_LOOK } from "../look";
 
 const PAGE_SIZE = 100;
 const ZOOMS = [0.5, 0.75, 1, 1.5, 2] as const;
@@ -150,7 +151,7 @@ export function PageImageViewer({
               )}
               {current.equation_heavy && (
                 <span className="rounded bg-info-500/15 px-2 py-0.5 text-info-500">
-                  equation-heavy — the maths did not survive extraction
+                  {NEW_LOOK ? "mostly equations: read them on the page picture" : "equation-heavy — the maths did not survive extraction"}
                 </span>
               )}
             </p>

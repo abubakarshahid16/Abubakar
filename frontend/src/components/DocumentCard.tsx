@@ -23,9 +23,11 @@ import {
   hasLowRetrievableRatio,
   presentStatus,
   progressLine,
+  plainProgressLine,
   retrievableRatio,
 } from "./documentStatus";
 import { Button } from "./kit/Kit";
+import { NEW_LOOK } from "../look";
 
 const TONE: Record<string, string> = {
   neutral: "bg-ink-700 text-slateish-300",
@@ -174,7 +176,7 @@ export function DocumentCard({
             {classification?.document_role && (
               <span
                 data-testid="role-chip"
-                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-300"
+                className={NEW_LOOK ? "kit-tag" : "rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-300"}
               >
                 {roleLabel(classification.document_role)}
               </span>
@@ -191,7 +193,7 @@ export function DocumentCard({
                 <span
                   key={d}
                   data-testid="discipline"
-                  className="rounded-[var(--radius-xs)] border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-xs text-signal-400"
+                  className={NEW_LOOK ? "kit-tag" : "rounded-[var(--radius-xs)] border border-signal-500/40 bg-signal-500/10 px-2 py-0.5 text-xs text-signal-400"}
                 >
                   {d}
                 </span>
@@ -199,7 +201,7 @@ export function DocumentCard({
             ) : (
               <span
                 data-testid="discipline"
-                className="rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"
+                className={NEW_LOOK ? "kit-tag" : "rounded-[var(--radius-xs)] border border-ink-600 px-2 py-0.5 text-xs text-slateish-400"}
                 title="No discipline holds this document. Only an administrator can read it."
               >
                 Admin only
@@ -213,23 +215,23 @@ export function DocumentCard({
                 the day it shipped. */}
             {doc.needs_ocr_pages > doc.recognised_pages && (
               <span
-                className="rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"
+                className={NEW_LOOK ? "kit-chip kit-chip--check" : "rounded-[var(--radius-xs)] bg-warn-500/15 px-2 py-0.5 text-xs text-warn-500"}
                 title="Scanned pages with no extractable text that recognition has not yet read."
               >
-                {doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR
+                {NEW_LOOK ? `${doc.needs_ocr_pages - doc.recognised_pages} waiting to be read` : `${doc.needs_ocr_pages - doc.recognised_pages} awaiting OCR`}
               </span>
             )}
             {doc.equation_pages > 0 && (
               <span
-                className="rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"
+                className={NEW_LOOK ? "kit-chip kit-chip--info" : "rounded-[var(--radius-xs)] bg-info-500/15 px-2 py-0.5 text-xs text-info-500"}
                 title="Mathematics did not survive extraction on these pages. Use the page image."
               >
-                {doc.equation_pages} equation-heavy
+                {NEW_LOOK ? `${doc.equation_pages} page${doc.equation_pages === 1 ? "" : "s"} mostly equations` : `${doc.equation_pages} equation-heavy`}
               </span>
             )}
           </div>
 
-          <p className="mt-1 font-mono text-xs text-slateish-400">{progressLine(doc)}</p>
+          <p className={NEW_LOOK ? "mt-1 text-xs text-slateish-400" : "mt-1 font-mono text-xs text-slateish-400"}>{NEW_LOOK ? plainProgressLine(doc) : progressLine(doc)}</p>
 
           {doc.chunk_count > 0 && doc.embedded_count < doc.chunk_count && (
             <div
@@ -247,6 +249,17 @@ export function DocumentCard({
             </div>
           )}
 
+          {NEW_LOOK ? (
+            // the same facts in everyday words (H's gate on 3e053de0, audit 17): no "parts of pages", "excluded" or "OCR"
+            <p className="mt-2 text-xs text-slateish-400">
+              {nf.format(doc.chunk_count)} of {nf.format(doc.chunk_count_total)} parts can be searched
+              {excluded > 0 && <>; {nf.format(excluded)} left out on purpose</>}
+              {doc.recognised_pages > 0 && doc.page_count != null && (
+                <>; {nf.format(doc.recognised_pages)} of {nf.format(doc.page_count)} pages were scanned and read as pictures</>
+              )}
+              {doc.indexed_at && <> · finished {formatWhen(doc.indexed_at)}</>}
+            </p>
+          ) : (
           <p className="mt-2 text-xs text-slateish-400">
             {nf.format(doc.chunk_count)} searchable of {nf.format(doc.chunk_count_total)} parts of pages
             {excluded > 0 && <> · {nf.format(excluded)} excluded</>}
@@ -263,6 +276,7 @@ export function DocumentCard({
             )}
             {doc.indexed_at && <> · finished {formatWhen(doc.indexed_at)}</>}
           </p>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-1.5">
@@ -368,17 +382,17 @@ export function DocumentCard({
       )}
 
       {status.tone === "warning" && doc.error && (
-        <div role="alert" className="border-t border-warn-500/30 bg-warn-500/10 px-4 py-3 text-sm">
-          <p className="font-medium text-warn-500">Nothing on this document is searchable</p>
-          <p className="mt-1 text-slateish-300">{doc.error.message}</p>
+        <div role="alert" className={NEW_LOOK ? "kit-notice kit-notice--warn mx-4 mb-4" : "border-t border-warn-500/30 bg-warn-500/10 px-4 py-3 text-sm"}>
+          <p className={NEW_LOOK ? "kit-notice__title" : "font-medium text-warn-500"}>Nothing on this document is searchable</p>
+          <p className={NEW_LOOK ? undefined : "mt-1 text-slateish-300"}>{doc.error.message}</p>
         </div>
       )}
 
       {doc.status === "failed" && doc.error && (
-        <div role="alert" className="border-t border-danger-500/30 bg-danger-500/10 px-4 py-3 text-sm">
-          <p className="font-medium text-danger-500">Processing failed</p>
-          <p className="mt-1 text-slateish-300">{doc.error.message}</p>
-          <p className="mt-1 font-mono text-xs text-slateish-400">code: {doc.error.code}</p>
+        <div role="alert" className={NEW_LOOK ? "kit-notice kit-notice--problem mx-4 mb-4" : "border-t border-danger-500/30 bg-danger-500/10 px-4 py-3 text-sm"}>
+          <p className={NEW_LOOK ? "kit-notice__title" : "font-medium text-danger-500"}>Processing failed</p>
+          <p className={NEW_LOOK ? undefined : "mt-1 text-slateish-300"}>{doc.error.message}</p>
+          <p className={NEW_LOOK ? "mt-1 text-xs" : "mt-1 font-mono text-xs text-slateish-400"}>code: {doc.error.code}</p>
         </div>
       )}
 
@@ -439,16 +453,21 @@ export function DocumentCard({
       {hasLowRetrievableRatio(doc) && ratio !== null && (
         <div
           role="alert"
-          className="border-t border-warn-500/30 bg-warn-500/10 px-4 py-3 text-sm"
+          className={NEW_LOOK ? "kit-notice kit-notice--warn mx-4 mb-4" : "border-t border-warn-500/30 bg-warn-500/10 px-4 py-3 text-sm"}
         >
-          <p className="font-medium text-warn-500">
+          <p className={NEW_LOOK ? "kit-notice__title" : "font-medium text-warn-500"}>
             Only {Math.round(ratio * 100)}% of this document is searchable
           </p>
+          {NEW_LOOK ? (
+            // everyday words (H's audit 17/20): what was left out, not the gate's own terms
+            <p>{nf.format(excluded)} of {nf.format(doc.chunk_count_total)} parts of pages could not be read well enough to search. Check them before relying on a search of this document.</p>
+          ) : (
           <p className="mt-1 text-slateish-300">
             {nf.format(excluded)} of {nf.format(doc.chunk_count_total)} parts of pages were left out —
             below the {Math.round(LOW_RETRIEVABLE_THRESHOLD * 100)}% threshold. If this layout is
             unfamiliar, the quality gate may be over-rejecting it.
           </p>
+          )}
           <Button variant="secondary" size="sm"
            
             onClick={() => actions.onExcluded(doc)}

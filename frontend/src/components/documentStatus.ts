@@ -11,6 +11,7 @@
  *    over-rejecting an unfamiliar layout is otherwise silent
  */
 import type { DocumentRecord } from "../types/api";
+import { NEW_LOOK } from "../look";
 
 export type Tone = "neutral" | "progress" | "success" | "warning" | "danger";
 
@@ -51,7 +52,10 @@ export function presentStatus(doc: DocumentRecord): StatusPresentation {
         // document is finished and N pages are still waiting for OCR.
         const waiting = doc.needs_ocr_pages - doc.recognised_pages;
         return {
-          label: `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,
+          // everyday words in the new look (H's gate on #1968): "read as a picture", the Dashboard's own words, not "OCR"
+          label: NEW_LOOK
+            ? `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting to be read as ${waiting === 1 ? "a picture" : "pictures"}`
+            : `finished, ${nf.format(waiting)} page${waiting === 1 ? "" : "s"} waiting for OCR`,
           tone: "neutral",
           answerable: true,
         };
@@ -109,6 +113,25 @@ export function progressLine(doc: DocumentRecord): string {
         ? `${nf.format(doc.chunk_count)} embedded`
         : `${nf.format(doc.embedded_count)}/${nf.format(doc.chunk_count)} embedded`,
     );
+  }
+  return parts.join(" · ");
+}
+
+/** The progress line in everyday words for the new look (H's audit 17: "passages", "embedded", "keyword search ready" are our words,
+ *  not a reader's). The classic look keeps progressLine. */
+export function plainProgressLine(doc: DocumentRecord): string {
+  const parts: string[] = [];
+  if (doc.page_count != null) parts.push(`${nf.format(doc.page_count)} page${doc.page_count === 1 ? "" : "s"}`);
+  else if (doc.pages_done > 0) parts.push(`${nf.format(doc.pages_done)} pages read so far`);
+  if (doc.status === "no_searchable_content") { parts.push("no readable text"); return parts.join(" · "); }
+  if (doc.status === "partially_searchable" || doc.status === "ready") {
+    if (doc.chunk_count > 0 && doc.embedded_count < doc.chunk_count) {
+      parts.push(`searchable by words; search by meaning ${Math.round(embedProgress(doc) * 100)}% ready`);
+    } else {
+      parts.push("searchable by words and by meaning");
+    }
+  } else if (doc.chunk_count_total > 0 || doc.pages_done > 0) {
+    parts.push("being read");
   }
   return parts.join(" · ");
 }

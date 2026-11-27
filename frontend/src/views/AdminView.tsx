@@ -36,7 +36,7 @@ import type {
   LoadFailure,
 } from "../types/admin";
 import { management, reviews } from "../api/client";
-import { Button, LinkButton } from "../components/kit/Kit";
+import { Button, LinkButton, StatusChip } from "../components/kit/Kit";
 
 /**
  * The "seeded but useless" summary.
@@ -645,13 +645,15 @@ export function AdminView(props: AdminViewProps) {
                 key={doc.document_id}
                 className="rounded-[var(--radius-md)] border border-ink-600 bg-ink-800 p-3"
               >
-                <p className="text-sm text-slateish-200">{doc.filename}</p>
-                {doc.warning === "no_discipline_can_see_this" && (
-                  <p className="mt-1 text-xs text-warn-500">
-                    No discipline can see this. It is invisible in every search, which
-                    looks exactly like a failed upload.
-                  </p>
-                )}
+                {/* ONE SHORT CHIP PER ROW, THE SENTENCE ONCE (H's audit 54, 27 Nov 2026): the same red two-line warning on every
+                    card was 25 warnings on one page. The page's own notice above says what it means; the chip keeps the full
+                    sentence on hover and for a screen reader. */}
+                <p className="flex flex-wrap items-center gap-2 text-sm text-slateish-200">
+                  {doc.filename}
+                  {doc.warning === "no_discipline_can_see_this" && (
+                    <StatusChip word="Visible to nobody" why="No discipline can see this document. It is invisible in every search, which looks exactly like a failed upload. Grant a discipline below." testId="admin-visible-to-nobody" />
+                  )}
+                </p>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {disciplineNames.map((name) => {

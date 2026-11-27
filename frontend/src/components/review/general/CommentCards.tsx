@@ -10,11 +10,11 @@
  * ones stay). Edit needs the engineer's text, Reject a one-line reason. Only a signed-in user who may read the
  * paper can decide; the server's own sentence is shown when it refuses. No contractor copy follows from a decision here.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { type CommentDecision, type DecisionState, type GeneralLine, type GeneralReview, type Severity, generalReview } from "../../../api/generalReview";
 import { dayTimeWords } from "../workspace/landing/dateWords";
-import { Button, LinkButton } from "../../kit/Kit";
+import { Button, LinkButton, ShowMore, Tiles } from "../../kit/Kit";
 
 export const SEVERITIES: Severity[] = ["Must fix", "Check a value", "Missing information", "Please confirm"];
 
@@ -215,17 +215,21 @@ export function SeverityTiles({ counts, active, onPick }: {
 }) {
   if (!counts) return null;
   return (
-    <div data-testid="severity-tiles" className="flex flex-wrap gap-2">
+    // one even row from the kit's tile grid (H's audit #58, 27 Nov 2026: each box was as wide as its own words)
+    <Tiles label="How many comments of each kind of problem" testId="severity-tiles">
       {SEVERITIES.filter((s) => counts[s] != null).map((s) => (
         <button key={s} type="button" aria-pressed={active === s} onClick={() => onPick(active === s ? null : s)}
-          className={`min-w-[8.5rem] rounded-[var(--radius-md)] border px-3 py-2 text-left ${active === s ? "border-signal-400" : "border-ink-600"} bg-ink-800`}>
+          className={`rounded-[var(--radius-md)] border px-3 py-2 text-left ${active === s ? "border-signal-400" : "border-ink-600"} bg-ink-800`}>
           <b className="block text-xl text-slateish-100">{counts[s]}</b>
           <span className="text-xs text-slateish-300">{s}{s === "Please confirm" ? " (separate part, not sent)" : ""}</span>
         </button>
       ))}
-    </div>
+    </Tiles>
   );
 }
+
+/** Comment cards drawn at first, and added per press of "Show more" (H's audit #59, 27 Nov 2026: 57 cards made a 40,000 px page). */
+export const COMMENTS_PAGE = 15;
 
 /** The comments as cards, with the severity and page filters. Lines without a card (an older answer) keep the plain row. */
 export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided }: {
@@ -235,6 +239,9 @@ export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided 
 }) {
   const [severity, setSeverity] = useState<Severity | null>(null);
   const [page, setPage] = useState<number | null>(null);
+  const [limit, setLimit] = useState(COMMENTS_PAGE);
+  // a new filter starts again from the first cards
+  useEffect(() => setLimit(COMMENTS_PAGE), [severity, page]);
   const [decided, setDecided] = useState<Record<string, CommentDecision>>({});
   /** Records one decision on the server; null when it was recorded, else the server's own sentence. The card then shows it. */
   const decide = (part: "comment" | "confirmation"): DecideFn => async (line, state, text, reason) => {
@@ -265,7 +272,8 @@ export function CommentCards({ review, mark, onViewPage, renderPlain, onDecided 
         </div>
       )}
       {shown.length === 0 && <p className="text-sm text-slateish-300">{review.comments.length === 0 ? "This review has no comments." : "No comment matches this filter."}</p>}
-      <ul className="space-y-3">{shown.map((l) => hasCard(l) ? <CommentCard key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`comment:${l.n}`]} onDecide={decide("comment")} /> : renderPlain(l))}</ul>
+      <ul className="space-y-3">{shown.slice(0, limit).map((l) => hasCard(l) ? <CommentCard key={`${l.n}-${l.item_id}`} line={l} mark={mark} onViewPage={onViewPage} decision={decided[`comment:${l.n}`]} onDecide={decide("comment")} /> : renderPlain(l))}</ul>
+      <ShowMore testId="comments-more" shown={Math.min(limit, shown.length)} total={shown.length} step={COMMENTS_PAGE} onMore={() => setLimit((n) => n + COMMENTS_PAGE)} />
       {confirmations.length > 0 && severity == null && page == null && (
         <details data-testid="general-confirmations" className="rounded-[var(--radius-sm)] border border-ink-600 p-3">
           <summary className="cursor-pointer text-sm text-slateish-200">

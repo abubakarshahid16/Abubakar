@@ -99,8 +99,9 @@ export function SelectField({ label, hint, id, children, ...rest }: Omit<SelectH
   );
 }
 
-/** The one notice box: `info` (a fact to know), `warn` (check this), `problem` (something went wrong). */
-export function Notice({ tone = "info", title, children }: { tone?: "info" | "warn" | "problem"; title?: string; children: ReactNode }) {
+/** The one notice box: `info` (a fact to know), `warn` (check this), `problem` (something went wrong), `quiet` (plain information
+ *  beside others, the notice's shape without colour). */
+export function Notice({ tone = "info", title, children }: { tone?: "info" | "warn" | "problem" | "quiet"; title?: string; children: ReactNode }) {
   return (
     <div className={`kit-notice kit-notice--${tone}`} role={tone === "problem" ? "alert" : "note"}>
       {title ? <p className="kit-notice__title">{title}</p> : null}
@@ -130,8 +131,8 @@ export function Tile({ name, number, label, done, late, lateWords, onOpen }: {
 }
 
 /** A row of tiles: side by side on a wide window, one column on a narrow one. */
-export function Tiles({ children, label }: { children: ReactNode; label: string }) {
-  return <div className="kit-tiles" role="group" aria-label={label}>{children}</div>;
+export function Tiles({ children, label, testId }: { children: ReactNode; label: string; testId?: string }) {
+  return <div className="kit-tiles" role="group" aria-label={label} data-testid={testId}>{children}</div>;
 }
 
 /** Small grey text (an "updated 1 min ago" line): 13px, never mono. */
@@ -156,6 +157,18 @@ export function ChipButton({ word, detail, expanded, controls, onClick, testId }
     <button type="button" className="kit-chip-btn" aria-expanded={expanded} aria-controls={controls} onClick={onClick} data-testid={testId}>
       <StatusChip word={word} />{detail ? <span className="kit-chip-btn__detail">{detail}</span> : null}
     </button>
+  );
+}
+
+/** The one "show more" of a long list (H's audit #10, 27 Nov 2026: 40+ rows drawn at once): how many of how many are shown, and the
+ *  next `step` one press away. Nothing when every item is shown. Every item stays reachable; none is dropped. */
+export function ShowMore({ shown, total, step, onMore, testId }: { shown: number; total: number; step: number; onMore: () => void; testId?: string }) {
+  if (shown >= total) return null;
+  return (
+    <div className="kit-show-more" data-testid={testId}>
+      <span className="kit-small">Showing {shown.toLocaleString("en-US")} of {total.toLocaleString("en-US")}.</span>
+      <Button variant="secondary" size="sm" onClick={onMore}>Show {Math.min(step, total - shown)} more</Button>
+    </div>
   );
 }
 

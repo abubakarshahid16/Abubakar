@@ -73,6 +73,9 @@ export interface TechnicalQuery {
   source_access_revoked?: boolean;
   /** True when the attachment text was left out because the signed-in person may not read that attachment. */
   attachment_text_hidden?: boolean;
+  /** Other queries the request names, looked up with the caller's own visibility (technical_query_refs, builder A, 27 Nov 2026):
+   *  `held` false = not held here; held with no query_id = held, but outside what the caller may open (subject and status withheld). */
+  cross_refs?: Array<{ reference: string; held: boolean; query_id: string | null; status: string | null; subject: string | null }>;
 }
 
 export interface TechnicalQueryFilters {

@@ -356,7 +356,7 @@ describe("Technical Queries screen", () => {
     api.list.mockResolvedValue({ ok: true, data: { items: [{ ...query, id: "q1", subject: "First" }, { ...query, id: "q2", subject: "Second" }] } });
     render(<TechnicalQueriesView />);
     fireEvent.click(await screen.findByText("Second"));
-    await waitFor(() => expect(narrow).toHaveBeenCalledWith("(max-width: 1023px)"));
+    await waitFor(() => expect(narrow).toHaveBeenCalledWith("(max-width: 1279px)"));
     expect(scroll.mock.calls.length).toBeGreaterThanOrEqual(2); // the page top on arrival, then the detail
     const region = screen.getByRole("region", { name: "Technical Queries and CFCs" });
     expect(region.className).toContain("minmax(0,1fr)");

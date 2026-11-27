@@ -13,7 +13,9 @@ describe("displayName", () => {
   it("uses the stored number, then the stored title, then the file name; never makes one up", () => {
     expect(displayName(row({ document_number: "API 610", title: "Pumps", filename: "a.pdf" }))).toBe("API 610");
     expect(displayName(row({ title: "Pumps", filename: "a.pdf" }))).toBe("Pumps");
-    expect(displayName(row({ filename: "1234.pdf" }))).toBe("1234.pdf");
+    // the file's name without its extension (H's audit 26); the row still shows the whole file name under it
+    expect(displayName(row({ filename: "1234.pdf" }))).toBe("1234");
+    expect(displayName(row({ filename: "Invented Book.DOCX" }))).toBe("Invented Book");
   });
 });
 
