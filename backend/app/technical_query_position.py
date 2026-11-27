@@ -24,7 +24,7 @@ HINT = "This request mentions money or time: state COMPANY's position yourself."
 # a "push button", a flow or corrosion "rate", seismic "acceleration", a part "behind" another.
 _MONEY = (
     r"\bcosts?\b|\bcosted\b|\bcostly\b|\bprices?\b|\bpricing\b|\bpa(?:y|ys|id|ying|yment|yments)\b|\bexpenses?\b|\bbudget\w*"
-    r"|\bcommercial\w*|\bclaims?\b|\bclaimed\b|\bcompensat\w*|\breimburs\w*|\bman-?hours?\b|\bmanhours?\b"
+    r"|\bcommercial\w*|\bclaims?\b|\bclaimed\b|\bcompensat\w*|\breimburs\w*|\bman[- ]?hours?\b|\bmanhours?\b"
     r"|\b(?:unit|hourly|daily|labou?r|day)\s+rates?\b|\b(?:variation|change)\s+orders?\b|\binvoice\w*|\bcontract\s+(?:price|sum|value)\b"
 )
 _TIME = (
@@ -40,8 +40,9 @@ _RAISES = re.compile(f"{_MONEY}|{_TIME}", re.IGNORECASE)
 
 
 def raises_cost(question: str) -> bool:
-    """True when the request holds any money or time word: the page then shows the HINT (and still offers the sentence)."""
-    return bool(_RAISES.search(question or ""))
+    """True when the request holds any money or time word: the page then shows the HINT (and still offers the sentence). Runs of spaces
+    and a hyphen between words read as one space first, so "coating-schedule" and "coating  schedule" meet the same exceptions (H)."""
+    return bool(_RAISES.search(re.sub(r"(?<=\w)[\s-]+(?=\w)", " ", question or "")))
 
 
 def offer(question: str, reply: str | None = None) -> dict[str, str | bool | None]:

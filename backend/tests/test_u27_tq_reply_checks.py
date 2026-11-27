@@ -319,4 +319,6 @@ def test_a_coating_schedule_in_the_question_is_not_money_or_time():
 
     assert not raises_cost("Confirm the Coating Schedule for the invented tank.")
     assert not raises_cost("Please confirm the invented valve schedule.")
+    assert not raises_cost("Confirm the coating-schedule.") and not raises_cost("Confirm the coating  schedule.")  # hyphen, two spaces
+    assert raises_cost("Extra man-hours are needed.") and raises_cost("A 14-day delay.")  # a hyphen read as a space keeps these
     assert raises_cost("Will this affect the schedule?") and raises_cost("The schedule slips by two weeks.")
