@@ -13,7 +13,7 @@ import { CommentCards } from "./CommentCards";
 import { SignBar } from "./SignBar";
 import { HowReviewMade } from "./HowReviewMade";
 import { MeasuredBadge } from "./MeasuredBadge";
-import { Button, LinkButton } from "../../kit/Kit";
+import { Button, LinkButton, Notice } from "../../kit/Kit";
 import { formatDay } from "../../../format/when";
 
 const MARK_FALLBACK = "AI, to be checked";
@@ -60,7 +60,7 @@ function Row({ line, mark, onViewPage }: { line: GeneralLine; mark: string; onVi
  *  sign-off. With no sign-off state (an older review): the comment count, still marked as the AI's opinion. */
 export function verdict(review: GeneralReview, signoff: GeneralReview["signoff"] | null): string {
   const n = review.counts.comments;
-  if (signoff?.state === "signed") return `Signed off: ${n} comment${n === 1 ? "" : "s"} decided.`;
+  if (signoff?.state === "signed") return `${n} comment${n === 1 ? "" : "s"} decided.`; // "Signed off" is the box's own label just above
   // R1 (H's one-real-file pass, 27 Nov 2026): a review that stopped early, or that has no points, is never "ready to sign off"
   // (the server refuses its sign-off too: `aim_review_signoff.sign`)
   if (review.status === "stopped") return "This review stopped before it finished: there is nothing to sign off.";
@@ -147,7 +147,8 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         {signoff?.state === "signed" && signoff.signed ? (
           <>
             <strong>Signed off</strong>
-            <span className="ml-2 text-slateish-300">Review signed off by {signoff.signed.by}. The contractor copy is below; this page is still the team's full list.</span>
+            {/* who and when is said ONCE, in the sign-off line below (F's live walk, 27 Nov 2026: three lines said "signed off") */}
+            <span className="ml-2 text-slateish-300">The contractor copy is below; this page is still the team's full list.</span>
           </>
         ) : (
           <>
@@ -157,18 +158,23 @@ export function GeneralResults({ review, howTab, onViewPage, onDownloaded, onRel
         )}
         <p data-testid="general-verdict" className="mt-1 text-base font-semibold text-slateish-100">{verdict(review, signoff)}</p>
       </div>
+      {/* C's notes on #1981: the way to the last complete review comes FIRST, straight under the verdict */}
+      <LastCompleteReview review={review} onOpenRun={onOpenRun} />
       <MeasuredBadge measured={review.measured} />{/* the kind's real score stays on screen (standing order: "below target" shown) */}
       {review.status === "stopped" && (
         <p role="alert" data-testid="general-stopped" className="text-sm text-danger-500">
-          This review stopped early{review.stop_reason && !review.stop_words ? `: ${review.stop_reason}` : ""}. The points below are the ones it reached.
+          This review stopped early{review.stop_reason && !review.stop_words ? `: ${review.stop_reason}` : ""}.
+          {review.counts.points > 0 ? " The points below are the ones it reached." : ""}
         </p>
       )}
-      <LastCompleteReview review={review} onOpenRun={onOpenRun} />
-      {!c.ok && (
+      {!c.ok && (c.nothing_to_compare ? (
+        // one fact, one red: the stop line above is the alarm; three counts of 0 are a quiet note, not a second red box
+        <div data-testid="general-incomplete"><Notice tone="quiet">{c.sentence}</Notice></div>
+      ) : (
         <div role="alert" data-testid="general-incomplete" className="rounded-[var(--radius-md)] border border-danger-500 p-3 text-sm text-danger-500">
           <p>{c.sentence ?? `The file is not complete: the page has ${c.page} points, the database ${c.database}, the file ${c.file_rows}.`}</p>
         </div>
-      )}
+      ))}
 
       {(review.steps_not_applied ?? []).length > 0 && (
         <p data-testid="general-steps-pointer" className="text-sm text-pill-review-fg">
