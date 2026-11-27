@@ -323,7 +323,67 @@ def unprepared(conn) -> list[str]:
         if r[0] not in seen:
             out.append(r[0])
             seen.add(r[0])
-    return out
+    # RULES 5 CHANGES ONLY HOW THE STORED PROPOSALS ARE TIDIED (A's read of #2016, 27 Nov 2026: of the 34 live queries only 7 would show
+    # another question; re-preparing the other 27 would throw away good replies for nothing). A query whose last preparation ran under
+    # rules 4 is prepared again ONLY when tidying its stored proposals against their own page text, with no model call, changes the
+    # question the page shows. Older rules, and a query never prepared or whose preparation failed, are prepared again as before.
+    return [
+        qid
+        for qid in out
+        if not _only_rules_4(conn, qid) or question_would_change(conn, qid)
+    ]
+
+
+def _only_rules_4(conn, query_id: str) -> bool:
+    """The query's latest finished preparation ran under rules 4 (the rules just before today's)."""
+    row = conn.execute(
+        f"SELECT MAX(COALESCE(question_rules,1)) FROM {TABLE} WHERE query_id=? AND state='done'",
+        (query_id,),
+    ).fetchone()
+    return bool(row) and row[0] == QUESTION_RULES - 1
+
+
+def question_would_change(conn, query_id: str) -> bool:
+    """Would today's rules show another proposed question? The STORED proposals are tidied again against their OWN stored page text
+    (`technical_query_questions.tidy`, no model call), composed as the page composes them (`technical_queries.propose_question`) and
+    compared with the stored proposal. An engineer's own saved wording is what the page shows, so a query with one never changes."""
+    from . import technical_queries
+    from . import technical_query_questions as tqq
+
+    row = conn.execute(
+        "SELECT extracted_question, attachment_context, proposed_question, proposed_questions, edited_question, title_short, subject "
+        "FROM technical_queries WHERE id=?",
+        (query_id,),
+    ).fetchone()
+    if row is None or (row[4] or "").strip():
+        return False
+    try:
+        context = json.loads(row[1] or "[]")
+        proposals = json.loads(row[3] or "[]")
+    except ValueError:
+        return True  # an unreadable stored proposal: prepare it again, as before
+    pages = {
+        (c.get("filename"), c.get("page")): str(c.get("text") or "")
+        for c in context
+        if isinstance(c, dict)
+    }
+    tidied: list[dict] = []
+    seen: set[str] = set()
+    for p in proposals if isinstance(proposals, list) else []:
+        if not isinstance(p, dict):
+            continue
+        page_text = pages.get((p.get("filename"), p.get("page")), "")
+        printed = tqq._squash(page_text)
+        for item in tqq.tidy([str(p.get("question") or "")], page_text):
+            key = tqq._squash(item["question"])
+            if key and key not in seen and (not page_text or key in printed):
+                seen.add(key)
+                tidied.append({**p, **item})
+    fallback = "" if tidied else tqq.form_question(context)
+    composed = technical_queries.propose_question(
+        row[0] or fallback, tidied, row[5] or row[6]
+    )
+    return composed != (row[2] or "")
 
 
 def minutes_each(conn) -> int | None:
