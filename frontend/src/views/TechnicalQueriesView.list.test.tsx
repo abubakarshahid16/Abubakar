@@ -139,6 +139,14 @@ describe("the query list page", () => {
     expect(await screen.findByText("Please advise", { selector: "h2" })).toBeTruthy();
   });
 
+  it("says 'nobody is assigned' once above the list when no query has anyone, not on every row", async () => {
+    api.list.mockResolvedValue({ ok: true, data: { items: rows.map((r) => ({ ...r, assignee_user_id: null })) } });
+    render(<TechnicalQueriesView />);
+    expect((await screen.findByTestId("nobody-assigned-note")).textContent).toBe("Nobody is assigned to any of these 3 queries yet.");
+    const list = screen.getByLabelText("Technical query list");
+    expect(within(list).queryByText(/Nobody assigned/)).toBeNull();
+  });
+
   it("says a stopped mailbox in red on the chip", async () => {
     api.mailboxes.mockResolvedValue({ ok: true, data: { items: [{ ...mailbox, connection_state: "error", status_note: "Gmail could not be read." }] } });
     render(<TechnicalQueriesView />);
