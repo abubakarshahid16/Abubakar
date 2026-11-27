@@ -481,7 +481,9 @@ export function countLine(items: Array<{ status: string; needs_person?: number |
     { view: "stopped", n: n("stopped"), words: "stopped by an error" },
   ];
   const person = n("person");
-  return { total: items.length, parts: parts.filter((p) => p.n > 0), ofThem: person ? { view: "person", n: person, words: person === 1 ? "needs a person" : "need a person" } : null };
+  return { total: items.length, parts: parts.filter((p) => p.n > 0), ofThem: person ? { view: "person", n: person, words: person === 1 ? "needs a query number" : "need a query number" } : null };
+  // the owner's words (written order, 27 Nov 2026 10:59): these are the queries whose subject has no full TQ or CFC number; the line
+  // is the one place it is said, and clicking it lists exactly them (the rows no longer carry a "No query number" chip)
 }
 
 /** A passage's match in plain words (owner's live walk, 27 Nov 2026 01:15: "8 of 22 key words" reads as machine talk); the counts stay

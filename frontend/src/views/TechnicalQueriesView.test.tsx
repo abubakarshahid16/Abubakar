@@ -117,8 +117,9 @@ describe("Technical Queries screen", () => {
       evidence_coverage: { searched: 20, of: 20, hits_in: 5, failed: 0, line: "Searched 20 of 20 contracts, hits in 5.", matching_passages: 0, key_terms: 5, top_rerank_score: 0.412 },
       evidence: [{ id: "e1", document_id: "c1", page_start: 4, locator: "6.1 Painting", match_count: 1, match_terms: 5, match_ok: 0, rank_score: 0.412, exact_quote: "x", evidence_state: "proposed", supersession_state: "current" }] } });
     const { container } = render(<TechnicalQueriesView />);
-    expect((await screen.findByTestId("evidence-top-score")).textContent).toContain("relevance score");
-    expect(screen.getByTestId("evidence-top-score").textContent).toContain("0.412");
+    expect(await screen.findByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
+    expect(screen.queryByTestId("evidence-top-score")).toBeNull(); // the raw relevance score is not shown (Q1)
+    expect(screen.getByText(/suggested, not kept yet/)).toBeTruthy(); // the source's states in words (Q2)
     expect(screen.getByText(/Open source, 6\.1 Painting, page 4/)).toBeTruthy();
     expect(screen.getByTestId("evidence-match").textContent).toBe("Weak match: this quote shares few words with the question"); // plain words (owner, 27 Nov 2026)
     expect(screen.getByTestId("evidence-match").getAttribute("title")).toBe("1 of 5 of the question's key words"); // the counts, one hover away
@@ -455,8 +456,9 @@ describe("Technical Queries screen", () => {
     expect((await screen.findAllByTestId("query-tag")).map((t) => t.textContent)).toEqual(["TQ-12"]);
     expect(screen.getByText("PIPING")).toBeTruthy();
     expect(within(screen.getByLabelText("Technical query list")).getByText("Coating question")).toBeTruthy();
-    const noNumber = screen.getAllByTestId("problem-chip").find((c) => c.getAttribute("data-word") === "No query number")!;
-    expect(noNumber.getAttribute("title")).toContain("no full TQ or CFC number");
+    // "No query number" is said once, in the count line, not as a chip on the row (owner's written order, 27 Nov 2026 10:59)
+    expect(screen.queryAllByTestId("problem-chip")).toEqual([]);
+    expect(screen.getByTestId("count-line").textContent).toContain("1 of them needs a query number");
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "CFC" } });
     fireEvent.change(screen.getByLabelText("Discipline code"), { target: { value: "civil" } });
@@ -492,7 +494,7 @@ describe("Technical Queries screen", () => {
     expect(options).not.toContain("Sent");
   });
 
-  it("reads top to bottom (owner, 26 Nov 2026 22:41): one sentence, the ask, what the sources say, the reply, then everything else folded", async () => {
+  it("reads top to bottom (owner, 26 Nov 2026 22:41; Part 3, 27 Nov): one sentence, the ask, the reply, what the sources say, then everything else folded", async () => {
     render(<TechnicalQueriesView />);
     const headline = await screen.findByTestId("query-headline");
     const question = screen.getByRole("heading", { name: "What the contractor is asking" });
@@ -505,7 +507,7 @@ describe("Technical Queries screen", () => {
     const mail = screen.getByTestId("tq-folded-mail");
     const history = screen.getByTestId("review-history");
     const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    const order = [headline, question, sources, reply, more, evidence, who, email, mail, history];
+    const order = [headline, question, reply, sources, more, evidence, who, email, mail, history]; // Part 3: the reply before its sources
     expect(order.slice(1).map((part, i) => before(order[i], part))).toEqual(order.slice(1).map(() => true));
     for (const part of [more, evidence, who, email, mail, history]) {
       expect(part.tagName).toBe("DETAILS");
@@ -518,7 +520,7 @@ describe("Technical Queries screen", () => {
   it("says why no question was proposed from the attachment, never silently (lead-4, 26 Nov 2026)", () => {
     expect(proposalNoteWords("none_found", true)).toBe("The AI found no separate question in the attached file. The question below is copied from the form. Please check it.");
     expect(proposalNoteWords("not_on_page", false)).toMatch(/not word for word on the page, so none was kept\. Read the attached file below and type the question\./);
-    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI is not available, so it suggested no question from the attached file\./);
+    expect(proposalNoteWords("model_unavailable", false)).toMatch(/^The AI did not answer, so it suggested no question from the attached file\./);
     expect(proposalNoteWords(null, true)).toBeNull();
   });
 
@@ -563,7 +565,11 @@ describe("Technical Queries screen", () => {
     api.get.mockResolvedValue({ ok: true, data: drafted });
     api.saveQuestion.mockResolvedValue({ ok: true, data: { ...drafted, ready: { ...ready, evidence: "refreshing" } } });
     render(<TechnicalQueriesView queryId="q1" />);
-    expect((await screen.findByTestId("draft-author")).textContent).toBe("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
+    // who wrote it (it may name the model file) is inside the closed "How this was made" fold (owner's Part 3)
+    const made = await screen.findByTestId("how-made");
+    expect(made.tagName).toBe("DETAILS");
+    expect((made as HTMLDetailsElement).open).toBe(false);
+    expect(within(made).getAllByTestId("how-made-line").map((l) => l.textContent)).toContain("Written by invented-small:9b, the AI on this computer, from the sources found (no credit needed).");
     expect(screen.getAllByTestId("question-mark").map((m) => m.textContent)).toContain("Invented server mark");
     fireEvent.click(await screen.findByRole("button", { name: "Edit" })); // shown once the ask has filled in
     fireEvent.change(screen.getByLabelText(/Edit the question/), { target: { value: "See attached.\n1. An invented edited request?" } });
