@@ -198,7 +198,8 @@ describe("the owner's live walk (27 Nov 2026 01:15)", () => {
   it("is shown as the reply when nothing is being prepared", async () => {
     await open({ ready });
     expect(screen.queryByTestId("reply-being-rewritten")).toBeNull();
-    expect(screen.getByText("Yes. The minimum dry film thickness is 250 microns.")).toBeTruthy();
+    // shown as the reply (the engineer's own editor under Redo, open while the reply awaits approval, holds the same words)
+    expect(screen.getAllByText("Yes. The minimum dry film thickness is 250 microns.").some((el) => el.tagName !== "TEXTAREA")).toBe(true);
   });
   it("says when a reply is rewritten, from either half", () => {
     expect(replyBeingRewritten({ evidence: "ready", draft: "refreshing" })).toBe(true);

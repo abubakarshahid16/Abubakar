@@ -23,7 +23,7 @@
  * unbuilt one.
  */
 import { NEW_LOOK } from "../look";
-import { Button, LinkButton, StatusChip, Tag } from "../components/kit/Kit";
+import { Button, ShowMore, StatusChip, Tag } from "../components/kit/Kit";
 import { formatWhen } from "../format/when";
 import { useCallback, useEffect, useState } from "react";
 
@@ -161,14 +161,9 @@ export function StandardsView({ isAdmin = false }: { isAdmin?: boolean }) {
                     </li>
                   ))}
                 </ul>
-                {shown.length < group.rows.length && (
-                  <p className="text-xs text-slateish-400">
-                    Showing {shown.length.toLocaleString()} of {group.rows.length.toLocaleString()} {group.family} standards.{" "}
-                    <LinkButton tone="action" size="xs" onClick={() => setShownOf(new Map(shownOf).set(group.family, shown.length + GROUP_PREVIEW))}>
-                      Show {Math.min(GROUP_PREVIEW, group.rows.length - shown.length)} more
-                    </LinkButton>
-                  </p>
-                )}
+                {/* the kit's one "show more" part (A's ShowMore, 27 Nov 2026): the family is named by its section */}
+                <ShowMore shown={shown.length} total={group.rows.length} step={GROUP_PREVIEW}
+                  onMore={() => setShownOf(new Map(shownOf).set(group.family, shown.length + GROUP_PREVIEW))} />
               </section>
             );
           })}

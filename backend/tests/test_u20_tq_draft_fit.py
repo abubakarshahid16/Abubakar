@@ -51,7 +51,7 @@ def test_the_automatic_draft_is_written_with_the_query_reply_prompt(query, monke
     assert seen == [True]
     assert (
         tq.get(item["id"], "u1", False, False)["drafts"][-1]["prompt_version"]
-        == "system-draft-2"
+        == auto.SYSTEM_DRAFT
     )
 
 

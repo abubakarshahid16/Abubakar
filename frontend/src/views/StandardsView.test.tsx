@@ -110,7 +110,7 @@ describe("the library list: search and families", () => {
     await screen.findByRole("region", { name: "SAES standards" });
     expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(25);
     // 25 more at a time (H's audit 27: a family of 272 drew all of them at once): 25 -> 50 -> 60, and the count says so
-    expect(screen.getByText(/Showing 25 of 60 SAES standards/)).toBeTruthy();
+    expect(screen.getByText("Showing 25 of 60.")).toBeTruthy(); // the kit's ShowMore; the family is named by its section
     fireEvent.click(screen.getByRole("button", { name: "Show 25 more" }));
     expect(screen.getAllByRole("button", { name: /SAES-Z-/ })).toHaveLength(50);
     fireEvent.click(screen.getByRole("button", { name: "Show 10 more" }));
