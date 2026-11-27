@@ -238,6 +238,24 @@ def test_replay_runs_the_current_code_on_a_copy_and_leaves_the_source_alone(run_
     assert out["crs_lines"] is not None
 
 
+def test_a_replay_writes_no_line_into_the_shared_spend_ledger(tmp_path, monkeypatch):
+    """The ledger lives in the main checkout; a replay's refused Claude call (USD 0) is written to the copy's own ledger, never the
+    shared one (27 Nov 2026: the board's 2-hourly bench put 12 'refused:not_approved' lines into the live ledger each run)."""
+    from app import claude_spend
+
+    shared = tmp_path / "shared" / "claude_spend.jsonl"
+    shared.parent.mkdir()
+    monkeypatch.setattr(settings, "claude_spend_log", shared)
+    source = Path(settings.db_path)
+    with crs_bench._on_copy(source) as copy:
+        assert Path(settings.claude_spend_log).parent == copy.parent
+        claude_spend._append(
+            {"step": "requirement-matcher", "refused": "not_approved", "cost_usd": 0.0}
+        )
+    assert not shared.exists()
+    assert settings.claude_spend_log == shared  # restored afterwards
+
+
 def test_no_model_or_network_call_leaves_during_a_replay():
     real_post, real_send = model_transport.post_json, httpx.Client.send
     counter = [0]
