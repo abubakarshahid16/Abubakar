@@ -207,6 +207,10 @@
 /* two kit buttons side by side in running text keep the scale's gap (a row with its own gap adds none) (H's gate: "Edit" and "Confirm") */
 .kit-btn + .kit-btn { margin-inline-start: var(--kit-space-2); }
 .kit-row > .kit-btn + .kit-btn, [class*="gap-"] > .kit-btn + .kit-btn { margin-inline-start: 0; }
+/* A More menu is a COLUMN: the row gap above pushed every item after the first 8 px right (C's walk, 27 Nov 2026). Its items line up
+   and share one width, their words at the left like any menu. */
+.kit-more__panel > .kit-btn + .kit-btn { margin-inline-start: 0; }
+.kit-more__panel > .kit-btn, :root[data-look="new"] main .kit-more__panel > button.kit-btn { justify-content: flex-start; text-align: left; }
 
 /* A TABLE THAT STACKS WHEN ITS BOX IS NARROW (H's audit 1, 27 Nov 2026: at 800px the Dashboard's Recent reviews showed only the
    document and its date, the rest off to the side). Same elements, no copy: under 42rem of space each row becomes a block, its first
