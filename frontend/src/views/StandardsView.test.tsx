@@ -309,6 +309,17 @@ describe("the tab strip", () => {
   });
 });
 
+describe("the Details tab (H's read of #1986)", () => {
+  it("says the status in plain words and keeps the stored value folded under Technical detail", async () => {
+    mockApi();
+    render(<StandardsView />);
+    fireEvent.click(await screen.findByRole("button", { name: /SAES-A-105/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: "Details" }));
+    expect(await screen.findByText("Ready")).toBeTruthy();
+    expect(screen.getByText("ready").closest("details")).not.toBeNull();
+  });
+});
+
 describe("audit 2026-09-30: a tab whose list failed says so, to everyone", () => {
   it("shows a requirements load failure to a non-admin instead of spinning", async () => {
     mockApi({ failing: "requirements" });

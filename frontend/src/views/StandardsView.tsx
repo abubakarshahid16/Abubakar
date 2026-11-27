@@ -545,6 +545,13 @@ function RevisionsTab({
   );
 }
 
+/** A standard's stored status in plain words (H's read of #1986); the stored value stays under Technical detail on the tab. */
+const STATUS_WORDS: Record<string, string> = {
+  queued: "Waiting to be read", extracting: "Being read", chunking: "Being read", indexing_keyword: "Being read",
+  partially_searchable: "Partly ready: some search still running", ready: "Ready", no_searchable_content: "No text could be read",
+  failed: "Reading stopped with an error",
+};
+
 function ProcessingTab({ standard }: { standard: StandardSummary }) {
   const [clauses, setClauses] = useState<number | null>(null);
 
@@ -558,12 +565,18 @@ function ProcessingTab({ standard }: { standard: StandardSummary }) {
 
   return (
     <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
-      <Field label="Status" value={standard.status.replace(/_/g, " ")} />
+      <Field label="Status" value={STATUS_WORDS[standard.status] ?? "Not known"} />
       <Field label="Pages" value={standard.page_count} />
       <Field label="Clauses found" value={clauses} />
       <Field label="Requirements read" value={standard.requirement_count} />
       <Field label="Waiting for an engineer to check" value={standard.awaiting_verification} />
       <Field label="Uploaded" value={formatWhen(standard.uploaded_at)} />
+      <div className="col-span-full">
+        <details className="text-xs opacity-70">
+          <summary className="cursor-pointer">Technical detail</summary>
+          <span className="font-mono">{standard.status}</span>
+        </details>
+      </div>
     </dl>
   );
 }
