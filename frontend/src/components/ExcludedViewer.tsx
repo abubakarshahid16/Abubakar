@@ -18,10 +18,10 @@ const PAGE_SIZE = 25;
 const nf = new Intl.NumberFormat("en-GB");
 
 /** The words for what was left out: a piece of text or a whole page (the stored names are not shown). */
-const SCOPE_WORDS: Record<string, string> = { chunk: "piece of text", page: "page" };
-const SCOPE_PLURAL: Record<string, string> = { chunk: "pieces of text", page: "pages" };
+export const SCOPE_WORDS: Record<string, string> = { chunk: "piece of text", page: "page" };
+export const SCOPE_PLURAL: Record<string, string> = { chunk: "pieces of text", page: "pages" };
 
-const RULE_EXPLANATION: Record<string, string> = {
+export const RULE_EXPLANATION: Record<string, string> = {
   content_quality_gate:
     "The text did not read like sentences or a table.",
   page_classified_toc: "A contents page: its keyword lists would push real answers down.",

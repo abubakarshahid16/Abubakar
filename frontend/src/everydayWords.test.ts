@@ -133,6 +133,8 @@ export const WORDS_DONE: RegExp[] = [
   // Documents (words job page 2)
   /^views\/DocumentsView\.tsx$/, /^components\/(DocumentCard|DocumentPreview|ExcludedViewer|PageImageViewer|Uploader|WorkerPanel)\.tsx$/,
   /^components\/classification\/(DocumentFilters|MetadataEditor|TypeFilter)\.tsx$/, /^components\/classification\/registerLabels\.ts$/,
+  // Dashboard (words job page 3; its folded technical details may keep technical words)
+  /^views\/(DashboardView|DashboardViewContent|DashboardPrimitives)\.tsx$/, /^components\/dashboard\/(AtAGlance|GlanceTiles|MetricWarning)\.tsx$/,
 ];
 /** docs/WORDS.md "Never on a screen" (whole words or phrases, any case). */
 export const NEVER = [

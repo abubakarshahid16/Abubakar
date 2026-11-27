@@ -23,8 +23,8 @@ export function answersLine(models: { answer_model: string; answer_model_reachab
   const name = (models.answer_model || "").trim();
   if (!name) return "Answers: no AI is set up on this computer.";
   return models.answer_model_reachable
-    ? `Answers: the AI on this computer (${name}).`
-    : `Answers: the AI on this computer (${name}), not running right now.`;
+    ? "Answers: the AI on this computer. Its name is under Technical detail."
+    : "Answers: the AI on this computer, not running right now.";
 }
 
 export function DashboardView({
@@ -221,7 +221,7 @@ export function DashboardView({
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div>
               <h2 className="text-sm font-semibold text-slateish-200">EPC delivery overview</h2>
-              <p className="mt-1 text-xs text-slateish-500">Live WBS, review, and overdue-risk counts for the projects you can see.</p>
+              <p className="mt-1 text-xs text-slateish-500">Counts of deliverables, reviews and late risks, for the projects you can open.</p>
             </div>
             {onOpenDeliverables && (
               <LinkButton weight="medium" tone="action" size="xs" onClick={onOpenDeliverables}>Open deliverables</LinkButton>
@@ -296,7 +296,7 @@ export function DashboardView({
           }
           note={
             retrieval?.p50 == null
-              ? "No question has been asked on this machine yet, so there is nothing to average."
+              ? "No question asked on this computer yet, so there is nothing to average."
               : `This is the time to find the parts of pages for a question, not to write an answer. Half of searches are faster than this. The slowest one in twenty takes ${(
                   (retrieval.p95 ?? retrieval.p50) / 1000
                 ).toFixed(1)}s. Taken from ${nf.format(
@@ -310,7 +310,7 @@ export function DashboardView({
           tone={corpus.documents > 0 ? "normal" : "warn"}
           note={
             corpus.documents === 0 ? (
-              "Upload a PDF on the Documents screen to begin."
+              "Add a PDF or Word file on the Documents page to begin."
             ) : (
               <>
                 {`${nf.format(corpus.pages_extracted)} pages read. ${
@@ -345,7 +345,7 @@ export function DashboardView({
           note={
             metrics.warnings.length === 0
               ? "Nothing is wrong that the system can detect."
-              : "Listed immediately below, each with what it means and what to do about it."
+              : "Listed below, each with what it means and what to do."
           }
         />
       </div>
