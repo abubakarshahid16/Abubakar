@@ -378,7 +378,7 @@ export function DashboardTechnicalDetails({ metrics, corpus, throughput, retriev
       {metrics.exclusions.length > 0 && (
         <Section
           title="Why search cannot see it"
-          hint="One row for each reason. One reason about a page can cover several pieces of text, so these counts are smaller than the total above. Every piece left out is recorded with its reason."
+          hint="One row for each reason. One reason about a page can cover several pieces of text. So these counts are smaller than the total above. Every piece left out is recorded with its reason."
         >
           {/* the new look: the kit's stacking table (rows become labelled blocks below 42rem, so "Characters" is never cut at the edge),
               the rule's stored name a kit Tag, numbers in the normal face (planner's 12:47 hint; C's walk with folds open: 24 mono) */}

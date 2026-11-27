@@ -50,7 +50,7 @@ describe("Your documents line (update 12)", () => {
   it("says how many technical-query attachments are counted apart, never inside the library's numbers", () => {
     render(<ReadinessPanel metrics={withCorpus({ technical_query_attachments: 2 })} />);
     expect(
-      screen.getByText(/3 documents loaded, 40 parts of pages a question can reach \(2 files attached to queries counted apart/),
+      screen.getByText(/3 documents loaded, 40 parts of pages a question can reach \(2 files attached to queries are counted apart\. They join search, Chat and reviews once added to the library\)/),
     ).toBeInTheDocument();
   });
 

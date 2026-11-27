@@ -86,7 +86,7 @@ export function ReportsView({
         {reports !== null && reports.length === 0 && (
           <EmptyState
             title="No reports yet"
-            hint="Make a report from an answer in Chat. It keeps the question, the answer, the quoted sources and a fingerprint of each document, to spot later changes."
+            hint="Make a report from an answer in Chat. It keeps the question, the answer and the quoted sources. It also keeps a fingerprint of each document, to spot later changes."
             action={
               onGenerate && (
                 <Button variant="primary"
