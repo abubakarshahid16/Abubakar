@@ -60,7 +60,7 @@ export const NOT_ADMIN_MESSAGE =
 /** Said BEFORE anything is uploaded, so a non-administrator never leaves an
  *  unmarked file behind. */
 export const NOT_ADMIN_BEFORE_UPLOAD_MESSAGE =
-  "Only an administrator can start a new review from a file, because the file must be marked as a document from a contractor. "
+  "Only an administrator can start a review from a new file. It must be marked as a contractor document first. "
   + "Ask an administrator to upload it. Nothing was uploaded and no review was started.";
 
 export const ADMIN_UNKNOWN_MESSAGE =
@@ -90,16 +90,16 @@ export function alreadyInLibraryMessage(role: string | null | undefined): string
  *  which means "unknown OR you may not read it" (the same answer on purpose).
  *  Only an administrator gets that far, so it is never about being an admin. */
 export const MARK_UNREADABLE_MESSAGE =
-  "Your file was uploaded, but it could not be marked as a document from a contractor, because it could not be found or you may not read it. "
+  "Your file was uploaded, but it could not be marked as a contractor document: it could not be found, or you cannot open it. "
   + "No review was started.";
 
 export const UPLOADED_UNREADABLE_MESSAGE =
-  "The uploaded document could not be found or you may not read it, so no review was started.";
+  "The uploaded document could not be found, or you cannot open it. No review was started.";
 
 /* Refusals of a review start, in plain words. */
 export const REVIEW_ADMIN_ONLY_MESSAGE = "Only an administrator can start a review.";
 export const REVIEW_DOCUMENT_UNREADABLE_MESSAGE =
-  "This document could not be found or you may not read it, so no review was started.";
+  "This document could not be found, or you cannot open it. No review was started.";
 export const REVIEW_REFUSED_UNKNOWN_MESSAGE =
   "The review could not be started. Only an administrator can start one, and only of a document they may read.";
 export const ALREADY_RUNNING_MESSAGE = "A review of this document is already running.";
@@ -111,7 +111,7 @@ export const SIGNED_OUT_MESSAGE = "You signed out, so this new review was stoppe
 /** Said when the person changed just after the server took the review: it
  *  was started, so it is never called "stopped"; it is not watched here. */
 export const SIGNED_OUT_AFTER_START_MESSAGE =
-  "You signed out just after the review was started. It runs on; open it from the list when you sign in again.";
+  "You signed out after the review started. It keeps running: open it from the list when you sign in.";
 
 /** True once the signed-in person differs from when the task began. */
 type Changed = () => boolean;
@@ -144,7 +144,7 @@ async function uploadDisciplines(): Promise<{ ok: true; disciplines: string[] } 
   if (r.data.default.length === 0) {
     return {
       ok: false,
-      message: "You are not in any discipline, so an upload would be visible to nobody. Ask an administrator to add you to one.",
+      message: "Ask an administrator to add you to a discipline. Without one, nobody could see your file.",
     };
   }
   return { ok: true, disciplines: r.data.default };
@@ -230,7 +230,7 @@ export function markOfferWords(offer: OfferMark): string {
 }
 
 /** Said when reading a document in takes longer than READ_IN_CAP_MS. */
-export const READ_IN_SLOW_MESSAGE = "The document is taking longer than usual to be read in, so no review was started yet. "
+export const READ_IN_SLOW_MESSAGE = "The document is taking longer than usual to read, so no review was started yet. "
   + "Start it from the list once the document is ready.";
 
 /** Waits until the document is read in, or says why it will not be.
@@ -290,7 +290,7 @@ export async function startNewReview(
   if (uploaded.phase === "error") return fail(uploaded.message);
   if (uploaded.phase !== "done") return fail("The upload did not finish.");
   if (uploaded.awaitingGrant) {
-    return fail("Your file was uploaded, but an administrator must give access to it before it can be reviewed. No review was started.");
+    return fail("Your file was uploaded. An administrator must give access to it before it can be reviewed. No review was started.");
   }
   const documentId = uploaded.duplicateOf || uploaded.documentId || "";
   if (!documentId) return fail("The upload finished but the document could not be identified, so no review was started.");

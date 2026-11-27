@@ -59,8 +59,8 @@ describe("G3: Review all is not offered while the general review is on", () => {
     documents.mockResolvedValue({ ok: true, data: [paper] });
     render(<SubmittalsLandingView onOpenRun={vi.fn()} workspace isAdmin />);
     // classic: a line under the list; the new look: the same sentence in the page's "What a review does" fold
-    if (NEW_LOOK) expect(await screen.findByText("Each paper is reviewed on its own with the Review button.")).toBeInTheDocument();
-    else expect(await screen.findByTestId("review-each-line")).toHaveTextContent("Each paper is reviewed on its own with the Review button.");
+    if (NEW_LOOK) expect(await screen.findByText("Each document is reviewed on its own with the Review button.")).toBeInTheDocument();
+    else expect(await screen.findByTestId("review-each-line")).toHaveTextContent("Each document is reviewed on its own with the Review button.");
     expect(screen.queryByRole("button", { name: /Review all not reviewed/ })).toBeNull();
   });
   it("earlier engine (no exclusion): the button is as before", async () => {

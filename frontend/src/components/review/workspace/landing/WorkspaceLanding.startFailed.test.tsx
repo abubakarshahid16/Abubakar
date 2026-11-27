@@ -66,7 +66,7 @@ describe("Review all while the general review is on", () => {
     // the new look says it once, in the page's "What a review does" fold (SubmittalsLandingView), not again under the list
     if (NEW_LOOK) expect(screen.queryByTestId("review-each-line")).toBeNull();
     else expect(screen.getByTestId("review-each-line")).toHaveTextContent(REVIEW_EACH_LINE);
-    expect(REVIEW_EACH_LINE).toBe("Each paper is reviewed on its own with the Review button.");
+    expect(REVIEW_EACH_LINE).toBe("Each document is reviewed on its own with the Review button.");
   });
   it("is unchanged with the earlier engine (prop left out)", () => {
     show();

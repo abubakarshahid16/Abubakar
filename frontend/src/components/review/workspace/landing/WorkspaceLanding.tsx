@@ -76,11 +76,11 @@ function writeHelpHidden(): void {
  *  Simple view folds the rows' count line, so the note folds with it; the
  *  "All reviews" list shows its counts in either view, so it keeps the note. */
 export const LANDING_COUNTS_NOTE =
-  '"Found by the review" counts the findings each review still holds as a comment or as needing your judgement. '
-  + "Findings removed by an engineer are not counted, and the comment sheet groups findings into fewer comment lines.";
+  '"Found by the review" counts what each review still holds: its comments, and the points waiting for your decision. '
+  + "Comments an engineer removed are not counted. The comment sheet groups some comments into one line.";
 
 /** The general review reviews one paper at a time; there is no review-everything button. */
-export const REVIEW_EACH_LINE = "Each paper is reviewed on its own with the Review button.";
+export const REVIEW_EACH_LINE = "Each document is reviewed on its own with the Review button.";
 
 export const NOT_ADMIN_LANDING_MESSAGE =
   "Only an administrator can start a review. You can open any review listed below.";
@@ -303,7 +303,7 @@ export function WorkspaceLanding({
             <p className="font-semibold text-slateish-100">No documents from contractors yet</p>
             <p className="mt-2 max-w-2xl text-sm text-slateish-300">
               {mayStart
-                ? "Start one with the New review card above: drop a contractor's PDF or Word file there and the review starts by itself."
+                ? "Drop a contractor's PDF or Word file on the New review card above. The review starts by itself."
                 : "Nothing has been reviewed yet. Ask an administrator to start a review."}
             </p>
           </div>

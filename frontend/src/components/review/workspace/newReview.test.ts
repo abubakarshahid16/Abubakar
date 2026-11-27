@@ -253,7 +253,7 @@ describe("startNewReview", () => {
     const outcome = await startNewReview(file, () => {}, noWait);
     // The admin gate let the caller in, so it is never "only an administrator".
     expect(outcome).toEqual({ ok: false, message: MARK_UNREADABLE_MESSAGE });
-    expect(MARK_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(MARK_UNREADABLE_MESSAGE).toMatch(/could not be found, or you cannot open it/);
     expect(MARK_UNREADABLE_MESSAGE).not.toMatch(/administrator/);
     expect(calls).not.toContain("start");
   });
@@ -298,7 +298,7 @@ describe("startNewReview", () => {
     document.mockResolvedValue({ ok: false, disconnected: false, error: { code: "not_found", message: "That is not something the backend knows about." } });
     const outcome = await startNewReview(file, () => {}, noWait);
     expect(outcome).toEqual({ ok: false, message: UPLOADED_UNREADABLE_MESSAGE });
-    expect(UPLOADED_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(UPLOADED_UNREADABLE_MESSAGE).toMatch(/could not be found, or you cannot open it/);
     expect(calls).not.toContain("start");
   });
 });
@@ -326,7 +326,7 @@ describe("startRefusal (the words of a refused start, shown on the pre-start ste
 
   it("an administrator's 404 means the document could not be found or may not be read", async () => {
     expect(await startRefusal(refused("not_found", "not found"))).toEqual({ message: REVIEW_DOCUMENT_UNREADABLE_MESSAGE, runningRunId: null });
-    expect(REVIEW_DOCUMENT_UNREADABLE_MESSAGE).toMatch(/could not be found or you may not read it/);
+    expect(REVIEW_DOCUMENT_UNREADABLE_MESSAGE).toMatch(/could not be found, or you cannot open it/);
   });
 
   it("a 404 when who the reader is cannot be checked names both reasons", async () => {
