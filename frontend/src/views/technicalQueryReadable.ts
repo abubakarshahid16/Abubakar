@@ -17,7 +17,14 @@ export function splitMarks(marks: string[], revisionShownBySource: boolean): { m
   return { made, shown };
 }
 
-export type ReplyBlock = { kind: "para"; text: string } | { kind: "item"; n: number; title: string; body: string[] };
+export type ReplyBlock = { kind: "para"; text: string } | { kind: "bullet"; text: string } | { kind: "item"; n: number; title: string; body: string[] };
+
+/** A bullet line ("* text", "- text", "\u2022 text"), as older replies wrote them (Part 3 picture review); never "**bold**". */
+export const BULLET = /^[*\-\u2022]\s+(\S(?:.*\S)?)\s*$/;
+export function bulletText(line: string): string | null {
+  const m = BULLET.exec(line);
+  return m ? m[1] : null;
+}
 
 // "1. Title", "**2. Title**", "3) Title", "1. **Title**": a numbered request's answer starts
 const ITEM = /^(?:\*\*)?\s*(\d{1,2})[.)]\s+(.*\S)\s*$/;
@@ -36,6 +43,7 @@ export function replyBlocks(answer: string): ReplyBlock[] {
       // a line of the same paragraph, a paragraph before the last answer, or the first body under a heading-only answer ("**2. Title**",
       // no full stop): the answer's own. A one-sentence answer ("3. Not found.") keeps a later paragraph as the closing one.
       else if (last?.kind === "item" && (i > 0 || p <= lastItemParagraph || (last.body.length === 0 && !/[.?!]["')\]]?$/.test(plainTitle(last.title))))) last.body.push(line);
+      else if (bulletText(line) !== null) blocks.push({ kind: "bullet", text: bulletText(line)! });
       else blocks.push({ kind: "para", text: line });
     });
   });
@@ -44,7 +52,8 @@ export function replyBlocks(answer: string): ReplyBlock[] {
 
 /** Text with its "**bold**" marks as pieces; a stray "**" left over is dropped. */
 export function boldPieces(text: string): Array<{ text: string; bold: boolean }> {
-  return (text ?? "").split(/\*\*(.+?)\*\*/g).map((piece, i) => ({ text: i % 2 ? piece : piece.replace(/\*\*/g, ""), bold: i % 2 === 1 })).filter((p) => p.text);
+  // a stray single "*" (an older reply's emphasis) goes too; the words stay
+  return (text ?? "").split(/\*\*(.+?)\*\*/g).map((piece, i) => ({ text: piece.replace(/\*+/g, ""), bold: i % 2 === 1 })).filter((p) => p.text);
 }
 
 /** A title without its "**" marks. */
