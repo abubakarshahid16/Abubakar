@@ -943,6 +943,17 @@ describe("the general review opened is the one drawn (lead-4, 26 Nov 2026)", () 
 });
 
 describe("12 the general review's results page (order 14)", () => {
+  it("draws a general review's OWN 'How this review was made', never the earlier method's panels (the owner's order, 27 Nov 2026)", async () => {
+    api.general.mockResolvedValue(ok(general()));
+    // the workspace's old-method tab: the run record, Rules used and the behind-the-scenes panels ("Findings: 0", "not recorded")
+    mount({ howTab: <div data-testid="old-method-panels">Findings: 0 · Recommended code: not recorded</div> });
+    await screen.findByTestId("general-results");
+    fireEvent.click(screen.getByRole("tab", { name: "How this review was made" }));
+    expect(screen.getByTestId("general-counts")).toBeInTheDocument(); // its own facts: points, comments, how decided
+    expect(screen.queryByTestId("old-method-panels")).toBeNull();
+    expect(screen.queryByText(/Findings: 0|not recorded/)).toBeNull();
+  });
+
   it("counts the confirmations apart and shows them only in a closed part, not among the comments (18 Nov 2026)", async () => {
     const g = general();
     api.general.mockResolvedValue(ok({ ...g, counts: { ...g.counts, comments: 1, confirmations: 1 }, comments: [g.points[0]], confirmations: [g.points[2]] }));
