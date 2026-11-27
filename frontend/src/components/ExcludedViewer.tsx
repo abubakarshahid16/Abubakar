@@ -16,6 +16,10 @@ import { NEW_LOOK } from "../look";
 const PAGE_SIZE = 25;
 const nf = new Intl.NumberFormat("en-GB");
 
+/** The words for what was left out: a piece of text or a whole page (the stored names are not shown). */
+const SCOPE_WORDS: Record<string, string> = { chunk: "piece of text", page: "page" };
+const SCOPE_PLURAL: Record<string, string> = { chunk: "pieces of text", page: "pages" };
+
 const RULE_EXPLANATION: Record<string, string> = {
   content_quality_gate:
     "The text did not read like sentences or a table.",
@@ -130,7 +134,7 @@ export function ExcludedViewer({
                             small and last, because it is what you quote in a
                             bug report. */}
                         <span className="block text-xs text-slateish-200">
-                          {RULE_EXPLANATION[s.rule] ?? `Excluded ${s.scope}s.`}
+                          {RULE_EXPLANATION[s.rule] ?? `Left out: ${SCOPE_PLURAL[s.scope] ?? `${s.scope}s`}.`}
                         </span>
                         {(s.clause_heading_pages ?? 0) > 0 && (
                           <span className="mt-1 block text-xs font-medium text-danger-500">
@@ -141,13 +145,7 @@ export function ExcludedViewer({
                       </span>
                       <span className="ms-3 shrink-0 text-right">
                         <span className="block font-mono text-sm text-warn-500">
-                          {nf.format(s.count)} {s.scope}s
-                        </span>
-                        <span className="block text-xs text-slateish-400">
-                          {nf.format(s.characters_dropped)} chars
-                        </span>
-                        <span className="mt-0.5 block font-mono text-xs text-slateish-500">
-                          {s.rule}
+                          {nf.format(s.count)} {SCOPE_PLURAL[s.scope] ?? `${s.scope}s`}
                         </span>
                       </span>
                     </button>
@@ -157,7 +155,7 @@ export function ExcludedViewer({
             </ul>
             {activeRule && (
               <p className="mt-2 text-xs text-slateish-400">
-                Showing only <span className="font-mono">{activeRule}</span> on this page.{" "}
+                Showing only these on this page.{" "}
                 <button
                   type="button"
                   className="underline decoration-dotted"
@@ -217,21 +215,18 @@ export function ExcludedViewer({
                   )}
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded bg-warn-500/15 px-2 py-0.5 text-warn-500">
-                      {e.scope}
+                      {SCOPE_WORDS[e.scope] ?? e.scope}
                     </span>
-                    <span className="font-mono text-slateish-300">{e.rule}</span>
                     <span className="text-slateish-400">
                       {e.page_start === e.page_end
                         ? `page ${e.page_start}`
                         : `pages ${e.page_start}–${e.page_end}`}
                     </span>
-                    <span className="ms-auto text-slateish-400">
-                      {nf.format(e.text_length)} chars
-                    </span>
                   </div>
-                  {e.reason && (
-                    <p className="mt-1 font-mono text-xs text-warn-500">{e.reason}</p>
-                  )}
+                  <details className="mt-1 text-xs text-slateish-400">
+                    <summary className="cursor-pointer">Technical detail</summary>
+                    <p className="font-mono">{e.rule}{e.reason ? ` · ${e.reason}` : ""} · {nf.format(e.text_length)} characters</p>
+                  </details>
                   <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words rounded bg-ink-900 p-3 font-mono text-xs text-slateish-300">
 {e.text_sample}
                   </pre>

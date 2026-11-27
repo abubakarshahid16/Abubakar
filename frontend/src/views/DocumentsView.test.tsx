@@ -444,7 +444,7 @@ describe("B3 chunk inspector", () => {
     const dialog = await screen.findByRole("dialog");
 
     expect(within(dialog).getByText("1.1 The Pace of Change")).toBeInTheDocument();
-    expect(within(dialog).getByText(/297 tokens/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/tokens/)).toBeNull(); // a word count of the AI's, not a reader's (H, 27 Nov 2026)
     expect(within(dialog).getByText(/page 24/)).toBeInTheDocument();
     expect(within(dialog).getByText(/experimental cars drive themselves/)).toBeInTheDocument();
     expect(within(dialog).getByText(chunk.id)).toBeInTheDocument();
@@ -454,7 +454,7 @@ describe("B3 chunk inspector", () => {
       expect(within(dialog).getByText(/no_clause\(longest=1<6\)/)).toBeInTheDocument(),
     );
     expect(
-      within(dialog).getByText(/left blank rather than guessed/i),
+      within(dialog).getByText(/^not found$/i),
     ).toBeInTheDocument();
   });
 });
@@ -467,9 +467,11 @@ describe("B4 excluded viewer", () => {
     fireEvent.click(await screen.findByRole("button", { name: NEW_LOOK ? "Left out" : "Excluded" }));
     const dialog = await screen.findByRole("dialog");
 
-    expect(within(dialog).getAllByText("content_quality_gate").length).toBeGreaterThan(0);
-    expect(within(dialog).getByText("400 chunks")).toBeInTheDocument();
-    expect(within(dialog).getByText("page_classified_toc")).toBeInTheDocument();
+    // grouped by rule, each group led by its plain sentence; the rule's stored name is only in the folded technical detail
+    expect(within(dialog).getByText("The text did not read like sentences or a table.")).toBeInTheDocument();
+    expect(within(dialog).getByText("400 pieces of text")).toBeInTheDocument();
+    expect(within(dialog).getByText(/A contents page/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText(/content_quality_gate/).every((el) => el.closest("details"))).toBe(true);
     expect(within(dialog).getByText(/eabeb2terfcb/)).toBeInTheDocument();
   });
 
