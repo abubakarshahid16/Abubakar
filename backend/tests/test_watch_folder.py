@@ -14,6 +14,7 @@ both statements about behaviour rather than about timing.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -748,6 +749,42 @@ def test_a_missing_folder_reports_unreachable_with_a_reason(tmp_path, monkeypatc
     assert payload["reachable"] is False
     assert payload["last_error"], "unreachable with no reason explains nothing"
     assert "could not be read" in payload["last_error"]
+
+
+@pytest.mark.parametrize("configured", [f"D:/{SECRET}/watch-inbox", f"e:\\{SECRET}\\drop", f"\\\\fileserver-x\\{SECRET}"])
+def test_a_folder_set_for_a_windows_drive_says_so_and_what_fixes_it(configured, monkeypatch):
+    """Owner item 1b (27 Nov 2026): a Windows drive folder carried over to a Mac can never appear, so "not there now, waiting"
+    would wait for ever. The reason names the cause and the fix, and still never the path."""
+    if os.name == "nt":
+        pytest.skip("a Windows drive is a real folder on Windows")
+    monkeypatch.setattr(settings, "watch_folder", configured)
+    watcher_mod.scan_once()
+
+    payload = _client().get("/api/watch/status").json()
+    assert payload["reachable"] is False
+    assert payload["last_error"] == f"{watcher_mod.FOLDER_UNREADABLE}: {watcher_mod.FOREIGN_DRIVE}"
+    assert SECRET not in payload["last_error"]
+    assert "Windows drive" in payload["last_error"] and "this computer" in payload["last_error"]
+
+
+def test_a_missing_folder_on_this_kind_of_computer_keeps_the_waiting_reason(tmp_path, monkeypatch):
+    """An unmounted share on this machine may come back: that reason is not the Windows-drive one, and has no path."""
+    monkeypatch.setattr(settings, "watch_folder", str(tmp_path / SECRET))
+    watcher_mod.scan_once()
+    error = watcher_mod.last_error()
+    assert error == f"{watcher_mod.FOLDER_UNREADABLE}: {watcher_mod.NOT_THERE}"
+    assert SECRET not in error and "Windows" not in error
+
+
+@pytest.mark.parametrize(("value", "foreign"), [
+    ("D:/x", True), ("c:\\x", True), ("\\\\host\\share", True),
+    ("/Users/x/watch", False), ("watch-inbox", False), ("D:", False), ("D:x", False), ("", False),
+])
+def test_which_settings_count_as_a_windows_drive(value, foreign, monkeypatch):
+    monkeypatch.setattr(watcher_mod.os, "name", "posix")
+    assert watcher_mod.set_for_windows_drive(value) is foreign
+    monkeypatch.setattr(watcher_mod.os, "name", "nt")
+    assert watcher_mod.set_for_windows_drive(value) is False
 
 
 def test_reachability_recovers_when_the_share_comes_back(tmp_path, monkeypatch):
