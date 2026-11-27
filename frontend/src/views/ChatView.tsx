@@ -780,7 +780,10 @@ export function ChatView({
 
 
   return (
-    <div className="flex h-[calc(100vh-9rem)] min-h-0 flex-col gap-4 lg:h-[calc(100vh-3rem)] lg:flex-row">
+    // An empty Chat grows with its starters (at least the window's height): with a FIXED height they spilled out of this box on a
+    // short window, the page grew past the app's frame, and the menu, which only sticks inside that frame, slid up and left a strip
+    // under it (H's gate, 27 Nov 2026). A conversation keeps the fixed height: its thread scrolls inside it.
+    <div className={`flex flex-col gap-4 lg:flex-row ${empty ? "min-h-[calc(100vh-9rem)] lg:min-h-[calc(100vh-3rem)]" : "h-[calc(100vh-9rem)] min-h-0 lg:h-[calc(100vh-3rem)]"}`}>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!empty && (
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-700 pb-3">

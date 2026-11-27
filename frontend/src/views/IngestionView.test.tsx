@@ -197,9 +197,11 @@ describe("ingestion navigation", () => {
     await openIngestion();
     // "Ingestion" is both the nav item and the page heading, so scope to the
     // heading rather than asserting the word appears once.
-    expect(
-      await screen.findByRole("heading", { level: 1, name: "Ingestion" }),
-    ).toBeInTheDocument();
+    // The page draws its title once while its figures load and again, in a new place in the tree, once they arrive: the same words
+    // in the same spot for a reader, but a new element. Wait for the title, then look it up afresh rather than holding the first one
+    // (the first can be replaced in between: 27 Nov 2026, seen once Ingestion began loading when opened).
+    await screen.findByRole("heading", { level: 1, name: "Ingestion" });
+    expect(screen.getByRole("heading", { level: 1, name: "Ingestion" })).toBeInTheDocument();
     expect(screen.queryByText(/placeholder/i)).toBeNull();
     expect(screen.queryByText(/not built yet/i)).toBeNull();
   });

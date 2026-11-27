@@ -155,7 +155,8 @@ export function DashboardView({
       {/* THE SHARED KIT'S HEADER under the new look (owner, 27 Nov 2026 03:30/03:34): the one title size, and "Updated N min ago" in small
           grey words instead of a mono "refreshed ... GMT+3 · every 60s" line */}
       {NEW_LOOK ? <>
-        <PageHeader title="Dashboard" lead="Every value is measured. Anything unmeasured says so rather than showing a zero." />
+        {/* the first line a manager reads, in his words (lead 4's 07:48 audit); what each figure counts is in the fold under the tiles */}
+        <PageHeader title="Dashboard" lead="What is waiting for you, what is late and what is done." />
         <Small>{fetchedAt ? `Updated ${agoWords(new Date(fetchedAt).toISOString()) ?? "just now"}` : "Not updated yet"}</Small>
       </> : (
       <div className="flex flex-wrap items-baseline justify-between gap-2">

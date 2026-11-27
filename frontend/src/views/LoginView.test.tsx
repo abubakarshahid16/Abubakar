@@ -7,7 +7,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { LoginView, RoleBadge, type LoginOutcome } from "./LoginView";
+import { LoginView, RoleBadge, roleWords, type LoginOutcome } from "./LoginView";
 import type { Me } from "../types/api";
 
 async function attempt(outcome: LoginOutcome, connected = true) {
@@ -134,7 +134,18 @@ describe("RoleBadge", () => {
     const me: Me = { id: "u1", email: "ali@example.com", display_name: "Ali Z", roles: ["engineer"] };
     render(<RoleBadge me={me} onLogout={vi.fn()} />);
     expect(screen.getByText("Ali Z")).toBeInTheDocument();
-    expect(screen.getByText("engineer")).toBeInTheDocument();
+    expect(screen.getByText("Engineer")).toBeInTheDocument(); // a role in everyday words (owner's 03:30 list, H), not the raw code
     expect(screen.queryByText(/Sign-in is off on this computer/)).toBeNull();
+  });
+
+  it("says each role in everyday words: no underscores, no capitals, the known ones by name", () => {
+    expect(roleWords("technical_query_reviewer")).toBe("Query reviewer");
+    expect(roleWords("admin")).toBe("Administrator");
+    expect(roleWords("IT")).toBe("IT");
+    expect(roleWords("document_controller")).toBe("Document controller");
+    const me: Me = { id: "u2", email: "b@example.test", display_name: "Invented Person", roles: ["IT", "admin", "technical_query_reviewer"] };
+    const { container } = render(<RoleBadge me={me} onLogout={vi.fn()} />);
+    expect([...container.querySelectorAll(".kit-tag")].map((t) => t.textContent)).toEqual(["IT", "Administrator", "Query reviewer"]);
+    expect(container.textContent).not.toMatch(/_|TECHNICAL|ADMIN/);
   });
 });

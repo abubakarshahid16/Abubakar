@@ -379,7 +379,9 @@ export function Shell({
       <nav
         id="sidebar-nav"
         aria-label="Main"
-        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex ${NEW_LOOK ? "md:w-72" : "md:w-64"} md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
+        // THE MENU FILLS THE WINDOW'S HEIGHT (owner's 03:30 list, G: it stopped part way down and left a light strip under it); a long
+        // menu (Chat's saved chats) scrolls inside it. The new look only; the classic look keeps its own.
+        className={`${menuOpen ? "flex" : "hidden"} w-full shrink-0 flex-col border-b border-ink-700 bg-ink-850 shadow-[var(--shadow-raised)] md:flex ${NEW_LOOK ? "md:w-72 md:h-screen md:overflow-y-auto" : "md:w-64"} md:shrink-0 md:self-start md:border-b-0 md:border-r md:sticky md:top-0`}
       >
         {/* THE HEADER PAYS FOR ITSELF IN NAV SPACE. At text-lg the product name
             wrapped to two lines in a 256px rail, and with the tagline and a
@@ -485,9 +487,11 @@ export function Shell({
               caller saw the whole corpus. Scoped as of the commit that
               corrected this comment. */}
           {connection.state === "online" && (
-            <p className="mt-1.5 text-xs text-slateish-500">
+            <p className="mt-1.5 text-xs text-slateish-500" title={answerModel || undefined}>
               {connection.health.answer_model_configured
-                ? (answerModel ? `The AI that answers is ready: ${answerModel}, on this computer` : "The AI that answers is ready")
+                // plain words in the menu (owner's 03:30 list, H: the model's file name is a system word); its exact name is on the
+                // Dashboard, where the owner asked for it by name, and here on hover
+                ? "The AI that answers is ready, on this computer"
                 : "The AI that answers is not set up"}
             </p>
           )}
