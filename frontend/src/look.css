@@ -151,7 +151,9 @@
 /* Controls: 44-48px tall, 12px radius (buttons and inputs of every page; chips keep their own small size). */
 :root[data-look="new"] main button:not([role="tab"]):not([aria-label="Close"]):not(.kit-btn):not(.kit-tile):not(.kit-link):not(.kit-row-btn):not(.kit-chip-btn),
 :root[data-look="new"] main select:not(.kit-select),
-:root[data-look="new"] main input:not([type="checkbox"]):not([type="radio"]):not(.kit-input) {
+:root[data-look="new"] main input:not([type="checkbox"]):not([type="radio"]):not(.kit-input),
+:root[data-look="new"] main textarea {
+  /* textareas too (H's audit #29, 27 Nov 2026: the new look's --radius-xs is 999px, so a question box drawn with it was a pill) */
   /* the shared kit's button shape for every control not yet drawn by the kit (F's gate, 27 Nov 2026: 12px / 44px beside 8px / 40px) */
   min-height: 40px;
   border-radius: 8px;
