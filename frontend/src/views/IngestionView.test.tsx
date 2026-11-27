@@ -225,6 +225,17 @@ describe("what the reader needs while waiting", () => {
     ).toBeInTheDocument();
   });
 
+  it("says the reader and the wait in words: no dash, no 'idle', no 'every 60s' (H's audit 47-48)", async () => {
+    mockApi();
+    await openIngestion();
+    expect(await screen.findByText("Document reader")).toBeInTheDocument();
+    const tile = (label: string) => screen.getByText(label).parentElement as HTMLElement;
+    expect(tile("Document reader").textContent).not.toMatch(/\bidle\b/);
+    expect(tile("Oldest wait").textContent).toMatch(/nothing waiting/); // nothing pending: said in words
+    expect(screen.queryByText("—")).toBeNull();
+    expect(screen.queryByText(/^every \d+s$/)).toBeNull();
+  });
+
   it("names the file being worked on, never the document id", async () => {
     // The worker panel used to print doc_b4f589095afe at the reader.
     mockApi();

@@ -127,7 +127,7 @@ describe("the watched folder when it is off", () => {
 
     const section = await panel();
     expect(
-      within(section).getByText("The watched folder is not configured."),
+      within(section).getByText("No folder is set up to be watched for new files."),
     ).toBeInTheDocument();
 
     // Off is not a fault: no error role anywhere on the screen.
@@ -355,7 +355,7 @@ describe("the watched folder when it cannot be read", () => {
     expect(within(section).queryByText(FOLDER_NAME)).toBeNull();
     expect(within(section).queryByText(/checks every/i)).toBeNull();
     expect(within(section).queryByText(/last checked/i)).toBeNull();
-    expect(within(section).queryByText(/not configured/i)).toBeNull();
+    expect(within(section).queryByText(/No folder is set up/i)).toBeNull();
     expect(within(section).queryByText(/Nothing has arrived/i)).toBeNull();
     expect(within(section).queryAllByRole("listitem")).toHaveLength(0);
   });
@@ -514,7 +514,7 @@ describe("the scan summary line", () => {
 
     const section = await panel();
     expect(
-      within(section).getByText("The watched folder is not configured."),
+      within(section).getByText("No folder is set up to be watched for new files."),
     ).toBeInTheDocument();
     expect(within(section).queryByText(/last check/i)).toBeNull();
     expect(within(section).queryByText(/at least/)).toBeNull();
